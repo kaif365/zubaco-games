@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Level ────────────────────────────────────────────────────────────────────
+
+model Level {
+  id        String    @id @default(uuid())
+
+  name      String
+  difficulty String    @default("easy")
+
+  difficultyConfig  MazeDifficultyConfig?
+  mazeTemplates     MazeTemplate[]
+  stageLevelConfigs StageLevelConfig[]
+  stageDemoLevelConfigs StageDemoLevelConfig[]
+
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("levels")
+  @@index([deletedAt])
+}
+
+// ─── MazeDifficultyConfig ─────────────────────────────────────────────────────
+
+model MazeDifficultyConfig {
+  id        String  @id @default(uuid())
+
+  levelId   String  @unique @map("level_id")
+  level     Level   @relation(fields: [levelId], references: [id])
+
+  rows      Int     // maze grid rows (should be odd, e.g. 21, 31, 41)
+  cols      Int     // maze grid cols (should be odd)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("maze_difficulty_configs")
+}
+
+// ─── MazeTemplate ─────────────────────────────────────────────────────────────
+// Pre-defined mazes added by admin.
+
+model MazeTemplate {
+  id        String  @id @default(uuid())
+
+  levelId   String  @map("level_id")
+  level     Level   @relation(fields: [levelId], references: [id])
+
+  grid      Json    // 2D array: 0=path, 1=wall
+  rows      Int
+  cols      Int
+
+  startRow  Int     @map("start_row")
+  startCol  Int     @map("start_col")
+  endRow    Int     @map("end_row")
+  endCol    Int     @map("end_col")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("maze_templates")
+  @@index([levelId])
+  @@index([deletedAt])
+}
+
+// ─── GameSession ──────────────────────────────────────────────────────────────
+
+model GameSession {
+  id        String    @id @default(uuid())
+
+  userId    String    @map("user_id")
+  stageId   String    @map("stage_id")    // from admin microservice
+  expiryAt  DateTime  @map("expiry_at")   // absolute expiry timestamp
+
+  clientSeed String   @default("") @map("client_seed") // provided by client at game-start
+
+  status    Int       @default(1) @map("status")  // 1=STARTED 2=ENDED 3=EXPIRED 4=RESULT_PROCESSING 5=MANUALLY_ENDED
+  score     Int?
+  timeBonus Int?      @map("time_bonus")
+
+  lastMoveAt DateTime? @map("last_move_at")
+  lastMoveId String?   @map("last_move_id")
+
+  startedAt DateTime  @default(now()) @map("started_at")
+  endedAt   DateTime?                 @map("ended_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  stageConfigSnapshot GameSessionStageConfig?
+  sessionMazes        GameSessionMaze[]
+  moves               GameMove[]
+  cheatFlags          CheatFlag[]
+
+  @@map("game_sessions")
+  @@index([userId])
+  @@index([status])
+  @@unique([userId, stageId])
+}
+
+// ─── GameSessionStageConfig ───────────────────────────────────────────────────
+// Snapshot of the stage config at game start.
+
+model GameSessionStageConfig {
+  id          String      @id @default(uuid())
+
+  sessionId   String      @unique @map("session_id")
+  session     GameSession @relation(fields: [sessionId], references: [id])
+
+  stageId     String      @map("stage_id")
+  timeLimit   Int         @map("time_limit")
+
+  levelConfigs GameSessionStageLevelConfig[]
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("game_session_stage_configs")
+}
+
+// ─── GameSessionStageLevelConfig ──────────────────────────────────────────────
+
+model GameSessionStageLevelConfig {
+  id                    String                  @id @default(uuid())
+
+  sessionStageConfigId  String                  @map("session_stage_config_id")
+  sessionStageConfig    GameSessionStageConfig  @relation(fields: [sessionStageConfigId], references: [id])
+
+  levelId     String  @map("level_id")
+  levelName   String  @map("level_name")   // snapshot — stable if level renamed later
+  mazeCount   Int     @map("maze_count")   // number of mazes for this level
+  order       Int     @map("order")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("game_session_stage_level_configs")
+  @@index([sessionStageConfigId])
+}
+
+// ─── GameSessionMaze ─────────────────────────────────────────────────────────
+// One row per round. Stores the maze configuration and outcome.
+
+model GameSessionMaze {
+  id             String      @id @default(uuid())
+
+  sessionId      String      @map("session_id")
+  session        GameSession @relation(fields: [sessionId], references: [id])
+
+  roundNumber    Int         @map("round_number")
+  levelId        String      @map("level_id")
+
+  rows           Int
+  cols           Int
+
+  serverSeed     String      @map("server_seed")
+  serverSeedHash String      @map("server_seed_hash")
+  clientSeed     String      @map("client_seed")
+  nonce          Int
+  finalSeed      String      @map("final_seed")
+
+  mazeGrid       Json        @map("maze_grid")    // 2D array: 0=path, 1=wall
+
+  startRow       Int         @map("start_row")
+  startCol       Int         @map("start_col")
+  endRow         Int         @map("end_row")
+  endCol         Int         @map("end_col")
+  shortestPathLength Int     @map("shortest_path_length")
+
+  reachedEnd     Boolean     @default(false) @map("reached_end")
+  isActive       Boolean     @default(false) @map("is_active")
+  score          Int?
+
+  startedAt      DateTime    @default(now()) @map("started_at")
+  endedAt        DateTime?                   @map("ended_at")
+
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt      @map("updated_at")
+  deletedAt      DateTime?                   @map("deleted_at")
+
+  moves      GameMove[]
+  cheatFlags CheatFlag[]
+
+  @@unique([sessionId, roundNumber])
+  @@index([sessionId])
+  @@map("game_session_mazes")
+}
+
+// ─── GameMove ─────────────────────────────────────────────────────────────────
+
+model GameMove {
+  id              String          @id @default(uuid())
+
+  sessionId       String          @map("session_id")
+  session         GameSession     @relation(fields: [sessionId], references: [id])
+
+  sessionMazeId   String          @map("session_maze_id")
+  sessionMaze     GameSessionMaze @relation(fields: [sessionMazeId], references: [id])
+
+  clientMoveId    String          @map("client_move_id")
+
+  direction       String          // 'up'|'down'|'left'|'right'
+
+  fromRow         Int             @map("from_row")
+  fromCol         Int             @map("from_col")
+  toRow           Int             @map("to_row")
+  toCol           Int             @map("to_col")
+
+  success         Boolean
+
+  movedAt         DateTime        @map("moved_at")
+
+  @@unique([sessionId, clientMoveId])
+  @@map("game_moves")
+  @@index([sessionId, movedAt])
+}
+
+// ─── StageConfig ──────────────────────────────────────────────────────────────
+
+model StageConfig {
+  id        String    @id @default(uuid())
+
+  stageId     String    @map("stage_id")
+  timeLimit   Int       @map("time_limit")
+  enableDemo  Boolean   @default(true) @map("enable_demo")
+
+  levels      StageLevelConfig[]
+  demoLevels  StageDemoLevelConfig[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("stage_configs")
+  @@index([deletedAt])
+  @@unique([stageId])
+}
+
+// ─── StageLevelConfig ─────────────────────────────────────────────────────────
+
+model StageLevelConfig {
+  id            String      @id @default(uuid())
+
+  stageConfigId String      @map("stage_config_id")
+  stageConfig   StageConfig @relation(fields: [stageConfigId], references: [id])
+
+  levelId       String      @map("level_id")
+  level         Level       @relation(fields: [levelId], references: [id])
+
+  boardCount    Int         @map("board_count") // number of mazes per level (reusing field name)
+  order         Int         @map("order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("stage_level_configs")
+  @@index([levelId])
+}
+
+// ─── StageDemoLevelConfig ─────────────────────────────────────────────────────
+
+model StageDemoLevelConfig {
+  id            String      @id @default(uuid())
+
+  stageConfigId String      @map("stage_config_id")
+  stageConfig   StageConfig @relation(fields: [stageConfigId], references: [id])
+
+  levelId       String      @map("level_id")
+  level         Level       @relation(fields: [levelId], references: [id])
+
+  boardCount    Int         @map("board_count")
+  order         Int         @map("order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("stage_demo_level_configs")
+  @@index([levelId])
+}
+
+
+// ─── CheatFlag ────────────────────────────────────────────────────────────────
+
+model CheatFlag {
+  id             String    @id @default(uuid())
+
+  userId         String    @map("user_id")
+  sessionId      String    @map("session_id")
+  session        GameSession     @relation(fields: [sessionId], references: [id])
+  sessionMazeId  String    @map("session_maze_id")
+  sessionMaze    GameSessionMaze @relation(fields: [sessionMazeId], references: [id])
+
+  flagType       Int   @map("flag_type")  // see CHEAT_FLAG_TYPE in constants.ts
+  evidence       Json
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt      @map("updated_at")
+  deletedAt      DateTime?                 @map("deleted_at")
+
+  @@map("cheat_flags")
+  @@index([userId])
+  @@index([sessionId])
+  @@index([sessionMazeId])
+}

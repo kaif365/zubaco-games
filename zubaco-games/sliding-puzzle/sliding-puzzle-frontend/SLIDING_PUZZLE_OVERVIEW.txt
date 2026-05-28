@@ -1,0 +1,71 @@
+========================================================
+              SLIDING PUZZLE - GAME OVERVIEW
+========================================================
+
+Welcome to the Sliding Puzzle! This classic logic game has been 
+reimagined with a modern technical foundation, offering a smooth 
+and engaging experience across various difficulty levels.
+
+--------------------------------------------------------
+1. THE OBJECTIVE
+--------------------------------------------------------
+The goal is to rearrange scrambled tiles on a grid to restore 
+a complete image or a numbered sequence. You do this by 
+sliding tiles into the single empty space on the board.
+
+--------------------------------------------------------
+2. HOW TO PLAY
+--------------------------------------------------------
+* Click or tap any tile adjacent to the empty slot to move 
+  it into that space.
+* Use the "Preview" feature at any time to see the target 
+  image you are trying to build.
+* Complete the puzzle in the fewest moves and fastest time 
+  possible to maximize your score!
+
+--------------------------------------------------------
+3. FEATURES & CATEGORIES
+--------------------------------------------------------
+The game features multiple categories with progressive 
+difficulty:
+
+* Paintings: Classic art-inspired boards with calm 
+  compositions.
+* Nature Pictures: Beautiful landscape photography.
+* Places: Famous landmarks and travel-themed scenes.
+
+Difficulty ranges from beginner-friendly 3x3 grids to 
+more challenging larger layouts (e.g., 3x4).
+
+--------------------------------------------------------
+4. ADVANCED TRACKING
+--------------------------------------------------------
+The game automatically tracks your performance:
+* Move Count: Total successful slides.
+* Accuracy: Efficiency of your moves.
+* Time Elapsed: Total time spent on the current level.
+* Points: Awarded based on speed, accuracy, and difficulty.
+
+Your progress is saved locally, so you can exit a level 
+and resume exactly where you left off.
+
+--------------------------------------------------------
+5. TECHNICAL STACK
+--------------------------------------------------------
+For those interested in the tech behind the scenes:
+* UI: React 19 & Tailwind CSS
+* Real-time: Socket.io for live synchronization
+* Logic: Pure TypeScript with CSPRNG shuffling
+* Reliability: Jest & RTL test suite (>80% coverage)
+
+--------------------------------------------------------
+6. HOW TO RUN (DEVELOPMENT)
+--------------------------------------------------------
+1. Install dependencies: npm install
+2. Start Dev Server:    npm run dev
+3. Run Tests:           npm run test:coverage
+4. Quality Audit:       npm run sonar
+
+--------------------------------------------------------
+Enjoy the challenge and master the art of the slide!
+========================================================

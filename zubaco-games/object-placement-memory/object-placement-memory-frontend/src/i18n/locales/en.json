@@ -1,0 +1,33 @@
+{
+  "game": {
+    "title": "Object Placement Memory",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "memorize": "Memorize object positions!",
+    "place": "Place objects in correct positions",
+    "correct": "Correct!",
+    "incorrect": "Incorrect!",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Remember where each object is placed, then drag them to the correct positions.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}",
+    "objectsPlaced": "Objects Placed: {{count}}/{{total}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

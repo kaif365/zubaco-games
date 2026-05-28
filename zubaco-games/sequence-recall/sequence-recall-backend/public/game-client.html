@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Sequence Recall — API Test Client</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: monospace; background: #0f1117; color: #e2e8f0; display: flex; height: 100vh; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  #sidebar { width: 320px; min-width: 320px; background: #1a1d2e; border-right: 1px solid #2d3148; display: flex; flex-direction: column; overflow: hidden; }
+  #sidebar h2 { padding: 16px; font-size: 13px; color: #7c85c8; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #2d3148; }
+  #state-panel { padding: 12px; flex: 1; overflow-y: auto; font-size: 12px; line-height: 1.7; }
+  #state-panel .label { color: #7c85c8; }
+  #state-panel .value { color: #a5f3a5; }
+  #state-panel .value.demo { color: #fcd34d; }
+  #log { border-top: 1px solid #2d3148; height: 220px; overflow-y: auto; padding: 10px; font-size: 11px; }
+  #log .entry { padding: 2px 0; border-bottom: 1px solid #1e2133; }
+  #log .entry.req { color: #60a5fa; }
+  #log .entry.res { color: #86efac; }
+  #log .entry.err { color: #f87171; }
+  #log .entry.info { color: #94a3b8; }
+
+  /* ── Main ── */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #setup { padding: 12px 16px; background: #1a1d2e; border-bottom: 1px solid #2d3148; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #setup label { font-size: 12px; color: #7c85c8; }
+  #setup input { background: #0f1117; border: 1px solid #2d3148; color: #e2e8f0; padding: 5px 8px; border-radius: 4px; font-family: monospace; font-size: 12px; width: 260px; }
+  #setup input:focus { outline: none; border-color: #5865f2; }
+  #actions { padding: 12px 16px; background: #13162a; border-bottom: 1px solid #2d3148; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button { padding: 7px 14px; border: none; border-radius: 5px; font-family: monospace; font-size: 12px; cursor: pointer; transition: opacity .15s; }
+  button:hover { opacity: .85; }
+  button:disabled { opacity: .35; cursor: default; }
+  .btn-blue   { background: #3b82f6; color: #fff; }
+  .btn-green  { background: #22c55e; color: #fff; }
+  .btn-yellow { background: #eab308; color: #000; }
+  .btn-orange { background: #f97316; color: #fff; }
+  .btn-red    { background: #ef4444; color: #fff; }
+  .btn-purple { background: #a855f7; color: #fff; }
+  .btn-gray   { background: #475569; color: #fff; }
+  #board-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; overflow: auto; padding: 24px; }
+  #round-info { font-size: 13px; color: #94a3b8; text-align: center; line-height: 1.8; }
+  #round-info .big { font-size: 20px; color: #e2e8f0; font-weight: bold; }
+  #grid { display: grid; gap: 10px; }
+  .tile { width: 80px; height: 80px; border-radius: 10px; background: #1e2133; border: 2px solid #2d3148; font-size: 18px; font-weight: bold; color: #4a5280; cursor: pointer; transition: background .1s, border-color .1s, color .1s; display: flex; align-items: center; justify-content: center; user-select: none; }
+  .tile:hover:not(.locked) { border-color: #5865f2; color: #a5b4fc; }
+  .tile.flash    { background: #5865f2; border-color: #818cf8; color: #fff; }
+  .tile.selected { background: #22c55e; border-color: #4ade80; color: #fff; }
+  .tile.wrong    { background: #ef4444; border-color: #f87171; color: #fff; }
+  .tile.locked   { cursor: default; }
+  #sequence-display { font-size: 14px; color: #94a3b8; text-align: center; min-height: 24px; }
+  #player-input     { font-size: 14px; color: #a5f3a5; text-align: center; min-height: 24px; }
+  #timer { font-size: 28px; font-weight: bold; color: #e2e8f0; }
+  #timer.warning  { color: #f97316; }
+  #timer.critical { color: #ef4444; }
+  #wmh-badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; background: #2d3148; color: #94a3b8; margin-left: auto; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>Session State</h2>
+  <div id="state-panel">
+    <div><span class="label">stageId: </span><span class="value" id="s-stage">—</span></div>
+    <div><span class="label">gameSessionId: </span><span class="value" id="s-gsid">—</span></div>
+    <div><span class="label">isDemo: </span><span class="value" id="s-demo">—</span></div>
+    <div><span class="label">currentRound: </span><span class="value" id="s-round">—</span></div>
+    <div><span class="label">demo round: </span><span class="value" id="s-dround">—</span></div>
+    <div><span class="label">actual round: </span><span class="value" id="s-around">—</span></div>
+    <div><span class="label">score: </span><span class="value" id="s-score">—</span></div>
+    <div><span class="label">wrongMoveHandling: </span><span class="value" id="s-wmh">—</span></div>
+    <div><span class="label">endTime: </span><span class="value" id="s-end">—</span></div>
+    <div><span class="label">serverTime: </span><span class="value" id="s-srv">—</span></div>
+    <div><span class="label">sequence: </span><span class="value" id="s-seq">—</span></div>
+    <div><span class="label">player input: </span><span class="value" id="s-inp">—</span></div>
+  </div>
+  <div id="log"></div>
+</div>
+
+<div id="main">
+  <div id="setup">
+    <label>Base URL</label>
+    <input id="base-url" value="http://localhost:3005" />
+    <label>Stage ID</label>
+    <input id="stage-id" value="" placeholder="uuid" style="width:200px" />
+    <label>Bearer Token</label>
+    <input id="auth-token" value="" placeholder="required for guarded /v1/game routes" style="width:320px" />
+  </div>
+  <div id="actions">
+    <button class="btn-blue"   onclick="getConfig()">Get Config</button>
+    <button class="btn-green"  onclick="startGame()">Start Game</button>
+    <button class="btn-gray"   onclick="resumeSession()">Resume Session</button>
+    <button class="btn-yellow" onclick="showSequence()" id="btn-show" disabled>Show Sequence</button>
+    <button class="btn-purple" onclick="validateRound()" id="btn-validate" disabled>Validate</button>
+    <button class="btn-green"  onclick="nextSeq()" id="btn-next" disabled>Next Sequence</button>
+    <button class="btn-orange" onclick="prevSeq()" id="btn-prev" disabled>Prev Sequence</button>
+    <button class="btn-red"    onclick="gameOver('COMPLETED')" id="btn-over" disabled>Game Over</button>
+    <button class="btn-red"    onclick="gameOver('WRONG_MOVE')" id="btn-over-wm" disabled>Game Over (Wrong)</button>
+    <button class="btn-gray"   onclick="timeSync()" id="btn-sync" disabled>Time Sync</button>
+    <span id="wmh-badge">wrongMoveHandling: —</span>
+  </div>
+  <div id="board-wrap">
+    <div id="timer">—</div>
+    <div id="round-info">Start a game to begin</div>
+    <div id="grid"></div>
+    <div id="sequence-display"></div>
+    <div id="player-input"></div>
+  </div>
+</div>
+
+<script>
+const WMH = { GAME_END: 1, PLAY_AGAIN: 2, PREV_SEQUENCE: 3, NEXT_SEQUENCE: 4 };
+const WMH_LABEL = { 1: '1-GameEnd', 2: '2-PlayAgain', 3: '3-PrevSeq', 4: '4-NextSeq' };
+
+const S = {
+  gameSessionId: null, stageId: null,
+  sequence: [], prevSequence: [], playerInput: [],
+  isDemo: false, currentRound: 0, current_demo_round: 0, current_actual_round: 0,
+  score: 0, wrongMoveHandling: WMH.NEXT_SEQUENCE,
+  endTime: null, cellCount: 4, flashDelay: 500,
+  timerInterval: null, sequenceShown: false, inputLocked: false,
+};
+
+function baseUrl() { return document.getElementById('base-url').value.replace(/\/$/, ''); }
+function stageId()  { return document.getElementById('stage-id').value.trim(); }
+function authToken() { return document.getElementById('auth-token').value.trim(); }
+
+async function api(method, path, body) {
+  logEntry('req', `${method} ${path}` + (body ? ' ' + JSON.stringify(body) : ''));
+  try {
+    const res = await fetch(`${baseUrl()}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const raw = await res.text();
+    const parsed = raw ? JSON.parse(raw) : null;
+    const data = parsed?.data ?? parsed;
+    const success = typeof parsed?.success === 'boolean' ? parsed.success : res.ok;
+    const message = typeof parsed?.message === 'string' ? parsed.message : null;
+    if (!res.ok || success === false) {
+      logEntry('err', `${res.status} ${message ?? JSON.stringify(parsed)}`);
+      return null;
+    }
+    logEntry('res', JSON.stringify(data));
+    return data;
+  } catch (e) { logEntry('err', e.message); return null; }
+}
+
+function logEntry(type, msg) {
+  const el = document.createElement('div');
+  el.className = `entry ${type}`;
+  el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  document.getElementById('log').prepend(el);
+}
+
+function updateSidebar() {
+  document.getElementById('s-stage').textContent  = S.stageId ?? '—';
+  document.getElementById('s-gsid').textContent   = S.gameSessionId ?? '—';
+  const demoEl = document.getElementById('s-demo');
+  demoEl.textContent = S.isDemo ? 'true (DEMO)' : 'false';
+  demoEl.className = 'value' + (S.isDemo ? ' demo' : '');
+  document.getElementById('s-round').textContent  = S.currentRound;
+  document.getElementById('s-dround').textContent = S.current_demo_round;
+  document.getElementById('s-around').textContent = S.current_actual_round;
+  document.getElementById('s-score').textContent  = S.score;
+  document.getElementById('s-wmh').textContent    = WMH_LABEL[S.wrongMoveHandling] ?? S.wrongMoveHandling;
+  document.getElementById('s-end').textContent    = S.endTime ?? '—';
+  document.getElementById('s-seq').textContent    = S.sequence.join(', ') || '—';
+  document.getElementById('s-inp').textContent    = S.playerInput.join(', ') || '—';
+  document.getElementById('wmh-badge').textContent = 'wrongMoveHandling: ' + (WMH_LABEL[S.wrongMoveHandling] ?? '—');
+}
+
+function startTimer() {
+  clearInterval(S.timerInterval);
+  if (!S.endTime) return;
+  S.timerInterval = setInterval(() => {
+    const left = Math.max(0, Math.floor((new Date(S.endTime) - Date.now()) / 1000));
+    const el = document.getElementById('timer');
+    el.textContent = `${String(Math.floor(left/60)).padStart(2,'0')}:${String(left%60).padStart(2,'0')}`;
+    el.className = left <= 10 ? 'critical' : left <= 30 ? 'warning' : '';
+    if (left === 0) clearInterval(S.timerInterval);
+  }, 500);
+}
+
+function buildGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  const cols = Math.ceil(Math.sqrt(S.cellCount));
+  grid.style.gridTemplateColumns = `repeat(${cols}, 80px)`;
+  for (let i = 1; i <= S.cellCount; i++) {
+    const t = document.createElement('div');
+    t.className = 'tile'; t.id = `tile-${i}`; t.textContent = i;
+    t.onclick = () => tileClick(i);
+    grid.appendChild(t);
+  }
+}
+
+function flashTile(id, ms) {
+  const t = document.getElementById(`tile-${id}`);
+  if (!t) return;
+  t.classList.add('flash');
+  setTimeout(() => t.classList.remove('flash'), ms * 0.7);
+}
+
+async function animateSequence(seq, delayMs) {
+  S.inputLocked = true;
+  document.querySelectorAll('.tile').forEach(t => t.classList.add('locked'));
+  for (let i = 0; i < seq.length; i++) {
+    await sleep(i === 0 ? 400 : delayMs + 200);
+    flashTile(seq[i], delayMs);
+  }
+  await sleep(delayMs + 300);
+  S.inputLocked = false;
+  document.querySelectorAll('.tile').forEach(t => t.classList.remove('locked'));
+  S.sequenceShown = true;
+  setBtn('btn-validate', true);
+  document.getElementById('sequence-display').textContent = '';
+}
+
+function tileClick(id) {
+  if (S.inputLocked || !S.sequenceShown || !S.gameSessionId) return;
+  S.playerInput.push(id);
+  const t = document.getElementById(`tile-${id}`);
+  t.classList.add('selected');
+  setTimeout(() => t.classList.remove('selected'), 300);
+  document.getElementById('s-inp').textContent = S.playerInput.join(', ');
+  document.getElementById('player-input').textContent = 'Input: ' + S.playerInput.join(' → ');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function updateRoundInfo() {
+  const phase = S.isDemo ? '🟡 DEMO' : '🟢 ACTUAL';
+  document.getElementById('round-info').innerHTML =
+    `<span class="big">${phase} — Round ${S.currentRound}</span><br>` +
+    `demo: ${S.current_demo_round} | actual: ${S.current_actual_round} | seq: [${S.sequence.join(', ')}]`;
+}
+
+function applySessionState(data) {
+  S.gameSessionId = data.sessionId ?? S.gameSessionId;
+  S.stageId = stageId();
+  S.isDemo = Boolean(data.isDemoMode);
+  S.currentRound = data.currentRound ?? S.currentRound;
+  S.current_demo_round = data.currentDemoRound ?? S.current_demo_round;
+  S.current_actual_round = data.currentActualRound ?? S.current_actual_round;
+  S.sequence = data.sequence ?? [];
+  S.playerInput = [];
+  S.score = data.currentScore ?? data.finalScore ?? S.score;
+  S.endTime = data.endTime ?? null;
+
+  if (data.config) {
+    S.cellCount = data.config.cellCount ?? S.cellCount;
+    S.flashDelay = data.config.flashDelay ?? S.flashDelay;
+    S.wrongMoveHandling = data.config.wrongMoveHandling ?? S.wrongMoveHandling;
+  }
+
+  buildGrid();
+  updateRoundInfo();
+  updateSidebar();
+  if (S.endTime) startTimer();
+  setBtn('btn-show', S.sequence.length > 0);
+  setBtn('btn-over', true);
+  setBtn('btn-over-wm', true);
+  setBtn('btn-sync', true);
+}
+
+// ── API calls ──────────────────────────────────────────────────────────
+async function getConfig() {
+  const sid = stageId();
+  if (!sid) { logEntry('err', 'Enter a stage ID first'); return; }
+  const data = await api('GET', `/v1/game/config/${sid}`);
+  if (!data) return;
+  S.cellCount = data.cellCount ?? 4;
+  S.flashDelay = data.flashDelay ?? 500;
+  S.wrongMoveHandling = data.wrongMoveHandling ?? WMH.NEXT_SEQUENCE;
+  updateSidebar();
+  logEntry('info', `cellCount=${data.cellCount} wrongMoveHandling=${WMH_LABEL[data.wrongMoveHandling]} totalRounds=${data.totalRounds}`);
+}
+
+async function startGame() {
+  const sid = stageId();
+  if (!sid) { logEntry('err', 'Enter a stage ID first'); return; }
+  clearGame();
+  const data = await api('POST', '/v1/game/start', { stageId: sid });
+  if (!data) return;
+
+  S.gameSessionId        = data.gameSessionId;
+  S.stageId              = sid;
+  S.isDemo               = data.isDemo;
+  S.currentRound         = data.currentRound;
+  S.current_demo_round   = data.current_demo_round;
+  S.current_actual_round = data.current_actual_round;
+  S.sequence             = data.sequence ?? [];
+  S.prevSequence         = [];
+  S.playerInput          = [];
+  S.flashDelay           = data.timeDelay ?? S.flashDelay;
+  S.wrongMoveHandling    = data.wrongMoveHandling ?? S.wrongMoveHandling;
+  S.endTime              = data.endTime;
+  S.sequenceShown        = false;
+  document.getElementById('s-srv').textContent = data.serverTime ?? '—';
+
+  buildGrid();
+  updateRoundInfo();
+  updateSidebar();
+  if (S.endTime) startTimer();
+  setBtn('btn-show', true);
+  setBtn('btn-over', true);
+  setBtn('btn-over-wm', true);
+  setBtn('btn-sync', true);
+}
+
+async function resumeSession() {
+  const sid = stageId();
+  if (!sid) { logEntry('err', 'Enter a stage ID first'); return; }
+  const data = await api('GET', `/v1/game/current-session?stageId=${encodeURIComponent(sid)}`);
+  if (!data) return;
+  applySessionState(data);
+  logEntry('info', `resumed session ${data.sessionId}`);
+}
+
+async function showSequence() {
+  if (!S.sequence.length) { logEntry('err', 'No sequence loaded'); return; }
+  S.playerInput = [];
+  document.getElementById('player-input').textContent = '';
+  document.getElementById('sequence-display').textContent = 'Watch: ' + S.sequence.join(' → ');
+  setBtn('btn-validate', false);
+  await animateSequence(S.sequence, S.flashDelay);
+  updateSidebar();
+}
+
+async function validateRound() {
+  if (!S.gameSessionId) return;
+  const isCorrect = arraysEqual(S.playerInput, S.sequence);
+  const now = new Date().toISOString();
+  const events = S.playerInput.map((v, i) => ({
+    sequence: v,
+    sequenceTimestamp: new Date(Date.now() - (S.playerInput.length - i) * 300).toISOString(),
+  }));
+
+  const data = await api('POST', '/v1/game/validate', {
+    gameSessionId: S.gameSessionId,
+    roundNumber: S.currentRound,
+    playerSequence: S.playerInput,
+    sequenceEvents: events,
+    timestamp: now,
+    isCorrect,
+  });
+  if (!data) return;
+
+  S.score = data.score ?? S.score;
+  updateSidebar();
+  logEntry('info', `status=${data.status} success=${data.success} score=${data.score} flagged=${data.isFlagged}`);
+
+  const correct = data.status === 'ROUND_SUCCESS';
+  document.querySelectorAll('.tile').forEach(t => {
+    t.classList.add(correct ? 'flash' : 'wrong');
+    setTimeout(() => { t.classList.remove('flash'); t.classList.remove('wrong'); }, 500);
+  });
+
+  setBtn('btn-validate', false);
+  setBtn('btn-show', false);
+
+  if (correct) {
+    S.prevSequence = [...S.sequence];
+    setBtn('btn-next', true);
+  } else {
+    handleWrongMove();
+  }
+}
+
+function handleWrongMove() {
+  const wmh = S.wrongMoveHandling;
+  logEntry('info', `Wrong move → ${WMH_LABEL[wmh]}`);
+
+  if (wmh === WMH.GAME_END) {
+    gameOver('WRONG_MOVE');
+  } else if (wmh === WMH.PLAY_AGAIN) {
+    logEntry('info', 'Replaying current sequence');
+    setBtn('btn-show', true);
+  } else if (wmh === WMH.PREV_SEQUENCE) {
+    setBtn('btn-prev', true);
+  } else {
+    // WMH.NEXT_SEQUENCE
+    setBtn('btn-next', true);
+  }
+}
+
+async function nextSeq() {
+  if (!S.gameSessionId) return;
+  const data = await api('POST', '/v1/game/next-sequence', {
+    gameSessionId: S.gameSessionId,
+    stageId: S.stageId,
+    current_demo_round: S.current_demo_round,
+    current_actual_round: S.current_actual_round,
+  });
+  if (!data) return;
+
+  S.prevSequence         = [...S.sequence];
+  S.sequence             = data.sequence ?? [];
+  S.isDemo               = data.isDemo;
+  S.currentRound         = data.currentRound;
+  S.current_demo_round   = data.current_demo_round;
+  S.current_actual_round = data.current_actual_round;
+  S.score                = data.currentScore ?? S.score;
+  if (data.endTime) { S.endTime = data.endTime; startTimer(); }
+  S.playerInput   = [];
+  S.sequenceShown = false;
+
+  updateRoundInfo();
+  updateSidebar();
+  setBtn('btn-show', true);
+  setBtn('btn-next', false);
+  setBtn('btn-prev', false);
+  setBtn('btn-validate', false);
+}
+
+async function prevSeq() {
+  if (!S.gameSessionId) return;
+  const data = await api('POST', '/v1/game/prev-sequence', {
+    gameSessionId: S.gameSessionId,
+    stageId: S.stageId,
+    current_demo_round: S.current_demo_round,
+    current_actual_round: S.current_actual_round,
+  });
+  if (!data) return;
+
+  S.sequence             = data.sequence ?? [];
+  S.isDemo               = data.isDemo;
+  S.currentRound         = data.currentRound;
+  S.current_demo_round   = data.current_demo_round;
+  S.current_actual_round = data.current_actual_round;
+  S.playerInput          = [];
+  S.sequenceShown        = false;
+
+  updateRoundInfo();
+  updateSidebar();
+  setBtn('btn-show', true);
+  setBtn('btn-prev', false);
+  setBtn('btn-validate', false);
+}
+
+async function gameOver(reason) {
+  if (!S.gameSessionId) return;
+  clearInterval(S.timerInterval);
+  const data = await api('POST', '/v1/game/game-over', {
+    gameSessionId: S.gameSessionId,
+    reason,
+    completedRounds: S.current_actual_round,
+    timestamp: new Date().toISOString(),
+  });
+  if (!data) return;
+  logEntry('info', `GAME OVER — reason=${data.reason} score=${data.finalScore} rounds=${data.completedRounds} bonus=${data.bonus}`);
+  document.getElementById('round-info').innerHTML =
+    `<span class="big">GAME OVER</span><br>reason: ${data.reason} | score: ${data.finalScore} | bonus: ${data.bonus}`;
+  document.getElementById('timer').textContent = '00:00';
+  clearGame(true);
+}
+
+async function timeSync() {
+  if (!S.gameSessionId) return;
+  const data = await api('GET', `/v1/game/time-sync?gameSessionId=${S.gameSessionId}`);
+  if (!data) return;
+  document.getElementById('s-srv').textContent = data.serverNow;
+  logEntry('info', `serverNow=${data.serverNow} drift=${Math.round(new Date(data.serverNow) - Date.now())}ms`);
+}
+
+function arraysEqual(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
+
+function setBtn(id, enabled) {
+  const el = document.getElementById(id);
+  if (el) el.disabled = !enabled;
+}
+
+function clearGame(keepState) {
+  clearInterval(S.timerInterval);
+  if (!keepState) {
+    S.gameSessionId = null; S.sequence = []; S.prevSequence = []; S.playerInput = [];
+    S.sequenceShown = false;
+    document.getElementById('grid').innerHTML = '';
+    document.getElementById('sequence-display').textContent = '';
+    document.getElementById('player-input').textContent = '';
+    document.getElementById('timer').textContent = '—';
+  }
+  ['btn-show','btn-validate','btn-next','btn-prev','btn-over','btn-over-wm','btn-sync'].forEach(id => setBtn(id, false));
+}
+</script>
+</body>
+</html>

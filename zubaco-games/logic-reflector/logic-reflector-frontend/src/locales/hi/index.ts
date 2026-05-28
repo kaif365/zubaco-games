@@ -1,0 +1,170 @@
+export const hi = {
+  translation: {
+    tilt: {
+      title: 'डिवाइस घुमाएँ',
+      message: 'सर्वोत्तम अनुभव के लिए कृपया पोर्ट्रेट मोड में जाएँ।',
+    },
+    game: {
+      connecting: 'डमी उपयोगकर्ता प्राप्त किया जा रहा है (देव-सत्र)…',
+      connectingNote: 'यह बिल्ड स्टैंडअलोन चल रही है, असली ऐप में यह स्क्रीन नहीं दिखेगी।',
+      calculatingResult: 'परिणाम की गणना हो रही है…',
+      level: 'स्तर {number}',
+      starting: 'खेल शुरू हो रहा है…',
+    },
+    instructions: {
+      labels: {
+        playNow: 'अभी खेलें',
+        learnHowToPlay: 'कैसे खेलें?',
+        starting: 'शुरू हो रहा है...',
+      },
+      stageInstructions: {
+        gameLabel: 'लॉजिक रिफ्लेक्टर',
+        statusLabel: 'सक्रिय',
+        gameTitle: 'लॉजिक रिफ्लेक्टर',
+        slides: [
+          {
+            id: 'how-to-play',
+            title: 'कैसे खेलें',
+            description:
+              'लॉजिक रिफ्लेक्टर एक लेज़र पज़ल है। ग्रिड पर दर्पण और ऑप्टिकल ब्लॉक रखें ताकि किरण हर चमकते लक्ष्य पर लगे।',
+            items: [
+              {
+                id: 'select',
+                title: 'ब्लॉक चुनें',
+                description: 'टूलबार से दर्पण, स्प्लिटर या ब्लॉकर चुनें।',
+                variant: 'step',
+              },
+              {
+                id: 'place',
+                title: 'ग्रिड पर रखें',
+                description: 'ब्लॉक रखने के लिए खाली सेल टैप करें, या सीधे ड्रैग करें।',
+                variant: 'step',
+              },
+              {
+                id: 'reflect',
+                title: 'किरण को मोड़ें',
+                description: 'अपने ब्लॉक तब तक समायोजित करें जब तक लेज़र हर लक्ष्य पर न लगे।',
+                variant: 'step',
+              },
+              {
+                id: 'clear',
+                title: 'स्तर क्लियर करें',
+                description: 'सभी लक्ष्य जलाएँ और अगले स्तर पर जाएँ!',
+                variant: 'step',
+              },
+            ],
+          },
+          {
+            id: 'scoring',
+            title: 'स्कोरिंग नियम',
+            description: 'जल्दी और कुशलता से स्तर हल करके अपना स्कोर अधिकतम करें।',
+            items: [
+              {
+                id: 'base',
+                title: 'स्तर पूर्ण',
+                description: 'हर पज़ल हल करने पर बेस पॉइंट मिलते हैं।',
+                variant: 'step',
+              },
+              {
+                id: 'time',
+                title: 'समय बोनस',
+                description: 'जितनी जल्दी हल करेंगे, उतना ज़्यादा टाइम बोनस मिलेगा।',
+                variant: 'step',
+              },
+              {
+                id: 'moves',
+                title: 'कम ब्लॉक',
+                description: 'कम ब्लॉक उपयोग करने से आपकी अंतिम रैंकिंग बेहतर हो सकती है।',
+                variant: 'step',
+              },
+              {
+                id: 'total',
+                title: 'कुल स्कोर',
+                description: 'आपका स्कोर सत्र के सभी स्तरों में जमा होता है।',
+                variant: 'step',
+              },
+            ],
+          },
+          {
+            id: 'fair-play',
+            title: 'निष्पक्ष खेल नियम',
+            description: 'सभी के लिए प्रतिस्पर्धा निष्पक्ष रखने के लिए इन दिशानिर्देशों का पालन करें:',
+            items: [
+              {
+                id: 'bot',
+                title: 'कोई स्वचालित टूल या स्क्रिप्ट नहीं',
+                description: 'बॉट का उपयोग अयोग्यता का कारण बनेगा।',
+                variant: 'rule',
+              },
+              {
+                id: 'accounts',
+                title: 'प्रति खिलाड़ी एक अकाउंट',
+                description: 'कई अकाउंट की अनुमति नहीं है।',
+                variant: 'rule',
+              },
+              {
+                id: 'connection',
+                title: 'स्थिर इंटरनेट कनेक्शन',
+                description: 'सिंक समस्याओं से बचने के लिए अपना कनेक्शन स्थिर रखें।',
+                variant: 'rule',
+              },
+            ],
+          },
+        ],
+      },
+    },
+    errors: {
+      connectionLost: 'कनेक्शन टूट गया',
+      authenticationFailed: 'प्रमाणीकरण विफल।',
+      failedStartGame: 'खेल शुरू करने में विफल।',
+      failedRestoreSession: 'लाइव खेल बहाल करने में विफल।',
+      failedFinalizeExpiredSession: 'समाप्त हुए गेम सत्र को अंतिम रूप देने में विफल।',
+      failedEndLevel: 'स्तर समाप्त करने में विफल।',
+      failedLoadNextLevel: 'अगला स्तर लोड करने में विफल।',
+      failedForfeit: 'फ़ॉर्फ़िट विफल।',
+      gameSessionNotFound: 'गेम सत्र नहीं मिला। कृपया फिर से शुरू करें।',
+      serverRejectedGameStart: 'सर्वर ने गेम शुरू करने का अनुरोध अस्वीकार किया।',
+    },
+    offline: {
+      connectionLost: 'कनेक्शन टूट गया',
+      youAreOffline: 'आप ऑफलाइन हैं',
+      message: 'जारी रखने के लिए इंटरनेट आवश्यक है। अपना नेटवर्क जांचें और पुनः प्रयास करें।',
+      retry: 'पुनः प्रयास करें',
+    },
+    results: {
+      timeUp: {
+        scoreLabel: 'आपका स्कोर',
+        chipLabel: 'समय समाप्त!',
+        headingLeading: 'पज़ल पर',
+        headingHighlight: ' समय',
+        headingTrailing: ' खत्म हो गया!',
+        subheading: 'चिंता न करें — अगले खेल में वापस आएँ और फिर से कोशिश करें!',
+        progressLabel: 'प्रगति',
+        progressSuffixLabel: 'स्तर पूरे हुए',
+        ctaLabel: 'फिर से खेलें',
+      },
+      success: {
+        scoreLabel: 'आपका स्कोर',
+        chipLabel: 'बहुत बढ़िया!',
+        headingLeading: 'शाबाश! आपने पज़ल हल किया',
+        headingHighlight: '',
+        headingTrailing: '',
+        subheading: 'आगे के खेलों में भी इसी तरह खेलते रहें।',
+        progressLabel: 'प्रगति',
+        progressSuffixLabel: 'स्तर पूरे हुए',
+        ctaLabel: 'जारी रखें',
+      },
+      failure: {
+        scoreLabel: 'आपका स्कोर',
+        chipLabel: 'कोशिश की आपने!',
+        headingLeading: 'चिंता न करें, अगले खेल में',
+        headingHighlight: ' फिर से कोशिश करें!',
+        headingTrailing: '',
+        subheading: 'अभ्यास जारी रखें, अगली बार ज़रूर होगा!',
+        progressLabel: 'प्रगति',
+        progressSuffixLabel: 'स्तर पूरे हुए',
+        ctaLabel: 'जारी रखें',
+      },
+    },
+  },
+} as const;

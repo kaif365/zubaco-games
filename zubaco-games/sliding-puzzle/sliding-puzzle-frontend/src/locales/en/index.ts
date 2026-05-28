@@ -1,0 +1,171 @@
+export const en = {
+  translation: {
+    tilt: {
+      title: 'Tilt detected!',
+      message: 'Switch to portrait mode to keep playing',
+    },
+    settings: {
+      soundSettings: 'SOUND SETTINGS',
+      music: 'Music',
+      effects: 'SFX',
+      off: 'Off',
+    },
+    game: {
+      connecting: 'Fetching a dummy user (dev-session)…',
+      connectingNote: 'Stand-in auth while this build runs standalone.',
+      loading: 'Starting game…',
+      calculatingResult: 'Calculating result…',
+      level: 'Level {number}',
+      solved: '✓ SOLVED!',
+      loadingNext: 'Loading next round…',
+      processing: 'Processing…',
+      retryConnection: 'Retry connection',
+      demo: 'Demo',
+      done: 'Done',
+      boardOf: 'Board {current} of {total}',
+      clear: 'CLEAR !',
+      greatWork: "Great work! Let's play for real.",
+      loadingNextBoard: 'Loading next board…',
+      hintBanner: 'Tap a tile next to the blank space to slide it',
+      memorize: 'Memorize! {remaining}s',
+      loadingImage: 'Loading…',
+      autoSolve: 'Auto Solve',
+      puzzleEditor: 'Puzzle Editor',
+      demoCompleteBtn: 'Back to Home',
+      demoCleared: 'Demo Cleared',
+    },
+    instructions: {
+      labels: {
+        playNow: 'Play Now',
+        learnHowToPlay: 'Learn How To Play?',
+        starting: 'Starting...',
+      },
+      stageInstructions: {
+        gameLabel: 'GAME {stage}',
+        statusLabel: 'ACTIVE',
+        gameTitle: 'Sliding Puzzle',
+        slides: [
+          {
+            id: 'description',
+            title: 'How to Play',
+            description:
+              'Sliding Puzzle is a classic logic game where you must rearrange tiles to reconstruct a hidden image. Solve the puzzle by moving tiles into the empty slot.',
+            items: [
+              {
+                id: 'observe',
+                title: 'Observe',
+                description: 'Study the complete image before it shuffles.',
+                variant: 'step',
+              },
+              {
+                id: 'memorize',
+                title: 'Memorize',
+                description: 'Remember the original arrangement of the tiles.',
+                variant: 'step',
+              },
+              {
+                id: 'solve',
+                title: 'Solve',
+                description: 'Slide tiles into the empty space to rebuild the picture.',
+                variant: 'step',
+              },
+              {
+                id: 'timer',
+                title: 'Beat the Clock',
+                description: 'Complete all rounds before the total time runs out!',
+                variant: 'step',
+              },
+            ],
+          },
+          {
+            id: 'scoring',
+            title: 'Scoring Rules',
+            description: 'Learn how to maximize your score and climb the leaderboard.',
+            items: [
+              {
+                id: 'round-points',
+                title: 'Round Completion',
+                description: 'Earn base points for every puzzle solved.',
+                variant: 'step',
+              },
+              {
+                id: 'time-bonus',
+                title: 'Time Bonus',
+                description: 'The faster you solve, the higher your time bonus.',
+                variant: 'step',
+              },
+              {
+                id: 'moves',
+                title: 'Move Efficiency',
+                description: 'Solving in fewer moves can impact your final ranking.',
+                variant: 'step',
+              },
+              {
+                id: 'total-score',
+                title: 'Total Score',
+                description: 'Your score is the sum of round points and time bonuses.',
+                variant: 'step',
+              },
+            ],
+          },
+          {
+            id: 'anti-cheat',
+            title: 'Fair Play Rules',
+            description:
+              'To ensure a fair competition for all players, please follow these guidelines:',
+            items: [
+              {
+                id: 'bot',
+                title: 'No automated tools or scripts',
+                description: 'Use of bots will result in disqualification.',
+                variant: 'rule',
+              },
+              {
+                id: 'accounts',
+                title: 'One account per player',
+                description: 'Multiple accounts are not permitted.',
+                variant: 'rule',
+              },
+              {
+                id: 'connection',
+                title: 'Stable internet connection',
+                description: 'Ensure your connection is stable to avoid sync issues.',
+                variant: 'rule',
+              },
+            ],
+          },
+        ],
+      },
+    },
+    offline: {
+      connectionLost: "Connection Lost",
+      youAreOffline: "You are offline",
+      message: "Internet is required to continue. Please check your network and retry.",
+      retry: "Retry",
+    },
+    results: {
+      success: {
+        scoreLabel: 'YOUR SCORE',
+        chipLabel: "You're Doing Awesome",
+        headingLeading: "Well done! You've completed the",
+        headingHighlight: ' Puzzle',
+        headingTrailing: '',
+        subheading: 'Keep it up for the upcoming games.',
+        progressLabel: 'Progress',
+        progressSuffixLabel: 'Games completed',
+        ctaLabel: 'Continue',
+      },
+      failure: {
+        scoreLabel: 'YOUR SCORE',
+        chipLabel: 'You gave it a try!',
+        headingLeading: "Don't worry, try again in the",
+        headingHighlight: ' next game!',
+        headingTrailing: '',
+        subheading: "Keep practicing, you'll get there!",
+        progressLabel: 'Progress',
+        progressSuffixLabel: 'Games completed',
+        ctaLabel: 'Continue',
+      },
+    },
+  },
+} as const;

@@ -1,0 +1,67 @@
+import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+
+import { RedisService } from "../redis/redis.service";
+
+import { AdminHttpService, AdminData } from "./http/admin-http.service";
+
+/**
+ * Verifies admin identity for incoming requests.
+ */
+@Injectable()
+export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
+  /**
+   * Create a new instance.
+   *
+   * @param {RedisService} redis - redis value.
+   * @param {AdminHttpService} adminHttp - admin http value.
+   */
+  constructor(
+    private readonly redis: RedisService,
+    private readonly adminHttp: AdminHttpService,
+  ) {}
+
+  /**
+   * Handle verify admin.
+   *
+   * @param {string} sessionId - session id value.
+   * @param {string} adminId - admin id value.
+   * @param {string} token - token value.
+   *
+   * @returns {Promise<AdminData>} The asynchronous result.
+   */
+  async verifyAdmin(
+    sessionId: string,
+    adminId: string,
+    token: string,
+  ): Promise<AdminData> {
+    try {
+      const session = await this.redis.getProjectSession(sessionId);
+
+      if (session) {
+        if (session.adminId !== adminId) {
+          throw new UnauthorizedException("TOKEN_INVALID");
+        }
+
+        const admin = await this.redis.getProjectAdmin(session.adminId);
+        if (admin) {
+          return admin;
+        }
+      }
+
+      this.logger.debug(
+        `Admin Redis cache miss — sessionId=${sessionId}, falling back to HTTP`,
+      );
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
+      this.logger.warn(
+        `Redis unreachable during admin verification: ${(err as Error).message}`,
+      );
+    }
+
+    return this.adminHttp.checkAuthenticated(token);
+  }
+}

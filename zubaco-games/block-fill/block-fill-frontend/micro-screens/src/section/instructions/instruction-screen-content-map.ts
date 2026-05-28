@@ -1,0 +1,12 @@
+import { INSTRUCTION_CONTENT_CONFIG } from "@micro-screens/src/mocks/config";
+import type { StageContentMap } from "@micro-screens/src/types/instruction-content";
+
+export const INSTRUCTION_SCREEN_CONTENT_MAP: StageContentMap = {
+  1: INSTRUCTION_CONTENT_CONFIG,
+  2: INSTRUCTION_CONTENT_CONFIG,
+  3: INSTRUCTION_CONTENT_CONFIG,
+  4: INSTRUCTION_CONTENT_CONFIG,
+  5: INSTRUCTION_CONTENT_CONFIG,
+  6: INSTRUCTION_CONTENT_CONFIG,
+  7: INSTRUCTION_CONTENT_CONFIG,
+};

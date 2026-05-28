@@ -1,0 +1,9 @@
+gameName: flash-spot
+replicas: 2
+image:
+  repository: ghcr.io/zubaco/flash-spot-backend
+  tag: latest
+corsOrigins: "https://zubaco.com,https://www.zubaco.com"
+hpa:
+  minReplicas: 2
+  maxReplicas: 10

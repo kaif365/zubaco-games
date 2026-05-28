@@ -1,0 +1,574 @@
+@import 'tailwindcss';
+
+/* ── Design tokens ─────────────────────────────────────── */
+:root {
+  --font-sans:
+    'Outfit', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-display: 'Orbitron', system-ui, sans-serif;
+  --font-game: var(--font-sans);
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+
+  --background: 28 40% 6%;
+  --foreground: 38 30% 82%;
+  --card: 28 35% 9%;
+  --card-foreground: 38 30% 82%;
+  --primary: 38 70% 52%;
+  --primary-foreground: 28 40% 8%;
+  --muted: 28 25% 14%;
+  --muted-foreground: 35 18% 50%;
+  --accent: 35 65% 42%;
+  --accent-foreground: 38 30% 88%;
+  --destructive: 0 55% 42%;
+  --border: 30 20% 16%;
+  --ring: 38 70% 52%;
+
+  /* Stage theme — defaults to stage 1; overridden by App.tsx on config load */
+  --stage-bg: #0f0a1e;
+  --stage-eclipse: #1e1545;
+  --stage-eclipse-rgb: 30, 21, 69;
+  --stage-accent: #00f0ff;
+  --stage-accent-rgb: 0, 240, 255;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-border: hsl(var(--border));
+  --color-ring: hsl(var(--ring));
+  --font-sans:
+    'Outfit', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-game:
+    'Outfit', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-display: 'Orbitron', 'Times New Roman', Times, serif;
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+}
+
+/* ── Reset / base ────────────────────────────────────────
+   Keep border-color in @layer base so Tailwind border-* utilities
+   (e.g. offline modal amber / white strokes) win over this default. */
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+}
+
+input,
+textarea,
+button {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  /* background: var(--stage-bg); */
+  background: #1c1b20;
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+}
+
+/* ── Root ──────────────────────────────────────────────── */
+#root {
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+}
+
+/* ── Game shell ────────────────────────────────────────── */
+.game-shell {
+  position: relative;
+  /* background: transparent; */
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Desktop: centered column ──────────────────────────── */
+@media (min-width: 640px) {
+  #root {
+    align-items: center;
+    justify-content: center;
+  }
+  .game-shell {
+    /* width: clamp(420px, 55vmin, 580px); */
+    /* height: min(100dvh, 920px); */
+  }
+}
+
+.gradient-layer-top {
+  width: 100%;
+  height: 10vh;
+  background: linear-gradient(
+    var(--stage-eclipse, #364bae),
+    color-mix(in srgb, var(--stage-eclipse, #364bae) 32%, transparent)
+  );
+  box-shadow: 0px 0px 108px color-mix(in srgb, var(--stage-eclipse, #364bae) 72%, transparent);
+  position: absolute;
+  top: -5vh;
+  left: 0px;
+  right: 0px;
+  z-index: 0;
+  border: 0px;
+  filter: blur(38px);
+}
+
+.hud-capsule-bg {
+  background: linear-gradient(
+    133deg,
+    rgba(var(--stage-accent-rgb), 0.2) 0%,
+    rgba(var(--stage-accent-rgb), 0.2) 50%,
+    rgba(var(--stage-accent-rgb), 0.2) 100%
+  );
+}
+
+/* Mandala backdrop — aligns with arrows game `HomePage.css` `.background-layer` */
+.background-layer {
+  pointer-events: none;
+  position: fixed;
+  top: var(--memory-card-grid-center-y, 50%);
+  right: 0;
+  bottom: auto;
+  left: 0;
+  height: 100dvh;
+  background-image: url('/assets/mandala-vector.png');
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0.2;
+  transform: translateY(-50%) scale(1.5);
+  z-index: 0;
+}
+
+.memory-mandala-level-complete .background-layer {
+  animation: level-complete-mandala-glow 1.45s ease-out both;
+}
+
+.level-complete-burst {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.level-complete-burst::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(82vw, 500px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--game-accent-rgb, var(--stage-accent-rgb, 109, 133, 255)), 0.46);
+  box-shadow:
+    0 0 24px rgba(var(--game-accent-rgb, var(--stage-accent-rgb, 109, 133, 255)), 0.26),
+    0 0 36px rgba(255, 255, 255, 0.1),
+    inset 0 0 28px rgba(var(--game-accent-rgb, var(--stage-accent-rgb, 109, 133, 255)), 0.14);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.55);
+  animation: level-complete-ring 1.45s ease-out both;
+}
+
+.level-complete-burst::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(62vw, 360px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.11) 0%,
+    rgba(var(--game-accent-rgb, var(--stage-accent-rgb, 109, 133, 255)), 0.15) 34%,
+    rgba(var(--game-accent-rgb, var(--stage-accent-rgb, 109, 133, 255)), 0) 70%
+  );
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.5);
+  animation: level-complete-core-glow 1.45s ease-out both;
+}
+
+@media (min-width: 768px) {
+  .background-layer {
+    height: 80vh;
+    top: var(--memory-card-grid-center-y, 50%);
+    left: 0;
+    right: 0;
+    bottom: auto;
+    transform: translateY(-50%) scale(1);
+  }
+}
+
+/* ── Card grid gap (scales with viewport) ──────────────── */
+@keyframes level-complete-mandala-glow {
+  0% {
+    opacity: 0.2;
+    filter: none;
+  }
+
+  22% {
+    opacity: 0.58;
+    filter: brightness(1.18) contrast(1.08) saturate(1.12)
+      drop-shadow(0 0 12px rgba(255, 255, 255, 0.14))
+      drop-shadow(
+        0 0 22px rgba(var(--game-accent-rgb, var(--stage-accent-rgb, 109, 133, 255)), 0.52)
+      );
+  }
+
+  100% {
+    opacity: 0.2;
+    filter: none;
+  }
+}
+
+@keyframes level-complete-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-72%) rotate(0.001deg);
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  72% {
+    opacity: 0.72;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(72%) rotate(0.001deg);
+  }
+}
+
+@keyframes level-complete-ring {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.55);
+  }
+
+  24% {
+    opacity: 0.62;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+}
+
+@keyframes level-complete-core-glow {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+
+  22% {
+    opacity: 0.38;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .level-complete-burst::before,
+  .level-complete-burst::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+}
+
+.card-grid {
+  gap: clamp(4px, 1vmin, 8px);
+  max-width: 100%;
+}
+
+/* ── Tilt overlay: phone icon ──────────────────────────── */
+.tilt-phone {
+  width: 40px;
+  height: 64px;
+  border-radius: 8px;
+  border: 3px solid rgba(var(--stage-eclipse-rgb), 0.6);
+  position: relative;
+  animation: tilt-rotate 2s ease-in-out infinite;
+}
+.tilt-phone::before {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(var(--stage-eclipse-rgb), 0.5);
+}
+@keyframes tilt-rotate {
+  0% {
+    transform: rotate(0deg);
+    opacity: 1;
+  }
+  40% {
+    transform: rotate(-90deg);
+    opacity: 1;
+  }
+  55% {
+    transform: rotate(-90deg);
+    opacity: 0.4;
+  }
+  70% {
+    transform: rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(0deg);
+    opacity: 1;
+  }
+}
+
+/* ── Animations ────────────────────────────────────────── */
+@keyframes matched-shimmer {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes preview-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.preview-hint {
+  animation: preview-pulse 1.4s ease-in-out infinite;
+}
+
+.memory-match-shell {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.auth-gate-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-gate-screen--loader-only .auth-gate-spinner {
+  margin: 0;
+}
+
+.auth-gate-card {
+  display: flex;
+  width: min(360px, 100%);
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(var(--game-accent-rgb, var(--stage-accent-rgb)), 0.3);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 28px 22px;
+  color: #ffffff;
+  text-align: center;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+}
+
+.auth-gate-title {
+  margin: 0;
+  color: var(--game-accent, var(--stage-accent));
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.auth-gate-copy {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auth-gate-spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(var(--game-accent-rgb, var(--stage-accent-rgb)), 0.22);
+  border-top-color: var(--game-accent, var(--stage-accent));
+  border-radius: 50%;
+  animation: auth-gate-spin 0.8s linear infinite;
+}
+
+@keyframes auth-gate-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Round transition ──────────────────────────────────── */
+.round-transition-slot {
+  pointer-events: none;
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.round-transition-stack {
+  --round-transition-accent: var(--game-accent, var(--stage-accent, #6d85ff));
+  --round-transition-accent-rgb: var(--game-accent-rgb, var(--stage-accent-rgb, 109, 133, 255));
+  --round-transition-bg: var(--game-bg, var(--stage-bg, #19224d));
+  position: absolute;
+  bottom: 12px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.round-transition-text {
+  margin: 0;
+  color: #ffffff;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  position: relative;
+  z-index: 1;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.gameplay-header {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 62px;
+  box-sizing: border-box;
+  border-bottom: none;
+  background: transparent;
+  max-width: 465px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.gameplay-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: min-content;
+  padding: 0;
+  border: 1px solid #ffffff96;
+  border-radius: 30px;
+  background: #ffffff2e;
+  color: #fff;
+  z-index: 99;
+}
+
+.timer-badge {
+  position: relative;
+  display: inline-flex;
+  height: 42px;
+}
+
+.timer-badge__content {
+  position: relative;
+  z-index: 1;
+  width: 94px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-badge__text {
+  display: inline-flex;
+  align-items: center;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.timer-badge__icon {
+  flex: 0 0 auto;
+}
+
+.timer-badge__value {
+  display: inline-block;
+  color: currentColor;
+  line-height: 1;
+  text-align: center;
+}
+
+.timer-badge__value--clock {
+  min-width: 5.6ch;
+}
+
+.timer-badge__text--urgent {
+  color: #ff4e30;
+  text-shadow: 0 0 16px rgba(255, 78, 48, 0.7);
+  will-change: color, text-shadow;
+}
+
+.timer-badge__text--running.timer-badge__text--urgent {
+  animation: timerUrgentPulse 0.8s infinite alternate;
+}
+
+@keyframes timerUrgentPulse {
+  from {
+    color: #ff4e30;
+    text-shadow: 0 0 16px rgba(255, 78, 48, 0.7);
+  }
+
+  to {
+    color: #ff7a63;
+    text-shadow: 0 0 24px rgba(255, 78, 48, 0.95);
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "game": {
+    "title": "Reflex Endurance",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "tap": "TAP!",
+    "wait": "Wait...",
+    "tooEarly": "Too Early!",
+    "reactionTime": "{{time}}ms",
+    "streak": "Streak: {{count}}",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Tap as quickly as possible when the signal appears. Don't tap too early!",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

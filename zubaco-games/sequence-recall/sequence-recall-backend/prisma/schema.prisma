@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model GameSession {
+  id        String    @id @default(uuid())
+
+  userId    String    @map("user_id")
+  stageId   String    @map("stage_id")
+  status    Int       @default(1) // 1=active 2=completed 3=disconnected 4=result_processing 5=expired 6=manually_ended
+  
+  serverSeed String?  @map("server_seed") // For deterministic PRNG
+
+  startedAt DateTime  @default(now()) @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+  score     Int?
+  
+  endTime               DateTime? @map("end_time")
+  completedRounds       Int       @default(0)   @map("completed_rounds")
+  successfulRounds      Int       @default(0)   @map("successful_rounds")
+  demoRoundRequested    Int       @default(0)   @map("demo_round_requested")
+  actualRoundRequested  Int       @default(0)   @map("actual_round_requested")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  inputs    GameInput[]
+  flags     GameCheatFlag[]
+  snapshot  GameSessionSnapshot?
+
+  @@map("game_sessions")
+  @@unique([userId, stageId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([userId, status])
+}
+
+model GameSessionSnapshot {
+  id                    String      @id @default(uuid())
+  gameSessionId         String      @unique @map("game_session_id")
+  session               GameSession @relation(fields: [gameSessionId], references: [id])
+  
+  timeLimit             Int         @map("time_limit")
+  minSequence           Int         @map("min_sequence")
+  maxSequence           Int         @map("max_sequence")
+  enableDemo            Boolean     @default(true) @map("enable_demo")
+  demoMinSequence       Int         @default(0) @map("demo_min_sequence")
+  demoMaxSequence       Int         @default(0) @map("demo_max_sequence")
+  flashDelay            Int         @default(0) @map("flash_delay")
+  levelDelay            Int         @default(0) @map("level_delay")
+  cellCount             Int         @map("cell_count")
+  scorePerClick         Int         @map("score_per_click")
+  bonusTimeRatio        Float       @map("bonus_time_ratio")
+  wrongMoveHandling     Int         @default(4) @map("wrong_move_handling") // 1=GameEnd 2=PlayAgain 3=PrevSequence 4=NextSequence
+
+  createdAt             DateTime    @default(now()) @map("created_at")
+  
+  @@map("game_session_snapshots")
+}
+
+model GameLevel {
+  id          String   @id @default(uuid())
+  stageId     String   @map("stage_id")
+  levelNumber Int      @map("level_number")
+  configJson  String   @map("config_json") // Allows storing level-specific configs dynamically
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@map("game_levels")
+  @@unique([stageId, levelNumber])
+  @@index([deletedAt])
+}
+
+model GameInput {
+  id            String      @id @default(uuid())
+  gameSessionId String      @map("game_session_id")
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+  
+  tileId        Int         @map("tile_id")
+  serverTime    DateTime    @default(now()) @map("server_time")
+  isCorrect     Boolean     @default(false) @map("is_correct")
+  isDemo        Boolean     @default(false) @map("is_demo")
+
+  createdAt     DateTime    @default(now()) @map("created_at")
+  deletedAt     DateTime?   @map("deleted_at")
+
+  flags         GameCheatFlag[]
+
+  @@map("game_input")
+  @@index([gameSessionId])
+  @@index([deletedAt])
+  @@index([gameSessionId, isCorrect])
+}
+
+model GameConfiguration {
+  id          String   @id @default(uuid())
+
+  stageId     String   @map("stage_id")
+  cellCount   Int      @default(4) @map("cell_count")
+
+  timeLimit             Int       @default(180) @map("time_limit")
+  minSequence           Int       @default(1)   @map("min_sequence")
+  maxSequence           Int       @default(5)   @map("max_sequence")
+  enableDemo            Boolean   @default(true) @map("enable_demo")
+  demoMinSequence       Int       @default(0)   @map("demo_min_sequence")
+  demoMaxSequence       Int       @default(0)   @map("demo_max_sequence")
+  flashDelay            Int       @default(500) @map("flash_delay")
+  levelDelay            Int       @default(0)   @map("level_delay")
+  bonusTimeRatio        Float     @default(1.0) @map("bonus_time_ratio")
+  scorePerClick         Int       @default(20)  @map("score_per_click")
+  wrongMoveHandling     Int       @default(4)   @map("wrong_move_handling") // 1=GameEnd 2=PlayAgain 3=PrevSequence 4=NextSequence
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@map("game_configurations")
+  @@unique([stageId])
+  @@index([deletedAt])
+}
+
+model GameCheatFlag {
+  id            String      @id @default(uuid())
+  gameSessionId String      @map("game_session_id")
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+
+  inputId       String?     @map("input_id")
+  input         GameInput?  @relation(fields: [inputId], references: [id])
+
+  userId        String      @map("user_id")
+
+  flagType      Int         @map("flag_type")
+  evidence      Json?       @map("evidence")
+
+  createdAt     DateTime    @default(now()) @map("created_at")
+  deletedAt     DateTime?   @map("deleted_at")
+
+  @@map("game_cheat_flags")
+  @@index([gameSessionId])
+  @@index([inputId])
+  @@index([deletedAt])
+  @@index([userId, createdAt])
+}

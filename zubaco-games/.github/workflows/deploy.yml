@@ -1,0 +1,148 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      game:
+        description: "Game to deploy (or 'all')"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - colour-sorting
+          - flash-spot
+          - object-placement-memory
+          - rapid-category-sort
+          - true-false-blitz
+          - word-unscramble
+          - number-grid-sprint
+          - live-route-builder
+          - memory-groups
+          - reflex-endurance
+          - pattern-survival
+          - speed-type-answer
+          - sequence-recall
+          - memory-card-matching
+          - sliding-puzzle
+          - block-fill
+          - maze-navigation
+          - infinity-loop
+          - arrows
+          - logic-reflector
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push backend images
+        run: |
+          GAMES=(
+            "colour-sorting/colour-sorting-backend"
+            "flash-spot/flash-spot-backend"
+            "object-placement-memory/object-placement-memory-backend"
+            "rapid-category-sort/rapid-sort-backend"
+            "true-false-blitz/true-false-blitz-backend"
+            "word-unscramble/word-unscramble-backend"
+            "number-grid-sprint/number-grid-backend"
+            "live-route-builder/live-route-backend"
+            "memory-groups/memory-groups-backend"
+            "reflex-endurance/reflex-endurance-backend"
+            "pattern-survival/pattern-survival-backend"
+            "speed-type-answer/speed-type-backend"
+            "sequence-recall/sequence-recall-backend"
+            "memory-card-matching/memory-card-matching-backend"
+            "sliding-puzzle/sliding-puzzle-backend"
+            "block-fill/block-fill-backend"
+            "maze-navigation/maze-navigation-backend"
+            "Infinity-loop/Infinity-Loop-backend"
+            "arrows/arrows-backend"
+            "logic-reflector/logic-reflector-backend"
+          )
+          for GAME_DIR in "${GAMES[@]}"; do
+            NAME=$(echo "$GAME_DIR" | sed 's|.*/||')
+            echo "Building $NAME..."
+            docker buildx build \
+              --file docker/backend.Dockerfile \
+              --build-arg GAME_DIR="$GAME_DIR" \
+              --tag "$ECR_REGISTRY/$NAME:${{ github.sha }}" \
+              --tag "$ECR_REGISTRY/$NAME:latest" \
+              --push \
+              --cache-from type=gha \
+              --cache-to type=gha,mode=max \
+              .
+          done
+
+      - name: Build & push frontend images
+        run: |
+          GAMES=(
+            "colour-sorting/colour-sorting-frontend"
+            "flash-spot/flash-spot-frontend"
+            "object-placement-memory/object-placement-memory-frontend"
+            "rapid-category-sort/rapid-sort-frontend"
+            "true-false-blitz/true-false-blitz-frontend"
+            "word-unscramble/word-unscramble-frontend"
+            "number-grid-sprint/number-grid-frontend"
+            "live-route-builder/live-route-frontend"
+            "memory-groups/memory-groups-frontend"
+            "reflex-endurance/reflex-endurance-frontend"
+            "pattern-survival/pattern-survival-frontend"
+            "speed-type-answer/speed-type-frontend"
+            "sequence-recall/sequence-recall-frontend"
+            "memory-card-matching/memory-card-matching-frontend"
+            "sliding-puzzle/sliding-puzzle-frontend"
+            "block-fill/block-fill-frontend"
+            "maze-navigation/maze-navigation-frontend"
+            "Infinity-loop/infinity-loop-frontend"
+            "arrows/arrows-frontend"
+            "logic-reflector/logic-reflector-frontend"
+          )
+          for GAME_DIR in "${GAMES[@]}"; do
+            NAME=$(echo "$GAME_DIR" | sed 's|.*/||')
+            echo "Building $NAME..."
+            docker buildx build \
+              --file docker/frontend.Dockerfile \
+              --build-arg GAME_DIR="$GAME_DIR" \
+              --tag "$ECR_REGISTRY/$NAME:${{ github.sha }}" \
+              --tag "$ECR_REGISTRY/$NAME:latest" \
+              --push \
+              --cache-from type=gha \
+              --cache-to type=gha,mode=max \
+              .
+          done
+
+      - name: Deploy to ECS
+        run: |
+          echo "Triggering ECS service update..."
+          # Placeholder: Replace with actual deployment (ECS update-service, kubectl apply, etc.)
+          # aws ecs update-service --cluster zubaco-prod --service $SERVICE --force-new-deployment

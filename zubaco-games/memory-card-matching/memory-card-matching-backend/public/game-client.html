@@ -1,0 +1,2181 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Memory Card Matching - Game Client</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --panel-2: #0f1722;
+        --border: #30363d;
+        --muted: #8b949e;
+        --text: #c9d1d9;
+        --blue: #58a6ff;
+        --green: #3fb950;
+        --yellow: #e3b341;
+        --red: #f85149;
+        --purple: #6e40c9;
+        --shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at top left, rgba(88, 166, 255, 0.12), transparent 28%),
+          radial-gradient(circle at top right, rgba(110, 64, 201, 0.14), transparent 24%),
+          linear-gradient(180deg, #0b1016 0%, var(--bg) 100%);
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 14px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 700;
+        transition:
+          transform 120ms ease,
+          opacity 120ms ease,
+          filter 120ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        filter: brightness(1.06);
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        background: #0d1117;
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 10px;
+        outline: none;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: var(--blue);
+      }
+
+      #topbar {
+        display: flex;
+        flex-direction: column;
+        background: rgba(22, 27, 34, 0.94);
+        border-bottom: 1px solid var(--border);
+        backdrop-filter: blur(12px);
+        box-shadow: var(--shadow);
+        flex-shrink: 0;
+      }
+
+      .topbar-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        flex-wrap: wrap;
+      }
+
+      .topbar-row + .topbar-row {
+        border-top: 1px solid #21262d;
+      }
+
+      .url-group,
+      .field-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+        min-width: 240px;
+      }
+
+      .field-group.compact {
+        flex: 0 1 auto;
+        min-width: 180px;
+      }
+
+      .field-label {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        white-space: nowrap;
+      }
+
+      #status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #484f58;
+        flex-shrink: 0;
+      }
+
+      #status-dot.playing {
+        background: var(--green);
+      }
+
+      #status-dot.waiting {
+        background: var(--yellow);
+      }
+
+      #status-dot.ended {
+        background: var(--red);
+      }
+
+      #status-text {
+        font-size: 12px;
+        color: var(--muted);
+        min-width: 110px;
+      }
+
+      #timer-display {
+        min-width: 92px;
+        text-align: right;
+        font-size: 13px;
+        color: var(--yellow);
+      }
+
+      .btn-blue {
+        background: #1f6feb;
+        color: white;
+      }
+
+      .btn-green {
+        background: #238636;
+        color: white;
+      }
+
+      .btn-purple {
+        background: var(--purple);
+        color: white;
+      }
+
+      .btn-red {
+        background: #da3633;
+        color: white;
+      }
+
+      .btn-ghost {
+        background: #21262d;
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+
+      .btn-yellow {
+        background: #9a6700;
+        color: white;
+      }
+
+      #main {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+
+      #level-panel {
+        width: 190px;
+        min-width: 170px;
+        background: rgba(22, 27, 34, 0.94);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .panel-header {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      #level-list {
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        overflow-y: auto;
+        flex: 1;
+      }
+
+      .level-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        background: #0d1117;
+        border: 1px solid #21262d;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+
+      .level-row .idx {
+        color: var(--muted);
+      }
+
+      .level-row .state {
+        font-weight: 700;
+      }
+
+      .level-row.active {
+        border-color: #1f6feb;
+        background: #0d2040;
+      }
+
+      .level-row.done {
+        border-color: #238636;
+        background: #0d2e1a;
+      }
+
+      .level-row.pending .state {
+        color: var(--muted);
+      }
+
+      .level-row.active .state {
+        color: var(--blue);
+      }
+
+      .level-row.done .state {
+        color: var(--green);
+      }
+
+      #game-area {
+        flex: 1;
+        min-width: 0;
+        overflow: auto;
+        position: relative;
+        padding: 20px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+      }
+
+      #game-shell {
+        width: min(1120px, 100%);
+        display: grid;
+        gap: 16px;
+        margin: 0 auto;
+        align-content: start;
+      }
+
+      #stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .stat-card {
+        background: rgba(22, 27, 34, 0.96);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+      }
+
+      .stat-card .label {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .stat-card .value {
+        display: block;
+        margin-top: 8px;
+        font-size: 22px;
+        font-weight: 800;
+      }
+
+      #board-card {
+        background: rgba(22, 27, 34, 0.96);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        display: grid;
+        gap: 14px;
+        min-height: 0;
+      }
+
+      #board-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      #board-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: #0d1117;
+        border: 1px solid #21262d;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .pill strong {
+        color: var(--text);
+      }
+
+      #notice {
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: rgba(88, 166, 255, 0.12);
+        border: 1px solid rgba(88, 166, 255, 0.28);
+        color: #cde4ff;
+        line-height: 1.45;
+        font-size: 13px;
+      }
+
+      #notice.warn {
+        background: rgba(227, 179, 65, 0.12);
+        border-color: rgba(227, 179, 65, 0.25);
+        color: #ffe8a3;
+      }
+
+      #notice.error {
+        background: rgba(248, 81, 73, 0.12);
+        border-color: rgba(248, 81, 73, 0.3);
+        color: #ffd7d5;
+      }
+
+      #grid-wrap {
+        position: relative;
+        min-height: 220px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        max-height: min(72vh, 960px);
+        overflow: auto;
+        border: 1px dashed #21262d;
+        border-radius: 16px;
+        background: rgba(13, 17, 23, 0.5);
+      }
+
+      #grid {
+        display: grid;
+        gap: 12px;
+        width: max-content;
+        min-width: min(720px, 100%);
+        max-width: 100%;
+        justify-content: center;
+        margin: 0 auto;
+      }
+
+      .card {
+        position: relative;
+        aspect-ratio: 1 / 1;
+        min-width: 92px;
+        min-height: 92px;
+        border: 0;
+        border-radius: 18px;
+        background: transparent;
+        padding: 0;
+        cursor: pointer;
+        perspective: 900px;
+      }
+
+      .card-face {
+        position: absolute;
+        inset: 0;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        backface-visibility: hidden;
+        transition:
+          transform 240ms ease,
+          box-shadow 180ms ease,
+          border-color 180ms ease,
+          filter 180ms ease;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+      }
+
+      .card-back {
+        background:
+          radial-gradient(circle at 30% 20%, rgba(255,255,255,0.14), transparent 30%),
+          linear-gradient(135deg, #173256 0%, #20456e 100%);
+        color: white;
+        font-size: clamp(26px, 4vw, 38px);
+        transform: rotateY(0deg);
+      }
+
+      .card-front {
+        background: linear-gradient(180deg, #f7fafc 0%, #dce7f7 100%);
+        color: #0f172a;
+        transform: rotateY(180deg);
+      }
+
+      .card.is-flipped .card-back,
+      .card.is-matched .card-back {
+        transform: rotateY(180deg);
+      }
+
+      .card.is-flipped .card-front,
+      .card.is-matched .card-front {
+        transform: rotateY(0deg);
+      }
+
+      .card.is-matched .card-front {
+        border-color: rgba(63, 185, 80, 0.7);
+        box-shadow: 0 0 0 2px rgba(63, 185, 80, 0.25);
+      }
+
+      .card.is-disabled {
+        cursor: default;
+      }
+
+      .card.flash-mismatch .card-front {
+        animation: mismatch 420ms ease;
+      }
+
+      @keyframes mismatch {
+        0% { box-shadow: 0 0 0 rgba(248,81,73,0); }
+        45% { box-shadow: 0 0 0 8px rgba(248,81,73,0.32); filter: brightness(1.08); }
+        100% { box-shadow: 0 0 0 rgba(248,81,73,0); filter: none; }
+      }
+
+      .card img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 12px;
+      }
+
+      .card-word {
+        display: grid;
+        gap: 8px;
+        place-items: center;
+        text-align: center;
+        width: 100%;
+      }
+
+      .card-word img {
+        max-height: 44px;
+      }
+
+      .card-symbol {
+        font-size: clamp(22px, 3.6vw, 34px);
+        font-weight: 800;
+        text-transform: capitalize;
+        line-height: 1.15;
+      }
+
+      .card-color {
+        width: 70%;
+        aspect-ratio: 1 / 1;
+        border-radius: 18px;
+        border: 2px solid rgba(15, 23, 42, 0.16);
+      }
+
+      #empty-msg {
+        color: #6b7280;
+        text-align: center;
+        line-height: 1.6;
+        padding: 30px;
+      }
+
+      .overlay {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: rgba(13, 17, 23, 0.88);
+        backdrop-filter: blur(4px);
+        border-radius: 18px;
+        z-index: 20;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 10px;
+        text-align: center;
+        padding: 24px;
+      }
+
+      .overlay.show {
+        display: flex;
+      }
+
+      #preview-overlay .title {
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--blue);
+        letter-spacing: 0.08em;
+      }
+
+      #preview-overlay {
+        background: linear-gradient(
+          180deg,
+          rgba(13, 17, 23, 0.14) 0%,
+          rgba(13, 17, 23, 0.28) 100%
+        );
+        pointer-events: none;
+        justify-content: flex-start;
+        padding-top: 24px;
+      }
+
+      #preview-overlay .subtitle,
+      #game-end-overlay .subtitle {
+        font-size: 14px;
+        color: var(--muted);
+        max-width: 420px;
+        line-height: 1.6;
+      }
+
+      .preview-bar {
+        width: min(320px, 70%);
+        height: 8px;
+        border-radius: 999px;
+        background: #21262d;
+        overflow: hidden;
+      }
+
+      .preview-bar > div {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, var(--purple), var(--blue));
+        transform-origin: left center;
+      }
+
+      #game-end-overlay .title {
+        font-size: 34px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }
+
+      #game-end-overlay.completed .title {
+        color: var(--green);
+      }
+
+      #game-end-overlay.expired .title,
+      #game-end-overlay.error .title {
+        color: var(--red);
+      }
+
+      #sidebar {
+        width: 360px;
+        min-width: 300px;
+        background: rgba(22, 27, 34, 0.94);
+        border-left: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+      }
+
+      #sidebar-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      #log,
+      #event-log {
+        overflow-y: auto;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      #log {
+        flex: 1;
+        border-bottom: 1px solid var(--border);
+      }
+
+      #event-log {
+        max-height: 220px;
+      }
+
+      .log-entry {
+        font-size: 11px;
+        padding: 8px 9px;
+        border-radius: 6px;
+        border-left: 3px solid transparent;
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.5;
+      }
+
+      .log-entry.out {
+        background: #0d2040;
+        border-color: #1f6feb;
+      }
+
+      .log-entry.in {
+        background: #0d2e1a;
+        border-color: #238636;
+      }
+
+      .log-entry.err {
+        background: #2d0d0d;
+        border-color: #f85149;
+      }
+
+      .log-entry.info {
+        background: #1c2128;
+        border-color: #8b949e;
+      }
+
+      .log-entry .lt {
+        display: block;
+        color: #6b7280;
+        font-size: 10px;
+        margin-bottom: 2px;
+      }
+
+      .log-entry .ev {
+        display: block;
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      .log-entry .body {
+        display: block;
+        color: var(--muted);
+      }
+
+      .history-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 12px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #0d1117;
+        border: 1px solid #21262d;
+      }
+
+      .history-row strong {
+        color: var(--green);
+      }
+
+      .history-row .time {
+        color: var(--muted);
+      }
+
+      #session-dump {
+        min-height: 160px;
+        resize: vertical;
+      }
+
+      @media (max-width: 1240px) {
+        #sidebar {
+          width: 320px;
+          min-width: 260px;
+        }
+      }
+
+      @media (max-width: 980px) {
+        body {
+          overflow: auto;
+        }
+
+        #main {
+          flex-direction: column;
+        }
+
+        #level-panel,
+        #sidebar {
+          width: 100%;
+          min-width: 0;
+          border: 0;
+          border-top: 1px solid var(--border);
+        }
+
+        #stats-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        #game-area {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="topbar">
+      <div class="topbar-row">
+        <div id="status-dot"></div>
+        <div id="status-text">Idle</div>
+        <div class="url-group">
+          <span class="field-label">API</span>
+          <input id="api-base" value="http://localhost:3000/v1" />
+        </div>
+        <div class="field-group compact">
+          <span class="field-label">Stage</span>
+          <input
+            id="stage-id"
+            value="d13e13c5-cd28-4ccf-82ea-c5b71a8edd11"
+            placeholder="Gameplay stage id"
+          />
+        </div>
+        <div id="timer-display">--:--</div>
+      </div>
+
+      <div class="topbar-row">
+        <div class="field-group">
+          <span class="field-label">Token</span>
+          <input
+            id="token"
+            placeholder="Paste the bearer token used for this stage"
+          />
+        </div>
+        <button id="btn-load-config" class="btn-purple">Load Config</button>
+        <button id="btn-start" class="btn-blue">Start</button>
+        <button id="btn-resume" class="btn-green">Resume</button>
+        <button id="btn-sync-time" class="btn-ghost">Sync Time</button>
+        <button id="btn-end" class="btn-red">End Game</button>
+      </div>
+
+      <div class="topbar-row">
+        <div class="field-group">
+          <span class="field-label">Session</span>
+          <input
+            id="session-input"
+            placeholder="Optional for resume; auto-filled after start"
+          />
+        </div>
+        <div class="field-group compact">
+          <span class="field-label">Server Offset</span>
+          <input id="server-offset" readonly />
+        </div>
+        <div class="field-group compact">
+          <span class="field-label">Sync RTT</span>
+          <input id="sync-rtt" readonly />
+        </div>
+      </div>
+    </div>
+
+    <div id="main">
+      <aside id="level-panel">
+        <div class="panel-header">Level Progress</div>
+        <div id="level-list"></div>
+      </aside>
+
+      <section id="game-area">
+        <div id="game-shell">
+          <div id="stats-grid">
+            <div class="stat-card">
+              <span class="label">Time Remaining</span>
+              <span id="stat-time" class="value">--</span>
+            </div>
+            <div class="stat-card">
+              <span class="label">Current Level</span>
+              <span id="stat-level" class="value">--</span>
+            </div>
+            <div class="stat-card">
+              <span class="label">Matched Pairs</span>
+              <span id="stat-matches" class="value">--</span>
+            </div>
+            <div class="stat-card">
+              <span class="label">Session</span>
+              <span id="stat-session" class="value" style="font-size: 14px">--</span>
+            </div>
+          </div>
+
+          <div id="board-card">
+            <div id="board-header">
+              <div id="board-meta">
+                <span class="pill">Level <strong id="level-title">No active level</strong></span>
+                <span class="pill">Grid <strong id="grid-size">--</strong></span>
+                <span class="pill">Type <strong id="content-type">--</strong></span>
+                <span class="pill">Total <strong id="total-levels">--</strong></span>
+              </div>
+              <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button id="btn-save-progress" class="btn-ghost">Save Progress</button>
+                <button id="btn-autoplay" class="btn-purple">Autoplay</button>
+                <button id="btn-complete-level" class="btn-green">Complete Level</button>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button id="btn-scenario-fast" class="btn-yellow">Cheat: Too Fast</button>
+              <button id="btn-scenario-uniform" class="btn-yellow">Cheat: Uniform Timing</button>
+              <button id="btn-scenario-remaining" class="btn-yellow">Cheat: End Early</button>
+              <button id="btn-scenario-impossible" class="btn-yellow">Cheat: Impossible Solve</button>
+            </div>
+
+            <div id="notice">
+              Start or resume a session, then the client will preview each board,
+              buffer click moves using synced server time, and submit those moves
+              back to the backend for server-side validation.
+            </div>
+
+            <div id="grid-wrap">
+              <div id="empty-msg">
+                Load config or start a session to render the current level here.
+              </div>
+              <div id="grid"></div>
+
+              <div id="preview-overlay" class="overlay">
+                <div class="title">MEMORIZE</div>
+                <div id="preview-countdown" class="title" style="font-size: 40px;">0</div>
+                <div class="preview-bar">
+                  <div id="preview-bar-fill"></div>
+                </div>
+                <div class="subtitle">
+                  The board is temporarily revealed. Once the preview ends, your
+                  confirmed matches will be recorded with server-aligned timestamps.
+                </div>
+              </div>
+
+              <div id="game-end-overlay" class="overlay">
+                <div class="title">Session Ended</div>
+                <div id="game-end-subtitle" class="subtitle"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside id="sidebar">
+        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Request Log</span>
+          <div id="sidebar-actions">
+            <button id="btn-clear-log" class="btn-ghost">Clear</button>
+            <button id="btn-copy-log" class="btn-ghost">Copy</button>
+          </div>
+        </div>
+        <div id="log"></div>
+
+        <div class="panel-header">Matched Pair Timeline</div>
+        <div id="event-log"></div>
+
+        <div class="panel-header">Session Snapshot</div>
+        <div style="padding: 10px;">
+          <textarea id="session-dump" readonly></textarea>
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      const STORAGE_KEYS = {
+        apiBase: "memoryCardApiBase",
+        stageId: "memoryCardStageId",
+        token: "memoryCardToken",
+      };
+
+      const state = {
+        config: null,
+        sessionId: "",
+        currentLevel: null,
+        currentLevelIndex: 0,
+        totalLevels: 0,
+        matchedPairsProgress: [],
+        matchedPairIds: new Set(),
+        pendingMoves: [],
+        flippedCardIds: [],
+        previewLocked: false,
+        processingFlip: false,
+        timerId: null,
+        serverOffsetMs: 0,
+        syncRttMs: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        gameEnded: false,
+        completedLevelIndices: new Set(),
+        pendingFinalize: false,
+        autoPlayActive: false,
+        autoPlayRunId: 0,
+      };
+
+      const elements = {
+        apiBase: document.getElementById("api-base"),
+        stageId: document.getElementById("stage-id"),
+        token: document.getElementById("token"),
+        sessionInput: document.getElementById("session-input"),
+        serverOffset: document.getElementById("server-offset"),
+        syncRtt: document.getElementById("sync-rtt"),
+        statusDot: document.getElementById("status-dot"),
+        statusText: document.getElementById("status-text"),
+        timerDisplay: document.getElementById("timer-display"),
+        levelList: document.getElementById("level-list"),
+        statTime: document.getElementById("stat-time"),
+        statLevel: document.getElementById("stat-level"),
+        statMatches: document.getElementById("stat-matches"),
+        statSession: document.getElementById("stat-session"),
+        levelTitle: document.getElementById("level-title"),
+        gridSize: document.getElementById("grid-size"),
+        contentType: document.getElementById("content-type"),
+        totalLevels: document.getElementById("total-levels"),
+        notice: document.getElementById("notice"),
+        grid: document.getElementById("grid"),
+        emptyMsg: document.getElementById("empty-msg"),
+        previewOverlay: document.getElementById("preview-overlay"),
+        previewCountdown: document.getElementById("preview-countdown"),
+        previewBarFill: document.getElementById("preview-bar-fill"),
+        gameEndOverlay: document.getElementById("game-end-overlay"),
+        gameEndSubtitle: document.getElementById("game-end-subtitle"),
+        log: document.getElementById("log"),
+        eventLog: document.getElementById("event-log"),
+        sessionDump: document.getElementById("session-dump"),
+        loadConfigBtn: document.getElementById("btn-load-config"),
+        startBtn: document.getElementById("btn-start"),
+        resumeBtn: document.getElementById("btn-resume"),
+        syncTimeBtn: document.getElementById("btn-sync-time"),
+        endBtn: document.getElementById("btn-end"),
+        saveProgressBtn: document.getElementById("btn-save-progress"),
+        autoPlayBtn: document.getElementById("btn-autoplay"),
+        completeLevelBtn: document.getElementById("btn-complete-level"),
+        scenarioFastBtn: document.getElementById("btn-scenario-fast"),
+        scenarioUniformBtn: document.getElementById("btn-scenario-uniform"),
+        scenarioRemainingBtn: document.getElementById("btn-scenario-remaining"),
+        scenarioImpossibleBtn: document.getElementById("btn-scenario-impossible"),
+        clearLogBtn: document.getElementById("btn-clear-log"),
+        copyLogBtn: document.getElementById("btn-copy-log"),
+      };
+
+      function $(id) {
+        return document.getElementById(id);
+      }
+
+      function ts() {
+        return new Date().toLocaleTimeString("en-GB", {
+          hour12: false,
+          fractionalSecondDigits: 2,
+        });
+      }
+
+      function generateMoveId() {
+        if (globalThis.crypto?.randomUUID) {
+          return globalThis.crypto.randomUUID();
+        }
+
+        return `move-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      function log(type, event, data) {
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${type}`;
+        const label = { out: "▲ SENT", in: "▼ RECV", err: "✖ ERR", info: "ℹ" }[type];
+        const body =
+          data === undefined
+            ? ""
+            : `\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}`;
+        entry.innerHTML = `<span class="lt">${ts()}</span><span class="ev">${label}  ${event}</span><span class="body">${body}</span>`;
+        elements.log.prepend(entry);
+      }
+
+      function normalizeBaseUrl(value) {
+        return (value ?? "").trim().replace(/\/+$/, "");
+      }
+
+      function getApiBase() {
+        return normalizeBaseUrl(elements.apiBase.value);
+      }
+
+      function getStageId() {
+        const stageId = elements.stageId.value.trim();
+        if (!stageId) {
+          throw new Error("Stage ID is required");
+        }
+        return stageId;
+      }
+
+      function getToken() {
+        const token = elements.token.value.trim();
+        if (!token) {
+          throw new Error("Bearer token is required");
+        }
+        return token;
+      }
+
+      function savePreferences() {
+        localStorage.setItem(STORAGE_KEYS.apiBase, elements.apiBase.value.trim());
+        localStorage.setItem(STORAGE_KEYS.stageId, elements.stageId.value.trim());
+        localStorage.setItem(STORAGE_KEYS.token, elements.token.value.trim());
+      }
+
+      function restorePreferences() {
+        elements.apiBase.value =
+          localStorage.getItem(STORAGE_KEYS.apiBase) || elements.apiBase.value;
+        elements.stageId.value =
+          localStorage.getItem(STORAGE_KEYS.stageId) || elements.stageId.value;
+        elements.token.value =
+          localStorage.getItem(STORAGE_KEYS.token) || elements.token.value;
+      }
+
+      async function api(method, path, body) {
+        const url = `${getApiBase()}${path}`;
+        const headers = {
+          Authorization: `Bearer ${getToken()}`,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        };
+
+        log("out", `${method} ${path}`, body);
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        const text = await response.text();
+        let json = null;
+
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = text;
+        }
+
+        const data =
+          json &&
+          typeof json === "object" &&
+          "data" in json &&
+          "success" in json
+            ? json.data
+            : json;
+
+        log(response.ok ? "in" : "err", `${method} ${path} <- ${response.status}`, data);
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              data?.error ||
+              json?.message ||
+              response.statusText ||
+              "Request failed",
+          );
+        }
+
+        return data;
+      }
+
+      function setStatus(status, text) {
+        elements.statusDot.className = "";
+        if (status) {
+          elements.statusDot.classList.add(status);
+        }
+        elements.statusText.textContent = text;
+      }
+
+      function setNotice(message, tone = "info") {
+        elements.notice.textContent = message;
+        elements.notice.className =
+          tone === "warn"
+            ? "warn"
+            : tone === "error"
+              ? "error"
+              : "";
+        elements.notice.id = "notice";
+      }
+
+      function nowSyncedMs() {
+        return Date.now() + state.serverOffsetMs;
+      }
+
+      function formatOffset(ms) {
+        const rounded = Math.round(ms);
+        return `${rounded >= 0 ? "+" : ""}${rounded} ms`;
+      }
+
+      function getTimeRemainingSeconds() {
+        if (!state.endTimeMs) {
+          return 0;
+        }
+        return Math.max(0, Math.ceil((state.endTimeMs - nowSyncedMs()) / 1000));
+      }
+
+      function syncTimingFields(payload) {
+        if (payload?.startTime) {
+          state.startTimeMs = Date.parse(payload.startTime);
+        }
+        if (payload?.endTime) {
+          state.endTimeMs = Date.parse(payload.endTime);
+        }
+      }
+
+      async function syncTime() {
+        const sessionId = state.sessionId || elements.sessionInput.value.trim();
+        if (!sessionId) {
+          throw new Error("Session ID is required to sync time");
+        }
+
+        const startedAt = Date.now();
+        const response = await api(
+          "GET",
+          `/game/session/time-sync?sessionId=${encodeURIComponent(sessionId)}`,
+        );
+        const endedAt = Date.now();
+        const midpoint = startedAt + (endedAt - startedAt) / 2;
+        const serverNowMs = Date.parse(response.serverNow);
+
+        if (!Number.isNaN(serverNowMs)) {
+          state.serverOffsetMs = serverNowMs - midpoint;
+        }
+
+        state.syncRttMs = endedAt - startedAt;
+        syncTimingFields(response);
+        updateStats();
+
+        setNotice(
+          `Time synced with backend. Offset ${formatOffset(state.serverOffsetMs)}; RTT ${state.syncRttMs} ms.`,
+        );
+      }
+
+      function clearTimer() {
+        if (state.timerId) {
+          clearInterval(state.timerId);
+          state.timerId = null;
+        }
+      }
+
+      async function onTimerExpired() {
+        if (state.pendingFinalize || state.gameEnded || !state.sessionId) {
+          return;
+        }
+
+        state.pendingFinalize = true;
+        setStatus("waiting", "Timer expired");
+        setNotice(
+          "Session timer reached zero. Finalizing the game with the backend.",
+          "warn",
+        );
+
+        try {
+          await finalizeGame("Time expired");
+        } finally {
+          state.pendingFinalize = false;
+        }
+      }
+
+      function startTimer() {
+        clearTimer();
+        updateTimerDisplay();
+        state.timerId = setInterval(() => {
+          updateTimerDisplay();
+          if (state.endTimeMs && nowSyncedMs() >= state.endTimeMs) {
+            clearTimer();
+            void onTimerExpired();
+          }
+        }, 250);
+      }
+
+      function updateTimerDisplay() {
+        const seconds = getTimeRemainingSeconds();
+        if (!state.endTimeMs && !state.sessionId) {
+          elements.timerDisplay.textContent = "--:--";
+          elements.statTime.textContent = "--";
+          return;
+        }
+
+        const minutes = Math.floor(seconds / 60)
+          .toString()
+          .padStart(2, "0");
+        const remainingSeconds = (seconds % 60).toString().padStart(2, "0");
+        elements.timerDisplay.textContent = `${minutes}:${remainingSeconds}`;
+        elements.timerDisplay.style.color = seconds <= 15 ? "#f85149" : "#e3b341";
+        elements.statTime.textContent = `${seconds}s`;
+      }
+
+      function renderLevelRail() {
+        elements.levelList.innerHTML = "";
+        const total = state.totalLevels || state.config?.totalLevels || 0;
+
+        if (!total) {
+          const row = document.createElement("div");
+          row.className = "level-row pending";
+          row.innerHTML = `<span class="idx">No levels loaded</span><span class="state">-</span>`;
+          elements.levelList.appendChild(row);
+          return;
+        }
+
+        for (let index = 0; index < total; index += 1) {
+          const row = document.createElement("div");
+          const isDone = state.completedLevelIndices.has(index);
+          const isActive = state.currentLevel && state.currentLevelIndex === index;
+          row.className = `level-row ${isDone ? "done" : isActive ? "active" : "pending"}`;
+          row.innerHTML = `<span class="idx">Level ${index + 1}</span><span class="state">${isDone ? "DONE" : isActive ? "LIVE" : "PENDING"}</span>`;
+          elements.levelList.appendChild(row);
+        }
+      }
+
+      function renderMatchHistory() {
+        elements.eventLog.innerHTML = "";
+
+        if (state.pendingMoves.length > 0) {
+          const buffered = document.createElement("div");
+          buffered.className = "log-entry info";
+          buffered.textContent = `${state.pendingMoves.length} buffered move(s) waiting to be sent.`;
+          elements.eventLog.appendChild(buffered);
+        }
+
+        if (state.matchedPairsProgress.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "log-entry info";
+          empty.textContent = "No confirmed pairs recorded for the current level yet.";
+          elements.eventLog.appendChild(empty);
+          return;
+        }
+
+        for (const [index, entry] of state.matchedPairsProgress.entries()) {
+          const row = document.createElement("div");
+          row.className = "history-row";
+          const time = new Date(entry.timestamp).toLocaleTimeString("en-GB", {
+            hour12: false,
+            fractionalSecondDigits: 3,
+          });
+          row.innerHTML = `<span>#${index + 1} <strong>${entry.pairId}</strong></span><span class="time">${time}</span>`;
+          elements.eventLog.appendChild(row);
+        }
+      }
+
+      function updateSessionDump() {
+        elements.sessionDump.value = JSON.stringify(
+          {
+            sessionId: state.sessionId,
+            currentLevelIndex: state.currentLevelIndex,
+            totalLevels: state.totalLevels,
+            matchedPairsProgress: state.matchedPairsProgress,
+            pendingMoves: state.pendingMoves,
+            completedLevelIndices: [...state.completedLevelIndices],
+            gameEnded: state.gameEnded,
+            autoPlayActive: state.autoPlayActive,
+            serverOffsetMs: state.serverOffsetMs,
+            syncRttMs: state.syncRttMs,
+            startTime: state.startTimeMs
+              ? new Date(state.startTimeMs).toISOString()
+              : null,
+            endTime: state.endTimeMs ? new Date(state.endTimeMs).toISOString() : null,
+            timeRemaining: getTimeRemainingSeconds(),
+          },
+          null,
+          2,
+        );
+      }
+
+      function updateStats() {
+        updateTimerDisplay();
+        elements.statSession.textContent = state.sessionId || "--";
+        elements.sessionInput.value = state.sessionId || elements.sessionInput.value;
+        elements.serverOffset.value =
+          state.sessionId || state.syncRttMs !== null
+            ? formatOffset(state.serverOffsetMs)
+            : "--";
+        elements.syncRtt.value =
+          state.syncRttMs === null ? "--" : `${state.syncRttMs} ms`;
+        elements.statLevel.textContent =
+          state.currentLevel ? `${state.currentLevelIndex + 1}` : "--";
+        elements.statMatches.textContent = state.currentLevel
+          ? `${state.matchedPairIds.size} / ${state.currentLevel.cards.length / 2}`
+          : "--";
+        elements.levelTitle.textContent = state.currentLevel
+          ? `${state.currentLevelIndex + 1}`
+          : "No active level";
+        elements.gridSize.textContent = state.currentLevel
+          ? `${state.currentLevel.gridRows} x ${state.currentLevel.gridColumns}`
+          : "--";
+        elements.contentType.textContent = state.currentLevel
+          ? state.currentLevel.cardContentType
+          : "--";
+        elements.totalLevels.textContent = state.totalLevels || "--";
+        renderLevelRail();
+        renderMatchHistory();
+        updateSessionDump();
+        syncButtons();
+      }
+
+      function syncButtons() {
+        const hasSession = Boolean(state.sessionId);
+        const hasLevel = Boolean(state.currentLevel);
+        const allMatched =
+          hasLevel &&
+          state.matchedPairIds.size === state.currentLevel.cards.length / 2;
+        const canSave = hasLevel && state.pendingMoves.length > 0 && !state.gameEnded;
+
+        elements.endBtn.disabled = !hasSession || state.gameEnded || state.pendingFinalize;
+        elements.saveProgressBtn.disabled = !canSave;
+        elements.completeLevelBtn.disabled = !allMatched || state.gameEnded || state.processingFlip;
+        elements.autoPlayBtn.disabled =
+          (!hasLevel && !state.autoPlayActive) || state.gameEnded || state.pendingFinalize;
+        elements.autoPlayBtn.textContent = state.autoPlayActive ? "Stop Autoplay" : "Autoplay";
+        const scenarioDisabled =
+          !hasLevel ||
+          state.gameEnded ||
+          state.pendingFinalize ||
+          state.previewLocked ||
+          state.processingFlip ||
+          state.autoPlayActive;
+        elements.scenarioFastBtn.disabled = scenarioDisabled;
+        elements.scenarioUniformBtn.disabled = scenarioDisabled;
+        elements.scenarioRemainingBtn.disabled = scenarioDisabled;
+        elements.scenarioImpossibleBtn.disabled = scenarioDisabled;
+      }
+
+      function resetBoardUi() {
+        elements.grid.innerHTML = "";
+        state.flippedCardIds = [];
+        state.previewLocked = false;
+        state.processingFlip = false;
+        elements.emptyMsg.style.display = "";
+      }
+
+      function buildFrontContent(card) {
+        if (card.contentType === "image") {
+          const image = document.createElement("img");
+          image.src = card.imageUrl || "";
+          image.alt = card.content || card.pairId;
+          return image;
+        }
+
+        if (card.contentType === "wordImage") {
+          const wrapper = document.createElement("div");
+          wrapper.className = "card-word";
+
+          const text = document.createElement("div");
+          text.className = "card-symbol";
+          text.textContent = card.content;
+          wrapper.appendChild(text);
+
+          if (card.imageUrl) {
+            const image = document.createElement("img");
+            image.src = card.imageUrl;
+            image.alt = card.content;
+            wrapper.appendChild(image);
+          }
+
+          return wrapper;
+        }
+
+        if (card.contentType === "color") {
+          const swatch = document.createElement("div");
+          swatch.className = "card-color";
+          swatch.style.background = card.content;
+          swatch.title = card.content;
+          return swatch;
+        }
+
+        const text = document.createElement("div");
+        text.className = "card-symbol";
+        text.textContent = card.content;
+        return text;
+      }
+
+      function renderBoard() {
+        resetBoardUi();
+
+        if (!state.currentLevel) {
+          updateStats();
+          return;
+        }
+
+        elements.emptyMsg.style.display = "none";
+        elements.grid.style.gridTemplateColumns = `repeat(${state.currentLevel.gridColumns}, minmax(92px, 1fr))`;
+
+        for (const card of state.currentLevel.cards) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `card${state.matchedPairIds.has(card.pairId) ? " is-matched is-disabled" : ""}`;
+          button.dataset.cardId = card.id;
+          button.dataset.pairId = card.pairId;
+
+          const back = document.createElement("div");
+          back.className = "card-face card-back";
+          back.textContent = "?";
+
+          const front = document.createElement("div");
+          front.className = "card-face card-front";
+          front.appendChild(buildFrontContent(card));
+
+          button.append(back, front);
+          button.addEventListener("click", () => {
+            void handleCardClick(card);
+          });
+
+          elements.grid.appendChild(button);
+        }
+
+        for (const pairId of state.matchedPairIds) {
+          setPairMatched(pairId);
+        }
+
+        updateStats();
+      }
+
+      function findCardElement(cardId) {
+        return elements.grid.querySelector(`[data-card-id="${cardId}"]`);
+      }
+
+      function setCardFace(cardId, faceUp) {
+        const cardElement = findCardElement(cardId);
+        if (!cardElement) {
+          return;
+        }
+        cardElement.classList.toggle("is-flipped", faceUp);
+      }
+
+      function setPairMatched(pairId) {
+        const cardElements = elements.grid.querySelectorAll(`[data-pair-id="${pairId}"]`);
+        for (const cardElement of cardElements) {
+          cardElement.classList.add("is-matched", "is-disabled");
+          cardElement.classList.remove("is-flipped");
+        }
+      }
+
+      function flashMismatch(cardIds) {
+        for (const cardId of cardIds) {
+          const cardElement = findCardElement(cardId);
+          if (!cardElement) {
+            continue;
+          }
+          cardElement.classList.remove("flash-mismatch");
+          void cardElement.offsetWidth;
+          cardElement.classList.add("flash-mismatch");
+        }
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      async function runPreview() {
+        if (!state.currentLevel) {
+          return;
+        }
+
+        state.previewLocked = true;
+        const duration = state.currentLevel.previewDurationSeconds;
+        elements.previewOverlay.classList.add("show");
+        elements.previewCountdown.textContent = String(duration);
+        elements.previewBarFill.style.transition = "none";
+        elements.previewBarFill.style.transform = "scaleX(1)";
+
+        for (const card of state.currentLevel.cards) {
+          setCardFace(card.id, true);
+        }
+
+        requestAnimationFrame(() => {
+          elements.previewBarFill.style.transition = `transform ${duration}s linear`;
+          elements.previewBarFill.style.transform = "scaleX(0)";
+        });
+
+        let remaining = duration;
+        const interval = setInterval(() => {
+          remaining -= 1;
+          elements.previewCountdown.textContent = String(Math.max(0, remaining));
+        }, 1000);
+
+        await sleep(duration * 1000);
+        clearInterval(interval);
+
+        for (const card of state.currentLevel.cards) {
+          if (!state.matchedPairIds.has(card.pairId)) {
+            setCardFace(card.id, false);
+          }
+        }
+
+        elements.previewOverlay.classList.remove("show");
+        state.previewLocked = false;
+        setNotice(
+          "Preview finished. Card clicks will now be buffered with synced server time.",
+        );
+      }
+
+      function setLevelStateFromResponse(level, levelIndex, matchedPairs) {
+        const resolvedMatchedPairs =
+          matchedPairs ??
+          Array.from(
+            (level?.cards || []).reduce((pairIds, card) => {
+              if (card.isTurned) {
+                pairIds.add(card.pairId);
+              }
+              return pairIds;
+            }, new Set()),
+          ).map((pairId) => ({
+            pairId,
+            timestamp: new Date(0).toISOString(),
+          }));
+        state.currentLevel = level;
+        state.currentLevelIndex = levelIndex;
+        state.matchedPairsProgress = [...resolvedMatchedPairs].sort((left, right) =>
+          left.timestamp.localeCompare(right.timestamp),
+        );
+        state.matchedPairIds = new Set(
+          state.matchedPairsProgress.map((entry) => entry.pairId),
+        );
+        state.pendingMoves = [];
+        state.flippedCardIds = [];
+        state.processingFlip = false;
+      }
+
+      async function loadConfig() {
+        savePreferences();
+        const config = await api(
+          "GET",
+          `/game/session/game-configs?stageId=${encodeURIComponent(getStageId())}`,
+        );
+        state.config = config;
+        state.totalLevels = config.totalLevels;
+        updateStats();
+        setNotice(
+          `Loaded config: ${config.totalLevels} level(s), ${config.gameTimeLimitSeconds} seconds, demo ${config.enableDemo ? "enabled" : "disabled"}.`,
+        );
+      }
+
+      async function startGame() {
+        savePreferences();
+        clearTimer();
+        state.autoPlayActive = false;
+        state.autoPlayRunId += 1;
+        state.gameEnded = false;
+        state.completedLevelIndices = new Set();
+        state.pendingFinalize = false;
+        await loadConfig();
+
+        const data = await api("POST", "/game/session/start", {
+          stageId: getStageId(),
+        });
+
+        state.sessionId = data.sessionId;
+        syncTimingFields(data);
+        setLevelStateFromResponse(data.firstLevel, data.firstLevel.levelIndex, []);
+        renderBoard();
+        await syncTime();
+        startTimer();
+        setStatus("playing", "Session started");
+        await runPreview();
+      }
+
+      async function resumeGame() {
+        savePreferences();
+        state.autoPlayActive = false;
+        state.autoPlayRunId += 1;
+        const sessionId = state.sessionId || elements.sessionInput.value.trim();
+        if (!sessionId) {
+          throw new Error("Session ID is required to resume");
+        }
+
+        const current = await api(
+          "GET",
+          `/game/session/current?sessionId=${encodeURIComponent(sessionId)}`,
+        );
+        await loadConfig();
+        state.sessionId = current.sessionId;
+        state.gameEnded = false;
+        state.pendingFinalize = false;
+        syncTimingFields(current);
+        setLevelStateFromResponse(
+          current.currentLevel,
+          current.currentLevelIndex,
+          null,
+        );
+
+        state.completedLevelIndices = new Set(
+          Array.from({ length: current.currentLevelIndex }, (_, index) => index),
+        );
+
+        renderBoard();
+        await syncTime();
+        startTimer();
+        setStatus("playing", "Session resumed");
+        setNotice(
+          "Resumed session from backend state. Existing server-confirmed matches were restored.",
+        );
+      }
+
+      async function saveProgress() {
+        if (!state.sessionId || !state.currentLevel || state.pendingMoves.length === 0) {
+          return { accepted: 0 };
+        }
+
+        const moves = [...state.pendingMoves];
+        const response = await api("POST", "/game/session/save-progress", {
+          moves,
+        });
+        state.pendingMoves = [];
+
+        setNotice(
+          `Saved ${response.accepted} move(s) for level ${state.currentLevelIndex + 1}.`,
+        );
+        updateStats();
+        return response;
+      }
+
+      async function fetchCurrentSession() {
+        if (!state.sessionId) {
+          throw new Error("Session ID is required to fetch the current session");
+        }
+
+        return api(
+          "GET",
+          `/game/session/current?sessionId=${encodeURIComponent(state.sessionId)}`,
+        );
+      }
+
+      async function completeLevel() {
+        if (!state.sessionId || !state.currentLevel) {
+          return;
+        }
+
+        if (state.pendingMoves.length > 0) {
+          await saveProgress();
+        }
+
+        const completedLevelIndex = state.currentLevelIndex;
+        const response = await api("POST", "/game/session/complete-board");
+        state.completedLevelIndices.add(state.currentLevelIndex);
+
+        if (response.gameOver) {
+          renderBoardEndState("All levels cleared. Finalizing game result...");
+          await finalizeGame("All levels completed");
+          return;
+        }
+
+        const current = await fetchCurrentSession();
+        syncTimingFields(current);
+        setLevelStateFromResponse(
+          current.currentLevel,
+          current.currentLevelIndex,
+          null,
+        );
+        renderBoard();
+        await syncTime();
+        startTimer();
+        setStatus("playing", `Level ${current.currentLevelIndex + 1}`);
+        setNotice(
+          `Level ${completedLevelIndex + 1} completed. Starting preview for level ${current.currentLevelIndex + 1}.`,
+        );
+        await runPreview();
+      }
+
+      async function finalizeGame(reason) {
+        if (!state.sessionId) {
+          return;
+        }
+
+        const response = await api("POST", "/game/session/game-end", {
+          sessionId: state.sessionId,
+        });
+
+        clearTimer();
+        state.autoPlayActive = false;
+        state.autoPlayRunId += 1;
+        state.gameEnded = true;
+        state.currentLevel = null;
+        setStatus("ended", "Session ended");
+        showEndOverlay("Session Ended", `${reason}. Final score: ${response.finalScore}.`, "completed");
+        setNotice(`${reason}. Final score: ${response.finalScore}.`);
+        updateStats();
+      }
+
+      function renderBoardEndState(message) {
+        state.currentLevel = null;
+        state.pendingMoves = [];
+        state.flippedCardIds = [];
+        state.processingFlip = false;
+        renderBoard();
+        elements.emptyMsg.textContent = message;
+        elements.emptyMsg.style.display = "";
+      }
+
+      function showEndOverlay(title, subtitle, tone) {
+        elements.gameEndOverlay.className = `overlay show ${tone || ""}`;
+        elements.gameEndOverlay.querySelector(".title").textContent = title;
+        elements.gameEndSubtitle.textContent = subtitle;
+      }
+
+      function hideEndOverlay() {
+        elements.gameEndOverlay.className = "overlay";
+      }
+
+      async function waitForCondition(check, timeoutMs = 30000, intervalMs = 80) {
+        const startedAt = Date.now();
+        while (!check()) {
+          if (Date.now() - startedAt > timeoutMs) {
+            throw new Error("Timed out while waiting for the game client state to settle");
+          }
+          await sleep(intervalMs);
+        }
+      }
+
+      async function playPairAutomatically(cardA, cardB, runId) {
+        return playPairWithTiming(cardA, cardB, {
+          runId,
+          delayBeforeSecondClickMs: 140,
+          delayAfterPairMs: 120,
+        });
+      }
+
+      async function playPairWithTiming(cardA, cardB, options = {}) {
+        const {
+          runId = state.autoPlayRunId,
+          delayBeforeSecondClickMs = 140,
+          delayAfterPairMs = 120,
+        } = options;
+
+        if (!state.autoPlayActive || state.autoPlayRunId !== runId) {
+          return;
+        }
+
+        await handleCardClick(cardA);
+        await sleep(delayBeforeSecondClickMs);
+        await handleCardClick(cardB);
+        await waitForCondition(
+          () => !state.processingFlip && state.autoPlayRunId === runId,
+          20000,
+          60,
+        );
+        await sleep(delayAfterPairMs);
+      }
+
+      async function runAutoPlay() {
+        const runId = ++state.autoPlayRunId;
+        state.autoPlayActive = true;
+        updateStats();
+        setNotice("Autoplay engaged. The client will solve each level using buffered click moves.");
+
+        try {
+          while (state.autoPlayActive && !state.gameEnded && state.sessionId) {
+            if (!state.currentLevel) {
+              break;
+            }
+
+            await waitForCondition(
+              () => !state.previewLocked && !state.processingFlip && !state.pendingFinalize,
+              60000,
+              100,
+            );
+
+            const remainingPairs = Array.from(
+              state.currentLevel.cards.reduce((map, card) => {
+                if (state.matchedPairIds.has(card.pairId)) {
+                  return map;
+                }
+
+                const cards = map.get(card.pairId) || [];
+                cards.push(card);
+                map.set(card.pairId, cards);
+                return map;
+              }, new Map()),
+            );
+
+            for (const [, cards] of remainingPairs) {
+              if (!state.autoPlayActive || state.autoPlayRunId !== runId || state.gameEnded) {
+                return;
+              }
+
+              if (cards.length >= 2) {
+                await playPairAutomatically(cards[0], cards[1], runId);
+              }
+            }
+
+            if (
+              state.currentLevel &&
+              state.matchedPairIds.size === state.currentLevel.cards.length / 2 &&
+              !state.pendingFinalize
+            ) {
+              await completeLevel();
+            } else {
+              break;
+            }
+          }
+        } catch (error) {
+          log("err", "Autoplay failed", error.message || String(error));
+          setNotice(error.message || String(error), "error");
+        } finally {
+          if (state.autoPlayRunId === runId) {
+            state.autoPlayActive = false;
+            updateStats();
+          }
+        }
+      }
+
+      function toggleAutoPlay() {
+        if (state.autoPlayActive) {
+          state.autoPlayActive = false;
+          state.autoPlayRunId += 1;
+          setNotice("Autoplay stopped.");
+          updateStats();
+          return;
+        }
+
+        if (!state.currentLevel) {
+          throw new Error("Start or resume a session before using autoplay");
+        }
+
+        void runAutoPlay();
+      }
+
+      function getUnmatchedPairs() {
+        if (!state.currentLevel) {
+          return [];
+        }
+
+        return Array.from(
+          state.currentLevel.cards.reduce((map, card) => {
+            if (state.matchedPairIds.has(card.pairId)) {
+              return map;
+            }
+
+            const cards = map.get(card.pairId) || [];
+            cards.push(card);
+            map.set(card.pairId, cards);
+            return map;
+          }, new Map()),
+        )
+          .map(([pairId, cards]) => ({ pairId, cards }))
+          .filter((entry) => entry.cards.length >= 2);
+      }
+
+      async function runScenario(name, runner) {
+        if (!state.currentLevel) {
+          throw new Error("Start or resume a session before running a cheat scenario");
+        }
+
+        await waitForCondition(
+          () => !state.previewLocked && !state.processingFlip && !state.pendingFinalize,
+          60000,
+          100,
+        );
+
+        const runId = ++state.autoPlayRunId;
+        state.autoPlayActive = true;
+        updateStats();
+        setNotice(`${name} scenario started. Watch backend logs or persisted cheat flags for verification.`, "warn");
+
+        try {
+          await runner(runId);
+        } finally {
+          if (state.autoPlayRunId === runId) {
+            state.autoPlayActive = false;
+            updateStats();
+          }
+        }
+      }
+
+      async function runTooFastScenario() {
+        await runScenario("CLICK_TOO_FAST", async (runId) => {
+          const pairs = getUnmatchedPairs().slice(0, 2);
+          if (pairs.length < 2) {
+            throw new Error("Need at least two unmatched pairs to trigger the too-fast scenario");
+          }
+
+          for (const pair of pairs) {
+            await playPairWithTiming(pair.cards[0], pair.cards[1], {
+              runId,
+              delayBeforeSecondClickMs: 5,
+              delayAfterPairMs: 5,
+            });
+          }
+
+          setNotice("Too-fast scenario finished. Consecutive clicks were submitted with near-zero delays.", "warn");
+        });
+      }
+
+      async function runUniformTimingScenario() {
+        await runScenario("UNIFORM_TIMING", async (runId) => {
+          const pairs = getUnmatchedPairs().slice(0, 2);
+          if (pairs.length < 2) {
+            throw new Error("Need at least two unmatched pairs to trigger the uniform-timing scenario");
+          }
+
+          for (const pair of pairs) {
+            await playPairWithTiming(pair.cards[0], pair.cards[1], {
+              runId,
+              delayBeforeSecondClickMs: 260,
+              delayAfterPairMs: 260,
+            });
+          }
+
+          setNotice("Uniform-timing scenario finished. Clicks were sent with highly regular intervals.", "warn");
+        });
+      }
+
+      async function runRemainingPairsScenario() {
+        await runScenario("REMAINING_PAIRS_AT_END", async (runId) => {
+          const firstPair = getUnmatchedPairs()[0];
+          if (firstPair) {
+            await playPairWithTiming(firstPair.cards[0], firstPair.cards[1], {
+              runId,
+              delayBeforeSecondClickMs: 180,
+              delayAfterPairMs: 120,
+            });
+          }
+
+          await completeLevel();
+        });
+      }
+
+      async function runImpossibleSolveScenario() {
+        await runScenario("IMPOSSIBLE_SOLVE_TIME", async (runId) => {
+          const pairs = getUnmatchedPairs();
+          if (pairs.length === 0) {
+            throw new Error("No unmatched pairs remain for the impossible-solve scenario");
+          }
+
+          for (const pair of pairs) {
+            await playPairWithTiming(pair.cards[0], pair.cards[1], {
+              runId,
+              delayBeforeSecondClickMs: 10,
+              delayAfterPairMs: 10,
+            });
+          }
+
+          await completeLevel();
+        });
+      }
+
+      function recordMatchedPair(pairId) {
+        if (state.matchedPairIds.has(pairId)) {
+          return;
+        }
+
+        const timestamp = new Date(nowSyncedMs()).toISOString();
+        state.matchedPairIds.add(pairId);
+        state.matchedPairsProgress.push({ pairId, timestamp });
+        state.matchedPairsProgress.sort((left, right) =>
+          left.timestamp.localeCompare(right.timestamp),
+        );
+      }
+
+      function recordMove(cardId) {
+        state.pendingMoves.push({
+          id: cardId,
+          clickedAt: new Date(nowSyncedMs()).toISOString(),
+          moveId: generateMoveId(),
+        });
+      }
+
+      async function handleCardClick(card) {
+        if (
+          !state.currentLevel ||
+          state.gameEnded ||
+          state.previewLocked ||
+          state.processingFlip
+        ) {
+          return;
+        }
+
+        if (
+          state.matchedPairIds.has(card.pairId) ||
+          state.flippedCardIds.includes(card.id)
+        ) {
+          return;
+        }
+
+        recordMove(card.id);
+        state.flippedCardIds.push(card.id);
+        setCardFace(card.id, true);
+        updateStats();
+
+        if (state.flippedCardIds.length < 2) {
+          return;
+        }
+
+        state.processingFlip = true;
+        const [firstId, secondId] = state.flippedCardIds;
+        const firstCard = state.currentLevel.cards.find((item) => item.id === firstId);
+        const secondCard = state.currentLevel.cards.find((item) => item.id === secondId);
+
+        if (!firstCard || !secondCard) {
+          state.flippedCardIds = [];
+          state.processingFlip = false;
+          return;
+        }
+
+        if (firstCard.pairId === secondCard.pairId) {
+          recordMatchedPair(firstCard.pairId);
+          setPairMatched(firstCard.pairId);
+          state.flippedCardIds = [];
+          updateStats();
+
+          try {
+            await saveProgress();
+          } catch (error) {
+            log("err", "Auto save-progress failed", error.message || String(error));
+            setNotice(
+              `Pair matched locally, but save-progress failed: ${error.message || String(error)}`,
+              "warn",
+            );
+          }
+
+          const totalPairs = state.currentLevel.cards.length / 2;
+          if (state.matchedPairIds.size === totalPairs) {
+            setNotice(
+              "All pairs found. Use Complete Level to finalize the board on the backend.",
+            );
+          } else {
+            setNotice("Match confirmed. Click moves were saved to the backend.");
+          }
+
+          state.processingFlip = false;
+          updateStats();
+          return;
+        }
+
+        flashMismatch([firstId, secondId]);
+        setNotice("Not a match. Cards will flip back shortly.", "warn");
+        await sleep(state.currentLevel.mismatchDisplayDurationSeconds * 1000);
+        setCardFace(firstId, false);
+        setCardFace(secondId, false);
+        state.flippedCardIds = [];
+        state.processingFlip = false;
+        updateStats();
+
+        try {
+          await saveProgress();
+        } catch (error) {
+          log("err", "Auto save-progress failed", error.message || String(error));
+          setNotice(
+            `Mismatch was buffered locally, but save-progress failed: ${error.message || String(error)}`,
+            "warn",
+          );
+        }
+      }
+
+      function resetSessionState() {
+        clearTimer();
+        hideEndOverlay();
+        state.sessionId = "";
+        state.currentLevel = null;
+        state.currentLevelIndex = 0;
+        state.totalLevels = state.config?.totalLevels || 0;
+        state.matchedPairsProgress = [];
+        state.matchedPairIds = new Set();
+        state.pendingMoves = [];
+        state.flippedCardIds = [];
+        state.previewLocked = false;
+        state.processingFlip = false;
+        state.startTimeMs = null;
+        state.endTimeMs = null;
+        state.gameEnded = false;
+        state.pendingFinalize = false;
+        state.autoPlayActive = false;
+        state.autoPlayRunId += 1;
+        state.completedLevelIndices = new Set();
+        setStatus("", "Idle");
+        renderBoard();
+        updateStats();
+      }
+
+      function withUiLock(action) {
+        return async () => {
+          const buttons = [
+            elements.loadConfigBtn,
+            elements.startBtn,
+            elements.resumeBtn,
+            elements.syncTimeBtn,
+            elements.endBtn,
+            elements.saveProgressBtn,
+            elements.autoPlayBtn,
+            elements.completeLevelBtn,
+            elements.scenarioFastBtn,
+            elements.scenarioUniformBtn,
+            elements.scenarioRemainingBtn,
+            elements.scenarioImpossibleBtn,
+          ];
+
+          for (const button of buttons) {
+            button.disabled = true;
+          }
+
+          try {
+            await action();
+          } catch (error) {
+            const message = error?.message || String(error);
+            log("err", "Client Error", message);
+            setNotice(message, "error");
+            setStatus("waiting", "Attention needed");
+          } finally {
+            updateStats();
+          }
+        };
+      }
+
+      elements.loadConfigBtn.addEventListener("click", withUiLock(loadConfig));
+      elements.startBtn.addEventListener("click", withUiLock(startGame));
+      elements.resumeBtn.addEventListener("click", withUiLock(resumeGame));
+      elements.syncTimeBtn.addEventListener("click", withUiLock(syncTime));
+      elements.endBtn.addEventListener(
+        "click",
+        withUiLock(() => finalizeGame("Manual game end")),
+      );
+      elements.saveProgressBtn.addEventListener("click", withUiLock(saveProgress));
+      elements.autoPlayBtn.addEventListener("click", () => {
+        try {
+          toggleAutoPlay();
+        } catch (error) {
+          const message = error?.message || String(error);
+          log("err", "Autoplay Error", message);
+          setNotice(message, "error");
+          updateStats();
+        }
+      });
+      elements.completeLevelBtn.addEventListener("click", withUiLock(completeLevel));
+      elements.scenarioFastBtn.addEventListener("click", withUiLock(runTooFastScenario));
+      elements.scenarioUniformBtn.addEventListener("click", withUiLock(runUniformTimingScenario));
+      elements.scenarioRemainingBtn.addEventListener("click", withUiLock(runRemainingPairsScenario));
+      elements.scenarioImpossibleBtn.addEventListener("click", withUiLock(runImpossibleSolveScenario));
+
+      elements.clearLogBtn.addEventListener("click", () => {
+        elements.log.innerHTML = "";
+      });
+
+      elements.copyLogBtn.addEventListener("click", async () => {
+        const text = Array.from(elements.log.querySelectorAll(".log-entry"))
+          .map((entry) => entry.textContent)
+          .join("\n\n");
+
+        try {
+          await navigator.clipboard.writeText(text);
+          setNotice("Request log copied to clipboard.");
+        } catch {
+          setNotice("Unable to copy log with the Clipboard API.", "warn");
+        }
+      });
+
+      elements.apiBase.addEventListener("change", savePreferences);
+      elements.stageId.addEventListener("change", savePreferences);
+      elements.token.addEventListener("change", savePreferences);
+
+      window.addEventListener("beforeunload", savePreferences);
+
+      restorePreferences();
+      resetSessionState();
+      setNotice(
+        "Ready. This client now submits buffered click moves so you can validate the server-side memory-game flow end to end.",
+      );
+      log("info", "Ready", {
+        message:
+          "Load config or start a session. Clicks are buffered as { id, clickedAt, moveId } using synced server time, and autoplay can solve the board for quick validation.",
+      });
+    </script>
+  </body>
+</html>

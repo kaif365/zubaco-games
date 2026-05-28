@@ -1,0 +1,32 @@
+{
+  "game": {
+    "title": "Number Grid Sprint",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "tapNext": "Tap: {{number}}",
+    "correct": "Correct!",
+    "incorrect": "Wrong number!",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Tap the numbers in ascending order as fast as possible.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}",
+    "tapped": "Tapped: {{count}}/{{total}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

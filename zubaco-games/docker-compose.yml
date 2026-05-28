@@ -1,0 +1,862 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  Zubaco Games – Docker Compose (Local Development)         ║
+# ╚══════════════════════════════════════════════════════════════╝
+#
+# Usage:
+#   docker compose up -d            # start everything
+#   docker compose up postgres      # only DB
+#   docker compose --profile all up # all games
+#
+# Ports: PostgreSQL 5432, each game pair uses sequential ports
+
+services:
+  # ─── Shared Infrastructure ───
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: zubaco
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zubaco_dev_2024}
+      POSTGRES_DB: zubaco
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-databases.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zubaco"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - zubaco-net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - zubaco-net
+
+  # ─── Game Backends ───
+  colour-sorting-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: colour-sorting/colour-sorting-backend
+    environment:
+      PORT: "3006"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/colour_sorting
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3005
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3006:3006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "colour-sorting"]
+
+  colour-sorting-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: colour-sorting/colour-sorting-frontend
+        VITE_API_BASE_URL: http://localhost:3006/api/v1
+    ports:
+      - "3005:80"
+    depends_on:
+      - colour-sorting-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "colour-sorting"]
+
+  flash-spot-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: flash-spot/flash-spot-backend
+    environment:
+      PORT: "3001"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/flash_spot
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3002
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "flash-spot"]
+
+  flash-spot-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: flash-spot/flash-spot-frontend
+        VITE_API_BASE_URL: http://localhost:3001/api/v1
+    ports:
+      - "3002:80"
+    depends_on:
+      - flash-spot-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "flash-spot"]
+
+  object-placement-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: object-placement-memory/object-placement-memory-backend
+    environment:
+      PORT: "3004"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/object_placement
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3003
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3004:3004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "object-placement"]
+
+  object-placement-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: object-placement-memory/object-placement-memory-frontend
+        VITE_API_BASE_URL: http://localhost:3004/api/v1
+    ports:
+      - "3003:80"
+    depends_on:
+      - object-placement-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "object-placement"]
+
+  rapid-sort-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: rapid-category-sort/rapid-sort-backend
+    environment:
+      PORT: "3008"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/rapid_sort
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3007
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3008:3008"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "rapid-sort"]
+
+  rapid-sort-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: rapid-category-sort/rapid-sort-frontend
+        VITE_API_BASE_URL: http://localhost:3008/api/v1
+    ports:
+      - "3007:80"
+    depends_on:
+      - rapid-sort-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "rapid-sort"]
+
+  true-false-blitz-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: true-false-blitz/true-false-blitz-backend
+    environment:
+      PORT: "3010"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/true_false_blitz
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3009
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3010:3010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "true-false-blitz"]
+
+  true-false-blitz-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: true-false-blitz/true-false-blitz-frontend
+        VITE_API_BASE_URL: http://localhost:3010/api/v1
+    ports:
+      - "3009:80"
+    depends_on:
+      - true-false-blitz-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "true-false-blitz"]
+
+  word-unscramble-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: word-unscramble/word-unscramble-backend
+    environment:
+      PORT: "3012"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/word_unscramble
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3011
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3012:3012"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "word-unscramble"]
+
+  word-unscramble-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: word-unscramble/word-unscramble-frontend
+        VITE_API_BASE_URL: http://localhost:3012/api/v1
+    ports:
+      - "3011:80"
+    depends_on:
+      - word-unscramble-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "word-unscramble"]
+
+  number-grid-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: number-grid-sprint/number-grid-backend
+    environment:
+      PORT: "3014"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/number_grid
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3013
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3014:3014"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "number-grid"]
+
+  number-grid-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: number-grid-sprint/number-grid-frontend
+        VITE_API_BASE_URL: http://localhost:3014/api/v1
+    ports:
+      - "3013:80"
+    depends_on:
+      - number-grid-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "number-grid"]
+
+  live-route-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: live-route-builder/live-route-backend
+    environment:
+      PORT: "3016"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/live_route
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3015
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3016:3016"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "live-route"]
+
+  live-route-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: live-route-builder/live-route-frontend
+        VITE_API_BASE_URL: http://localhost:3016/api/v1
+    ports:
+      - "3015:80"
+    depends_on:
+      - live-route-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "live-route"]
+
+  memory-groups-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: memory-groups/memory-groups-backend
+    environment:
+      PORT: "3018"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/memory_groups
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3017
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3018:3018"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "memory-groups"]
+
+  memory-groups-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: memory-groups/memory-groups-frontend
+        VITE_API_BASE_URL: http://localhost:3018/api/v1
+    ports:
+      - "3017:80"
+    depends_on:
+      - memory-groups-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "memory-groups"]
+
+  reflex-endurance-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: reflex-endurance/reflex-endurance-backend
+    environment:
+      PORT: "3020"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/reflex_endurance
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3019
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3020:3020"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "reflex-endurance"]
+
+  reflex-endurance-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: reflex-endurance/reflex-endurance-frontend
+        VITE_API_BASE_URL: http://localhost:3020/api/v1
+    ports:
+      - "3019:80"
+    depends_on:
+      - reflex-endurance-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "reflex-endurance"]
+
+  pattern-survival-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: pattern-survival/pattern-survival-backend
+    environment:
+      PORT: "3022"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/pattern_survival
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3021
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3022:3022"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "pattern-survival"]
+
+  pattern-survival-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: pattern-survival/pattern-survival-frontend
+        VITE_API_BASE_URL: http://localhost:3022/api/v1
+    ports:
+      - "3021:80"
+    depends_on:
+      - pattern-survival-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "pattern-survival"]
+
+  speed-type-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: speed-type-answer/speed-type-backend
+    environment:
+      PORT: "3024"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/speed_type
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3023
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3024:3024"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "speed-type"]
+
+  speed-type-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: speed-type-answer/speed-type-frontend
+        VITE_API_BASE_URL: http://localhost:3024/api/v1
+    ports:
+      - "3023:80"
+    depends_on:
+      - speed-type-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "speed-type"]
+
+  # ─── Pre-built Games ───
+  sequence-recall-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: sequence-recall/sequence-recall-backend
+    environment:
+      PORT: "3026"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/sequence_recall
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3025
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3026:3026"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "sequence-recall"]
+
+  sequence-recall-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: sequence-recall/sequence-recall-frontend
+        VITE_API_BASE_URL: http://localhost:3026/api/v1
+    ports:
+      - "3025:80"
+    depends_on:
+      - sequence-recall-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "sequence-recall"]
+
+  memory-card-matching-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: memory-card-matching/memory-card-matching-backend
+    environment:
+      PORT: "3028"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/memory_card_matching
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3027
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3028:3028"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "memory-card-matching"]
+
+  memory-card-matching-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: memory-card-matching/memory-card-matching-frontend
+        VITE_API_BASE_URL: http://localhost:3028/api/v1
+    ports:
+      - "3027:80"
+    depends_on:
+      - memory-card-matching-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "memory-card-matching"]
+
+  sliding-puzzle-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: sliding-puzzle/sliding-puzzle-backend
+    environment:
+      PORT: "3030"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/sliding_puzzle
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3029
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3030:3030"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "sliding-puzzle"]
+
+  sliding-puzzle-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: sliding-puzzle/sliding-puzzle-frontend
+        VITE_API_BASE_URL: http://localhost:3030/api/v1
+    ports:
+      - "3029:80"
+    depends_on:
+      - sliding-puzzle-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "sliding-puzzle"]
+
+  block-fill-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: block-fill/block-fill-backend
+    environment:
+      PORT: "3032"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/block_fill
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3031
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3032:3032"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "block-fill"]
+
+  block-fill-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: block-fill/block-fill-frontend
+        VITE_API_BASE_URL: http://localhost:3032/api/v1
+    ports:
+      - "3031:80"
+    depends_on:
+      - block-fill-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "block-fill"]
+
+  maze-navigation-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: maze-navigation/maze-navigation-backend
+    environment:
+      PORT: "3034"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/maze_navigation
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3033
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3034:3034"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "maze-navigation"]
+
+  maze-navigation-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: maze-navigation/maze-navigation-frontend
+        VITE_API_BASE_URL: http://localhost:3034/api/v1
+    ports:
+      - "3033:80"
+    depends_on:
+      - maze-navigation-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "maze-navigation"]
+
+  infinity-loop-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: Infinity-loop/Infinity-Loop-backend
+    environment:
+      PORT: "3036"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/infinity_loop
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3035
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3036:3036"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "infinity-loop"]
+
+  infinity-loop-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: Infinity-loop/infinity-loop-frontend
+        VITE_API_BASE_URL: http://localhost:3036/api/v1
+    ports:
+      - "3035:80"
+    depends_on:
+      - infinity-loop-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "infinity-loop"]
+
+  arrows-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: arrows/arrows-backend
+    environment:
+      PORT: "3038"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/arrows
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3037
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3038:3038"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "arrows"]
+
+  arrows-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: arrows/arrows-frontend
+        VITE_API_BASE_URL: http://localhost:3038/api/v1
+    ports:
+      - "3037:80"
+    depends_on:
+      - arrows-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "arrows"]
+
+  logic-reflector-backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        GAME_DIR: logic-reflector/logic-reflector-backend
+    environment:
+      PORT: "3040"
+      DATABASE_URL: postgresql://zubaco:${POSTGRES_PASSWORD:-zubaco_dev_2024}@postgres:5432/logic_reflector
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      CORS_ORIGINS: http://localhost:3039
+      NODE_ENV: production
+      REDIS_HOST: redis
+    ports:
+      - "3040:3040"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zubaco-net
+    profiles: ["all", "logic-reflector"]
+
+  logic-reflector-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        GAME_DIR: logic-reflector/logic-reflector-frontend
+        VITE_API_BASE_URL: http://localhost:3040/api/v1
+    ports:
+      - "3039:80"
+    depends_on:
+      - logic-reflector-backend
+    networks:
+      - zubaco-net
+    profiles: ["all", "logic-reflector"]
+
+  # ─── API Gateway ───
+  gateway:
+    image: nginx:stable-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/gateway.nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/proxy_params:/etc/nginx/proxy_params:ro
+    depends_on:
+      - redis
+    networks:
+      - zubaco-net
+    profiles: ["all", "gateway"]
+
+  # ─── Monitoring ───
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/monitoring/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+    networks:
+      - zubaco-net
+    profiles: ["all", "monitoring"]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3100:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./docker/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - zubaco-net
+    profiles: ["all", "monitoring"]
+
+volumes:
+  pgdata:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  zubaco-net:
+    driver: bridge

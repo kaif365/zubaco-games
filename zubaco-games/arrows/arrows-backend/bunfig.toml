@@ -1,0 +1,5 @@
+[test]
+preload = ["reflect-metadata"]
+
+[run]
+bun = true

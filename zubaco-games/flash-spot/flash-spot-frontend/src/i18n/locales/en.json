@@ -1,0 +1,33 @@
+{
+  "game": {
+    "title": "Flash Spot",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "round": "Round {{round}}",
+    "memorize": "Memorize the positions!",
+    "recall": "Tap where the dots were!",
+    "correct": "Correct!",
+    "incorrect": "Incorrect!",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Memorize the positions of the flashing dots, then tap where they were.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

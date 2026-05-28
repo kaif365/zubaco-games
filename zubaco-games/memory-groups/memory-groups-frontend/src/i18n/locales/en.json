@@ -1,0 +1,32 @@
+{
+  "game": {
+    "title": "Memory Groups",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "selectGroup": "Select items that belong together",
+    "groupFound": "Group Found!",
+    "wrongGroup": "Not a group!",
+    "remaining": "Groups Remaining: {{count}}",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Find groups of related items by selecting them together.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Level {
+  id                             String    @id @default(uuid())
+  difficultyId                   String    @map("difficulty_id")
+  difficulty                     Difficulty @relation(fields: [difficultyId], references: [id])
+  name                           String
+  gridRows                       Int       @map("grid_rows")
+  gridColumns                    Int       @map("grid_columns")
+  cardContentType                String    @map("card_content_type")
+  previewDurationSeconds         Int       @map("preview_duration_seconds")
+  mismatchDisplayDurationSeconds Int       @map("mismatch_display_duration_seconds")
+  contentConfig                  Json      @map("content_config")
+  createdAt                      DateTime  @default(now()) @map("created_at")
+  updatedAt                      DateTime  @updatedAt @map("updated_at")
+  deletedAt                      DateTime? @map("deleted_at")
+
+  @@map("levels")
+  @@index([difficultyId, deletedAt])
+  @@index([deletedAt])
+}
+
+model StageConfig {
+  id                   String    @id @default(uuid())
+  stageId              String    @unique @map("stage_id")
+  gameTimeLimitSeconds Int       @map("game_time_limit_seconds")
+  enableDemo           Boolean   @default(false) @map("enable_demo")
+  isEnabled            Boolean   @default(true) @map("is_enabled")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  levels               StageConfigLevel[]
+  demoLevels           StageDemoConfigLevel[]
+
+  @@map("stage_configs")
+  @@index([deletedAt])
+}
+
+model Difficulty {
+  id              String    @id @default(uuid())
+  name            String
+  difficultyScore Int       @default(0) @map("difficulty_score")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  levels    Level[]
+  stageConfigs StageConfigLevel[]
+  demoStageConfigs StageDemoConfigLevel[]
+
+  @@map("difficulties")
+  @@index([deletedAt])
+}
+
+model StageConfigLevel {
+  id            String      @id @default(uuid())
+  stageConfigId String      @map("stage_config_id")
+  stageConfig   StageConfig @relation(fields: [stageConfigId], references: [id])
+  difficultyId  String      @map("difficulty_id")
+  difficulty    Difficulty  @relation(fields: [difficultyId], references: [id])
+  boardCount    Int         @map("board_count")
+  order         Int         @map("order")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+
+  @@map("stage_config_levels")
+  @@index([stageConfigId, deletedAt])
+  @@index([difficultyId, deletedAt])
+}
+
+model StageDemoConfigLevel {
+  id            String      @id @default(uuid())
+  stageConfigId String      @map("stage_config_id")
+  stageConfig   StageConfig @relation(fields: [stageConfigId], references: [id])
+  difficultyId  String      @map("difficulty_id")
+  difficulty    Difficulty  @relation(fields: [difficultyId], references: [id])
+  boardCount    Int         @map("board_count")
+  order         Int         @map("order")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+
+  @@map("stage_demo_config_levels")
+  @@index([stageConfigId, deletedAt])
+  @@index([difficultyId, deletedAt])
+}
+
+model File {
+  id        String    @id @default(uuid())
+  adminId   String    @map("admin_id")
+  key       String    @unique
+  fileName  String    @map("file_name")
+  fileSize  Int       @map("file_size")
+  mimeType  String    @map("mime_type")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("files")
+  @@index([adminId])
+  @@index([deletedAt])
+}
+
+model GameSession {
+  id                   String    @id @default(uuid())
+  ownerKey             String    @map("owner_key")
+  stageId              String    @map("stage_id")
+  status               String
+  result               String?   @map("result")
+  finalScore           Int?      @map("final_score")
+  timeLimitSeconds     Int       @map("time_limit_seconds")
+  timeRemainingSeconds Int       @map("time_remaining_seconds")
+  currentLevelIndex    Int       @default(0) @map("current_level_index")
+  startedAt            DateTime  @default(now()) @map("started_at")
+  endedAt              DateTime? @map("ended_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  stageConfigSnapshot  GameSessionStageConfigSnapshot?
+  moves                GameMove[]
+  cheatFlags           CheatFlag[]
+
+  @@map("game_sessions")
+  @@index([ownerKey])
+  @@index([stageId])
+  @@unique([ownerKey, stageId])
+}
+
+model GameSessionStageConfigSnapshot {
+  id                   String    @id @default(uuid())
+  gameSessionId        String    @unique @map("game_session_id")
+  gameSession          GameSession @relation(fields: [gameSessionId], references: [id])
+  sourceStageConfigId  String    @map("source_stage_config_id")
+  stageId              String    @map("stage_id")
+  gameTimeLimitSeconds Int       @map("game_time_limit_seconds")
+  levelCount           Int       @map("level_count")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  levels               GameSessionLevel[]
+
+  @@map("game_session_stage_config_snapshots")
+}
+
+model GameSessionLevel {
+  id                             String    @id @default(uuid())
+  stageConfigSnapshotId          String    @map("stage_config_snapshot_id")
+  stageConfigSnapshot            GameSessionStageConfigSnapshot @relation(fields: [stageConfigSnapshotId], references: [id])
+  sourceLevelId                  String    @map("source_level_id")
+  levelIndex                     Int       @map("level_index")
+  name                           String
+  gridRows                       Int       @map("grid_rows")
+  gridColumns                    Int       @map("grid_columns")
+  cardContentType                String    @map("card_content_type")
+  previewDurationSeconds         Int       @map("preview_duration_seconds")
+  mismatchDisplayDurationSeconds Int       @map("mismatch_display_duration_seconds")
+  contentConfigSnapshot          Json      @map("content_config_snapshot")
+  createdAt                      DateTime  @default(now()) @map("created_at")
+  updatedAt                      DateTime  @updatedAt @map("updated_at")
+
+  cards                          GameSessionCard[]
+  moves                          GameMove[]
+  cheatFlags                     CheatFlag[]
+
+  @@map("game_session_level")
+  @@index([stageConfigSnapshotId])
+  @@unique([stageConfigSnapshotId, levelIndex])
+}
+
+model GameSessionCard {
+  id                 String    @id @default(uuid())
+  gameSessionLevelId String    @map("game_session_level_id")
+  gameSessionLevel   GameSessionLevel @relation(fields: [gameSessionLevelId], references: [id])
+  levelIndex         Int       @map("level_index")
+  cardId             String    @map("card_id")
+  pairId             String    @map("pair_id")
+  sortOrder          Int       @map("sort_order")
+  contentType        String    @map("content_type")
+  content            String
+  imageUrl           String?   @map("image_url")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@map("game_session_cards")
+  @@index([gameSessionLevelId])
+}
+
+model GameMove {
+  id                 String    @id @default(uuid())
+  gameSessionId      String    @map("game_session_id")
+  gameSession        GameSession @relation(fields: [gameSessionId], references: [id])
+  gameSessionLevelId String    @map("game_session_level_id")
+  gameSessionLevel   GameSessionLevel @relation(fields: [gameSessionLevelId], references: [id])
+  levelIndex         Int       @map("level_index")
+  moveIndex          Int       @map("move_index")
+  pairId             String    @map("pair_id")
+  timeRemaining      Int       @map("time_remaining")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@map("game_moves")
+  @@index([gameSessionId])
+  @@index([gameSessionLevelId])
+  @@unique([gameSessionId, moveIndex])
+}
+
+model CheatFlag {
+  id                 String           @id @default(uuid())
+  gameSessionId      String           @map("game_session_id")
+  gameSession        GameSession      @relation(fields: [gameSessionId], references: [id])
+  gameSessionLevelId String           @map("game_session_level_id")
+  gameSessionLevel   GameSessionLevel @relation(fields: [gameSessionLevelId], references: [id])
+  levelIndex         Int              @map("level_index")
+  flagType           Int              @map("flag_type")
+  evidence           Json
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@map("cheat_flags")
+  @@index([gameSessionId])
+  @@index([gameSessionLevelId])
+  @@unique([gameSessionId, gameSessionLevelId, flagType])
+}
+
+// Snapshot of each demo level shown to a user for a stage.
+// Existence of any row for (ownerKey, stageId) means the demo was already generated.
+model UserStageDemoLevel {
+  id                             String    @id @default(uuid())
+  ownerKey                       String    @map("owner_key")
+  stageId                        String    @map("stage_id")
+  difficultyId                   String    @map("difficulty_id")
+  difficultyName                 String    @map("difficulty_name")
+  sourceLevelId                  String    @map("source_level_id")
+  levelIndex                     Int       @map("level_index")
+  name                           String
+  gridRows                       Int       @map("grid_rows")
+  gridColumns                    Int       @map("grid_columns")
+  cardContentType                String    @map("card_content_type")
+  previewDurationSeconds         Int       @map("preview_duration_seconds")
+  mismatchDisplayDurationSeconds Int       @map("mismatch_display_duration_seconds")
+  contentConfigSnapshot          Json      @map("content_config_snapshot")
+  createdAt                      DateTime  @default(now()) @map("created_at")
+
+  cards                          UserStageDemoCard[]
+
+  @@map("user_stage_demo_levels")
+  @@index([ownerKey, stageId])
+  @@index([ownerKey, stageId, difficultyId])
+  @@unique([ownerKey, stageId, levelIndex])
+}
+
+model UserStageDemoCard {
+  id                   String             @id @default(uuid())
+  userStageDemoLevelId String             @map("user_stage_demo_level_id")
+  userStageDemoLevel   UserStageDemoLevel @relation(fields: [userStageDemoLevelId], references: [id])
+  levelIndex           Int                @map("level_index")
+  cardId               String             @map("card_id")
+  pairId               String             @map("pair_id")
+  sortOrder            Int                @map("sort_order")
+  contentType          String             @map("content_type")
+  content              String
+  imageUrl             String?            @map("image_url")
+  createdAt            DateTime           @default(now()) @map("created_at")
+
+  @@map("user_stage_demo_cards")
+  @@index([userStageDemoLevelId])
+}

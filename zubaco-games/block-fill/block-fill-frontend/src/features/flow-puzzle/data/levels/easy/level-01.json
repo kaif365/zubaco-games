@@ -1,0 +1,138 @@
+{
+  "name": "Easy Board 01",
+  "difficulty": "easy",
+  "gridRow": 10,
+  "gridCol": 10,
+  "nodes": [
+    {
+      "colorCode": "pink",
+      "points": [
+        {
+          "row": 8,
+          "col": 3
+        },
+        {
+          "row": 8,
+          "col": 5
+        }
+      ]
+    },
+    {
+      "colorCode": "cyan",
+      "points": [
+        {
+          "row": 9,
+          "col": 5
+        },
+        {
+          "row": 7,
+          "col": 2
+        }
+      ]
+    },
+    {
+      "colorCode": "amber",
+      "points": [
+        {
+          "row": 8,
+          "col": 2
+        },
+        {
+          "row": 5,
+          "col": 1
+        }
+      ]
+    },
+    {
+      "colorCode": "violet",
+      "points": [
+        {
+          "row": 5,
+          "col": 0
+        },
+        {
+          "row": 6,
+          "col": 7
+        }
+      ]
+    },
+    {
+      "colorCode": "mint",
+      "points": [
+        {
+          "row": 7,
+          "col": 7
+        },
+        {
+          "row": 6,
+          "col": 9
+        }
+      ]
+    },
+    {
+      "colorCode": "orange",
+      "points": [
+        {
+          "row": 6,
+          "col": 8
+        },
+        {
+          "row": 1,
+          "col": 9
+        }
+      ]
+    },
+    {
+      "colorCode": "rose",
+      "points": [
+        {
+          "row": 0,
+          "col": 9
+        },
+        {
+          "row": 3,
+          "col": 3
+        }
+      ]
+    },
+    {
+      "colorCode": "indigo",
+      "points": [
+        {
+          "row": 3,
+          "col": 2
+        },
+        {
+          "row": 0,
+          "col": 2
+        }
+      ]
+    },
+    {
+      "colorCode": "teal",
+      "points": [
+        {
+          "row": 0,
+          "col": 3
+        },
+        {
+          "row": 2,
+          "col": 5
+        }
+      ]
+    },
+    {
+      "colorCode": "gold",
+      "points": [
+        {
+          "row": 1,
+          "col": 5
+        },
+        {
+          "row": 1,
+          "col": 1
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Game API Lab</title>
+<style>
+  :root {
+    --bg: #07111f;
+    --panel: rgba(12, 24, 42, 0.92);
+    --panel-soft: rgba(20, 36, 60, 0.78);
+    --stroke: rgba(125, 159, 197, 0.22);
+    --text: #ecf4ff;
+    --muted: #9eb5d1;
+    --accent: #4ade80;
+    --accent-2: #60a5fa;
+    --danger: #f87171;
+    --warn: #f59e0b;
+    --shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    --cell: 56px;
+    --gap: 4px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(34, 197, 94, 0.08), transparent 28%),
+      radial-gradient(circle at top right, rgba(96, 165, 250, 0.12), transparent 35%),
+      linear-gradient(180deg, #08111e 0%, #050b14 100%);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .app {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 360px minmax(0, 1fr) 360px;
+    gap: 20px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--stroke);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(10px);
+  }
+
+  .stack {
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+  }
+
+  .hero {
+    padding: 20px 22px;
+    border-bottom: 1px solid var(--stroke);
+  }
+
+  .eyebrow {
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  h1, h2, h3, p { margin: 0; }
+
+  h1 {
+    margin-top: 8px;
+    font-size: 28px;
+    line-height: 1.1;
+  }
+
+  .subtle {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .group {
+    display: grid;
+    gap: 10px;
+  }
+
+  .group-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #b8cae5;
+  }
+
+  label {
+    display: grid;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  input, button, textarea, select {
+    font: inherit;
+  }
+
+  input, textarea {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid rgba(125, 159, 197, 0.24);
+    background: rgba(6, 14, 25, 0.88);
+    color: var(--text);
+    padding: 11px 12px;
+    outline: none;
+  }
+
+  textarea {
+    min-height: 150px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  input:focus, textarea:focus {
+    border-color: rgba(96, 165, 250, 0.9);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+  }
+
+  button {
+    border: 0;
+    border-radius: 12px;
+    padding: 11px 12px;
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  }
+
+  button.secondary {
+    background: rgba(33, 50, 78, 0.9);
+  }
+
+  button.success {
+    background: linear-gradient(135deg, #059669, #10b981);
+  }
+
+  button.warn {
+    background: linear-gradient(135deg, #b45309, #d97706);
+  }
+
+  button.danger {
+    background: linear-gradient(135deg, #b91c1c, #ef4444);
+  }
+
+  button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .button-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .button-grid.three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-radius: 999px;
+    background: rgba(7, 15, 28, 0.9);
+    border: 1px solid var(--stroke);
+    font-size: 13px;
+    color: #d8e6f9;
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #64748b;
+  }
+
+  .dot.live { background: #22c55e; }
+  .dot.warn { background: #f59e0b; }
+
+  .board-panel {
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+  }
+
+  .board-head {
+    padding: 20px 22px 14px;
+    border-bottom: 1px solid var(--stroke);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .status-line {
+    color: var(--muted);
+    font-size: 14px;
+    margin-top: 8px;
+  }
+
+  .message {
+    min-height: 22px;
+    font-size: 14px;
+    color: #dbeafe;
+  }
+
+  .message.error { color: #fecaca; }
+  .message.success { color: #bbf7d0; }
+
+  .legend {
+    padding: 14px 22px 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .legend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(7, 15, 28, 0.9);
+    border: 1px solid var(--stroke);
+    font-size: 13px;
+  }
+
+  .swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .workspace {
+    padding: 20px 22px 24px;
+    display: grid;
+    gap: 18px;
+    align-content: start;
+  }
+
+  .grid-wrap {
+    position: relative;
+    width: fit-content;
+    touch-action: none;
+  }
+
+  .grid {
+    display: grid;
+    gap: var(--gap);
+    background: rgba(3, 10, 20, 0.9);
+    padding: var(--gap);
+    border-radius: 18px;
+    border: 1px solid rgba(125, 159, 197, 0.18);
+  }
+
+  .cell {
+    width: var(--cell);
+    height: var(--cell);
+    border: 0;
+    border-radius: 14px;
+    background: rgba(31, 41, 55, 0.95);
+    position: relative;
+  }
+
+  .cell.is-path {
+    background: color-mix(in srgb, var(--cell-color) 34%, #0b1220 66%);
+  }
+
+  .cell.is-endpoint::after {
+    content: "";
+    position: absolute;
+    inset: 12px;
+    border-radius: 999px;
+    background: var(--cell-color);
+    box-shadow: 0 0 0 4px rgba(4, 11, 22, 0.88);
+  }
+
+  .cell.active {
+    outline: 2px solid rgba(255, 255, 255, 0.55);
+    outline-offset: -2px;
+  }
+
+  .overlay {
+    position: absolute;
+    inset: var(--gap);
+    pointer-events: none;
+  }
+
+  .empty {
+    color: var(--muted);
+    font-size: 15px;
+    padding: 30px 0 6px;
+  }
+
+  pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #dceafb;
+  }
+
+  .log-box {
+    border-radius: 14px;
+    border: 1px solid var(--stroke);
+    background: rgba(6, 14, 25, 0.88);
+    padding: 14px;
+    min-height: 180px;
+    overflow: auto;
+  }
+
+  .quick-links {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .quick-links a {
+    color: #93c5fd;
+    text-decoration: none;
+  }
+
+  @media (max-width: 1240px) {
+    .app {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 680px) {
+    :root { --cell: 42px; }
+    .button-grid, .button-grid.three, .meta-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .api-ref { display: grid; gap: 6px; }
+
+  details.api-card {
+    border: 1px solid var(--stroke);
+    border-radius: 10px;
+    background: rgba(6, 14, 25, 0.7);
+    overflow: hidden;
+  }
+
+  details.api-card summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    cursor: pointer;
+    list-style: none;
+    font-size: 12px;
+    font-weight: 600;
+    color: #d8e6f9;
+    user-select: none;
+  }
+
+  details.api-card summary::-webkit-details-marker { display: none; }
+
+  details.api-card summary::after {
+    content: '›';
+    margin-left: auto;
+    font-size: 14px;
+    color: var(--muted);
+    transition: transform 0.15s;
+  }
+
+  details.api-card[open] summary::after { transform: rotate(90deg); }
+
+  .api-card-body {
+    padding: 0 12px 10px;
+    display: grid;
+    gap: 6px;
+  }
+
+  .api-card-body pre {
+    font-size: 11px;
+    background: rgba(3, 9, 18, 0.9);
+    border-radius: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--stroke);
+    overflow-x: auto;
+  }
+
+  .api-card-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .badge.get  { background: rgba(74,222,128,0.18); color: #4ade80; }
+  .badge.post { background: rgba(96,165,250,0.18); color: #60a5fa; }
+
+  .api-path-label {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: #c7d9f0;
+  }
+
+  .lab-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .check-row input {
+    width: auto;
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <div class="hero">
+        <div class="eyebrow">Game Flow Lab</div>
+        <h1>Session API Tester</h1>
+        <p class="subtle">Use this page for the player journey: start a session, restore current board, save progress, request the next board, and complete rounds.</p>
+      </div>
+      <div class="stack">
+        <div class="quick-links">
+          <span>Also open:</span>
+          <a href="/public/admin-client.html" target="_blank" rel="noreferrer">Admin API Lab</a>
+          <a href="/public/board-generator.html" target="_blank" rel="noreferrer">Board Generator</a>
+          <a href="/public/ws-test.html" target="_blank" rel="noreferrer">WS Test</a>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Connection</div>
+          <label>API Base URL
+            <input id="apiBase" value="http://localhost:8002" />
+          </label>
+          <label>Bearer Token
+            <textarea id="authToken" placeholder="Paste player JWT"></textarea>
+          </label>
+          <label>Stage ID
+            <input id="stageId" placeholder="Stage id for /game/session/start" />
+          </label>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Session</div>
+          <div class="button-grid">
+            <button id="startBtn">Start Session</button>
+            <button class="secondary" id="restoreBtn">Restore Current</button>
+          </div>
+          <div class="button-grid">
+            <button class="secondary" id="saveBtn">Save Progress</button>
+            <button class="success" id="completeBtn">Complete Board</button>
+          </div>
+          <div class="button-grid">
+            <button class="secondary" id="timeSyncBtn">Time Sync</button>
+            <button class="danger" id="endGameBtn">End Game</button>
+          </div>
+          <div class="button-grid">
+            <button class="secondary" id="undoBtn">Undo</button>
+            <button class="warn" id="resetBtn">Reset Paths</button>
+          </div>
+          <button class="danger" id="clearSessionBtn">Clear Local Session</button>
+          <div class="pill-row">
+            <div class="pill"><span class="dot" id="saveDot"></span><span id="saveState">Idle</span></div>
+            <div class="pill"><span class="dot live"></span><span id="sessionPill">No session</span></div>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Next Board</div>
+          <div class="status-line">Fetches the next configured board after the current active board without advancing session completion.</div>
+          <button class="secondary" id="nextBoardBtn">Call /next-board</button>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Game Config</div>
+          <button class="secondary" id="gameConfigBtn">Get Game Configs</button>
+          <div class="log-box" id="gameConfigDump" style="min-height:60px;display:none"><pre id="gameConfigPre"></pre></div>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Autosave</div>
+          <p class="subtle">This page saves every 5 seconds when the board is dirty. Manual save still uses the same payload so you can inspect it in the log.</p>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Autoplay & Cheat Lab</div>
+          <p class="subtle">Guided autoplay connects shortest endpoint paths. Cheat burst submits suspiciously uniform, too-fast saves and then can force an incomplete completion so anti-cheat rows are easy to inspect.</p>
+          <div class="lab-grid">
+            <label>Interval (ms)
+              <input id="autoplayInterval" type="number" min="10" value="140" />
+            </label>
+            <label>Cheat Saves
+              <input id="cheatSaveCount" type="number" min="3" value="5" />
+            </label>
+            <label>Timestamp Step (ms)
+              <input id="cheatTimestampStep" type="number" min="1" value="20" />
+            </label>
+            <label>Pairs To Connect
+              <input id="cheatConnectCount" type="number" min="0" value="1" />
+            </label>
+          </div>
+          <label class="check-row">
+            <input id="cheatCompleteAfter" type="checkbox" checked />
+            <span>Auto complete board after cheat burst</span>
+          </label>
+          <div class="button-grid">
+            <button class="secondary" id="autoplayBtn">Start Autoplay</button>
+            <button class="warn" id="cheatBtn">Run Cheat Burst</button>
+          </div>
+          <button class="danger" id="stopAutoplayBtn" disabled>Stop Autoplay</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="panel board-panel">
+      <div class="board-head">
+        <div>
+          <div class="eyebrow" id="stageText">No active stage</div>
+          <h2 id="boardTitle">No board loaded</h2>
+          <div class="status-line" id="boardMeta">Start or restore a session to begin.</div>
+        </div>
+        <div class="message" id="message"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="workspace">
+        <div class="grid-wrap" id="boardWrap">
+          <svg class="overlay" id="overlay"></svg>
+          <div class="grid" id="grid"></div>
+        </div>
+        <div class="empty" id="emptyState">The board will appear here after you start or restore a session.</div>
+      </div>
+    </main>
+
+    <aside class="panel">
+      <div class="hero">
+        <div class="eyebrow">Inspector</div>
+        <h2>Live Payloads</h2>
+        <p class="subtle">Every request and response is captured here so you can validate the exact contract during your full flow testing.</p>
+      </div>
+      <div class="stack">
+        <div class="group">
+          <div class="group-title">Session Snapshot</div>
+          <div class="log-box"><pre id="stateDump">No session yet.</pre></div>
+        </div>
+        <div class="group">
+          <div class="group-title">Last Request</div>
+          <div class="log-box"><pre id="requestDump">Nothing sent yet.</pre></div>
+        </div>
+        <div class="group">
+          <div class="group-title">Last Response</div>
+          <div class="log-box"><pre id="responseDump">Nothing received yet.</pre></div>
+        </div>
+
+        <div class="group">
+          <div class="group-title">API Reference</div>
+          <div class="api-ref">
+
+            <details class="api-card">
+              <summary>
+                <span class="badge post">POST</span>
+                <span class="api-path-label">/game/session/start</span>
+              </summary>
+              <div class="api-card-body">
+                <div class="api-card-label">Request Body</div>
+                <pre>{
+  "stageId": "uuid"
+}</pre>
+                <div class="api-card-label">Response · data</div>
+                <pre>{
+  "sessionId": "uuid",
+  "stageId": "uuid",
+  "status": "ACTIVE",
+  "completedRounds": 0,
+  "currentLevelId": "uuid",
+  "totalDemoRounds": 0,
+  "totalActualRounds": 3,
+  "currentDemoRound": 0,
+  "currentActualRound": 1,
+  "requestedDemoRound": 0,
+  "requestedActualRound": 1,
+  "startTime": "ISO string (actual rounds only)",
+  "endTime": "ISO string (actual rounds only)",
+  "board": { ...FormattedBoard }
+}</pre>
+              </div>
+            </details>
+
+            <details class="api-card">
+              <summary>
+                <span class="badge get">GET</span>
+                <span class="api-path-label">/game/session/:id/current-board</span>
+              </summary>
+              <div class="api-card-body">
+                <div class="api-card-label">Response · data (ACTIVE)</div>
+                <pre>{
+  "sessionId": "uuid",
+  "stageId": "uuid",
+  "status": "ACTIVE",
+  "completedRounds": 0,
+  "currentLevelId": "uuid",
+  "totalDemoRounds": 0,
+  "totalActualRounds": 3,
+  "currentDemoRound": 0,
+  "currentActualRound": 1,
+  "requestedDemoRound": 0,
+  "requestedActualRound": 1,
+  "startTime": "ISO string (actual rounds only)",
+  "endTime": "ISO string (actual rounds only)",
+  "board": {
+    "sessionBoardId": "uuid",
+    "boardId": "uuid",
+    "levelId": "uuid",
+    "name": "string",
+    "gridRow": 6,
+    "gridCol": 6,
+    "nodes": [
+      { "colorCode": "red",
+        "points": [{"row":0,"col":0},{"row":5,"col":5}] }
+    ],
+    "version": 0,
+    "paths": [
+      { "color": "red", "path": [], "completed": false }
+    ]
+  }
+}</pre>
+                <div class="api-card-label">Response · data (COMPLETED)</div>
+                <pre>{
+  "sessionId": "uuid",
+  "stageId": "uuid",
+  "status": "COMPLETED",
+  "finalScore": 1200,
+  "board": null
+}</pre>
+              </div>
+            </details>
+
+            <details class="api-card">
+              <summary>
+                <span class="badge post">POST</span>
+                <span class="api-path-label">/game/session/save-progress</span>
+              </summary>
+              <div class="api-card-body">
+                <div class="api-card-label">Request Body</div>
+                <pre>{
+  "sessionId": "uuid",
+  "board": {
+    "sessionBoardId": "uuid",
+    "version": 0,
+    "paths": [
+      {
+        "color": "red",
+        "moveId": "uuid",
+        "timeStamp": "2024-01-01T00:00:00.000Z",
+        "path": [{"row":0,"col":0},{"row":1,"col":0}]
+      }
+    ]
+  }
+}</pre>
+                <div class="api-card-label">Response · data</div>
+                <pre>{ "saved": true, "ignored": false }
+// or when nothing changed:
+{ "saved": false, "ignored": true }</pre>
+              </div>
+            </details>
+
+            <details class="api-card">
+              <summary>
+                <span class="badge post">POST</span>
+                <span class="api-path-label">/game/session/complete-board</span>
+              </summary>
+              <div class="api-card-body">
+                <div class="api-card-label">Request Body</div>
+                <pre>same shape as save-progress</pre>
+                <div class="api-card-label">Response · data (ACTIVE)</div>
+                <pre>{
+  "sessionId": "uuid",
+  "stageId": "uuid",
+  "status": "ACTIVE",
+  "completedRounds": 2,
+  "currentLevelId": "uuid",
+  "currentActualRound": 3,
+  "board": { ...FormattedBoard }
+}</pre>
+                <div class="api-card-label">Response · data (COMPLETED)</div>
+                <pre>{
+  "sessionId": "uuid",
+  "stageId": "uuid",
+  "status": "COMPLETED",
+  "finalScore": 960
+}</pre>
+              </div>
+            </details>
+
+            <details class="api-card">
+              <summary>
+                <span class="badge post">POST</span>
+                <span class="api-path-label">/game/session/next-board</span>
+              </summary>
+              <div class="api-card-body">
+                <div class="api-card-label">Request Body</div>
+                <pre>{
+  "sessionId": "uuid",
+  "requestedDemoRound": 0,
+  "requestedActualRound": 1
+}</pre>
+                <div class="api-card-label">Response · data</div>
+                <pre>same shape as current-board</pre>
+              </div>
+            </details>
+
+            <details class="api-card">
+              <summary>
+                <span class="badge post">POST</span>
+                <span class="api-path-label">/game/session/game-end</span>
+              </summary>
+              <div class="api-card-body">
+                <div class="api-card-label">Request Body</div>
+                <pre>{
+  "sessionId": "uuid"
+}</pre>
+                <div class="api-card-label">Response · data</div>
+                <pre>{
+  "finalScore": 960
+}</pre>
+              </div>
+            </details>
+
+            <details class="api-card">
+              <summary>
+                <span class="badge get">GET</span>
+                <span class="api-path-label">/game/session/time-sync</span>
+              </summary>
+              <div class="api-card-body">
+                <div class="api-card-label">Query Params</div>
+                <pre>?sessionId=uuid</pre>
+                <div class="api-card-label">Response · data</div>
+                <pre>{
+  "startTime": "ISO string | null",
+  "endTime": "ISO string | null",
+  "serverNow": "ISO string"
+}</pre>
+              </div>
+            </details>
+
+            <details class="api-card">
+              <summary>
+                <span class="badge get">GET</span>
+                <span class="api-path-label">/game/session/game-configs</span>
+              </summary>
+              <div class="api-card-body">
+                <div class="api-card-label">Query Params</div>
+                <pre>?stageId=uuid</pre>
+                <div class="api-card-label">Response · data</div>
+                <pre>{
+  "stageId": "uuid",
+  "timeLimit": 120,
+  "enableDemo": false,
+  "totalDemoRounds": 0,
+  "levels": [
+    { "levelId": "uuid", "boardCount": 3 }
+  ]
+}</pre>
+              </div>
+            </details>
+
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+<script>
+const STORAGE_KEYS = {
+  apiBase: 'game-lab-api-base',
+  token: 'game-lab-token',
+  stageId: 'game-lab-stage-id',
+  sessionId: 'game-lab-session-id',
+};
+
+const CELL_SIZE = 56;
+const CELL_GAP = 4;
+const NAMED_COLORS = {
+  blue: '#3399ff',
+  red: '#ff6666',
+  green: '#66e666',
+  yellow: '#ffcc33',
+  amber: '#ffcc33',
+  purple: '#cc66ff',
+  cyan: '#33cccc',
+  pink: '#ff66cc',
+};
+
+const state = {
+  sessionId: localStorage.getItem(STORAGE_KEYS.sessionId) || '',
+  stageId: '',
+  totalDemoRounds: 0,
+  totalActualRounds: 0,
+  currentDemoRound: 0,
+  currentActualRound: 0,
+  isDemoRound: false,
+  isActualRound: false,
+  board: null,
+  pathsByColor: {},
+  movesByColor: {},
+  history: [],
+  active: null,
+  dirty: false,
+  saveTimer: null,
+  autoplayTimer: null,
+  autoplayRunning: false,
+  lastRequest: null,
+  lastResponse: null,
+  inFlight: false,
+};
+
+const $ = (id) => document.getElementById(id);
+
+function hydrateInputs() {
+  $('apiBase').value = localStorage.getItem(STORAGE_KEYS.apiBase) || 'http://localhost:8002';
+  $('authToken').value = localStorage.getItem(STORAGE_KEYS.token) || '';
+  $('stageId').value = localStorage.getItem(STORAGE_KEYS.stageId) || '';
+  $('sessionPill').textContent = state.sessionId || 'No session';
+}
+
+function persistInputs() {
+  localStorage.setItem(STORAGE_KEYS.apiBase, $('apiBase').value.trim());
+  localStorage.setItem(STORAGE_KEYS.token, $('authToken').value.trim());
+  localStorage.setItem(STORAGE_KEYS.stageId, $('stageId').value.trim());
+}
+
+function apiBase() {
+  return $('apiBase').value.trim().replace(/\/$/, '');
+}
+
+function normalizeColorCode(colorCode) {
+  return String(colorCode || '').trim().toLowerCase();
+}
+
+function colorHex(colorCode) {
+  const normalized = normalizeColorCode(colorCode);
+  if (NAMED_COLORS[normalized]) return NAMED_COLORS[normalized];
+  if (/^#?[0-9a-f]{6}$/i.test(normalized)) {
+    return normalized.startsWith('#') ? normalized : `#${normalized}`;
+  }
+  return '#94a3b8';
+}
+
+function setMessage(text, kind = '') {
+  const el = $('message');
+  el.textContent = text;
+  el.className = `message${kind ? ` ${kind}` : ''}`;
+}
+
+function setSaveState(text, kind = 'idle') {
+  $('saveState').textContent = text;
+  $('saveDot').className = `dot${kind === 'saved' ? ' live' : kind === 'saving' ? ' warn' : ''}`;
+}
+
+function syncControls() {
+  const hasSession = Boolean(state.sessionId);
+  const hasBoard = Boolean(state.board);
+  const busy = state.inFlight;
+  const autoplaying = state.autoplayRunning;
+
+  $('startBtn').disabled = busy || autoplaying;
+  $('restoreBtn').disabled = busy || autoplaying || !hasSession;
+  $('saveBtn').disabled = busy || autoplaying || !hasBoard;
+  $('completeBtn').disabled = busy || autoplaying || !hasBoard;
+  $('nextBoardBtn').disabled = busy || autoplaying || !hasSession;
+  $('timeSyncBtn').disabled = busy || autoplaying || !hasSession;
+  $('endGameBtn').disabled = busy || autoplaying || !hasSession;
+  $('undoBtn').disabled = busy || autoplaying || !hasBoard;
+  $('resetBtn').disabled = busy || autoplaying || !hasBoard;
+  $('clearSessionBtn').disabled = busy || autoplaying;
+  $('gameConfigBtn').disabled = busy || autoplaying;
+  $('autoplayBtn').disabled = busy || autoplaying || !hasBoard;
+  $('cheatBtn').disabled = busy || autoplaying || !hasBoard;
+  $('stopAutoplayBtn').disabled = !autoplaying;
+}
+
+function setSession(sessionId) {
+  state.sessionId = sessionId || '';
+  $('sessionPill').textContent = state.sessionId || 'No session';
+  if (state.sessionId) {
+    localStorage.setItem(STORAGE_KEYS.sessionId, state.sessionId);
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.sessionId);
+  }
+}
+
+function dump(id, value) {
+  $(id).textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function samePoint(a, b) {
+  return a && b && a.x === b.x && a.y === b.y;
+}
+
+function isAdjacent(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
+}
+
+function pathToPoints(path = []) {
+  return path.map((point) => ({ x: point.col, y: point.row }));
+}
+
+function pointsToPath(path = []) {
+  return path.map((point) => ({ row: point.y, col: point.x }));
+}
+
+function pairByColor(color) {
+  return state.board?.pairs.find((pair) => pair.color === color) || null;
+}
+
+function endpointMap() {
+  const map = new Map();
+  for (const pair of state.board?.pairs || []) {
+    map.set(`${pair.start.x},${pair.start.y}`, pair.color);
+    map.set(`${pair.end.x},${pair.end.y}`, pair.color);
+  }
+  return map;
+}
+
+function occupancyMap() {
+  const map = new Map();
+  for (const pair of state.board?.pairs || []) {
+    const path = pathForColor(pair.color);
+    for (const point of path) {
+      map.set(`${point.x},${point.y}`, pair.color);
+    }
+  }
+  return map;
+}
+
+function deepClonePaths(pathsByColor) {
+  const copy = {};
+  for (const [color, path] of Object.entries(pathsByColor)) {
+    copy[color] = path.map((point) => ({ x: point.x, y: point.y }));
+  }
+  return copy;
+}
+
+function rememberHistory() {
+  state.history.push({
+    pathsByColor: deepClonePaths(state.pathsByColor),
+  });
+  if (state.history.length > 30) {
+    state.history.shift();
+  }
+}
+
+function pathForColor(color) {
+  if (state.active?.color === color) return state.active.path;
+  return state.pathsByColor[color] || [];
+}
+
+function isCompletedPath(pair, path) {
+  if (!pair || path.length < 2) return false;
+  const first = path[0];
+  const last = path[path.length - 1];
+  return (
+    (samePoint(first, pair.start) && samePoint(last, pair.end)) ||
+    (samePoint(first, pair.end) && samePoint(last, pair.start))
+  );
+}
+
+function isBoardSolved() {
+  if (!state.board) return false;
+  const occupied = new Set();
+  for (const pair of state.board.pairs) {
+    const path = pathForColor(pair.color);
+    if (!isCompletedPath(pair, path)) return false;
+    for (const point of path) {
+      occupied.add(`${point.x},${point.y}`);
+    }
+  }
+  return occupied.size === state.board.gridCol * state.board.gridRow;
+}
+
+function normalizeBoard(board) {
+  if (!board) return null;
+  return {
+    ...board,
+    pairs: (board.nodes || [])
+      .map((node) => {
+        const [start, end] = node.points || [];
+        return start && end
+          ? {
+              color: normalizeColorCode(node.colorCode),
+              start: { x: start.col, y: start.row },
+              end: { x: end.col, y: end.row },
+            }
+          : null;
+      })
+      .filter(Boolean),
+    paths: (board.paths || []).map((path) => ({
+      color: normalizeColorCode(path.color),
+      completed: Boolean(path.completed),
+      path: pathToPoints(path.path || []),
+    })),
+  };
+}
+
+function loadBoardPayload(payload) {
+  setSession(payload.sessionId || state.sessionId);
+  state.stageId = payload.stageId || '';
+  state.totalDemoRounds = payload.totalDemoRounds || 0;
+  state.totalActualRounds = payload.totalActualRounds || 0;
+  state.currentDemoRound = payload.currentDemoRound || 0;
+  state.currentActualRound = payload.currentActualRound || 0;
+  state.isDemoRound = Boolean(payload.isDemoRound);
+  state.isActualRound = Boolean(payload.isActualRound);
+  state.board = normalizeBoard(payload.board);
+  state.pathsByColor = {};
+  state.movesByColor = {};
+  state.history = [];
+  state.active = null;
+  state.dirty = false;
+
+  if (state.board) {
+    for (const pair of state.board.pairs) {
+      state.pathsByColor[pair.color] = [];
+      state.movesByColor[pair.color] = {
+        moveId: crypto.randomUUID(),
+        timeStamp: new Date().toISOString(),
+      };
+    }
+
+    for (const path of state.board.paths) {
+      state.pathsByColor[path.color] = path.path.map((point) => ({ x: point.x, y: point.y }));
+      state.movesByColor[path.color] = {
+        moveId: crypto.randomUUID(),
+        timeStamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  render();
+  syncStateDump();
+  syncControls();
+}
+
+function syncStateDump() {
+  dump('stateDump', {
+    sessionId: state.sessionId || null,
+    stageId: state.stageId || null,
+    totalDemoRounds: state.totalDemoRounds,
+    totalActualRounds: state.totalActualRounds,
+    currentDemoRound: state.currentDemoRound,
+    currentActualRound: state.currentActualRound,
+    isDemoRound: state.isDemoRound,
+    isActualRound: state.isActualRound,
+    boardId: state.board?.boardId || null,
+    sessionBoardId: state.board?.sessionBoardId || null,
+    levelId: state.board?.levelId || null,
+    dirty: state.dirty,
+    solvedLocally: isBoardSolved(),
+    pathsByColor: Object.fromEntries(
+      Object.entries(state.pathsByColor).map(([color, path]) => [color, pointsToPath(path)])
+    ),
+  });
+}
+
+async function request(path, options = {}) {
+  if (state.inFlight) {
+    throw new Error('Another request is still in flight. Please wait a moment.');
+  }
+
+  persistInputs();
+  const token = $('authToken').value.trim();
+  const requestInit = {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...options,
+  };
+
+  state.lastRequest = {
+    url: `${apiBase()}${path}`,
+    ...requestInit,
+    body: options.body ? JSON.parse(options.body) : null,
+  };
+  dump('requestDump', state.lastRequest);
+
+  state.inFlight = true;
+  syncControls();
+  try {
+    const response = await fetch(`${apiBase()}${path}`, requestInit);
+    const body = await response.json().catch(() => null);
+    state.lastResponse = body ?? { success: false, message: 'Non-JSON response', statusCode: response.status };
+    dump('responseDump', state.lastResponse);
+
+    if (!response.ok || !body?.success) {
+      const details = body?.data ? `\n${JSON.stringify(body.data, null, 2)}` : '';
+      throw new Error(`${body?.message || `HTTP ${response.status}`}${details}`);
+    }
+
+    return body.data;
+  } finally {
+    state.inFlight = false;
+    syncControls();
+  }
+}
+
+function snapshotPayload() {
+  if (!state.sessionId || !state.board) return null;
+  return {
+    sessionId: state.sessionId,
+    board: {
+      sessionBoardId: state.board.sessionBoardId,
+      version: state.board.version,
+      paths: state.board.pairs.map((pair) => {
+        const path = state.pathsByColor[pair.color] || [];
+        const move = state.movesByColor[pair.color] || {
+          moveId: crypto.randomUUID(),
+          timeStamp: new Date().toISOString(),
+        };
+        return {
+          color: pair.color,
+          moveId: move.moveId,
+          timeStamp: move.timeStamp,
+          path: pointsToPath(path),
+        };
+      }),
+    },
+  };
+}
+
+function markDirty(color) {
+  state.dirty = true;
+  if (color) {
+    stampMove(color);
+  }
+  syncStateDump();
+}
+
+function stampMove(color, overrides = {}) {
+  state.movesByColor[color] = {
+    moveId: crypto.randomUUID(),
+    timeStamp: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+async function startSession() {
+  if (state.inFlight || state.autoplayRunning) return;
+  try {
+    setMessage('');
+    const payload = await request('/game/session/start', {
+      method: 'POST',
+      body: JSON.stringify({ stageId: $('stageId').value.trim() }),
+    });
+    loadBoardPayload(payload);
+    setSaveState('Session started', 'saved');
+    setMessage('Session started successfully.', 'success');
+  } catch (error) {
+    setMessage(error.message, 'error');
+  }
+}
+
+async function restoreSession() {
+  if (state.inFlight || state.autoplayRunning) return;
+  if (!state.sessionId) {
+    setMessage('No stored session id found.', 'error');
+    return;
+  }
+
+  try {
+    const payload = await request(`/game/session/${state.sessionId}/current-board`);
+    if (payload.status === 'COMPLETED') {
+      setMessage(`Session already completed. Final score: ${payload.finalScore}`, 'success');
+      setSession('');
+      state.board = null;
+      render();
+      syncStateDump();
+      return;
+    }
+
+    loadBoardPayload(payload);
+    setSaveState('Restored', 'saved');
+    setMessage('Current board restored from backend.', 'success');
+  } catch (error) {
+    setMessage(error.message, 'error');
+  }
+}
+
+async function saveProgress(force = false) {
+  if (!state.sessionId || !state.board) return;
+  if (state.inFlight) return;
+  if (!state.dirty && !force) return;
+
+  try {
+    setSaveState('Saving...', 'saving');
+    const payload = snapshotPayload();
+    const data = await request('/game/session/save-progress', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    if (data.ignored) {
+      setSaveState('No changes', 'idle');
+      return;
+    }
+
+    state.dirty = false;
+    setSaveState('Saved', 'saved');
+    setMessage('Progress saved.', 'success');
+    syncStateDump();
+  } catch (error) {
+    setSaveState('Save failed', 'idle');
+    setMessage(error.message, 'error');
+  }
+}
+
+async function completeBoard() {
+  if (!state.sessionId || !state.board) return;
+  if (state.inFlight) return;
+  if (!isBoardSolved()) {
+    setSaveState('Board incomplete', 'idle');
+    setMessage('Complete Board is allowed only after the whole grid is filled.', 'error');
+    return;
+  }
+  try {
+    setSaveState('Completing...', 'saving');
+    const payload = await request('/game/session/complete-board', {
+      method: 'POST',
+      body: JSON.stringify(snapshotPayload()),
+    });
+
+    if (payload.status === 'COMPLETED') {
+      setMessage(`Run completed. Final score: ${payload.finalScore}`, 'success');
+      setSession('');
+      state.board = null;
+      state.dirty = false;
+      render();
+      syncStateDump();
+      setSaveState('Run complete', 'saved');
+      return;
+    }
+
+    loadBoardPayload(payload);
+    setSaveState('Board completed', 'saved');
+    setMessage('Board completed. Active board advanced.', 'success');
+  } catch (error) {
+    setSaveState('Complete failed', 'idle');
+    setMessage(error.message, 'error');
+  }
+}
+
+async function requestNextBoard() {
+  if (state.inFlight || state.autoplayRunning) return;
+  if (!state.sessionId) {
+    setMessage('Start or restore a session first.', 'error');
+    return;
+  }
+
+  try {
+    const payload = await request('/game/session/next-board', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: state.sessionId }),
+    });
+
+    if (payload.status === 'COMPLETED') {
+      setSession('');
+      state.board = null;
+      render();
+      syncStateDump();
+      setMessage(`Session completed. Final score: ${payload.finalScore}`, 'success');
+      return;
+    }
+
+    const previewLabel = payload.isDemoRound
+      ? `Demo ${payload.currentDemoRound}/${payload.totalDemoRounds || 0}`
+      : `Actual ${payload.currentActualRound}/${payload.totalActualRounds || 0}`;
+    const activeBoardId = payload.activeSessionBoardId || 'unknown';
+    setMessage(`Preview loaded for ${previewLabel}. Save/complete still work only on active board ${activeBoardId}.`, 'success');
+  } catch (error) {
+    setMessage(error.message, 'error');
+  }
+}
+
+async function endGame() {
+  if (state.inFlight || state.autoplayRunning) return;
+  if (!state.sessionId) {
+    setMessage('Start or restore a session first.', 'error');
+    return;
+  }
+
+  try {
+    const payload = await request('/game/session/game-end', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: state.sessionId }),
+    });
+
+    clearLocalSession(false);
+    setMessage(`Game ended. Final score: ${payload.finalScore}`, 'success');
+  } catch (error) {
+    setMessage(error.message, 'error');
+  }
+}
+
+async function timeSync() {
+  if (state.inFlight || state.autoplayRunning) return;
+  if (!state.sessionId) {
+    setMessage('Start or restore a session first.', 'error');
+    return;
+  }
+
+  try {
+    const payload = await request(`/game/session/time-sync?sessionId=${encodeURIComponent(state.sessionId)}`);
+    setMessage(
+      `Timer sync loaded. Start: ${payload.startTime || 'n/a'} • End: ${payload.endTime || 'n/a'} • Server: ${payload.serverNow}`,
+      'success'
+    );
+  } catch (error) {
+    setMessage(error.message, 'error');
+  }
+}
+
+function undo() {
+  if (state.history.length === 0 || !state.board) return;
+  const previous = state.history.pop();
+  state.pathsByColor = deepClonePaths(previous.pathsByColor);
+  for (const color of Object.keys(state.pathsByColor)) {
+    state.movesByColor[color] = {
+      moveId: crypto.randomUUID(),
+      timeStamp: new Date().toISOString(),
+    };
+  }
+  state.dirty = true;
+  render();
+  syncStateDump();
+}
+
+function resetBoard() {
+  if (!state.board) return;
+  rememberHistory();
+  for (const pair of state.board.pairs) {
+    state.pathsByColor[pair.color] = [];
+    markDirty(pair.color);
+  }
+  render();
+}
+
+function autoplayDelayMs() {
+  return Math.max(10, parseInt($('autoplayInterval').value, 10) || 140);
+}
+
+function cheatSaveCount() {
+  return Math.max(3, parseInt($('cheatSaveCount').value, 10) || 5);
+}
+
+function cheatTimestampStepMs() {
+  return Math.max(1, parseInt($('cheatTimestampStep').value, 10) || 20);
+}
+
+function cheatConnectCount() {
+  return Math.max(0, parseInt($('cheatConnectCount').value, 10) || 1);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function neighborPoints(point) {
+  if (!state.board) return [];
+  return [
+    { x: point.x + 1, y: point.y },
+    { x: point.x - 1, y: point.y },
+    { x: point.x, y: point.y + 1 },
+    { x: point.x, y: point.y - 1 },
+  ].filter((next) =>
+    next.x >= 0 &&
+    next.y >= 0 &&
+    next.x < state.board.gridCol &&
+    next.y < state.board.gridRow
+  );
+}
+
+function findPathForPair(pair, color) {
+  if (!state.board) return null;
+
+  const blocked = new Set();
+  for (const otherPair of state.board.pairs) {
+    if (otherPair.color === color) continue;
+    const otherPath = state.pathsByColor[otherPair.color] || [];
+    for (const point of otherPath) {
+      blocked.add(`${point.x},${point.y}`);
+    }
+    blocked.add(`${otherPair.start.x},${otherPair.start.y}`);
+    blocked.add(`${otherPair.end.x},${otherPair.end.y}`);
+  }
+
+  const targetKey = `${pair.end.x},${pair.end.y}`;
+  const queue = [[pair.start]];
+  const visited = new Set([`${pair.start.x},${pair.start.y}`]);
+
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const current = path[path.length - 1];
+    if (`${current.x},${current.y}` === targetKey) {
+      return path;
+    }
+
+    const options = neighborPoints(current)
+      .filter((next) => {
+        const key = `${next.x},${next.y}`;
+        if (visited.has(key)) return false;
+        if (blocked.has(key) && key !== targetKey) return false;
+        return true;
+      })
+      .sort((left, right) => {
+        const leftDistance = Math.abs(left.x - pair.end.x) + Math.abs(left.y - pair.end.y);
+        const rightDistance = Math.abs(right.x - pair.end.x) + Math.abs(right.y - pair.end.y);
+        return leftDistance - rightDistance;
+      });
+
+    for (const next of options) {
+      visited.add(`${next.x},${next.y}`);
+      queue.push([...path, next]);
+    }
+  }
+
+  return null;
+}
+
+function connectPair(color, timestampOverride = null) {
+  const pair = pairByColor(color);
+  if (!pair) return false;
+
+  const path = findPathForPair(pair, color);
+  if (!path || path.length < 2) return false;
+
+  rememberHistory();
+  state.pathsByColor[color] = path.map((point) => ({ x: point.x, y: point.y }));
+  markDirty(color);
+  if (timestampOverride) {
+    stampMove(color, { timeStamp: timestampOverride });
+  }
+  render();
+  return true;
+}
+
+function connectNextPair(timestampOverride = null) {
+  if (!state.board) return false;
+  const nextPair = state.board.pairs.find((pair) => !isCompletedPath(pair, pathForColor(pair.color)));
+  if (!nextPair) return false;
+  return connectPair(nextPair.color, timestampOverride);
+}
+
+function setAutoplayRunning(value) {
+  state.autoplayRunning = value;
+  if (!value && state.autoplayTimer) {
+    clearTimeout(state.autoplayTimer);
+    state.autoplayTimer = null;
+  }
+  syncControls();
+}
+
+async function autoplayLoop() {
+  if (!state.autoplayRunning || !state.board || !state.sessionId) {
+    setAutoplayRunning(false);
+    return;
+  }
+
+  if (state.inFlight) {
+    state.autoplayTimer = setTimeout(() => { void autoplayLoop(); }, autoplayDelayMs());
+    return;
+  }
+
+  const changed = connectNextPair();
+  if (changed) {
+    await saveProgress(true);
+  }
+
+  if (!state.autoplayRunning) {
+    return;
+  }
+
+  const hasOpenPairs = state.board.pairs.some((pair) => !isCompletedPath(pair, pathForColor(pair.color)));
+  if (hasOpenPairs && changed) {
+    state.autoplayTimer = setTimeout(() => { void autoplayLoop(); }, autoplayDelayMs());
+    return;
+  }
+
+  if (!isBoardSolved()) {
+    setAutoplayRunning(false);
+    setMessage('Autoplay stopped because the board is not fully filled yet, so Complete Board was skipped.', 'error');
+    return;
+  }
+
+  await completeBoard();
+  if (state.autoplayRunning && state.board) {
+    state.autoplayTimer = setTimeout(() => { void autoplayLoop(); }, autoplayDelayMs());
+  } else {
+    setAutoplayRunning(false);
+  }
+}
+
+async function startAutoplay() {
+  if (!state.board || !state.sessionId || state.inFlight || state.autoplayRunning) return;
+  setMessage('Guided autoplay started.', 'success');
+  setAutoplayRunning(true);
+  await autoplayLoop();
+}
+
+function stopAutoplay() {
+  setAutoplayRunning(false);
+  setMessage('Autoplay stopped.', 'success');
+}
+
+async function runCheatBurst() {
+  if (!state.board || !state.sessionId || state.inFlight || state.autoplayRunning) return;
+
+  const saves = cheatSaveCount();
+  const timestampStep = cheatTimestampStepMs();
+  const connectCount = cheatConnectCount();
+  const connectableColors = [];
+  const baseMs = Date.now();
+
+  for (let index = 0; index < connectCount; index += 1) {
+    const pair = state.board.pairs.find((candidate) =>
+      !connectableColors.includes(candidate.color) && !isCompletedPath(candidate, pathForColor(candidate.color))
+    );
+    if (!pair) break;
+    connectableColors.push(pair.color);
+  }
+
+  if (connectableColors.length === 0 && state.board.pairs.length > 0) {
+    connectableColors.push(state.board.pairs[0].color);
+  }
+
+  setMessage('Cheat burst running. Watch save-progress timing and final cheat flags in DB.', 'success');
+
+  for (let index = 0; index < saves; index += 1) {
+    const color = connectableColors[index % Math.max(1, connectableColors.length)];
+    const stampedAt = new Date(baseMs + index * timestampStep).toISOString();
+    const connected = connectPair(color, stampedAt);
+
+    if (!connected && color) {
+      stampMove(color, { timeStamp: stampedAt });
+      state.dirty = true;
+      syncStateDump();
+    }
+
+    await saveProgress(true);
+    await sleep(30);
+  }
+
+  if ($('cheatCompleteAfter').checked) {
+    if (isBoardSolved()) {
+      await completeBoard();
+    } else {
+      setMessage('Cheat burst finished. Complete Board was skipped because the grid is not fully filled yet.', 'error');
+    }
+  }
+}
+
+function beginDrag(point) {
+  if (!state.board) return;
+  const owner = endpointMap().get(`${point.x},${point.y}`);
+  if (!owner) return;
+
+  const currentPath = state.pathsByColor[owner] || [];
+  const existingIndex = currentPath.findIndex((cell) => samePoint(cell, point));
+  const seed = existingIndex >= 0 ? currentPath.slice(0, existingIndex + 1) : [point];
+
+  rememberHistory();
+  state.active = {
+    color: owner,
+    path: seed.map((cell) => ({ x: cell.x, y: cell.y })),
+  };
+  render();
+}
+
+function extendDrag(point) {
+  if (!state.active || !state.board) return;
+
+  const pair = pairByColor(state.active.color);
+  const path = state.active.path;
+  const last = path[path.length - 1];
+  if (!isAdjacent(last, point)) return;
+
+  if (path.length > 1 && samePoint(path[path.length - 2], point)) {
+    path.pop();
+    render();
+    return;
+  }
+
+  const ownIndex = path.findIndex((cell) => samePoint(cell, point));
+  if (ownIndex >= 0) {
+    state.active.path = path.slice(0, ownIndex + 1);
+    render();
+    return;
+  }
+
+  const occupancy = occupancyMap();
+  for (const step of path) {
+    occupancy.delete(`${step.x},${step.y}`);
+  }
+
+  const endpointOwner = endpointMap().get(`${point.x},${point.y}`);
+  if (endpointOwner && endpointOwner !== state.active.color) return;
+  if (occupancy.has(`${point.x},${point.y}`)) return;
+
+  path.push({ x: point.x, y: point.y });
+
+  if (
+    pair &&
+    path.length > 1 &&
+    ((samePoint(path[0], pair.start) && samePoint(point, pair.end)) ||
+      (samePoint(path[0], pair.end) && samePoint(point, pair.start)))
+  ) {
+    finishDrag();
+    return;
+  }
+
+  render();
+}
+
+function finishDrag() {
+  if (!state.active || !state.board) return;
+  const color = state.active.color;
+  state.pathsByColor[color] = state.active.path.map((point) => ({ x: point.x, y: point.y }));
+  state.active = null;
+  markDirty(color);
+  render();
+
+  if (isBoardSolved()) {
+    setMessage('Board looks solved locally. You can now call Complete Board.', 'success');
+  }
+}
+
+function render() {
+  $('stageText').textContent = state.stageId ? `Stage ${state.stageId}` : 'No active stage';
+  if (!state.board) {
+    $('boardTitle').textContent = 'No board loaded';
+    $('boardMeta').textContent = 'Start or restore a session to begin.';
+    $('legend').innerHTML = '';
+    $('grid').innerHTML = '';
+    $('overlay').innerHTML = '';
+    $('emptyState').style.display = 'block';
+    syncControls();
+    return;
+  }
+
+  $('emptyState').style.display = 'none';
+  const boardLabel = state.isDemoRound
+    ? `Demo ${state.currentDemoRound}/${state.totalDemoRounds || 0}`
+    : `Actual ${state.currentActualRound}/${state.totalActualRounds || 0}`;
+  $('boardTitle').textContent = state.board.name || boardLabel;
+  $('boardMeta').textContent = `${boardLabel} • ${state.board.gridRow}x${state.board.gridCol} • level ${state.board.levelId}`;
+
+  $('legend').innerHTML = state.board.pairs.map((pair) => {
+    const complete = isCompletedPath(pair, pathForColor(pair.color));
+    return `
+      <div class="legend-chip">
+        <span class="swatch" style="background:${colorHex(pair.color)}"></span>
+        <span>${pair.color}</span>
+        <span style="color:${complete ? '#86efac' : '#9eb5d1'}">${complete ? 'Connected' : 'Open'}</span>
+      </div>
+    `;
+  }).join('');
+
+  const grid = $('grid');
+  const overlay = $('overlay');
+  grid.style.gridTemplateColumns = `repeat(${state.board.gridCol}, var(--cell))`;
+  grid.innerHTML = '';
+
+  const occupied = occupancyMap();
+  const activeCells = new Set((state.active?.path || []).map((point) => `${point.x},${point.y}`));
+
+  for (let y = 0; y < state.board.gridRow; y += 1) {
+    for (let x = 0; x < state.board.gridCol; x += 1) {
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'cell';
+
+      const endpoint = state.board.pairs.find((pair) =>
+        (pair.start.x === x && pair.start.y === y) || (pair.end.x === x && pair.end.y === y)
+      );
+      const owner = occupied.get(`${x},${y}`);
+      if (owner) {
+        cell.classList.add('is-path');
+        cell.style.setProperty('--cell-color', colorHex(owner));
+      }
+      if (endpoint) {
+        cell.classList.add('is-endpoint');
+        cell.style.setProperty('--cell-color', colorHex(endpoint.color));
+        cell.addEventListener('pointerdown', () => beginDrag({ x, y }));
+      }
+      if (activeCells.has(`${x},${y}`)) {
+        cell.classList.add('active');
+      }
+      cell.addEventListener('pointerenter', () => extendDrag({ x, y }));
+      grid.appendChild(cell);
+    }
+  }
+
+  const width = state.board.gridCol * CELL_SIZE + (state.board.gridCol - 1) * CELL_GAP;
+  const height = state.board.gridRow * CELL_SIZE + (state.board.gridRow - 1) * CELL_GAP;
+  overlay.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  overlay.setAttribute('width', String(width));
+  overlay.setAttribute('height', String(height));
+
+  overlay.innerHTML = state.board.pairs.map((pair) => {
+    const path = pathForColor(pair.color);
+    if (path.length === 0) return '';
+    const points = path.map((point) => (
+      `${point.x * (CELL_SIZE + CELL_GAP) + CELL_SIZE / 2},${point.y * (CELL_SIZE + CELL_GAP) + CELL_SIZE / 2}`
+    )).join(' ');
+    return `<polyline points="${points}" fill="none" stroke="${colorHex(pair.color)}" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"></polyline>`;
+  }).join('');
+
+  syncStateDump();
+  syncControls();
+}
+
+async function getGameConfigs() {
+  const stageId = $('stageId').value.trim();
+  if (!stageId) {
+    setMessage('Enter a Stage ID first.', 'error');
+    return;
+  }
+  try {
+    const data = await request(`/game/session/game-configs?stageId=${encodeURIComponent(stageId)}`);
+    $('gameConfigDump').style.display = 'block';
+    $('gameConfigPre').textContent = JSON.stringify(data, null, 2);
+    setMessage('Game configs loaded.', 'success');
+  } catch (error) {
+    setMessage(error.message, 'error');
+  }
+}
+
+function clearLocalSession(notify = true) {
+  setAutoplayRunning(false);
+  setSession('');
+  state.board = null;
+  state.stageId = '';
+  state.totalDemoRounds = 0;
+  state.totalActualRounds = 0;
+  state.currentDemoRound = 0;
+  state.currentActualRound = 0;
+  state.isDemoRound = false;
+  state.isActualRound = false;
+  state.pathsByColor = {};
+  state.movesByColor = {};
+  state.history = [];
+  state.active = null;
+  state.dirty = false;
+  render();
+  syncStateDump();
+  syncControls();
+  if (notify) {
+    setMessage('Cleared local session state.', 'success');
+  }
+}
+
+document.addEventListener('pointerup', finishDrag);
+document.addEventListener('pointercancel', finishDrag);
+
+for (const id of ['apiBase', 'authToken', 'stageId']) {
+  $(id).addEventListener('change', persistInputs);
+  $(id).addEventListener('blur', persistInputs);
+}
+
+$('startBtn').addEventListener('click', startSession);
+$('restoreBtn').addEventListener('click', restoreSession);
+$('saveBtn').addEventListener('click', () => saveProgress(true));
+$('completeBtn').addEventListener('click', completeBoard);
+$('nextBoardBtn').addEventListener('click', requestNextBoard);
+$('timeSyncBtn').addEventListener('click', timeSync);
+$('endGameBtn').addEventListener('click', endGame);
+$('undoBtn').addEventListener('click', undo);
+$('resetBtn').addEventListener('click', resetBoard);
+$('clearSessionBtn').addEventListener('click', clearLocalSession);
+$('gameConfigBtn').addEventListener('click', getGameConfigs);
+$('autoplayBtn').addEventListener('click', () => { void startAutoplay(); });
+$('stopAutoplayBtn').addEventListener('click', stopAutoplay);
+$('cheatBtn').addEventListener('click', () => { void runCheatBurst(); });
+
+state.saveTimer = setInterval(() => {
+  void saveProgress(false);
+}, 5000);
+
+hydrateInputs();
+render();
+syncStateDump();
+syncControls();
+</script>
+</body>
+</html>

@@ -1,0 +1,608 @@
+.card {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb-color, rgba(255, 255, 255, 0.22))
+    transparent;
+}
+
+.card::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.card::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-color, rgba(255, 255, 255, 0.22));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.card::-webkit-scrollbar-thumb:hover {
+  background-color: var(
+    --scrollbar-thumb-hover-color,
+    rgba(255, 255, 255, 0.34)
+  );
+  background-clip: content-box;
+}
+
+.card::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  background: transparent;
+}
+
+.card::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.instructionViewport {
+  width: 100%;
+  margin-inline: auto;
+  min-height: 100%;
+  height: 100dvh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+}
+
+.instructionRoot {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  color: #ffffff;
+  font-family:
+    "Outfit",
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+}
+
+.overlay {
+  position: absolute;
+  height: 100%;
+  width: auto;
+  max-width: none;
+  object-fit: cover;
+  pointer-events: none;
+  opacity: 0.95;
+  right: 0;
+  top: -24px;
+  left: auto;
+}
+
+.eclipse {
+  position: absolute;
+  left: -100px;
+   top: -40px;
+  width: 380px;
+   height: 380px;
+  pointer-events: none;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--eclipse-color) 0%,
+    var(--eclipse-color) 42%,
+    color-mix(in srgb, var(--eclipse-color) 55%, transparent) 68%,
+    transparent 100%
+  );
+  filter: blur(24px);
+  box-shadow: 0 4px 15px 0 #263479 inset;
+  opacity: 0.9;
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 100dvh;
+  min-height: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+  width: 100%;
+  flex-direction: column;
+  padding: clamp(18px, 6dvh, 64px) clamp(12px, 4vw, 16px)
+    clamp(24px, 4dvh, 36px);
+}
+
+.game-header {
+  margin-top: 0;
+}
+
+.listing-points {
+  width: 100%;
+  overflow-y: auto;
+  margin: 8px 0 0;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.metaText {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.statusPill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 63px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(117, 215, 158, 1);
+  color: #0f2a1f;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.statusPill::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: #0f2a1f;
+  box-shadow: 0 0 0 0 rgba(15, 42, 31, 0.45);
+  animation: statusPillPulse 1.6s ease-out infinite;
+}
+
+@keyframes statusPillPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(15, 42, 31, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(15, 42, 31, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(15, 42, 31, 0);
+  }
+}
+
+.gameTitle {
+  margin: clamp(8px, 1.4dvh, 10px) 0 clamp(10px, 2.2dvh, 18px);
+  font-size: 18px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.carouselSection {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.viewport {
+  overflow: hidden;
+  margin-left: -12px;
+  margin-right: -12px;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.slideContainer {
+  display: flex;
+  gap: 10px;
+  height: 100%;
+}
+
+.slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  padding: 0;
+  opacity: 1;
+  mix-blend-mode: normal;
+  filter: none;
+}
+
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  padding: clamp(16px, 2.7dvh, 24px) 18px 18px;
+  width: 100%;
+  max-width: none;
+  min-height: clamp(300px, 49dvh, 525px);
+  margin: 0 auto;
+  opacity: 1;
+  mix-blend-mode: normal;
+  filter: none;
+  height: 100%;
+  max-height: calc(100vh - 213px);
+}
+
+.slidePeeked .card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.cardTitle {
+  margin: 0;
+  font-family: "Orbitron", system-ui, sans-serif;
+  font-size: 24px;
+  line-height: 32px;
+  letter-spacing: 0.01em;
+  font-weight: 700;
+  text-align: center;
+  background: linear-gradient(90deg, #ffffff 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.cardTitleLast {
+  background: linear-gradient(90deg, #ffffff 0%, #ffb7b7 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.cardDescription {
+  margin: clamp(10px, 1.6dvh, 14px) 0 0;
+  font-family:
+    "Outfit",
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+  text-align: center;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  position: relative;
+  width: 100%;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  margin-top: clamp(12px, 1.8dvh, 18px);
+}
+
+.badge {
+  width: 50px;
+  height: 50px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-family:
+    "Outfit",
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+  flex-shrink: 0;
+}
+
+.ruleBadge {
+  color: #ff756f;
+  font-size: 20px !important;
+}
+
+.itemContent {
+  position: relative;
+  padding-top: 3px;
+}
+
+.itemTitle {
+  margin: 0;
+  font-family:
+    "Outfit",
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 700;
+}
+
+.ruleTitle {
+  font-family:
+    "Outfit",
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+}
+
+.itemDescription {
+  margin: 3px 0 0;
+  font-family:
+    "Outfit",
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.connector {
+  position: absolute;
+  left: 24px;
+  width: 1px;
+  height: 0;
+  border-radius: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+  background: repeating-linear-gradient(#ffffff9e 0 3px, #0000 3px 6px);
+}
+
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: clamp(10px, 1.8dvh, 14px) 0 0;
+}
+
+.dot {
+  border: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.dotActive {
+  width: 34px;
+  background: #ffffff;
+}
+
+.ctaStack {
+  margin-top: clamp(14px, 2.8dvh, 28px);
+  display: grid;
+  gap: clamp(14px, 2.2dvh, 18px);
+}
+
+.button {
+  width: 100%;
+  border-radius: 14px;
+  padding: 17px 40px;
+  border: 1px solid;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    filter 0.18s ease;
+}
+
+.buttonPrimary {
+  border-color: #8b5cf6;
+  color: #1f1f1f;
+  background: linear-gradient(90deg, #8b5cf6 0%, #7c3aed 100%);
+  box-shadow: 0 4px 0 #4c1d95;
+}
+
+.buttonSecondary {
+  border-color: #ffffff;
+  color: #1f1f1f;
+  background: #ffffff;
+  box-shadow: 0 4px 0 rgba(255, 255, 255, 0.3);
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.buttonLoading {
+  filter: saturate(0.92);
+}
+
+@media (min-height: 860px) {
+  .card {
+    padding-top: clamp(22px, 3.6dvh, 30px);
+    padding-bottom: clamp(20px, 3.2dvh, 28px);
+  }
+
+  .list {
+    margin-top: clamp(16px, 2.6dvh, 24px);
+  }
+
+  .item {
+    margin-top: clamp(16px, 2.6dvh, 26px);
+  }
+}
+
+@media (max-height: 860px) {
+  .content {
+    padding: clamp(22px, 4.2dvh, 32px) 12px clamp(16px, 2.6dvh, 24px);
+  }
+
+  .card {
+    min-height: clamp(280px, 45dvh, 420px);
+  }
+
+  .ctaStack {
+    margin-top: clamp(10px, 1.8dvh, 18px);
+    gap: clamp(12px, 2dvh, 16px);
+  }
+}
+
+@media (max-height: 740px) {
+  .content {
+    padding: 24px 12px 16px;
+  }
+
+  .metaText,
+  .statusPill {
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .statusPill {
+    padding: 3px 10px;
+  }
+
+  .gameTitle {
+    margin: 6px 0 10px;
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .card {
+    min-height: 0;
+    padding: 14px 14px 12px;
+    border-radius: 12px;
+  }
+
+  .cardTitle {
+    font-size: 18px;
+    line-height: 24px;
+  }
+
+  .cardDescription {
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .list {
+    margin-top: 10px;
+  }
+
+  .item {
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .badge {
+    width: 38px;
+    height: 38px;
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .connector {
+    left: 18px;
+  }
+
+  .itemContent {
+    padding-top: 0;
+  }
+
+  .itemTitle {
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .ruleTitle {
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .itemDescription {
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .dots {
+    margin-top: 8px;
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+  }
+
+  .dotActive {
+    width: 28px;
+  }
+
+  .ctaStack {
+    margin-top: 10px;
+    gap: 12px;
+  }
+
+  .button {
+    padding: 13px 28px;
+    font-size: 14px;
+  }
+}
+
+@keyframes skeletonPulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.skeletonBar {
+  border-radius: 6px;
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+  background: rgba(255, 255, 255, 0.12);
+}

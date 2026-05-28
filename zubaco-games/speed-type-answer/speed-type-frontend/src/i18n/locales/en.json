@@ -1,0 +1,34 @@
+{
+  "game": {
+    "title": "Speed Type Answer",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "typeHere": "Type your answer...",
+    "question": "Question {{num}}",
+    "correct": "Correct!",
+    "incorrect": "Wrong!",
+    "wpm": "WPM: {{speed}}",
+    "accuracy": "Accuracy: {{pct}}%",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Type the correct answer to each question as fast as you can.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

@@ -1,0 +1,170 @@
+export const en = {
+  translation: {
+    tilt: {
+      title: 'Rotate Device',
+      message: 'Please rotate to portrait mode for the best experience.',
+    },
+    game: {
+      connecting: 'Fetching a dummy user (dev-session)…',
+      connectingNote: 'Stand-in auth while this build runs standalone.',
+      calculatingResult: 'Calculating result…',
+      level: 'Level {number}',
+      starting: 'Game is starting…',
+    },
+    instructions: {
+      labels: {
+        playNow: 'Play Now',
+        learnHowToPlay: 'Learn How To Play?',
+        starting: 'Starting...',
+      },
+      stageInstructions: {
+        gameLabel: 'LOGIC REFLECTOR',
+        statusLabel: 'ACTIVE',
+        gameTitle: 'Logic Reflector',
+        slides: [
+          {
+            id: 'how-to-play',
+            title: 'How to Play',
+            description:
+              'Logic Reflector is a laser puzzle. Place mirrors and optical blocks on the grid to redirect the beam so it strikes every glowing target.',
+            items: [
+              {
+                id: 'select',
+                title: 'Select a Block',
+                description: 'Pick a mirror, splitter, or blocker from the toolbar.',
+                variant: 'step',
+              },
+              {
+                id: 'place',
+                title: 'Place on the Grid',
+                description: 'Tap an empty cell to place your block, or drag it directly.',
+                variant: 'step',
+              },
+              {
+                id: 'reflect',
+                title: 'Reflect the Beam',
+                description: 'Adjust your blocks until the laser hits every target.',
+                variant: 'step',
+              },
+              {
+                id: 'clear',
+                title: 'Clear the Level',
+                description: 'Light up all targets to complete the level and advance!',
+                variant: 'step',
+              },
+            ],
+          },
+          {
+            id: 'scoring',
+            title: 'Scoring Rules',
+            description: 'Maximize your score by solving levels quickly and efficiently.',
+            items: [
+              {
+                id: 'base',
+                title: 'Level Completion',
+                description: 'Earn base points for every puzzle you solve.',
+                variant: 'step',
+              },
+              {
+                id: 'time',
+                title: 'Time Bonus',
+                description: 'The faster you solve, the higher your time bonus.',
+                variant: 'step',
+              },
+              {
+                id: 'moves',
+                title: 'Fewer Blocks',
+                description: 'Using fewer blocks can boost your final ranking.',
+                variant: 'step',
+              },
+              {
+                id: 'total',
+                title: 'Total Score',
+                description: 'Your score accumulates across all levels in the session.',
+                variant: 'step',
+              },
+            ],
+          },
+          {
+            id: 'fair-play',
+            title: 'Fair Play Rules',
+            description: 'To keep competition fair for everyone, please follow these guidelines:',
+            items: [
+              {
+                id: 'bot',
+                title: 'No automated tools or scripts',
+                description: 'Use of bots will result in disqualification.',
+                variant: 'rule',
+              },
+              {
+                id: 'accounts',
+                title: 'One account per player',
+                description: 'Multiple accounts are not permitted.',
+                variant: 'rule',
+              },
+              {
+                id: 'connection',
+                title: 'Stable internet connection',
+                description: 'Ensure your connection is stable to avoid sync issues.',
+                variant: 'rule',
+              },
+            ],
+          },
+        ],
+      },
+    },
+    errors: {
+      connectionLost: 'Connection Lost',
+      authenticationFailed: 'Authentication failed.',
+      failedStartGame: 'Failed to start game.',
+      failedRestoreSession: 'Failed to restore live game.',
+      failedFinalizeExpiredSession: 'Failed to finalize expired game session.',
+      failedEndLevel: 'Failed to end level.',
+      failedLoadNextLevel: 'Failed to load next level.',
+      failedForfeit: 'Forfeit failed.',
+      gameSessionNotFound: 'Game session not found. Please start again.',
+      serverRejectedGameStart: 'Server rejected game start.',
+    },
+    offline: {
+      connectionLost: 'Connection Lost',
+      youAreOffline: 'You are offline',
+      message: 'Internet is required to continue. Please check your network and retry.',
+      retry: 'Retry',
+    },
+    results: {
+      timeUp: {
+        scoreLabel: 'YOUR SCORE',
+        chipLabel: "Time's Up!",
+        headingLeading: 'The clock ran out on the',
+        headingHighlight: ' Puzzle',
+        headingTrailing: '',
+        subheading: "Don't worry — come back and try again in the next game!",
+        progressLabel: 'Progress',
+        progressSuffixLabel: 'Levels cleared',
+        ctaLabel: 'Play Again',
+      },
+      success: {
+        scoreLabel: 'YOUR SCORE',
+        chipLabel: "You're Doing Awesome",
+        headingLeading: "Well done! You've solved the",
+        headingHighlight: ' Puzzle',
+        headingTrailing: '',
+        subheading: 'Keep it up for the upcoming games.',
+        progressLabel: 'Progress',
+        progressSuffixLabel: 'Levels cleared',
+        ctaLabel: 'Continue',
+      },
+      failure: {
+        scoreLabel: 'YOUR SCORE',
+        chipLabel: 'You gave it a try!',
+        headingLeading: "Don't worry, try again in the",
+        headingHighlight: ' next game!',
+        headingTrailing: '',
+        subheading: "Keep practicing, you'll get there!",
+        progressLabel: 'Progress',
+        progressSuffixLabel: 'Levels cleared',
+        ctaLabel: 'Continue',
+      },
+    },
+  },
+} as const;

@@ -1,0 +1,512 @@
+.resultViewport {
+  width: 100%;
+  margin-inline: auto;
+  min-height: 100%;
+  height: 100dvh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.resultRoot {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: #ffffff;
+  font-family:
+    'Outfit',
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    Arial,
+    sans-serif;
+}
+
+.resultEclipse {
+  position: absolute;
+  left: -80px;
+   top: -60px;
+  width: 447px;
+  height: 440px;
+  pointer-events: none;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--result-eclipse-color) 0%,
+    var(--result-eclipse-color) 42%,
+    color-mix(in srgb, var(--result-eclipse-color) 55%, transparent) 68%,
+    transparent 100%
+  );
+  filter: blur(24px);
+  box-shadow: 0 4px 15px 0 var(--result-eclipse-color) inset;
+  opacity: 0.9;
+  z-index: 0;
+}
+
+.resultContent {
+  position: relative;
+  z-index: 2;
+  min-height: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(52px, 7dvh, 55px) 16px clamp(16px, 2.8dvh, 24px);
+}
+
+.resultTopOverlay {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: top center;
+  pointer-events: none;
+  opacity: 0.95;
+  z-index: 0;
+  max-height: 40vh;
+}
+
+.resultBottomOverlay {
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  opacity: 0.92;
+  z-index: 0;
+  max-height: 33vh;
+}
+
+.resultScoreBlock {
+  position: relative;
+  z-index: 3;
+  text-align: center;
+  margin-top: auto;
+}
+
+.resultScoreLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--result-accent-color, #6d85ff);
+}
+
+.resultScoreValue {
+  display: block;
+  margin-top: 6px;
+  font-size: 48px;
+  line-height: 52px;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.resultChip {
+  margin: clamp(22px, 3dvh, 30px) auto 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  gap: 3px;
+  min-height: 29.6px;
+  padding: 0 16.58px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 21.31px;
+  background: rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  font-size: 14px;
+  line-height: 28.33px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.resultChipIcon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--result-accent-color, #6d85ff);
+  flex-shrink: 0;
+}
+
+.resultChipIconImage {
+  width: 24px;
+  height: 24px;
+}
+
+.resultMessageCard {
+  margin-top: 18px;
+  width: 100%;
+  min-height: 159px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  padding: 30px 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.resultHeading {
+  margin: 0;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-size: 24px;
+  line-height: 29px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: linear-gradient(135deg, #ffffff 0%, #00f0ff 60%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.resultHeading > * {
+  font-family: 'Orbitron', system-ui, sans-serif;
+}
+
+.resultHeadingHighlight {
+  background: inherit;
+  -webkit-background-clip: inherit;
+  -webkit-text-fill-color: inherit;
+  background-clip: inherit;
+}
+
+.resultSubheading {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 1);
+}
+
+.resultProgressCard {
+  margin-top: 16px;
+  width: 100%;
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  padding: 18px;
+}
+
+.resultProgressLabel {
+  display: block;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(205, 202, 213, 1);
+}
+
+.resultProgressValue {
+  margin: 8px 0 0;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 1);
+}
+
+.resultProgressValue strong {
+  font-size: 32px;
+  line-height: 38px;
+  letter-spacing: -0.01em;
+  vertical-align: bottom;
+  display: inline-block;
+  margin-bottom: -1px;
+}
+
+.resultProgressRing {
+  --progress-ring-width: 4px;
+  --progress-ring-dasharray: 188.5;
+  --progress-ring-dashoffset: 188.5;
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  position: relative;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+
+.resultProgressRingSvg {
+  position: absolute;
+  inset: 0;
+  width: 64px;
+  height: 64px;
+  transform: rotate(-90deg);
+  shape-rendering: geometricPrecision;
+}
+
+.resultProgressRingTrack {
+  fill: none;
+  stroke: color-mix(in srgb, var(--result-accent-color, #6d85ff) 30%, transparent);
+  stroke-width: var(--progress-ring-width);
+}
+
+.resultProgressRingArc {
+  fill: none;
+  stroke: var(--result-accent-color, #6d85ff);
+  stroke-width: var(--progress-ring-width);
+  stroke-linecap: round;
+  stroke-dasharray: var(--progress-ring-dasharray);
+  stroke-dashoffset: var(--progress-ring-dashoffset);
+  transition: stroke-dashoffset 220ms ease-out;
+}
+
+.resultProgressRing span {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.resultContinueButton {
+  margin-top: 12px;
+  width: 100%;
+  min-height: 52px;
+  border-radius: 14px;
+  border: 1px solid #8b5cf6;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 17px 40px;
+  border-color: #8b5cf6;
+  color: #ffffff;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  box-shadow: 0 4px 0 #4c1d95;
+}
+
+@media (max-height: 860px) {
+  .resultContent {
+    padding-top: 52px;
+  }
+
+  .resultMessageCard {
+    min-height: 148px;
+    padding-top: 20px;
+    padding-bottom: 16px;
+  }
+
+  .resultProgressCard {
+    min-height: 88px;
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
+  .resultContinueButton {
+    min-height: 52px;
+  }
+}
+
+@media (max-height: 800px) {
+  .resultChip {
+    margin-top: 14px;
+  }
+
+  .resultMessageCard {
+    margin-top: 14px;
+    min-height: 140px;
+  }
+
+  .resultProgressCard {
+    margin-top: 12px;
+    min-height: 84px;
+  }
+}
+
+@media (max-height: 740px) {
+  .resultContent {
+    padding: 52px 12px 14px;
+  }
+
+  .resultScoreValue {
+    font-size: 42px;
+    line-height: 46px;
+  }
+
+  .resultChip {
+    margin-top: 10px;
+    min-height: 27px;
+    padding: 0 13px;
+    font-size: 13px;
+    line-height: 24px;
+  }
+
+  .resultMessageCard {
+    margin-top: 14px;
+    border-radius: 14px;
+    min-height: 136px;
+    padding: 16px 12px 12px;
+  }
+
+  .resultHeading {
+    font-size: 22px;
+    line-height: 29px;
+  }
+
+  .resultSubheading {
+    margin-top: 8px;
+    font-size: 14px;
+  }
+
+  .resultProgressCard {
+    margin-top: 12px;
+    border-radius: 14px;
+    min-height: 84px;
+    padding: 14px;
+  }
+
+  .resultProgressLabel {
+    font-size: 13px;
+  }
+
+  .resultProgressValue {
+    font-size: 16px;
+  }
+
+  .resultProgressValue strong {
+    font-size: 28px;
+    line-height: 34px;
+  }
+
+  .resultProgressRing {
+    width: 58px;
+    height: 58px;
+  }
+
+  .resultContinueButton {
+    min-height: 48px;
+    font-size: 14px;
+    padding: 13px 28px;
+  }
+}
+
+@media (max-height: 680px) {
+  .resultContent {
+    padding: 44px 12px 12px;
+  }
+
+  .resultTopOverlay {
+    top: 10px;
+  }
+
+  .resultBottomOverlay {
+    top: 146px;
+  }
+
+  .resultScoreLabel {
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .resultScoreValue {
+    margin-top: 4px;
+    font-size: 38px;
+    line-height: 42px;
+  }
+
+  .resultChip {
+    margin-top: 30px;
+    min-height: 26px;
+    padding: 0 11px;
+    font-size: 12px;
+    line-height: 21px;
+    gap: 5px;
+  }
+
+  .resultChipIcon,
+  .resultChipIconImage {
+    width: 18px;
+    height: 18px;
+  }
+
+  .resultMessageCard {
+    margin-top: 10px;
+    min-height: 124px;
+    padding: 12px 18px 10px;
+  }
+
+  .resultHeading {
+    font-size: 20px;
+    line-height: 29px;
+  }
+
+  .resultSubheading {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .resultProgressCard {
+    margin-top: 10px;
+    min-height: 76px;
+    padding: 12px;
+  }
+
+  .resultProgressLabel,
+  .resultProgressValue {
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .resultProgressValue {
+    margin-top: 4px;
+    gap: 4px;
+  }
+
+  .resultProgressValue strong {
+    font-size: 26px;
+    line-height: 30px;
+  }
+
+  .resultProgressRing,
+  .resultProgressRingSvg {
+    width: 52px;
+    height: 52px;
+  }
+
+  .resultContinueButton {
+    min-height: 44px;
+    font-size: 13px;
+    padding: 11px 20px;
+  }
+}

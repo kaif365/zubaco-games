@@ -1,0 +1,780 @@
+/* ── Logic Reflector Level Editor — DEV ONLY ─────────────────────────────────
+   Plain CSS, no Tailwind. Dark theme. */
+
+/* ── Root ─────────────────────────────────────────────────────────────────── */
+.le-root {
+  width: 100vw;
+  height: 100dvh;
+  background: #0e0e16;
+  color: #e0e0f0;
+  font-family: 'Courier New', Courier, monospace;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.le-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #12121e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.le-header__title {
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  color: #c0c8ff;
+  margin: 0;
+}
+
+.le-header__badge {
+  background: #c0390a;
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.1em;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.le-header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+.le-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Panel (left sidebar) ─────────────────────────────────────────────────── */
+.le-panel {
+  width: 300px;
+  min-width: 300px;
+  background: #10101a;
+  overflow-y: auto;
+  padding: 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  box-sizing: border-box;
+}
+
+/* ── Section ──────────────────────────────────────────────────────────────── */
+.le-section {
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.le-section:last-child {
+  border-bottom: none;
+}
+
+.le-section__title {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+  margin: 0 0 10px 0;
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+.le-field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.le-field label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+/* ── Inputs ───────────────────────────────────────────────────────────────── */
+.le-input {
+  background: #1c1c2a;
+  color: #d0d8ff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.le-input:focus {
+  border-color: rgba(100, 140, 255, 0.5);
+  background: #1e1e30;
+}
+
+.le-input--sm {
+  width: 64px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+/* ── Select ───────────────────────────────────────────────────────────────── */
+.le-select {
+  background: #1c1c2a;
+  color: #d0d8ff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.le-select:focus {
+  border-color: rgba(100, 140, 255, 0.5);
+}
+
+/* ── Tool buttons ─────────────────────────────────────────────────────────── */
+.le-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.le-tool-btn {
+  background: #1c1c2a;
+  color: rgba(200, 210, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.le-tool-btn:hover {
+  background: #22223a;
+  color: #e0e8ff;
+  border-color: rgba(100, 140, 255, 0.3);
+}
+
+.le-tool-btn--active {
+  background: rgba(60, 80, 200, 0.35);
+  color: #b0c8ff;
+  border-color: rgba(100, 140, 255, 0.7);
+}
+
+/* ── Stepper (block count) ────────────────────────────────────────────────── */
+.le-stepper-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 6px;
+}
+
+.le-stepper-row__label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  flex: 1;
+}
+
+.le-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.le-stepper button {
+  background: #1c1c2a;
+  color: #c0c8ff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+}
+
+.le-stepper button:hover {
+  background: #22223a;
+  border-color: rgba(100, 140, 255, 0.4);
+}
+
+.le-stepper__val {
+  font-size: 12px;
+  color: #a0b0ff;
+  min-width: 24px;
+  text-align: center;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.le-btn {
+  background: #1c1c2a;
+  color: #c0c8ff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  width: 100%;
+  text-align: left;
+}
+
+.le-btn:hover {
+  background: #22223a;
+  border-color: rgba(100, 140, 255, 0.4);
+}
+
+.le-btn--sm {
+  padding: 4px 8px;
+  font-size: 11px;
+  width: auto;
+}
+
+.le-btn--danger {
+  background: rgba(160, 30, 30, 0.25);
+  color: #ff8888;
+  border-color: rgba(200, 60, 60, 0.35);
+}
+
+.le-btn--danger:hover {
+  background: rgba(180, 40, 40, 0.4);
+  border-color: rgba(220, 80, 80, 0.6);
+}
+
+.le-btn--accent {
+  background: rgba(40, 70, 180, 0.3);
+  color: #90b8ff;
+  border-color: rgba(80, 120, 240, 0.45);
+}
+
+.le-btn--accent:hover {
+  background: rgba(50, 80, 200, 0.45);
+  border-color: rgba(100, 150, 255, 0.6);
+}
+
+/* ── Textarea ─────────────────────────────────────────────────────────────── */
+.le-textarea {
+  background: #1c1c2a;
+  color: #90a8a0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 11px;
+  font-family: 'Courier New', Courier, monospace;
+  outline: none;
+  resize: vertical;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 80px;
+}
+
+.le-textarea:focus {
+  border-color: rgba(100, 140, 255, 0.4);
+}
+
+/* ── Main area ────────────────────────────────────────────────────────────── */
+.le-main {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Grid wrapper & container ─────────────────────────────────────────────── */
+.le-grid-wrapper {
+  overflow: auto;
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.le-grid-container {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* ── The actual CSS grid ──────────────────────────────────────────────────── */
+.le-grid {
+  display: grid;
+  gap: 1px;
+  background: #0a0a12;
+  position: relative;
+  z-index: 0;
+}
+
+/* ── Grid cells ───────────────────────────────────────────────────────────── */
+.le-cell {
+  width: 64px;
+  height: 64px;
+  position: relative;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.08s, outline 0.05s;
+  user-select: none;
+}
+
+/* Cells with content show a grab cursor to hint they're draggable */
+.le-cell:not(.le-cell--empty) {
+  cursor: grab;
+}
+
+.le-cell--empty {
+  background: #14141e;
+}
+
+.le-cell--emitter {
+  background: rgba(40, 60, 180, 0.3);
+  border-color: rgba(80, 120, 255, 0.4);
+}
+
+.le-cell--target {
+  background: rgba(180, 140, 20, 0.3);
+  border-color: rgba(240, 190, 40, 0.4);
+}
+
+.le-cell--reflect-block {
+  background: rgba(30, 160, 90, 0.35);
+}
+
+.le-cell--mirror-fwd,
+.le-cell--mirror-bwd {
+  background: rgba(120, 50, 200, 0.35);
+}
+
+.le-cell--splitter {
+  background: rgba(20, 160, 180, 0.35);
+}
+
+.le-cell--blocker {
+  background: rgba(160, 30, 30, 0.45);
+}
+
+.le-cell--init-block {
+  border: 2px dashed rgba(255, 200, 80, 0.5);
+  background: rgba(60, 40, 0, 0.3);
+}
+
+.le-cell--hovered {
+  outline: 2px solid rgba(200, 220, 255, 0.5);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.le-cell--hovered-erase {
+  outline: 2px solid rgba(255, 100, 100, 0.6);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.le-cell--selected {
+  outline: 2px solid #a0c0ff;
+  outline-offset: -2px;
+  z-index: 2;
+}
+
+/* ── Cell label ───────────────────────────────────────────────────────────── */
+.le-cell__label {
+  font-size: 20px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+  z-index: 1;
+  line-height: 1;
+}
+
+.le-cell__label--init {
+  font-size: 13px;
+  font-weight: bold;
+  color: rgba(255, 200, 80, 0.9);
+  pointer-events: none;
+  z-index: 1;
+  line-height: 1;
+  text-align: center;
+  padding: 2px;
+}
+
+/* ── Cell coord overlay ───────────────────────────────────────────────────── */
+.le-cell__coords {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+  line-height: 1;
+}
+
+/* ── Floating cell overlays (emitters/targets at custom coords) ───────────── */
+.le-floating-cell {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* ── Legend bar ───────────────────────────────────────────────────────────── */
+.le-legend {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  align-items: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+
+.le-legend__lit {
+  color: #6ee238;
+}
+
+.le-legend__sep {
+  color: rgba(255, 255, 255, 0.15);
+}
+
+/* ── Select mode: properties panel ───────────────────────────────────────── */
+.le-prop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: rgba(200, 210, 255, 0.65);
+}
+
+.le-prop-row label {
+  min-width: 56px;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ── Direction grid ───────────────────────────────────────────────────────── */
+.le-dir-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  grid-template-rows: repeat(3, 30px);
+  gap: 3px;
+}
+
+.le-dir-btn {
+  background: #1c1c2a;
+  color: rgba(200, 210, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-family: inherit;
+}
+
+.le-dir-btn:hover {
+  background: #22223a;
+  border-color: rgba(100, 140, 255, 0.4);
+}
+
+.le-dir-btn--active {
+  background: rgba(60, 80, 200, 0.45);
+  color: #b0c8ff;
+  border-color: rgba(100, 140, 255, 0.8);
+}
+
+.le-dir-btn--center {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Checkbox ─────────────────────────────────────────────────────────────── */
+.le-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: rgba(200, 210, 255, 0.6);
+  cursor: pointer;
+}
+
+/* ── Status/info text ─────────────────────────────────────────────────────── */
+.le-info {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.28);
+  padding: 4px 0;
+}
+
+.le-info--ok {
+  color: #4ec970;
+}
+
+.le-info--warn {
+  color: #e09830;
+}
+
+/* ── Block tile (game-identical visuals) ──────────────────────────────────── */
+.le-btile {
+  position: absolute;
+  inset: 3px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(circle at 35% 35%, rgba(80,80,100,0.9), rgba(20,20,35,0.95));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.4);
+  border: 1px solid rgba(80,80,100,0.5);
+}
+
+.le-btile__sheen {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 48%, rgba(255,255,255,0.42), rgba(255,255,255,0.11) 28%, rgba(0,0,0,0) 56%);
+  pointer-events: none;
+}
+
+.le-btile__svg {
+  width: 80%;
+  height: 80%;
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+
+/* ── Palette tiles (draggable blocks in sidebar) ──────────────────────────── */
+.le-palette-tile {
+  width: 52px;
+  height: 52px;
+  position: relative;
+  flex-shrink: 0;
+  cursor: grab;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: #14141e;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+
+.le-palette-tile:hover {
+  border-color: rgba(100,140,255,0.45);
+  box-shadow: 0 0 8px rgba(80,120,240,0.2);
+}
+
+.le-palette-tile:active {
+  cursor: grabbing;
+}
+
+.le-palette-tile--init {
+  border: 2px dashed rgba(255,200,80,0.55);
+  background: rgba(60,40,0,0.3);
+}
+
+.le-palette-tile--init:hover {
+  border-color: rgba(255,200,80,0.8);
+  box-shadow: 0 0 8px rgba(200,150,20,0.2);
+}
+
+/* ── Palette rows & labels ────────────────────────────────────────────────── */
+.le-palette-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.le-palette-labels {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.le-palette-label {
+  width: 52px;
+  flex-shrink: 0;
+  font-size: 9px;
+  color: rgba(255,255,255,0.35);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.le-palette-group__label {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  color: rgba(180,190,255,0.5);
+  text-transform: uppercase;
+  margin: 0 0 6px 0;
+}
+
+/* ── Emitter palette row (tile + rotate buttons) ──────────────────────────── */
+.le-emitter-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+/* ── Rotate buttons ───────────────────────────────────────────────────────── */
+.le-rotate-btn {
+  background: #1c1c2a;
+  color: #a0b8ff;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.le-rotate-btn:hover {
+  background: #22223a;
+  border-color: rgba(100,140,255,0.5);
+  color: #c0d4ff;
+}
+
+/* ── Direction badge ──────────────────────────────────────────────────────── */
+.le-dir-badge {
+  font-size: 12px;
+  font-family: 'Courier New', Courier, monospace;
+  color: #90b0ff;
+  background: rgba(40,50,120,0.35);
+  border: 1px solid rgba(80,110,220,0.3);
+  border-radius: 4px;
+  padding: 2px 7px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Drag-over / dragging cell states ─────────────────────────────────────── */
+.le-cell--dragover {
+  outline: 2px solid rgba(0, 200, 255, 0.7) !important;
+  outline-offset: -2px;
+  background: rgba(0, 200, 255, 0.12) !important;
+  z-index: 3;
+}
+
+.le-cell--dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+  outline: 2px dashed rgba(200, 200, 255, 0.35);
+  outline-offset: -2px;
+}
+
+/* ── Init badge overlay ───────────────────────────────────────────────────── */
+.le-cell__init-badge {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,200,80,0.85);
+  background: rgba(0,0,0,0.5);
+  border-radius: 3px;
+  padding: 1px 4px;
+  pointer-events: none;
+  z-index: 5;
+  line-height: 1.4;
+}
+
+/* ── Tool row ─────────────────────────────────────────────────────────────── */
+.le-tool-row {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+}
+
+/* ── Property heading ─────────────────────────────────────────────────────── */
+.le-prop-heading {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+  margin: 0 0 6px 0;
+}
+
+/* ── Grid dimension separator & label ────────────────────────────────────── */
+.le-dim-sep {
+  font-size: 13px;
+  color: rgba(255,255,255,0.35);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.le-dim-label {
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}

@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sequence Recall Game Tester</title>
+  <style>
+    :root {
+      --bg: #f5efe6;
+      --bg-strong: #efe4d4;
+      --panel: rgba(255, 250, 244, 0.92);
+      --panel-border: rgba(97, 78, 54, 0.14);
+      --text: #261d15;
+      --muted: #786858;
+      --accent: #166b5e;
+      --accent-strong: #0f4f45;
+      --accent-soft: #dff2ee;
+      --warn: #b56b24;
+      --danger: #b93f3f;
+      --shadow: 0 20px 50px rgba(64, 45, 26, 0.12);
+      --tile-size: 92px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(22, 107, 94, 0.14), transparent 24rem),
+        radial-gradient(circle at top right, rgba(181, 107, 36, 0.14), transparent 22rem),
+        linear-gradient(180deg, #f9f3ea 0%, var(--bg) 100%);
+    }
+
+    .page {
+      width: min(1200px, calc(100% - 24px));
+      margin: 18px auto 28px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .hero {
+      padding: 22px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      letter-spacing: -0.04em;
+      line-height: 0.95;
+    }
+
+    .hero p {
+      margin: 10px 0 0;
+      max-width: 68ch;
+      color: var(--muted);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+      gap: 16px;
+    }
+
+    .panel {
+      padding: 18px;
+    }
+
+    .panel h2,
+    .panel h3 {
+      margin: 0 0 10px;
+      letter-spacing: -0.02em;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    input,
+    textarea,
+    select,
+    button {
+      font: inherit;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(97, 78, 54, 0.16);
+      padding: 11px 12px;
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--text);
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 11px 16px;
+      cursor: pointer;
+      color: #fff;
+      background: var(--accent);
+      transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
+    }
+
+    button.secondary {
+      background: #5c4b3f;
+    }
+
+    button.ghost {
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+    }
+
+    button.warn {
+      background: var(--warn);
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      transform: none;
+      cursor: not-allowed;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .status-bar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .status-card {
+      border-radius: 18px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(97, 78, 54, 0.1);
+    }
+
+    .status-card strong {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .status-card span {
+      font-size: 1.05rem;
+      word-break: break-word;
+    }
+
+    .game-shell {
+      display: grid;
+      gap: 14px;
+    }
+
+    .stage {
+      position: relative;
+      border-radius: 26px;
+      padding: 18px;
+      background:
+        radial-gradient(circle at top, rgba(22, 107, 94, 0.08), transparent 18rem),
+        linear-gradient(180deg, rgba(255,255,255,0.9), rgba(246,239,228,0.96));
+      border: 1px solid rgba(97, 78, 54, 0.1);
+      overflow: hidden;
+    }
+
+    .stage::after {
+      content: "";
+      position: absolute;
+      inset: auto -10% -40% auto;
+      width: 220px;
+      height: 220px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(181, 107, 36, 0.12), transparent 70%);
+      pointer-events: none;
+    }
+
+    .headline {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .headline h2 {
+      margin: 0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+    }
+
+    .badge.warn {
+      background: #f6e6d6;
+      color: #8f561d;
+    }
+
+    .badge.danger {
+      background: #f5dddd;
+      color: var(--danger);
+    }
+
+    .message {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.84);
+      border: 1px solid rgba(97, 78, 54, 0.1);
+      color: var(--muted);
+      min-height: 54px;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(var(--board-cols, 3), minmax(0, var(--tile-size)));
+      justify-content: center;
+      gap: 12px;
+      padding: 6px 0 2px;
+    }
+
+    .tile {
+      width: var(--tile-size);
+      height: var(--tile-size);
+      border-radius: 24px;
+      border: 1px solid rgba(19, 44, 40, 0.1);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.95), rgba(233, 224, 211, 0.94));
+      color: var(--text);
+      font-size: 1.5rem;
+      font-weight: 700;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), 0 12px 20px rgba(46, 35, 22, 0.08);
+      transform: scale(1);
+    }
+
+    .tile:hover {
+      transform: translateY(-2px);
+    }
+
+    .tile.active {
+      background:
+        linear-gradient(180deg, #18a58f, #0f6457);
+      color: white;
+      box-shadow: 0 0 0 4px rgba(22, 107, 94, 0.16), 0 18px 28px rgba(15, 100, 87, 0.22);
+    }
+
+    .tile.player {
+      background:
+        linear-gradient(180deg, #d58e33, #af6220);
+      color: white;
+    }
+
+    .tile:disabled {
+      cursor: not-allowed;
+      opacity: 0.72;
+    }
+
+    .progress {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(97, 78, 54, 0.18);
+    }
+
+    .dot.hit {
+      background: var(--accent);
+    }
+
+    .mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.9rem;
+    }
+
+    details {
+      border-radius: 16px;
+      background: rgba(255,255,255,0.68);
+      border: 1px solid rgba(97, 78, 54, 0.1);
+      padding: 12px 14px;
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px;
+      min-height: 260px;
+      border-radius: 18px;
+      overflow: auto;
+      background: #201b17;
+      color: #f8f0e7;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    @media (max-width: 960px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .status-bar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 620px) {
+      :root {
+        --tile-size: 78px;
+      }
+
+      .status-bar,
+      .row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>Sequence Recall Game Tester</h1>
+      <p>
+        This version behaves like a lightweight game client. Start a round, watch the sequence
+        flash on the board, then click the tiles to send the same API calls your real frontend would make.
+      </p>
+    </section>
+
+    <section class="layout">
+      <main class="game-shell">
+        <div class="panel stack">
+          <div class="row">
+            <label>
+              Base URL
+              <input id="baseUrl" value="http://localhost:3000" />
+            </label>
+            <label>
+              Stage ID
+              <input id="stageId" placeholder="Enter stage id" />
+            </label>
+          </div>
+          <label>
+            Bearer Token
+            <input id="authToken" placeholder="Paste auth token for protected game routes" />
+          </label>
+          <div class="controls">
+            <button id="saveSettingsBtn" class="ghost" type="button">Save Settings</button>
+            <button id="loadConfigBtn" type="button">Load Config</button>
+            <button id="startHttpBtn" type="button">Start HTTP Game</button>
+            <button id="resumeSessionBtn" class="secondary" type="button">Resume Session</button>
+            <button id="resetRunBtn" class="secondary" type="button">Reset Run</button>
+          </div>
+          <div class="status-bar">
+            <div class="status-card">
+              <strong>Session</strong>
+              <span id="stateSession">-</span>
+            </div>
+            <div class="status-card">
+              <strong>Round</strong>
+              <span id="stateRound">0</span>
+            </div>
+            <div class="status-card">
+              <strong>Mode</strong>
+              <span id="stateMode">Idle</span>
+            </div>
+            <div class="status-card">
+              <strong>Score / Status</strong>
+              <span id="stateScore">-</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel stage">
+          <div class="headline">
+            <div>
+              <h2>Board</h2>
+              <div class="hint">Sequence is played back automatically using the server response.</div>
+            </div>
+            <span id="phaseBadge" class="badge">idle</span>
+          </div>
+
+          <div id="message" class="message">Load config, then start a game.</div>
+
+          <div id="progress" class="progress"></div>
+
+          <div id="board" class="board" style="--board-cols: 3;"></div>
+
+          <div class="controls">
+            <button id="replaySequenceBtn" class="ghost" type="button">Replay Current Sequence</button>
+            <button id="submitValidateBtn" class="warn" type="button">Submit Validate</button>
+            <button id="gameOverBtn" class="danger" type="button">Game Over</button>
+          </div>
+        </div>
+      </main>
+
+      <aside class="stack">
+        <div class="panel stack">
+          <h2>Runtime Data</h2>
+          <div class="status-card">
+            <strong>Current Sequence</strong>
+            <span id="stateSequence" class="mono">[]</span>
+          </div>
+          <div class="status-card">
+            <strong>Player Sequence</strong>
+            <span id="statePlayerSequence" class="mono">[]</span>
+          </div>
+          <div class="status-card">
+            <strong>Config Summary</strong>
+            <span id="stateConfig" class="mono">Not loaded</span>
+          </div>
+          <div class="status-card">
+            <strong>Time Window</strong>
+            <span id="stateEndTime" class="mono">-</span>
+          </div>
+        </div>
+
+        <div class="panel stack">
+          <h2>Manual Controls</h2>
+          <div class="row">
+            <label>
+              WebSocket Move Tile ID
+              <input id="wsTileId" type="number" min="1" value="1" />
+            </label>
+            <label>
+              Current Demo Round
+              <input id="manualDemoRound" type="number" min="0" value="0" />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              Current Actual Round
+              <input id="manualActualRound" type="number" min="0" value="0" />
+            </label>
+          </div>
+          <div class="controls">
+            <button id="nextSequenceBtn" type="button">POST Next Sequence</button>
+            <button id="timeSyncBtn" class="secondary" type="button">GET Time Sync</button>
+          </div>
+          <label>
+            Sequence Events JSON
+            <textarea id="sequenceEventsInput">[]</textarea>
+          </label>
+          <div class="controls">
+            <button id="openWsBtn" type="button">Connect WebSocket</button>
+            <button id="wsStartBtn" type="button">WS Start</button>
+            <button id="wsMoveBtn" class="secondary" type="button">WS Move</button>
+          </div>
+          <div class="hint">Socket namespace: <code>/realtime</code></div>
+        </div>
+
+        <details class="panel" open>
+          <summary>Response Log</summary>
+          <div style="height: 12px;"></div>
+          <div class="controls">
+            <button id="clearLogBtn" class="ghost" type="button">Clear Log</button>
+          </div>
+          <div style="height: 12px;"></div>
+          <pre id="output"></pre>
+        </details>
+      </aside>
+    </section>
+  </div>
+
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const els = {
+      baseUrl: $('baseUrl'),
+      stageId: $('stageId'),
+      authToken: $('authToken'),
+      saveSettingsBtn: $('saveSettingsBtn'),
+      loadConfigBtn: $('loadConfigBtn'),
+      startHttpBtn: $('startHttpBtn'),
+      resumeSessionBtn: $('resumeSessionBtn'),
+      resetRunBtn: $('resetRunBtn'),
+      replaySequenceBtn: $('replaySequenceBtn'),
+      submitValidateBtn: $('submitValidateBtn'),
+      gameOverBtn: $('gameOverBtn'),
+      nextSequenceBtn: $('nextSequenceBtn'),
+      timeSyncBtn: $('timeSyncBtn'),
+      clearLogBtn: $('clearLogBtn'),
+      openWsBtn: $('openWsBtn'),
+      wsStartBtn: $('wsStartBtn'),
+      wsMoveBtn: $('wsMoveBtn'),
+      wsTileId: $('wsTileId'),
+      manualDemoRound: $('manualDemoRound'),
+      manualActualRound: $('manualActualRound'),
+      sequenceEventsInput: $('sequenceEventsInput'),
+      board: $('board'),
+      progress: $('progress'),
+      message: $('message'),
+      phaseBadge: $('phaseBadge'),
+      output: $('output'),
+      stateSession: $('stateSession'),
+      stateRound: $('stateRound'),
+      stateMode: $('stateMode'),
+      stateScore: $('stateScore'),
+      stateSequence: $('stateSequence'),
+      statePlayerSequence: $('statePlayerSequence'),
+      stateConfig: $('stateConfig'),
+      stateEndTime: $('stateEndTime')
+    };
+
+    const storageKey = 'sequence-recall-game-tester';
+    const state = {
+      config: null,
+      gameSessionId: '',
+      currentRound: 0,
+      currentDemoRound: 0,
+      currentActualRound: 0,
+      currentSequence: [],
+      playerSequence: [],
+      playerEvents: [],
+      isDemo: false,
+      endTime: null,
+      score: null,
+      phase: 'idle',
+      socket: null,
+      activeTile: null,
+      playbackTimer: null
+    };
+
+    function log(label, payload) {
+      const stamp = new Date().toISOString();
+      els.output.textContent = `[${stamp}] ${label}\n${JSON.stringify(payload, null, 2)}\n\n` + els.output.textContent;
+    }
+
+    function saveSettings() {
+      localStorage.setItem(storageKey, JSON.stringify({
+        baseUrl: els.baseUrl.value.trim(),
+        stageId: els.stageId.value.trim(),
+        authToken: els.authToken.value.trim()
+      }));
+      log('settings:saved', {
+        baseUrl: els.baseUrl.value.trim(),
+        stageId: els.stageId.value.trim(),
+        hasAuthToken: Boolean(els.authToken.value.trim())
+      });
+    }
+
+    function loadSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        if (saved.baseUrl) els.baseUrl.value = saved.baseUrl;
+        if (saved.stageId) els.stageId.value = saved.stageId;
+        if (saved.authToken) els.authToken.value = saved.authToken;
+      } catch (error) {
+        log('settings:error', { message: error.message });
+      }
+    }
+
+    function requireStageId() {
+      const stageId = els.stageId.value.trim();
+      if (!stageId) throw new Error('stageId is required');
+      return stageId;
+    }
+
+    function getBaseUrl() {
+      return els.baseUrl.value.trim().replace(/\/$/, '');
+    }
+
+    function getAuthToken() {
+      return els.authToken.value.trim();
+    }
+
+    function getSocketUrl() {
+      return `${getBaseUrl()}/realtime`;
+    }
+
+    async function request(label, path, options = {}) {
+      const url = `${getBaseUrl()}${path}`;
+      const authToken = getAuthToken();
+      const config = {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...(options.headers || {})
+        },
+        ...options
+      };
+
+      if (config.method === 'GET') delete config.body;
+      log(`${label}:request`, { url, config });
+
+      const res = await fetch(url, config);
+      const raw = await res.text();
+      let body;
+      try {
+        body = raw ? JSON.parse(raw) : null;
+      } catch {
+        body = raw;
+      }
+
+      const data = body && typeof body === 'object' && 'data' in body ? body.data : body;
+      const success = body && typeof body === 'object' && 'success' in body ? body.success : res.ok;
+      const message =
+        body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
+          ? body.message
+          : `${label} failed with status ${res.status}`;
+
+      log(`${label}:response`, { ok: res.ok, status: res.status, body, data });
+      if (!res.ok || success === false) throw new Error(message);
+      return data;
+    }
+
+    function resetPlayback() {
+      if (state.playbackTimer) {
+        clearTimeout(state.playbackTimer);
+        state.playbackTimer = null;
+      }
+      state.activeTile = null;
+      renderBoard();
+    }
+
+    function setPhase(phase, message, tone = 'default') {
+      state.phase = phase;
+      els.phaseBadge.textContent = phase;
+      els.phaseBadge.className = `badge${tone === 'warn' ? ' warn' : tone === 'danger' ? ' danger' : ''}`;
+      els.message.textContent = message;
+      syncState();
+    }
+
+    function syncState() {
+      els.stateSession.textContent = state.gameSessionId || '-';
+      els.stateRound.textContent = String(state.currentRound);
+      els.stateMode.textContent = state.isDemo ? 'Demo' : (state.gameSessionId ? 'Live' : 'Idle');
+      els.stateScore.textContent = state.score == null ? (state.phase || '-') : String(state.score);
+      els.stateSequence.textContent = JSON.stringify(state.currentSequence);
+      els.statePlayerSequence.textContent = JSON.stringify(state.playerSequence);
+      els.stateEndTime.textContent = state.endTime || '-';
+      els.manualDemoRound.value = String(state.currentDemoRound);
+      els.manualActualRound.value = String(state.currentActualRound);
+
+      if (state.config) {
+        const summary = {
+          cellCount: state.config.cellCount,
+          flashDelay: state.config.flashDelay,
+          totalRounds: state.config.totalRounds,
+          totalDemoRounds: state.config.totalDemoRounds,
+          minSequence: state.config.minSequence,
+          maxSequence: state.config.maxSequence
+        };
+        els.stateConfig.textContent = JSON.stringify(summary);
+      } else {
+        els.stateConfig.textContent = 'Not loaded';
+      }
+
+      renderProgress();
+      updateButtons();
+    }
+
+    function getBoardCellCount() {
+      return Number(state.config?.cellCount || 9);
+    }
+
+    function getBoardColumns(cellCount) {
+      return Math.ceil(Math.sqrt(cellCount));
+    }
+
+    function renderBoard() {
+      const cellCount = getBoardCellCount();
+      els.board.style.setProperty('--board-cols', String(getBoardColumns(cellCount)));
+      els.board.innerHTML = '';
+
+      for (let tileId = 1; tileId <= cellCount; tileId += 1) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'tile';
+        button.textContent = String(tileId);
+
+        if (state.activeTile === tileId) {
+          button.classList.add('active');
+        }
+
+        if (state.playerSequence.includes(tileId)) {
+          button.classList.add('player');
+        }
+
+        const canClick = state.phase === 'input';
+        button.disabled = !canClick;
+        button.addEventListener('click', () => handleBoardClick(tileId));
+        els.board.appendChild(button);
+      }
+    }
+
+    function renderProgress() {
+      els.progress.innerHTML = '';
+      const total = state.currentSequence.length || 0;
+
+      if (!total) {
+        const label = document.createElement('span');
+        label.textContent = 'No active sequence yet.';
+        els.progress.appendChild(label);
+        return;
+      }
+
+      for (let i = 0; i < total; i += 1) {
+        const dot = document.createElement('span');
+        dot.className = `dot${i < state.playerSequence.length ? ' hit' : ''}`;
+        els.progress.appendChild(dot);
+      }
+
+      const label = document.createElement('span');
+      label.textContent = `${state.playerSequence.length}/${total} inputs captured`;
+      els.progress.appendChild(label);
+    }
+
+    function updateButtons() {
+      const hasSequence = state.currentSequence.length > 0;
+      els.replaySequenceBtn.disabled = !hasSequence;
+      els.submitValidateBtn.disabled = !hasSequence || state.phase === 'playback';
+      els.gameOverBtn.disabled = !state.gameSessionId;
+      els.wsMoveBtn.disabled = !state.socket || !state.socket.connected;
+      els.wsStartBtn.disabled = !state.socket || !state.socket.connected;
+    }
+
+    function hydrateRound(payload) {
+      if (!payload || typeof payload !== 'object') return;
+
+      if (typeof payload.gameSessionId === 'string') state.gameSessionId = payload.gameSessionId;
+      if (typeof payload.currentRound === 'number') state.currentRound = payload.currentRound;
+      if (typeof payload.current_demo_round === 'number') state.currentDemoRound = payload.current_demo_round;
+      if (typeof payload.current_actual_round === 'number') state.currentActualRound = payload.current_actual_round;
+      if (typeof payload.nextRound === 'number') state.currentRound = payload.nextRound;
+      if (typeof payload.round === 'number') state.currentRound = payload.round;
+      if (Array.isArray(payload.sequence)) state.currentSequence = payload.sequence;
+      if (typeof payload.isDemo === 'boolean') state.isDemo = payload.isDemo;
+      if (payload.endTime !== undefined) state.endTime = payload.endTime;
+      if (payload.currentScore !== undefined) state.score = payload.currentScore;
+      if (payload.score !== undefined) state.score = payload.score;
+      state.playerSequence = [];
+      state.playerEvents = [];
+
+      if (state.currentSequence.length) {
+        playSequence();
+      } else {
+        syncState();
+      }
+    }
+
+    function hydrateCurrentSession(payload) {
+      if (!payload || typeof payload !== 'object') return;
+
+      if (typeof payload.sessionId === 'string') state.gameSessionId = payload.sessionId;
+      if (typeof payload.currentRound === 'number') state.currentRound = payload.currentRound;
+      if (typeof payload.currentDemoRound === 'number') state.currentDemoRound = payload.currentDemoRound;
+      if (typeof payload.currentActualRound === 'number') state.currentActualRound = payload.currentActualRound;
+      if (Array.isArray(payload.sequence)) state.currentSequence = payload.sequence;
+      if (typeof payload.isDemoMode === 'boolean') state.isDemo = payload.isDemoMode;
+      if (payload.endTime !== undefined) state.endTime = payload.endTime;
+      if (payload.currentScore !== undefined) state.score = payload.currentScore;
+      if (payload.finalScore !== undefined) state.score = payload.finalScore;
+      if (payload.config && typeof payload.config === 'object') {
+        state.config = {
+          ...(state.config || {}),
+          ...payload.config
+        };
+      }
+
+      state.playerSequence = [];
+      state.playerEvents = [];
+      syncState();
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => {
+        state.playbackTimer = setTimeout(resolve, ms);
+      });
+    }
+
+    async function playSequence() {
+      if (!state.currentSequence.length) return;
+
+      resetPlayback();
+      setPhase('playback', 'Watch the board. The server sequence is being replayed now.');
+
+      const flashDelay = Number(state.config?.flashDelay || 500);
+      for (const tileId of state.currentSequence) {
+        state.activeTile = tileId;
+        renderBoard();
+        await sleep(Math.max(180, flashDelay));
+        state.activeTile = null;
+        renderBoard();
+        await sleep(180);
+      }
+
+      state.playbackTimer = null;
+      setPhase('input', 'Your turn. Click the tiles in the same order.');
+    }
+
+    function handleBoardClick(tileId) {
+      if (state.phase !== 'input') return;
+
+      state.playerSequence.push(tileId);
+      state.playerEvents.push({
+        sequence: tileId,
+        sequenceTimestamp: new Date().toISOString()
+      });
+      syncState();
+
+      const expected = state.currentSequence[state.playerSequence.length - 1];
+      if (expected !== tileId) {
+        setPhase('mismatch', `Tile ${tileId} does not match expected value ${expected}. You can still submit validate.`, 'warn');
+      } else if (state.playerSequence.length === state.currentSequence.length) {
+        setPhase('ready', 'Sequence complete. Submit validate to record the round.');
+      }
+    }
+
+    async function loadConfig() {
+      const stageId = requireStageId();
+      const config = await request('get-config', `/v1/game/config/${encodeURIComponent(stageId)}`);
+      state.config = config;
+      renderBoard();
+      setPhase('ready', 'Config loaded. Start a game when you are ready.');
+    }
+
+    async function startHttpGame() {
+      if (!state.config) {
+        await loadConfig();
+      }
+
+      const stageId = requireStageId();
+      const data = await request('start-game', '/v1/game/start', {
+        method: 'POST',
+        body: JSON.stringify({ stageId })
+      });
+
+      state.score = 0;
+      hydrateRound(data);
+    }
+
+    async function resumeSession() {
+      if (!state.config) {
+        await loadConfig();
+      }
+
+      const stageId = requireStageId();
+      const data = await request(
+        'current-session',
+        `/v1/game/current-session?stageId=${encodeURIComponent(stageId)}`
+      );
+
+      hydrateCurrentSession(data);
+      setPhase(
+        'resume',
+        state.currentSequence.length
+          ? 'Active backend session restored. Replay or continue this round.'
+          : 'Active backend session restored.'
+      );
+    }
+
+    async function submitValidate() {
+      if (!state.gameSessionId) throw new Error('No game session id available for validate');
+      if (!state.playerSequence.length) throw new Error('Click at least one tile before validate');
+
+      const isCorrect = JSON.stringify(state.playerSequence) === JSON.stringify(state.currentSequence);
+      const rawEvents = els.sequenceEventsInput.value.trim();
+      let sequenceEvents = state.playerEvents;
+
+      if (rawEvents) {
+        try {
+          const parsed = JSON.parse(rawEvents);
+          if (Array.isArray(parsed) && parsed.length) {
+            sequenceEvents = parsed;
+          }
+        } catch (error) {
+          throw new Error(`Sequence events JSON is invalid: ${error.message}`);
+        }
+      }
+
+      const data = await request('validate', '/v1/game/validate', {
+        method: 'POST',
+        body: JSON.stringify({
+          gameSessionId: state.gameSessionId,
+          roundNumber: state.currentRound,
+          playerSequence: state.playerSequence,
+          sequenceEvents,
+          timestamp: new Date().toISOString(),
+          isCorrect
+        })
+      });
+
+      state.score = data.score;
+      setPhase(data.success ? 'validated' : 'failed', data.success ? 'Validate succeeded. Load the next sequence.' : 'Validate failed. Inspect the log or continue manually.', data.success ? 'default' : 'warn');
+      syncState();
+    }
+
+    async function loadNextSequence() {
+      if (!state.config) throw new Error('Load config first');
+
+      const stageId = requireStageId();
+      const payload = {
+        gameSessionId: state.gameSessionId,
+        stageId,
+        current_demo_round: Number(els.manualDemoRound.value || state.currentDemoRound),
+        current_actual_round: Number(els.manualActualRound.value || state.currentActualRound)
+      };
+
+      const data = await request('next-sequence', '/v1/game/next-sequence', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      if (data.status !== undefined) {
+        state.score = data.currentScore ?? state.score;
+      }
+
+      hydrateRound(data);
+    }
+
+    async function timeSync() {
+      if (!state.gameSessionId) throw new Error('No game session id available for time-sync');
+      const data = await request('time-sync', `/v1/game/time-sync?gameSessionId=${encodeURIComponent(state.gameSessionId)}`);
+      if (data?.endTime !== undefined) {
+        state.endTime = data.endTime;
+        syncState();
+      }
+    }
+
+    async function gameOver() {
+      if (!state.gameSessionId) throw new Error('No game session id available for game-over');
+
+      const data = await request('game-over', '/v1/game/game-over', {
+        method: 'POST',
+        body: JSON.stringify({
+          gameSessionId: state.gameSessionId,
+          reason: 'COMPLETED',
+          completedRounds: state.currentRound,
+          timestamp: new Date().toISOString()
+        })
+      });
+
+      state.score = data.finalScore;
+      setPhase('complete', `Game finished. Final score: ${data.finalScore}`, 'danger');
+      syncState();
+    }
+
+    function resetRun() {
+      resetPlayback();
+      state.gameSessionId = '';
+      state.currentRound = 0;
+      state.currentDemoRound = 0;
+      state.currentActualRound = 0;
+      state.currentSequence = [];
+      state.playerSequence = [];
+      state.playerEvents = [];
+      state.isDemo = false;
+      state.endTime = null;
+      state.score = null;
+      setPhase('idle', 'Run reset. Load config or start a new game.');
+      renderBoard();
+    }
+
+    function ensureSocketLoaded() {
+      if (typeof window.io !== 'function') {
+        throw new Error('Socket.IO client script could not be loaded');
+      }
+    }
+
+    function connectSocket() {
+      ensureSocketLoaded();
+
+      if (state.socket) {
+        state.socket.disconnect();
+      }
+
+      const socket = window.io(getSocketUrl(), { transports: ['websocket'] });
+      state.socket = socket;
+
+      socket.on('connect', () => {
+        log('socket:connect', { id: socket.id });
+        syncState();
+      });
+
+      socket.on('disconnect', (reason) => {
+        log('socket:disconnect', { reason });
+        syncState();
+      });
+
+      socket.on('connect_error', (error) => {
+        log('socket:connect_error', { message: error.message });
+      });
+
+      ['game:new_round', 'game:round_retry', 'game:game_over', 'force:disconnect'].forEach((eventName) => {
+        socket.on(eventName, (payload) => {
+          log(`socket:event:${eventName}`, payload);
+          const data = payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload;
+
+          if (eventName === 'game:game_over') {
+            state.score = data?.finalScore ?? state.score;
+            setPhase('socket-complete', 'Received game over over websocket.', 'danger');
+            syncState();
+            return;
+          }
+
+          hydrateRound(data);
+        });
+      });
+    }
+
+    function emitSocket(eventName, payload) {
+      if (!state.socket || !state.socket.connected) {
+        throw new Error('Socket is not connected');
+      }
+
+      log(`socket:emit:${eventName}`, payload);
+      state.socket.timeout(8000).emit(eventName, payload, (err, response) => {
+        if (err) {
+          log(`socket:ack:${eventName}:error`, { message: err.message || 'timeout' });
+          return;
+        }
+
+        log(`socket:ack:${eventName}`, response);
+        const data = response && typeof response === 'object' && 'data' in response ? response.data : response;
+        if (eventName === 'game:move' || eventName === 'game:start') {
+          hydrateRound(data);
+        }
+      });
+    }
+
+    function bind(button, handler) {
+      button.addEventListener('click', async () => {
+        try {
+          await handler();
+        } catch (error) {
+          log('ui:error', { message: error.message });
+          setPhase('error', error.message, 'danger');
+        }
+      });
+    }
+
+    bind(els.saveSettingsBtn, async () => saveSettings());
+    bind(els.loadConfigBtn, loadConfig);
+    bind(els.startHttpBtn, startHttpGame);
+    bind(els.resumeSessionBtn, resumeSession);
+    bind(els.resetRunBtn, async () => resetRun());
+    bind(els.replaySequenceBtn, async () => playSequence());
+    bind(els.submitValidateBtn, submitValidate);
+    bind(els.gameOverBtn, gameOver);
+    bind(els.nextSequenceBtn, loadNextSequence);
+    bind(els.timeSyncBtn, timeSync);
+    bind(els.openWsBtn, async () => connectSocket());
+    bind(els.wsStartBtn, async () => emitSocket('game:start', { stageId: requireStageId() }));
+    bind(els.wsMoveBtn, async () => emitSocket('game:move', { tileId: Number(els.wsTileId.value) }));
+
+    els.clearLogBtn.addEventListener('click', () => {
+      els.output.textContent = '';
+    });
+
+    loadSettings();
+    renderBoard();
+    setPhase('idle', 'Load config, then start a game.');
+    log('ready', { baseUrl: els.baseUrl.value, stageId: els.stageId.value || null });
+  </script>
+</body>
+</html>

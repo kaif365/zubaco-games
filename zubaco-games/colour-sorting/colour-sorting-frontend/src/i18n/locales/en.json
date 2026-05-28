@@ -1,0 +1,34 @@
+{
+  "game": {
+    "title": "Colour Sorting",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "moves": "Moves",
+    "solved": "Solved!",
+    "failed": "Time's Up!",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Sort the coloured balls into tubes so each tube contains only one colour.",
+    "level": "Level {{level}}",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}",
+    "tubes": "Tubes",
+    "emptySlot": "Empty"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

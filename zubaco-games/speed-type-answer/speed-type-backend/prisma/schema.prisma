@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model GameSession {
+  id           String   @id @default(uuid())
+  playerId     String
+  serverSeed   String
+  clientSeed   String
+  nonce        Int      @default(0)
+  config       Json
+  answers      Json?
+  clientScore  Int?
+  serverScore  Int?
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  completedAt  DateTime?
+}

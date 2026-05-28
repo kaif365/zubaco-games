@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "id": "difficulty-hard-01",
+  "slug": "difficulty-hard-01",
+  "packId": "difficulty-hard",
+  "worldId": "difficulty-hard",
+  "order": 1,
+  "name": "Hard Board 01",
+  "description": "Hard generated board with guaranteed full-coverage reference routing.",
+  "rows": 8,
+  "cols": 9,
+  "timeLimitSec": 320,
+  "difficulty": "hard",
+  "theme": {
+    "name": "Hard Pulse",
+    "boardGradient": ["#17101d", "#2b1a39"],
+    "accent": "#ff8a54",
+    "backgroundGlow": "rgba(255, 138, 84, 0.28)"
+  },
+  "nodes": [
+    {
+      "id": "pink-link",
+      "colorId": "pink",
+      "colorHex": "#ff4bbd",
+      "glowHex": "#ff9ad9",
+      "endpoints": [
+        { "row": 0, "col": 0 },
+        { "row": 0, "col": 7 }
+      ]
+    },
+    {
+      "id": "cyan-link",
+      "colorId": "cyan",
+      "colorHex": "#5cf2ff",
+      "glowHex": "#c7fbff",
+      "endpoints": [
+        { "row": 0, "col": 8 },
+        { "row": 1, "col": 3 }
+      ]
+    },
+    {
+      "id": "amber-link",
+      "colorId": "amber",
+      "colorHex": "#ffc247",
+      "glowHex": "#ffe29d",
+      "endpoints": [
+        { "row": 1, "col": 2 },
+        { "row": 2, "col": 4 }
+      ]
+    },
+    {
+      "id": "violet-link",
+      "colorId": "violet",
+      "colorHex": "#9f79ff",
+      "glowHex": "#d2c3ff",
+      "endpoints": [
+        { "row": 2, "col": 5 },
+        { "row": 3, "col": 4 }
+      ]
+    },
+    {
+      "id": "mint-link",
+      "colorId": "mint",
+      "colorHex": "#58f3c1",
+      "glowHex": "#b9fde7",
+      "endpoints": [
+        { "row": 3, "col": 3 },
+        { "row": 4, "col": 4 }
+      ]
+    },
+    {
+      "id": "orange-link",
+      "colorId": "orange",
+      "colorHex": "#ff8a54",
+      "glowHex": "#ffd1ba",
+      "endpoints": [
+        { "row": 4, "col": 5 },
+        { "row": 5, "col": 6 }
+      ]
+    },
+    {
+      "id": "rose-link",
+      "colorId": "rose",
+      "colorHex": "#ff5a7c",
+      "glowHex": "#ffbfcb",
+      "endpoints": [
+        { "row": 5, "col": 5 },
+        { "row": 5, "col": 0 }
+      ]
+    },
+    {
+      "id": "indigo-link",
+      "colorId": "indigo",
+      "colorHex": "#6b7dff",
+      "glowHex": "#c4cbff",
+      "endpoints": [
+        { "row": 6, "col": 0 },
+        { "row": 6, "col": 5 }
+      ]
+    },
+    {
+      "id": "teal-link",
+      "colorId": "teal",
+      "colorHex": "#4de6d8",
+      "glowHex": "#bafcf5",
+      "endpoints": [
+        { "row": 6, "col": 6 },
+        { "row": 7, "col": 5 }
+      ]
+    },
+    {
+      "id": "gold-link",
+      "colorId": "gold",
+      "colorHex": "#ffd548",
+      "glowHex": "#ffefab",
+      "endpoints": [
+        { "row": 7, "col": 4 },
+        { "row": 7, "col": 0 }
+      ]
+    }
+  ],
+  "objectives": {
+    "requireFullCoverage": true
+  },
+  "validation": {
+    "referenceSolutionPaths": {
+      "pink": [
+        { "row": 0, "col": 0 },
+        { "row": 0, "col": 1 },
+        { "row": 0, "col": 2 },
+        { "row": 0, "col": 3 },
+        { "row": 0, "col": 4 },
+        { "row": 0, "col": 5 },
+        { "row": 0, "col": 6 },
+        { "row": 0, "col": 7 }
+      ],
+      "cyan": [
+        { "row": 0, "col": 8 },
+        { "row": 1, "col": 8 },
+        { "row": 1, "col": 7 },
+        { "row": 1, "col": 6 },
+        { "row": 1, "col": 5 },
+        { "row": 1, "col": 4 },
+        { "row": 1, "col": 3 }
+      ],
+      "amber": [
+        { "row": 1, "col": 2 },
+        { "row": 1, "col": 1 },
+        { "row": 1, "col": 0 },
+        { "row": 2, "col": 0 },
+        { "row": 2, "col": 1 },
+        { "row": 2, "col": 2 },
+        { "row": 2, "col": 3 },
+        { "row": 2, "col": 4 }
+      ],
+      "violet": [
+        { "row": 2, "col": 5 },
+        { "row": 2, "col": 6 },
+        { "row": 2, "col": 7 },
+        { "row": 2, "col": 8 },
+        { "row": 3, "col": 8 },
+        { "row": 3, "col": 7 },
+        { "row": 3, "col": 6 },
+        { "row": 3, "col": 5 },
+        { "row": 3, "col": 4 }
+      ],
+      "mint": [
+        { "row": 3, "col": 3 },
+        { "row": 3, "col": 2 },
+        { "row": 3, "col": 1 },
+        { "row": 3, "col": 0 },
+        { "row": 4, "col": 0 },
+        { "row": 4, "col": 1 },
+        { "row": 4, "col": 2 },
+        { "row": 4, "col": 3 },
+        { "row": 4, "col": 4 }
+      ],
+      "orange": [
+        { "row": 4, "col": 5 },
+        { "row": 4, "col": 6 },
+        { "row": 4, "col": 7 },
+        { "row": 4, "col": 8 },
+        { "row": 5, "col": 8 },
+        { "row": 5, "col": 7 },
+        { "row": 5, "col": 6 }
+      ],
+      "rose": [
+        { "row": 5, "col": 5 },
+        { "row": 5, "col": 4 },
+        { "row": 5, "col": 3 },
+        { "row": 5, "col": 2 },
+        { "row": 5, "col": 1 },
+        { "row": 5, "col": 0 }
+      ],
+      "indigo": [
+        { "row": 6, "col": 0 },
+        { "row": 6, "col": 1 },
+        { "row": 6, "col": 2 },
+        { "row": 6, "col": 3 },
+        { "row": 6, "col": 4 },
+        { "row": 6, "col": 5 }
+      ],
+      "teal": [
+        { "row": 6, "col": 6 },
+        { "row": 6, "col": 7 },
+        { "row": 6, "col": 8 },
+        { "row": 7, "col": 8 },
+        { "row": 7, "col": 7 },
+        { "row": 7, "col": 6 },
+        { "row": 7, "col": 5 }
+      ],
+      "gold": [
+        { "row": 7, "col": 4 },
+        { "row": 7, "col": 3 },
+        { "row": 7, "col": 2 },
+        { "row": 7, "col": 1 },
+        { "row": 7, "col": 0 }
+      ]
+    }
+  },
+  "metadata": {
+    "backendLevelId": "difficulty-hard-01",
+    "editorGroupId": "difficulty-hard",
+    "analyticsKey": "hard_board_01",
+    "version": 1
+  }
+}
