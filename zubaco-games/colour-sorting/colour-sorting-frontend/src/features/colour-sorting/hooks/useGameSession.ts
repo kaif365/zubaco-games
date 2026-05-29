@@ -1,6 +1,21 @@
 import { useState, useCallback } from 'react';
 import httpClient from '@/services/httpClient';
-import type { GameSessionResponse, SubmitResponse, GameMove } from '@/types/game';
+import type { GameSessionResponse, SubmitResponse, GameMove, StageConfig } from '@/types/game';
+
+function getOfflineConfig(level: number): StageConfig {
+  const colorCount = Math.min(3 + Math.floor((level - 1) / 3), 9);
+  const ballsPerTube = 4;
+  const emptyTubes = 2;
+  return {
+    tubeCount: colorCount + emptyTubes,
+    colorCount,
+    ballsPerTube,
+    emptyTubes,
+    timeLimitMs: 120000 + (level * 10000),
+    pointsPerSortedTube: 100,
+    timeBonusMultiplier: 1.5,
+  };
+}
 
 export function useGameSession() {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -16,9 +31,18 @@ export function useGameSession() {
       setLoading(false);
       return data.data;
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to start');
+      // Offline fallback: generate config locally
+      const lvl = level || 1;
+      const offlineSession: GameSessionResponse = {
+        gameSessionId: `offline-${Date.now()}`,
+        endTime: new Date(Date.now() + 120000 + lvl * 10000).toISOString(),
+        serverTime: new Date().toISOString(),
+        config: getOfflineConfig(lvl),
+        seed: Date.now() + lvl,
+      };
+      setSessionId(offlineSession.gameSessionId);
       setLoading(false);
-      return null;
+      return offlineSession;
     }
   }, []);
 
