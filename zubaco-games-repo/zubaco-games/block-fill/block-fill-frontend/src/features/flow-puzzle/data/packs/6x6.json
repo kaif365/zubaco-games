@@ -1,0 +1,356 @@
+{
+  "id": "grid-6x6",
+  "backendPackId": "pack_grid_6x6",
+  "name": "6 x 6",
+  "themeName": "Balanced mid-length routing",
+  "levels": [
+    {
+      "schemaVersion": 1,
+      "id": "grid-6x6-01",
+      "slug": "grid-6x6-01",
+      "packId": "grid-6x6",
+      "worldId": "grid-6x6",
+      "order": 1,
+      "name": "Cross Current",
+      "description": "Full-board coverage with four distinct route bands.",
+      "gridSize": 6,
+      "timeLimitSec": 160,
+      "difficulty": "medium",
+      "theme": {
+        "name": "Pulse Switch",
+        "boardGradient": ["#120f29", "#221245"],
+        "accent": "#9f79ff",
+        "backgroundGlow": "rgba(159, 121, 255, 0.34)"
+      },
+      "nodes": [
+        {
+          "id": "violet-link",
+          "colorId": "violet",
+          "colorHex": "#9f79ff",
+          "glowHex": "#d2c3ff",
+          "endpoints": [
+            { "row": 0, "col": 0 },
+            { "row": 1, "col": 3 }
+          ]
+        },
+        {
+          "id": "mint-link",
+          "colorId": "mint",
+          "colorHex": "#58f3c1",
+          "glowHex": "#b9fde7",
+          "endpoints": [
+            { "row": 1, "col": 2 },
+            { "row": 2, "col": 5 }
+          ]
+        },
+        {
+          "id": "orange-link",
+          "colorId": "orange",
+          "colorHex": "#ff8a54",
+          "glowHex": "#ffd1ba",
+          "endpoints": [
+            { "row": 3, "col": 5 },
+            { "row": 4, "col": 2 }
+          ]
+        },
+        {
+          "id": "rose-link",
+          "colorId": "rose",
+          "colorHex": "#ff5a7c",
+          "glowHex": "#ffbfcb",
+          "endpoints": [
+            { "row": 4, "col": 3 },
+            { "row": 5, "col": 0 }
+          ]
+        }
+      ],
+      "objectives": { "requireFullCoverage": true },
+      "validation": {
+        "referenceSolutionPaths": {
+          "violet": [
+            { "row": 0, "col": 0 },
+            { "row": 0, "col": 1 },
+            { "row": 0, "col": 2 },
+            { "row": 0, "col": 3 },
+            { "row": 0, "col": 4 },
+            { "row": 0, "col": 5 },
+            { "row": 1, "col": 5 },
+            { "row": 1, "col": 4 },
+            { "row": 1, "col": 3 }
+          ],
+          "mint": [
+            { "row": 1, "col": 2 },
+            { "row": 1, "col": 1 },
+            { "row": 1, "col": 0 },
+            { "row": 2, "col": 0 },
+            { "row": 2, "col": 1 },
+            { "row": 2, "col": 2 },
+            { "row": 2, "col": 3 },
+            { "row": 2, "col": 4 },
+            { "row": 2, "col": 5 }
+          ],
+          "orange": [
+            { "row": 3, "col": 5 },
+            { "row": 3, "col": 4 },
+            { "row": 3, "col": 3 },
+            { "row": 3, "col": 2 },
+            { "row": 3, "col": 1 },
+            { "row": 3, "col": 0 },
+            { "row": 4, "col": 0 },
+            { "row": 4, "col": 1 },
+            { "row": 4, "col": 2 }
+          ],
+          "rose": [
+            { "row": 4, "col": 3 },
+            { "row": 4, "col": 4 },
+            { "row": 4, "col": 5 },
+            { "row": 5, "col": 5 },
+            { "row": 5, "col": 4 },
+            { "row": 5, "col": 3 },
+            { "row": 5, "col": 2 },
+            { "row": 5, "col": 1 },
+            { "row": 5, "col": 0 }
+          ]
+        }
+      },
+      "metadata": {
+        "backendLevelId": "lvl_6x6_01",
+        "editorGroupId": "world_6x6",
+        "analyticsKey": "grid_6x6_01",
+        "version": 1
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "grid-6x6-02",
+      "slug": "grid-6x6-02",
+      "packId": "grid-6x6",
+      "worldId": "grid-6x6",
+      "order": 2,
+      "name": "Relay Fold",
+      "description": "Chunk boundaries are less obvious, so the early choices matter more.",
+      "gridSize": 6,
+      "timeLimitSec": 175,
+      "difficulty": "medium",
+      "theme": {
+        "name": "Pulse Switch",
+        "boardGradient": ["#151032", "#251850"],
+        "accent": "#af8cff",
+        "backgroundGlow": "rgba(175, 140, 255, 0.34)"
+      },
+      "nodes": [
+        {
+          "id": "indigo-link",
+          "colorId": "indigo",
+          "colorHex": "#6b7dff",
+          "glowHex": "#c4cbff",
+          "endpoints": [
+            { "row": 0, "col": 0 },
+            { "row": 1, "col": 4 }
+          ]
+        },
+        {
+          "id": "teal-link",
+          "colorId": "teal",
+          "colorHex": "#4de6d8",
+          "glowHex": "#bafcf5",
+          "endpoints": [
+            { "row": 1, "col": 3 },
+            { "row": 2, "col": 5 }
+          ]
+        },
+        {
+          "id": "coral-link",
+          "colorId": "coral",
+          "colorHex": "#ff7b7b",
+          "glowHex": "#ffd0d0",
+          "endpoints": [
+            { "row": 3, "col": 5 },
+            { "row": 4, "col": 3 }
+          ]
+        },
+        {
+          "id": "gold-link",
+          "colorId": "gold",
+          "colorHex": "#ffd548",
+          "glowHex": "#ffefab",
+          "endpoints": [
+            { "row": 4, "col": 4 },
+            { "row": 5, "col": 0 }
+          ]
+        }
+      ],
+      "objectives": { "requireFullCoverage": true },
+      "validation": {
+        "referenceSolutionPaths": {
+          "indigo": [
+            { "row": 0, "col": 0 },
+            { "row": 0, "col": 1 },
+            { "row": 0, "col": 2 },
+            { "row": 0, "col": 3 },
+            { "row": 0, "col": 4 },
+            { "row": 0, "col": 5 },
+            { "row": 1, "col": 5 },
+            { "row": 1, "col": 4 }
+          ],
+          "teal": [
+            { "row": 1, "col": 3 },
+            { "row": 1, "col": 2 },
+            { "row": 1, "col": 1 },
+            { "row": 1, "col": 0 },
+            { "row": 2, "col": 0 },
+            { "row": 2, "col": 1 },
+            { "row": 2, "col": 2 },
+            { "row": 2, "col": 3 },
+            { "row": 2, "col": 4 },
+            { "row": 2, "col": 5 }
+          ],
+          "coral": [
+            { "row": 3, "col": 5 },
+            { "row": 3, "col": 4 },
+            { "row": 3, "col": 3 },
+            { "row": 3, "col": 2 },
+            { "row": 3, "col": 1 },
+            { "row": 3, "col": 0 },
+            { "row": 4, "col": 0 },
+            { "row": 4, "col": 1 },
+            { "row": 4, "col": 2 },
+            { "row": 4, "col": 3 }
+          ],
+          "gold": [
+            { "row": 4, "col": 4 },
+            { "row": 4, "col": 5 },
+            { "row": 5, "col": 5 },
+            { "row": 5, "col": 4 },
+            { "row": 5, "col": 3 },
+            { "row": 5, "col": 2 },
+            { "row": 5, "col": 1 },
+            { "row": 5, "col": 0 }
+          ]
+        }
+      },
+      "metadata": {
+        "backendLevelId": "lvl_6x6_02",
+        "editorGroupId": "world_6x6",
+        "analyticsKey": "grid_6x6_02",
+        "version": 1
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "grid-6x6-03",
+      "slug": "grid-6x6-03",
+      "packId": "grid-6x6",
+      "worldId": "grid-6x6",
+      "order": 3,
+      "name": "Neon Cascade",
+      "description": "The final 6x6 board stretches the paths into more deliberate commitments.",
+      "gridSize": 6,
+      "timeLimitSec": 185,
+      "difficulty": "hard",
+      "theme": {
+        "name": "Pulse Switch",
+        "boardGradient": ["#170f35", "#2e1857"],
+        "accent": "#c6a2ff",
+        "backgroundGlow": "rgba(198, 162, 255, 0.34)"
+      },
+      "nodes": [
+        {
+          "id": "violet-link",
+          "colorId": "violet",
+          "colorHex": "#9f79ff",
+          "glowHex": "#d2c3ff",
+          "endpoints": [
+            { "row": 0, "col": 0 },
+            { "row": 1, "col": 5 }
+          ]
+        },
+        {
+          "id": "mint-link",
+          "colorId": "mint",
+          "colorHex": "#58f3c1",
+          "glowHex": "#b9fde7",
+          "endpoints": [
+            { "row": 1, "col": 4 },
+            { "row": 2, "col": 5 }
+          ]
+        },
+        {
+          "id": "orange-link",
+          "colorId": "orange",
+          "colorHex": "#ff8a54",
+          "glowHex": "#ffd1ba",
+          "endpoints": [
+            { "row": 3, "col": 5 },
+            { "row": 4, "col": 2 }
+          ]
+        },
+        {
+          "id": "rose-link",
+          "colorId": "rose",
+          "colorHex": "#ff5a7c",
+          "glowHex": "#ffbfcb",
+          "endpoints": [
+            { "row": 4, "col": 3 },
+            { "row": 5, "col": 0 }
+          ]
+        }
+      ],
+      "objectives": { "requireFullCoverage": true },
+      "validation": {
+        "referenceSolutionPaths": {
+          "violet": [
+            { "row": 0, "col": 0 },
+            { "row": 0, "col": 1 },
+            { "row": 0, "col": 2 },
+            { "row": 0, "col": 3 },
+            { "row": 0, "col": 4 },
+            { "row": 0, "col": 5 },
+            { "row": 1, "col": 5 }
+          ],
+          "mint": [
+            { "row": 1, "col": 4 },
+            { "row": 1, "col": 3 },
+            { "row": 1, "col": 2 },
+            { "row": 1, "col": 1 },
+            { "row": 1, "col": 0 },
+            { "row": 2, "col": 0 },
+            { "row": 2, "col": 1 },
+            { "row": 2, "col": 2 },
+            { "row": 2, "col": 3 },
+            { "row": 2, "col": 4 },
+            { "row": 2, "col": 5 }
+          ],
+          "orange": [
+            { "row": 3, "col": 5 },
+            { "row": 3, "col": 4 },
+            { "row": 3, "col": 3 },
+            { "row": 3, "col": 2 },
+            { "row": 3, "col": 1 },
+            { "row": 3, "col": 0 },
+            { "row": 4, "col": 0 },
+            { "row": 4, "col": 1 },
+            { "row": 4, "col": 2 }
+          ],
+          "rose": [
+            { "row": 4, "col": 3 },
+            { "row": 4, "col": 4 },
+            { "row": 4, "col": 5 },
+            { "row": 5, "col": 5 },
+            { "row": 5, "col": 4 },
+            { "row": 5, "col": 3 },
+            { "row": 5, "col": 2 },
+            { "row": 5, "col": 1 },
+            { "row": 5, "col": 0 }
+          ]
+        }
+      },
+      "metadata": {
+        "backendLevelId": "lvl_6x6_03",
+        "editorGroupId": "world_6x6",
+        "analyticsKey": "grid_6x6_03",
+        "version": 1
+      }
+    }
+  ]
+}

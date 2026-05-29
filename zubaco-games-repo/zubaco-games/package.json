@@ -1,0 +1,29 @@
+{
+  "name": "ZUBACO-games-monorepo",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "install:frontends": "node scripts/install-frontends.mjs",
+    "check:frontends": "node scripts/check-frontends.mjs",
+    "lint:frontends": "node scripts/check-frontends.mjs lint",
+    "test:frontends": "node scripts/check-frontends.mjs test",
+    "setup:backends": "node scripts/setup-backends.mjs",
+    "check:backends": "node scripts/check-backends.mjs",
+    "lint:backends": "node scripts/check-backends.mjs lint",
+    "test:backends": "node scripts/check-backends.mjs test"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix --max-warnings 0",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.8.3"
+  }
+}

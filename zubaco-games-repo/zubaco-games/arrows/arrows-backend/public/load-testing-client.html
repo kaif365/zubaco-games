@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Arrows — Load Testing</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ── TOP BAR ── */
+    #topbar { background: #161b22; border-bottom: 1px solid #30363d; flex-shrink: 0; }
+    .topbar-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; }
+    .topbar-row + .topbar-row { border-top: 1px solid #21262d; }
+    .url-label { font-size: 11px; color: #484f58; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; min-width: 100px; }
+    #topbar input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 5px; padding: 6px 10px; font-family: monospace; font-size: 13px; outline: none; flex: 1; }
+    #topbar input:focus { border-color: #58a6ff; }
+    .input-narrow { width: 90px; flex: none !important; }
+    button { padding: 6px 16px; border-radius: 5px; border: none; cursor: pointer; font-family: monospace; font-size: 13px; font-weight: bold; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #btn-run  { background: #238636; color: #fff; }
+    #btn-stop { background: #da3633; color: #fff; }
+
+    /* ── STATS BAR ── */
+    #statsbar { display: flex; align-items: center; gap: 20px; padding: 6px 18px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 12px; flex-shrink: 0; }
+    .stat { display: flex; align-items: center; gap: 5px; }
+    .stat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .stat-dot.queued  { background: #484f58; }
+    .stat-dot.running { background: #e3b341; }
+    .stat-dot.done    { background: #3fb950; }
+    .stat-dot.failed  { background: #f85149; }
+    .stat-val { font-weight: bold; min-width: 22px; }
+    .stat-label { color: #8b949e; }
+    #progress-bar-wrap { flex: 1; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
+    #progress-bar { height: 100%; width: 0%; background: #238636; transition: width 0.3s; border-radius: 3px; }
+    #stat-elapsed { font-size: 12px; color: #8b949e; min-width: 40px; text-align: right; }
+
+    /* ── MAIN ── */
+    /* min-height:0 is critical — without it a flex child refuses to shrink below its content
+       height, so overflow-y never activates and the list cannot scroll. */
+    #main { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+
+    /* ── USER CARD ── */
+    .user-card { border: 1px solid #30363d; border-radius: 6px; background: #161b22; overflow: hidden; flex-shrink: 0; }
+    .user-header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; user-select: none; }
+    .user-header:hover { background: #1c2128; }
+    .user-badge { font-size: 10px; font-weight: bold; padding: 2px 7px; border-radius: 10px; min-width: 54px; text-align: center; flex-shrink: 0; }
+    .badge-queued  { background: #21262d; color: #8b949e; }
+    .badge-running { background: #2d2a0a; color: #e3b341; border: 1px solid #7a6519; }
+    .badge-done    { background: #0d2e1a; color: #3fb950; border: 1px solid #238636; }
+    .badge-failed  { background: #2d0d0d; color: #f85149; border: 1px solid #6e2222; }
+    .user-name { font-size: 12px; font-weight: bold; flex: 1; }
+    .user-meta { font-size: 11px; color: #8b949e; }
+    .user-meta .ok  { color: #3fb950; }
+    .user-meta .err { color: #f85149; }
+    .chevron { font-size: 9px; color: #484f58; transition: transform 0.15s; flex-shrink: 0; }
+    .user-card.open > .user-header .chevron { transform: rotate(90deg); }
+
+    /* ── CALL LOG ── */
+    .call-log { display: none; border-top: 1px solid #21262d; padding: 8px 12px 10px; flex-direction: column; gap: 2px; max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
+    .user-card.open > .call-log { display: flex; }
+    .phase-label { font-size: 10px; color: #484f58; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 0 3px; flex-shrink: 0; }
+    .phase-label:first-child { padding-top: 0; }
+
+    /* ── CALL ITEM ── */
+    .call-item { border-radius: 4px; overflow: hidden; border: 1px solid transparent; flex-shrink: 0; }
+    .call-item.expandable { cursor: pointer; }
+    .call-item.open { border-color: #30363d; margin: 2px 0; }
+    .call-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; font-size: 11px; }
+    .call-item.expandable .call-row:hover { background: #1c2128; }
+    .call-item.open .call-row { background: #1c2128; border-radius: 4px 4px 0 0; }
+    .call-method { font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; min-width: 36px; text-align: center; flex-shrink: 0; }
+    .method-post { background: #0a2540; color: #58a6ff; }
+    .method-get  { background: #122810; color: #3fb950; }
+    .call-endpoint { flex: 1; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .call-note { font-size: 10px; color: #484f58; }
+    .call-status { font-weight: bold; min-width: 32px; text-align: right; flex-shrink: 0; }
+    .status-ok      { color: #3fb950; }
+    .status-err     { color: #f85149; }
+    .status-pending { color: #e3b341; }
+    .call-ms { color: #484f58; min-width: 52px; text-align: right; font-size: 10px; flex-shrink: 0; }
+    .call-chevron { font-size: 8px; color: #484f58; transition: transform 0.15s; flex-shrink: 0; }
+    .call-item.open .call-chevron { transform: rotate(90deg); }
+
+    /* ── REQUEST / RESPONSE TABS ── */
+    .call-detail { display: none; background: #0d1117; border-top: 1px solid #21262d; }
+    .call-item.open .call-detail { display: block; }
+    .tab-bar { display: flex; border-bottom: 1px solid #21262d; }
+    .tab { padding: 5px 14px; font-size: 11px; color: #8b949e; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+    .tab-panel { display: none; padding: 8px 10px; max-height: 160px; overflow-y: auto; }
+    .tab-panel.active { display: block; }
+    pre { font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: #c9d1d9; }
+
+    /* ── API TIMINGS DRAWER ── */
+    #api-timings-wrap { flex-shrink: 0; border-bottom: 1px solid #30363d; background: #161b22; }
+    #api-timings-header { display: flex; align-items: center; gap: 8px; padding: 5px 16px; cursor: pointer; user-select: none; font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+    #api-timings-header:hover { background: #1c2128; }
+    #api-timings-chevron { font-size: 8px; color: #484f58; transition: transform 0.15s; }
+    #api-timings-wrap.open #api-timings-chevron { transform: rotate(90deg); }
+    #api-timings-drawer { display: none; overflow-x: auto; }
+    #api-timings-wrap.open #api-timings-drawer { display: block; }
+    #api-timings-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #api-timings-table thead tr { border-bottom: 1px solid #21262d; }
+    #api-timings-table th { padding: 5px 16px; text-align: left; color: #484f58; font-weight: normal; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+    #api-timings-table th.num { text-align: right; }
+    #api-timings-table td { padding: 4px 16px; border-bottom: 1px solid #161b22; white-space: nowrap; }
+    #api-timings-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #api-timings-table tbody tr:hover { background: #1c2128; }
+    .timing-endpoint { color: #c9d1d9; font-family: monospace; }
+    .timing-method { display: inline-block; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; min-width: 36px; text-align: center; margin-right: 6px; }
+    .timing-count { color: #8b949e; }
+    .timing-min   { color: #3fb950; }
+    .timing-avg   { color: #e3b341; }
+    .timing-max   { color: #f85149; }
+  </style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="topbar-row">
+    <span class="url-label">Users Service</span>
+    <input id="users-url" type="text" value="http://localhost:5000" />
+    <span class="url-label">Game Service</span>
+    <input id="game-url" type="text" value="http://localhost:3000" />
+  </div>
+  <div class="topbar-row">
+    <span class="url-label">Stage ID</span>
+    <input id="stage-id" type="text" value="" style="max-width:300px" placeholder="stage-uuid-here" />
+    <span class="url-label">Total Users</span>
+    <input id="total-users" type="number" value="20" class="input-narrow" min="1" />
+    <span class="url-label">Concurrent</span>
+    <input id="concurrent" type="number" value="5" class="input-narrow" min="1" />
+    <span class="url-label">Autoplay ms</span>
+    <input id="autoplay-ms" type="number" value="200" class="input-narrow" min="50" />
+    <button id="btn-run">▶ Run</button>
+    <button id="btn-stop" disabled>■ Stop</button>
+  </div>
+  <div class="topbar-row">
+    <label style="display:flex;align-items:center;gap:6px;color:#8b949e;font-size:12px;white-space:nowrap;cursor:pointer">
+      <input type="checkbox" id="chk-encrypt" />
+      Encrypt
+    </label>
+    <input id="encryption-key-input" type="text" placeholder="AES-256 key (64 hex chars)" style="flex:1;font-family:monospace;font-size:11px" />
+  </div>
+</div>
+
+<div id="statsbar">
+  <div class="stat"><span class="stat-dot queued"></span><span class="stat-val" id="s-queued">0</span><span class="stat-label">queued</span></div>
+  <div class="stat"><span class="stat-dot running"></span><span class="stat-val" id="s-running">0</span><span class="stat-label">running</span></div>
+  <div class="stat"><span class="stat-dot done"></span><span class="stat-val" id="s-done">0</span><span class="stat-label">done</span></div>
+  <div class="stat"><span class="stat-dot failed"></span><span class="stat-val" id="s-failed">0</span><span class="stat-label">failed</span></div>
+  <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+  <span id="stat-elapsed">—</span>
+</div>
+
+<div id="api-timings-wrap">
+  <div id="api-timings-header" onclick="toggleApiTimings()">
+    <span id="api-timings-chevron">▶</span>
+    <span>API Timings</span>
+    <span id="api-timings-summary" style="margin-left:8px;color:#484f58;font-size:10px"></span>
+  </div>
+  <div id="api-timings-drawer">
+    <table id="api-timings-table">
+      <thead>
+        <tr>
+          <th>Endpoint</th>
+          <th class="num">Count</th>
+          <th class="num">Min</th>
+          <th class="num">Avg</th>
+          <th class="num">Max</th>
+        </tr>
+      </thead>
+      <tbody id="api-timings-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="main"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Config & state
+// ─────────────────────────────────────────────────────────────────────────────
+const DIR_DELTA = { up:{dx:0,dy:1}, down:{dx:0,dy:-1}, left:{dx:-1,dy:0}, right:{dx:1,dy:0} };
+const FLUSH_INTERVAL_MS = 2000;
+const MAX_INFLIGHT = 100; // global cap on simultaneous fetch calls across all sessions
+
+let runnerStopped = false;
+let elapsedTimer  = null;
+let runStart      = null;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global HTTP semaphore — prevents the browser fetch queue from backing up
+// ─────────────────────────────────────────────────────────────────────────────
+class Semaphore {
+  constructor(max) { this._max = max; this._count = 0; this._queue = []; }
+  acquire() {
+    return new Promise(resolve => {
+      if (this._count < this._max) { this._count++; resolve(); }
+      else this._queue.push(resolve);
+    });
+  }
+  release() {
+    this._count--;
+    if (this._queue.length) { this._count++; this._queue.shift()(); }
+  }
+}
+const httpSem = new Semaphore(MAX_INFLIGHT);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API timings tracker
+// ─────────────────────────────────────────────────────────────────────────────
+// key: "METHOD /path"  →  { min, max, sum, count }
+const apiTimings = new Map();
+
+function recordTiming(method, path, ms) {
+  const key = `${method} ${path}`;
+  const s   = apiTimings.get(key) ?? { min: Infinity, max: -Infinity, sum: 0, count: 0 };
+  s.min    = Math.min(s.min, ms);
+  s.max    = Math.max(s.max, ms);
+  s.sum   += ms;
+  s.count += 1;
+  apiTimings.set(key, s);
+  renderApiTimings();
+}
+
+function renderApiTimings() {
+  const tbody = document.getElementById('api-timings-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  let totalCalls = 0;
+  for (const [key, s] of apiTimings) {
+    const [method, ...pathParts] = key.split(' ');
+    const path    = pathParts.join(' ');
+    const avg     = s.sum / s.count;
+    const mCls    = method === 'GET' ? 'method-get' : 'method-post';
+    totalCalls   += s.count;
+    const tr      = document.createElement('tr');
+    tr.innerHTML  = `
+      <td class="timing-endpoint"><span class="timing-method ${mCls}">${method}</span>${escHtml(path)}</td>
+      <td class="num timing-count">${s.count}</td>
+      <td class="num timing-min">${fmtMs(s.min)}</td>
+      <td class="num timing-avg">${fmtMs(Math.round(avg))}</td>
+      <td class="num timing-max">${fmtMs(s.max)}</td>`;
+    tbody.appendChild(tr);
+  }
+  const summary = document.getElementById('api-timings-summary');
+  if (summary) summary.textContent = apiTimings.size ? `${apiTimings.size} endpoints · ${totalCalls} calls` : '';
+}
+
+function toggleApiTimings() {
+  document.getElementById('api-timings-wrap').classList.toggle('open');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AES-256-GCM helpers (mirrors game-client implementation)
+// ─────────────────────────────────────────────────────────────────────────────
+async function importAesKey(hexKey) {
+  const raw = new Uint8Array(hexKey.match(/.{2}/g).map(b => parseInt(b, 16)));
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function aesEncrypt(cryptoKey, data) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(data));
+  const ciphertextWithTag = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, tagLength: 128 }, cryptoKey, plaintext);
+  const buf        = new Uint8Array(ciphertextWithTag);
+  const ciphertext = buf.slice(0, buf.length - 16);
+  const tag        = buf.slice(buf.length - 16);
+  const b64 = u8 => btoa(String.fromCharCode(...u8));
+  return { iv: b64(iv), ciphertext: b64(ciphertext), tag: b64(tag) };
+}
+
+async function aesDecrypt(cryptoKey, payload) {
+  const b64dec     = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const iv         = b64dec(payload.iv);
+  const ciphertext = b64dec(payload.ciphertext);
+  const tag        = b64dec(payload.tag);
+  const combined   = new Uint8Array(ciphertext.length + tag.length);
+  combined.set(ciphertext);
+  combined.set(tag, ciphertext.length);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, cryptoKey, combined);
+  return JSON.parse(new TextDecoder().decode(plaintext));
+}
+
+function isEncryptedPayload(obj) {
+  return obj && typeof obj.iv === 'string' && typeof obj.ciphertext === 'string' && typeof obj.tag === 'string';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pure game logic (mirrored from game-client)
+// ─────────────────────────────────────────────────────────────────────────────
+function isPathClear(head, dir, gx, gy, cellMap) {
+  const d = DIR_DELTA[dir];
+  if (!d) return false;
+  let x = head.x + d.dx, y = head.y + d.dy;
+  while (x >= 0 && x < gx && y >= 0 && y < gy) {
+    if (cellMap[`${x},${y}`] !== undefined) return false;
+    x += d.dx; y += d.dy;
+  }
+  return true;
+}
+
+function buildBoardState(board) {
+  const cellMap = {}, arrowMap = {};
+  board.arrows.forEach((a, idx) => {
+    arrowMap[idx] = { ...a, removed: a.isRemoved ?? false };
+    if (!a.isRemoved) a.waypoints.forEach(wp => { cellMap[`${wp.x},${wp.y}`] = idx; });
+  });
+  return {
+    boardId: board.id,
+    sessionBoardId: board.sessionBoardId,
+    gridX: board.gridSize.x,
+    gridY: board.gridSize.y,
+    roundNumber: board.roundNumber,
+    totalRounds: null, // filled in by caller
+    cellMap,
+    arrowMap,
+    remaining: board.arrows.filter(a => !(a.isRemoved ?? false)).length,
+    total: board.arrows.length,
+  };
+}
+
+// Returns head coords of the first clearable arrow, or null if none.
+function findClearableMove(boardState) {
+  const { gridX, gridY, arrowMap, cellMap } = boardState;
+  for (const [, a] of Object.entries(arrowMap)) {
+    if (a.removed) continue;
+    const head = a.waypoints[a.waypoints.length - 1];
+    if (isPathClear(head, a.headDirection, gridX, gridY, cellMap)) return { x: head.x, y: head.y };
+  }
+  return null;
+}
+
+// Apply a successful move locally (mirrors onCellClick success path).
+function applyMove(boardState, x, y) {
+  const idx = boardState.cellMap[`${x},${y}`];
+  if (idx === undefined) return false;
+  const a = boardState.arrowMap[idx];
+  if (a.removed) return false;
+  const head = a.waypoints[a.waypoints.length - 1];
+  if (!isPathClear(head, a.headDirection, boardState.gridX, boardState.gridY, boardState.cellMap)) return false;
+  a.removed = true;
+  a.waypoints.forEach(wp => { delete boardState.cellMap[`${wp.x},${wp.y}`]; });
+  boardState.remaining--;
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Arrow board solver with solution cache + promise deduplication
+//
+// solutionCache  — key: board.id  →  { x, y }[]  (full deterministic move list)
+// pendingSolves  — key: board.id  →  Promise<{ x, y }[]>
+//                  All sessions with the same board await the same Promise so
+//                  the simulation runs exactly once per unique board.
+// ─────────────────────────────────────────────────────────────────────────────
+const arrowSolutionCache = new Map();
+const arrowPendingSolves = new Map();
+
+function _solveArrowBoardSync(boardData) {
+  // Simulate on a throw-away copy of the board state so the real play-state
+  // is never touched.
+  const state = buildBoardState(boardData);
+  const moves = [];
+  while (state.remaining > 0) {
+    const move = findClearableMove(state);
+    if (!move) break; // stuck — no clearable arrow exists
+    moves.push({ x: move.x, y: move.y });
+    applyMove(state, move.x, move.y);
+  }
+  return moves;
+}
+
+function solveArrowBoard(boardData) {
+  const key = boardData.id;
+
+  if (arrowSolutionCache.has(key)) return Promise.resolve(arrowSolutionCache.get(key));
+  if (arrowPendingSolves.has(key)) return arrowPendingSolves.get(key);
+
+  const promise = new Promise(resolve => {
+    setTimeout(() => {
+      const moves = _solveArrowBoardSync(boardData);
+      arrowSolutionCache.set(key, moves);
+      resolve(moves);
+    }, 0);
+  }).finally(() => arrowPendingSolves.delete(key));
+
+  arrowPendingSolves.set(key, promise);
+  return promise;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function fmtMs(ms) { return ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`; }
+function fmtElapsed(ms) {
+  const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
+  return `${String(m).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function prettyJson(obj) { return escHtml(JSON.stringify(obj, null, 2)); }
+
+function updateStats(users) {
+  let queued = 0, running = 0, done = 0, failed = 0;
+  for (const u of users) {
+    if (u.status === 'queued')       queued++;
+    else if (u.status === 'running') running++;
+    else if (u.status === 'done')    done++;
+    else if (u.status === 'failed')  failed++;
+  }
+  document.getElementById('s-queued').textContent  = queued;
+  document.getElementById('s-running').textContent = running;
+  document.getElementById('s-done').textContent    = done;
+  document.getElementById('s-failed').textContent  = failed;
+  const finished = done + failed;
+  const total    = users.length;
+  document.getElementById('progress-bar').style.width = total ? `${(finished/total)*100}%` : '0%';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User card DOM
+// ─────────────────────────────────────────────────────────────────────────────
+function createUserCard(userId) {
+  const card = document.createElement('div');
+  card.className = 'user-card';
+  card.id = `card-${userId}`;
+  card.innerHTML = `
+    <div class="user-header" onclick="toggleCard(this)">
+      <span class="user-badge badge-queued" id="badge-${userId}">QUEUED</span>
+      <span class="user-name">${userId}</span>
+      <span class="user-meta" id="meta-${userId}">waiting to start</span>
+      <span class="chevron">▶</span>
+    </div>
+    <div class="call-log" id="log-${userId}"></div>`;
+  return card;
+}
+
+function setCardStatus(userId, status) {
+  const badge = document.getElementById(`badge-${userId}`);
+  const card  = document.getElementById(`card-${userId}`);
+  if (!badge || !card) return;
+  badge.className = `user-badge badge-${status}`;
+  badge.textContent = status.toUpperCase();
+  card.style.borderColor = status === 'running' ? '#7a6519'
+    : status === 'done'    ? '#238636'
+    : status === 'failed'  ? '#6e2222'
+    : '#30363d';
+}
+
+function setCardMeta(userId, html) {
+  const el = document.getElementById(`meta-${userId}`);
+  if (el) el.innerHTML = html;
+}
+
+const MAX_LOG_ITEMS = 50; // cap DOM nodes per user card
+
+function scrollLog(log) {
+  requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+}
+
+function trimLog(log) {
+  // Remove oldest children when we exceed the cap (phase labels + call-items combined)
+  while (log.children.length > MAX_LOG_ITEMS) log.removeChild(log.firstChild);
+}
+
+function addPhaseLabel(userId, label) {
+  const log = document.getElementById(`log-${userId}`);
+  if (!log) return;
+  const div = document.createElement('div');
+  div.className = 'phase-label';
+  div.textContent = label;
+  log.appendChild(div);
+  trimLog(log);
+  scrollLog(log);
+}
+
+// Returns a call-item object with an update(status, ms, req, res) method.
+function addCallRow(userId, method, endpoint, note = '') {
+  const log = document.getElementById(`log-${userId}`);
+  if (!log) return { update: () => {} };
+
+  const item = document.createElement('div');
+  item.className = 'call-item expandable';
+
+  const methodCls = method === 'GET' ? 'method-get' : 'method-post';
+  const noteHtml  = note ? `<span class="call-note">${escHtml(note)}</span>` : '';
+  item.innerHTML = `
+    <div class="call-row" onclick="this.closest('.call-item').classList.toggle('open')">
+      <span class="call-method ${methodCls}">${method}</span>
+      <span class="call-endpoint">${escHtml(endpoint)} ${noteHtml}</span>
+      <span class="call-status status-pending" data-status>···</span>
+      <span class="call-ms" data-ms>—</span>
+      <span class="call-chevron">▶</span>
+    </div>
+    <div class="call-detail">
+      <div class="tab-bar">
+        <div class="tab active" onclick="switchTab(this,'req')">Request</div>
+        <div class="tab" onclick="switchTab(this,'res')">Response</div>
+      </div>
+      <div class="tab-panel active" data-tab="req"><pre>—</pre></div>
+      <div class="tab-panel" data-tab="res"><pre>—</pre></div>
+    </div>`;
+  log.appendChild(item);
+  trimLog(log);
+  scrollLog(log);
+
+  return {
+    update(statusCode, ms, req, res) {
+      const ok = statusCode >= 200 && statusCode < 300;
+      item.querySelector('[data-status]').className  = `call-status ${ok ? 'status-ok' : 'status-err'}`;
+      item.querySelector('[data-status]').textContent = statusCode;
+      item.querySelector('[data-ms]').textContent     = fmtMs(ms);
+      item.querySelectorAll('.tab-panel')[0].innerHTML = `<pre>${prettyJson(req)}</pre>`;
+      item.querySelectorAll('.tab-panel')[1].innerHTML = `<pre>${prettyJson(res)}</pre>`;
+      scrollLog(log);
+    },
+  };
+}
+
+function toggleCard(header) {
+  const card = header.closest('.user-card');
+  card.classList.toggle('open');
+  if (card.classList.contains('open')) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function switchTab(tab, which) {
+  const detail = tab.closest('.call-detail');
+  detail.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  detail.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  tab.classList.add('active');
+  detail.querySelector(`.tab-panel[data-tab="${which}"]`).classList.add('active');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-user session
+// ─────────────────────────────────────────────────────────────────────────────
+class UserSession {
+  constructor(userId, cfg) {
+    this.userId     = userId;
+    this.cfg        = cfg;   // { usersUrl, gameUrl, stageId, autoplayMs, cryptoKey }
+    this.status     = 'queued';
+    this.token      = null;
+    this.okCount    = 0;
+    this.errCount   = 0;
+    this.startMs    = null;
+  }
+
+  // ── HTTP ──────────────────────────────────────────────────────────────────
+  // cryptoKey is passed explicitly per-call — only game service requests use it.
+  async request(method, baseUrl, path, body, callRow, cryptoKey = null) {
+    const url = baseUrl.replace(/\/$/, '') + path;
+    const t0  = Date.now();
+
+    // Encrypt outgoing body when key is configured (plaintext body shown in UI)
+    let wireBody = body;
+    if (cryptoKey && body) wireBody = await aesEncrypt(cryptoKey, body);
+
+    const req     = body ?? '— no body —'; // always log plaintext
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    await httpSem.acquire();
+    try {
+      const res = await fetch(url, { method, headers, body: wireBody ? JSON.stringify(wireBody) : undefined });
+      const ms  = Date.now() - t0;
+      let resBody;
+      try { resBody = await res.json(); } catch { resBody = null; }
+
+      // Decrypt response — callRow.update below always receives plaintext
+      if (cryptoKey && isEncryptedPayload(resBody)) {
+        try {
+          const decrypted = await aesDecrypt(cryptoKey, resBody);
+          resBody = decrypted?.data ?? decrypted;
+        } catch { /* leave raw on decryption failure */ }
+      }
+
+      recordTiming(method, path, ms);
+      callRow.update(res.status, ms, req, resBody);
+      if (!res.ok) {
+        this.errCount++;
+        throw Object.assign(new Error(res.status), { status: res.status, body: resBody });
+      }
+      this.okCount++;
+      return resBody?.data ?? resBody;
+    } catch (err) {
+      if (err.status) throw err; // already counted
+      const ms = Date.now() - t0;
+      recordTiming(method, path, ms);
+      callRow.update(0, ms, req, { error: err.message });
+      this.errCount++;
+      throw err;
+    } finally {
+      httpSem.release();
+    }
+  }
+
+  // Users service — never encrypted (dev-session, etc. are plaintext)
+  usersReq(method, path, body, note) {
+    const row = addCallRow(this.userId, method, path, note);
+    return this.request(method, this.cfg.usersUrl, path, body, row, null);
+  }
+
+  // Game service — encrypted when cfg.cryptoKey is set
+  gameReq(method, path, body, note) {
+    const row = addCallRow(this.userId, method, path, note);
+    return this.request(method, this.cfg.gameUrl, path, body, row, this.cfg.cryptoKey);
+  }
+
+  // ── Flush moves ───────────────────────────────────────────────────────────
+  async flushMoves(pending) {
+    if (pending.length === 0) return;
+    const batch = pending.splice(0);
+    try {
+      await this.gameReq('POST', '/v1/game/submit-moves', { moves: batch });
+    } catch (err) {
+      pending.unshift(...batch); // restore moves so they can be retried or included in next flush
+      throw err;                 // always re-throw — callers decide whether to abort
+    }
+  }
+
+  // ── Play one board ────────────────────────────────────────────────────────
+  async playBoard(boardData, totalRounds, pendingMoves, prefetchNextBoard) {
+    const boardState = buildBoardState(boardData);
+    boardState.totalRounds = totalRounds;
+
+    // Resolve (or compute + cache) the full deterministic move sequence for
+    // this board. All sessions with the same board.id await the same Promise.
+    const solution    = await solveArrowBoard(boardData);
+    let   solutionIdx = 0;
+
+    this.flushError = null; // reset per-board
+
+    let flushTimer    = null;
+    let inflightFlush = null; // tracks the currently in-progress periodic flush
+
+    const startFlush = () => {
+      flushTimer = setInterval(() => {
+        inflightFlush = (async () => {
+          try { await this.flushMoves(pendingMoves); }
+          catch (err) { this.flushError = err; } // signal tick loop to abort
+          finally { inflightFlush = null; }
+        })();
+      }, FLUSH_INTERVAL_MS);
+    };
+    // Stop the interval AND wait for any already-started flush to settle so its
+    // submit-moves cannot arrive at Restate after end-board and cause a 404.
+    const stopFlush = async () => {
+      clearInterval(flushTimer);
+      flushTimer = null;
+      if (inflightFlush) await inflightFlush;
+    };
+
+    startFlush();
+    const autoplayMs = this.cfg.autoplayMs;
+
+    // Autoplay loop
+    await new Promise(resolve => {
+      const tick = async () => {
+        if (runnerStopped || this.flushError) { stopFlush().then(resolve); return; }
+        if (boardState.remaining === 0) { stopFlush().then(resolve); return; }
+
+        // Use cached solution move when available, otherwise fall back to live scan
+        let move;
+        if (solutionIdx < solution.length) {
+          move = solution[solutionIdx++];
+        } else {
+          move = findClearableMove(boardState);
+        }
+        if (!move) { stopFlush().then(resolve); return; }
+
+        // Record move and apply locally
+        pendingMoves.push({ x: move.x, y: move.y, clickedAt: new Date().toISOString(), moveId: crypto.randomUUID() });
+        applyMove(boardState, move.x, move.y);
+
+        // Trigger next-board prefetch once any arrow is removed (0% threshold)
+        if (boardState.roundNumber < totalRounds && boardState.remaining < boardState.total) {
+          prefetchNextBoard();
+        }
+
+        setTimeout(tick, autoplayMs);
+      };
+      setTimeout(tick, autoplayMs);
+    });
+
+    if (this.flushError) throw this.flushError; // propagate flush 429/error up to run()
+
+    // Final flush before end-board
+    if (pendingMoves.length > 0) await this.flushMoves(pendingMoves);
+  }
+
+  // ── Main run ──────────────────────────────────────────────────────────────
+  async run() {
+    this.status  = 'running';
+    this.startMs = Date.now();
+    setCardStatus(this.userId, 'running');
+    setCardMeta(this.userId, 'starting…');
+
+    try {
+      // ── Auth ──
+      addPhaseLabel(this.userId, 'Auth');
+      // dev-session takes stageId — server generates/resolves the user; token encodes userId+stageId
+      const authRes = await this.usersReq('POST', '/user/auth/dev-session', { stageId: this.cfg.stageId });
+      this.token = authRes?.token;
+      if (!this.token) throw new Error('No token in dev-session response');
+
+      // ── Game start — no body, userId+stageId decoded from JWT ──
+      addPhaseLabel(this.userId, 'Game');
+      const startRes = await this.gameReq('POST', '/v1/game/game-start');
+
+      let currentBoard  = startRes?.board;
+      const totalRounds = startRes?.totalRounds ?? 1;
+
+      // ── Rounds ──
+      const pendingMoves = [];
+      let nextBoardCache = null;
+      let nextBoardFetching = false;
+
+      const prefetchNextBoard = async () => {
+        if (nextBoardCache || nextBoardFetching) return;
+        if (!currentBoard || currentBoard.roundNumber >= totalRounds) return;
+        nextBoardFetching = true;
+        try {
+          const res = await this.gameReq('GET', '/v1/game/next-board', null, '(prefetch)');
+          nextBoardCache = res?.board ?? res;
+        } catch {
+          // non-fatal — will fallback to blocking fetch in the round loop
+        } finally {
+          nextBoardFetching = false;
+        }
+      };
+
+      let gameOver = false;
+
+      for (let round = 1; round <= totalRounds; round++) {
+        if (runnerStopped) break;
+
+        addPhaseLabel(this.userId, `Round ${round} / ${totalRounds}`);
+        setCardMeta(this.userId, `<span class="ok">${this.okCount}✓</span> <span class="err">${this.errCount}✗</span> &nbsp;·&nbsp; round ${round} / ${totalRounds} &nbsp;·&nbsp; ${fmtElapsed(Date.now() - this.startMs)}`);
+
+        await this.playBoard(currentBoard, totalRounds, pendingMoves, prefetchNextBoard);
+        if (runnerStopped) break;
+
+        const isLast = round >= totalRounds;
+
+        if (!isLast) {
+          // Use prefetched board or fetch blocking — mirrors game-client canTransitNow path
+          let nextData = nextBoardCache;
+          nextBoardCache = null;
+          if (!nextData) {
+            const res = await this.gameReq('GET', '/v1/game/next-board');
+            nextData = res?.board ?? res;
+          }
+
+          // End-board fires in background while next board is being set up (game-client bg path)
+          this.gameReq('POST', '/v1/game/end-board').catch(() => {});
+          currentBoard = nextData;
+        } else {
+          // Last round — end-board finalizes the session; gameOver:true means it's done
+          const endBoardRes = await this.gameReq('POST', '/v1/game/end-board');
+          gameOver = endBoardRes?.gameOver ?? false;
+        }
+      }
+
+      if (runnerStopped) { this._finish('failed', 'stopped'); return; }
+
+      // Normal completion: end-board on last round returns gameOver:true → just get status.
+      // end-game is ONLY for forfeit / expiry — never called in normal autoplay flow.
+      addPhaseLabel(this.userId, 'Result');
+      const statusRes = await this.gameReq('GET', '/v1/game/status');
+
+      const sb    = statusRes?.scoreboard ?? {};
+      const score = sb.totalScore ?? '—';
+      const bonus = sb.timeBonus  ?? 0;
+      const label = gameOver ? 'completed' : 'ended';
+
+      this._finish('done', `<span class="ok">${this.okCount}✓</span> <span class="err">${this.errCount}✗</span> &nbsp;·&nbsp; ${totalRounds} rounds &nbsp;·&nbsp; ${label} &nbsp;·&nbsp; score ${score} + ${bonus} bonus &nbsp;·&nbsp; ${fmtElapsed(Date.now() - this.startMs)}`);
+
+    } catch (err) {
+      const msg = err?.body?.message ?? err?.message ?? String(err);
+      this._finish('failed', `<span class="ok">${this.okCount}✓</span> <span class="err">${this.errCount}✗</span> &nbsp;·&nbsp; ${escHtml(msg)}`);
+    }
+  }
+
+  _finish(status, metaHtml) {
+    this.status = status;
+    setCardStatus(this.userId, status);
+    setCardMeta(this.userId, metaHtml);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runner
+// ─────────────────────────────────────────────────────────────────────────────
+async function runAll() {
+  const usersUrl   = document.getElementById('users-url').value.trim();
+  const gameUrl    = document.getElementById('game-url').value.trim();
+  const stageId    = document.getElementById('stage-id').value.trim();
+  const totalUsers = Math.max(1, parseInt(document.getElementById('total-users').value, 10));
+  const concurrent = Math.max(1, parseInt(document.getElementById('concurrent').value, 10));
+  const autoplayMs = Math.max(50, parseInt(document.getElementById('autoplay-ms').value, 10));
+
+  if (!stageId) { alert('Enter a Stage ID'); return; }
+
+  // Reset timings and solution caches for this run
+  apiTimings.clear();
+  renderApiTimings();
+  arrowSolutionCache.clear();
+  arrowPendingSolves.clear();
+
+  // Import AES key once up-front and share it across all sessions
+  let cryptoKey = null;
+  const encryptEnabled = document.getElementById('chk-encrypt').checked;
+  const hexKey         = document.getElementById('encryption-key-input').value.trim();
+  if (encryptEnabled && hexKey) {
+    try { cryptoKey = await importAesKey(hexKey); }
+    catch { alert('Invalid encryption key — must be 64 hex characters'); return; }
+  }
+
+  document.getElementById('btn-run').disabled  = true;
+  document.getElementById('btn-stop').disabled = false;
+  runnerStopped = false;
+
+  // Build user list
+  const users = Array.from({ length: totalUsers }, (_, i) => {
+    const userId = `lt_user_${String(i + 1).padStart(3, '0')}`;
+    return new UserSession(userId, { usersUrl, gameUrl, stageId, autoplayMs, cryptoKey });
+  });
+
+  // Render cards
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  users.forEach(u => main.appendChild(createUserCard(u.userId)));
+  updateStats(users);
+
+  // Start elapsed timer
+  runStart = Date.now();
+  clearInterval(elapsedTimer);
+  elapsedTimer = setInterval(() => {
+    document.getElementById('stat-elapsed').textContent = fmtElapsed(Date.now() - runStart);
+    updateStats(users);
+  }, 500);
+
+  // Concurrency pool — as each user finishes, dequeue next.
+  // Stagger slot starts by 100ms each to avoid thundering-herd on auth.
+  let nextIdx = 0;
+  const runOne = async () => {
+    if (nextIdx >= users.length || runnerStopped) return;
+    const session = users[nextIdx++];
+    await session.run();
+    updateStats(users);
+    await runOne(); // chain next
+  };
+
+  const slots = Math.min(concurrent, totalUsers);
+  await Promise.all(Array.from({ length: slots }, (_, i) =>
+    new Promise(r => setTimeout(r, i * 100)).then(runOne)
+  ));
+
+  // Done
+  clearInterval(elapsedTimer);
+  updateStats(users);
+  document.getElementById('btn-run').disabled  = false;
+  document.getElementById('btn-stop').disabled = true;
+  runnerStopped = false;
+}
+
+document.getElementById('btn-run').addEventListener('click', runAll);
+document.getElementById('btn-stop').addEventListener('click', () => {
+  runnerStopped = true;
+  document.getElementById('btn-stop').disabled = true;
+});
+</script>
+</body>
+</html>

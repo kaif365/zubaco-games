@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Configuration {
+  id                     String   @id @default(uuid())
+  stageId                String   @unique
+  timeLimitMs            Int      @default(300000)
+  initialSpawnIntervalMs Int      @default(1200)
+  speedIncreaseEveryMs   Int      @default(30000)
+  speedMultiplier        Float    @default(0.85)
+  maxWrongTaps           Int      @default(2)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model GameSession {
+  id          String      @id @default(uuid())
+  playerId    String
+  stageId     String
+  serverSeed  String
+  clientSeed  String
+  nonce       Int
+  startedAt   DateTime    @default(now())
+  endedAt     DateTime?
+  clientScore Int?
+  serverScore Int?
+  status      String      @default("active")
+  cheatFlags  CheatFlag[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model CheatFlag {
+  id            String      @id @default(uuid())
+  gameSession   GameSession @relation(fields: [gameSessionId], references: [id])
+  gameSessionId String
+  reason        String
+  details       String?
+  createdAt     DateTime    @default(now())
+}

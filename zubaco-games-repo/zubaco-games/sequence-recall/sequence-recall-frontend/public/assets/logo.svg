@@ -1,0 +1,12 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="256" height="256" rx="48" fill="#0f0a1e"/>
+  <rect x="16" y="16" width="224" height="224" rx="40" fill="none" stroke="#00f0ff" stroke-width="3" opacity="0.3"/>
+  <text x="128" y="148" text-anchor="middle" font-family="Orbitron, sans-serif" font-weight="700" font-size="72" fill="#00f0ff">Z</text>
+  <circle cx="128" cy="128" r="90" fill="none" stroke="url(#glow)" stroke-width="4"/>
+  <defs>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#00f0ff"/>
+    </linearGradient>
+  </defs>
+</svg>

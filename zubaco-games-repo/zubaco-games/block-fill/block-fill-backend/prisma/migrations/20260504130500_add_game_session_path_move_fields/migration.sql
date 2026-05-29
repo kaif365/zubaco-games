@@ -1,0 +1,3 @@
+ALTER TABLE "game_session_paths"
+ADD COLUMN IF NOT EXISTS "move_id" TEXT,
+ADD COLUMN IF NOT EXISTS "timestamp" TIMESTAMP(3);

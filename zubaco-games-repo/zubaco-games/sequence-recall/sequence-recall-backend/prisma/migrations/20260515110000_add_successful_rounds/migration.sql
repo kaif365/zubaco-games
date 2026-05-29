@@ -1,0 +1,1 @@
+ALTER TABLE "game_sessions" ADD COLUMN IF NOT EXISTS "successful_rounds" INTEGER NOT NULL DEFAULT 0;

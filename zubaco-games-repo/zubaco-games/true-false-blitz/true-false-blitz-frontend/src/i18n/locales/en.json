@@ -1,0 +1,33 @@
+{
+  "game": {
+    "title": "True False Blitz",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "true": "True",
+    "false": "False",
+    "correct": "Correct!",
+    "incorrect": "Wrong!",
+    "streak": "Streak: {{count}}",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Quickly decide if each statement is True or False before time runs out.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

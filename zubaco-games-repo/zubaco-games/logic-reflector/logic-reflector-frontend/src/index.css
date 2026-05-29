@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+:root {
+  --background: 248 40% 8%;
+  --foreground: 0 0% 100%;
+  --card: 245 32% 11%;
+  --card-foreground: 0 0% 100%;
+  --primary: 186 100% 50%;
+  --primary-foreground: 237 20% 8%;
+  --muted: 245 20% 20%;
+  --muted-foreground: 230 15% 72%;
+  --accent: 289 91% 62%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --border: 244 21% 28%;
+  --ring: 186 100% 50%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-border: hsl(var(--border));
+  --color-ring: hsl(var(--ring));
+}
+
+* { border-color: hsl(var(--border)); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(110% 80% at 10% 40%, rgba(0, 120, 255, 0.22), transparent 55%),
+    radial-gradient(90% 60% at 80% 50%, rgba(126, 59, 255, 0.2), transparent 60%),
+    radial-gradient(circle at top, #15163c 0%, #0a0a1c 45%, #06050d 100%);
+  color: hsl(var(--foreground));
+  font-family: Outfit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  overflow-x: hidden;
+}
+#root { min-height: 100vh; }
+@keyframes board-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
+.board-pulse { animation: board-pulse 0.6s ease; }
+
+@keyframes board-wrong-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(4px); }
+}
+
+.board-wrong-shake {
+  animation: board-wrong-shake 320ms ease-in-out;
+}
+
+@keyframes glow-flow {
+  0% { opacity: 0.18; transform: translateX(-2%); }
+  50% { opacity: 0.4; transform: translateX(1%); }
+  100% { opacity: 0.18; transform: translateX(-2%); }
+}
+
+@keyframes hud-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-1px); }
+}
+
+.game-shell {
+  position: relative;
+  border: 2px solid rgba(125, 117, 255, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(115, 245, 255, 0.35) inset,
+    0 0 30px rgba(95, 88, 255, 0.22),
+    0 0 80px rgba(37, 148, 255, 0.15);
+}
+
+.game-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(120deg, rgba(84, 255, 255, 0.1), transparent 25%, transparent 70%, rgba(160, 100, 255, 0.12)),
+    repeating-linear-gradient(
+      -18deg,
+      transparent 0px,
+      transparent 13px,
+      rgba(147, 116, 255, 0.05) 14px,
+      rgba(147, 116, 255, 0.05) 15px
+    );
+  animation: glow-flow 5s ease-in-out infinite;
+}
+
+.hud-chip {
+  animation: hud-float 2.5s ease-in-out infinite;
+}

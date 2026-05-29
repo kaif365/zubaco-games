@@ -1,0 +1,35 @@
+{
+  "game": {
+    "title": "Word Unscramble",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "scrambled": "Scrambled Word",
+    "typeAnswer": "Type your answer...",
+    "correct": "Correct!",
+    "incorrect": "Wrong!",
+    "skip": "Skip",
+    "hint": "Hint",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Unscramble the letters to form the correct word before time runs out.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}",
+    "wordsCompleted": "Words: {{count}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

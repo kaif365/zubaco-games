@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model GameSession {
+  id           String     @id @default(uuid())
+  userId       String
+  stageId      String
+  serverSeed   String
+  clientSeed   String
+  nonce        Int
+  finalSeed    Int
+  status       String     @default("active")
+  startedAt    DateTime   @default(now())
+  endTime      DateTime
+  finalScore   Int?
+  correctCount Int?
+  wrongCount   Int?
+  missedCount  Int?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  inputs       Input[]
+  cheatFlags   CheatFlag[]
+}
+
+model Input {
+  id            String      @id @default(uuid())
+  gameSessionId String
+  itemIndex     Int
+  chosenSide    String
+  correct       Boolean
+  timestamp     BigInt
+  sequence      Int
+  createdAt     DateTime    @default(now())
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+
+  @@index([gameSessionId])
+}
+
+model Configuration {
+  id                String   @id @default(uuid())
+  stageId           String   @unique
+  label             String
+  totalItems        Int      @default(30)
+  itemIntervalMs    Int      @default(1500)
+  itemVisibleMs     Int      @default(1500)
+  timeLimitMs       Int      @default(60000)
+  pointsPerCorrect  Int      @default(10)
+  penaltyPerWrong   Int      @default(5)
+  categoryPoolSize  Int      @default(3)
+  createdAt         DateTime @default(now())
+}
+
+model CheatFlag {
+  id            String      @id @default(uuid())
+  gameSessionId String
+  reason        String
+  severity      String      @default("warning")
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+
+  @@index([gameSessionId])
+}

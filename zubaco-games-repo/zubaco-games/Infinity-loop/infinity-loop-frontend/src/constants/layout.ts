@@ -1,0 +1,6 @@
+export const GAME_BACKGROUND = {
+  H_MOBILE_SVG: 64,
+  W_MOBILE_SVG: 123,
+  H_DESKTOP_SVG: 700,
+  W_DESKTOP_SVG: 700,
+};

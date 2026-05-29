@@ -1,0 +1,243 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Level {
+  id                String             @id @default(uuid())
+  name              String
+  difficultyScore   Int                @default(0) @map("difficulty_score")
+  boards            Board[]
+  stageLevelConfigs StageLevelConfig[]
+  stageDemoLevelConfigs StageDemoLevelConfig[]
+  userStageDemoBoards   UserStageDemoBoard[]
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
+
+  @@map("levels")
+  @@index([deletedAt])
+}
+
+model Board {
+  id            String             @id @default(uuid())
+  levelId       String             @map("level_id")
+  level         Level              @relation(fields: [levelId], references: [id])
+  name          String?
+  gameType      String             @default("BLOCK_FILL") @map("game_type")
+  gridX         Int                @map("grid_x")
+  gridY         Int                @map("grid_y")
+  timeLimit     Int                @default(120) @map("time_limit")
+  pairs         Json               @default("[]")
+  sessionBoards GameSessionBoard[]
+  demoBoards    UserStageDemoBoard[]
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+  deletedAt     DateTime?          @map("deleted_at")
+
+  @@map("boards")
+  @@index([levelId, deletedAt])
+}
+
+model GameConfig {
+  id            String    @id @default(uuid())
+  activeLevelId String?   @map("active_level_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+  updatedBy     String?   @map("updated_by")
+
+  @@map("game_config")
+}
+
+model GameSession {
+  id                 String                 @id @default(uuid())
+  userId             String                 @map("user_id")
+  stageId            String?                @map("stage_id")
+  status             Int                    @default(1) @map("status")
+  score              Int?
+  currentRoundNumber Int                    @default(1) @map("current_round_number")
+  requestedDemoRound   Int?      @map("requested_demo_round")
+  requestedActualRound Int?      @map("requested_actual_round")
+  requestedLevelId     String?   @map("requested_level_id")
+  completedRounds      Int       @default(0) @map("completed_rounds")
+  currentLevelId       String?   @map("current_level_id")
+  startedAt            DateTime  @default(now()) @map("started_at")
+  endedAt              DateTime? @map("ended_at")
+  gameStartedAt        DateTime? @map("game_started_at")
+  gameEndedAt          DateTime? @map("game_ended_at")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+  deletedAt          DateTime?              @map("deleted_at")
+  stageConfig        GameSessionStageConfig?
+  sessionBoards      GameSessionBoard[]
+  sessionPaths       GameSessionPath[]
+  cheatFlags         CheatFlag[]
+
+  @@map("game_sessions")
+  @@index([userId])
+  @@index([userId, stageId, status, deletedAt])
+  @@index([status])
+  @@unique([userId, stageId])
+}
+
+model GameSessionStageConfig {
+  id              String      @id @default(uuid())
+  sessionId       String      @unique @map("session_id")
+  session         GameSession @relation(fields: [sessionId], references: [id])
+  stageConfigId   String      @map("stage_config_id")
+  stageConfig     StageConfig @relation(fields: [stageConfigId], references: [id])
+  timeLimit       Int         @map("time_limit")
+  enableDemo      Boolean     @default(false) @map("enable_demo")
+  totalDemoRounds Int         @default(0) @map("total_demo_rounds")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  @@map("game_session_stage_configs")
+  @@index([stageConfigId])
+}
+
+model GameSessionBoard {
+  id           String            @id @default(uuid())
+  sessionId    String            @map("session_id")
+  session      GameSession       @relation(fields: [sessionId], references: [id])
+  boardId      String            @map("board_id")
+  board        Board             @relation(fields: [boardId], references: [id])
+  levelId      String            @map("level_id")
+  roundNumber  Int               @map("round_number")
+  version      Int               @default(0)
+  completed    Boolean           @default(false)
+  completedAt  DateTime?         @map("completed_at")
+  score        Int?
+  gameType     String            @default("BLOCK_FILL") @map("game_type")
+  gridX        Int               @map("grid_x")
+  gridY        Int               @map("grid_y")
+  timeLimit    Int               @map("time_limit")
+  sessionPaths GameSessionPath[]
+  cheatFlags   CheatFlag[]
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  deletedAt    DateTime?         @map("deleted_at")
+
+  @@map("game_session_boards")
+  @@index([sessionId, roundNumber])
+  @@index([sessionId, completed, deletedAt])
+}
+
+model GameSessionPath {
+  id             String           @id @default(uuid())
+  sessionId      String           @map("session_id")
+  session        GameSession      @relation(fields: [sessionId], references: [id])
+  sessionBoardId String           @map("session_board_id")
+  sessionBoard   GameSessionBoard @relation(fields: [sessionBoardId], references: [id])
+  color          Int
+  moveId         String?          @map("move_id")
+  timestamp      DateTime?        @map("timestamp")
+  path           Json             @default("[]")
+  completed      Boolean          @default(false)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  deletedAt      DateTime?        @map("deleted_at")
+
+  @@map("game_session_paths")
+  @@index([sessionId, deletedAt])
+  @@index([sessionBoardId, deletedAt])
+  @@unique([sessionBoardId, color])
+}
+
+model CheatFlag {
+  id             String           @id @default(uuid())
+  userId         String           @map("user_id")
+  sessionId      String           @map("session_id")
+  session        GameSession      @relation(fields: [sessionId], references: [id])
+  sessionBoardId String           @map("session_board_id")
+  sessionBoard   GameSessionBoard @relation(fields: [sessionBoardId], references: [id])
+  flagType       Int              @map("flag_type")
+  evidence       Json
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  @@map("cheat_flags")
+  @@index([userId])
+  @@index([sessionId])
+  @@index([sessionBoardId])
+}
+
+model StageConfig {
+  id                String                   @id @default(uuid())
+  stageId           String                   @map("stage_id")
+  timeLimit         Int                      @map("time_limit")
+  enableDemo        Boolean                  @default(false) @map("enable_demo")
+  totalActualRounds Int                      @default(0) @map("total_actual_rounds")
+  totalDemoRounds   Int                      @default(0) @map("total_demo_rounds")
+  levels            StageLevelConfig[]
+  demoLevels        StageDemoLevelConfig[]
+  gameSessionStages GameSessionStageConfig[]
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  deletedAt         DateTime?                @map("deleted_at")
+
+  @@map("stage_configs")
+  @@index([deletedAt])
+}
+
+model StageLevelConfig {
+  id            String      @id @default(uuid())
+  stageConfigId String      @map("stage_config_id")
+  stageConfig   StageConfig @relation(fields: [stageConfigId], references: [id])
+  levelId       String      @map("level_id")
+  level         Level       @relation(fields: [levelId], references: [id])
+  boardCount    Int         @map("board_count")
+  order         Int         @default(0)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+
+  @@map("stage_level_configs")
+  @@index([levelId])
+}
+
+model StageDemoLevelConfig {
+  id            String      @id @default(uuid())
+  stageConfigId String      @map("stage_config_id")
+  stageConfig   StageConfig @relation(fields: [stageConfigId], references: [id])
+  levelId       String      @map("level_id")
+  level         Level       @relation(fields: [levelId], references: [id])
+  boardCount    Int         @map("board_count")
+  order         Int         @default(0)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+
+  @@map("stage_demo_level_configs")
+  @@index([levelId])
+}
+
+model UserStageDemoBoard {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  stageId       String   @map("stage_id")
+  levelId       String   @map("level_id")
+  level         Level    @relation(fields: [levelId], references: [id])
+  sourceBoardId String   @map("source_board_id")
+  sourceBoard   Board    @relation(fields: [sourceBoardId], references: [id])
+  roundNumber   Int      @map("round_number")
+  levelName     String?  @map("level_name")
+  name          String?
+  gridX         Int      @map("grid_x")
+  gridY         Int      @map("grid_y")
+  timeLimit     Int      @map("time_limit")
+  pairsSnapshot Json     @default("[]") @map("pairs_snapshot")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("user_stage_demo_boards")
+  @@index([userId, stageId])
+  @@index([levelId])
+  @@index([sourceBoardId])
+  @@unique([userId, stageId, roundNumber])
+}

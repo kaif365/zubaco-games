@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>cURL Bomber</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ── TOP PANEL ── */
+    #top { flex-shrink: 0; background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+    #top h1 { font-size: 14px; color: #58a6ff; letter-spacing: 1px; }
+    textarea { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 5px; padding: 10px; font-family: monospace; font-size: 12px; resize: vertical; outline: none; min-height: 90px; }
+    textarea:focus { border-color: #58a6ff; }
+    .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .ctrl-label { font-size: 11px; color: #484f58; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    input[type=number] { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 5px; padding: 6px 10px; font-family: monospace; font-size: 13px; outline: none; width: 80px; }
+    input[type=number]:focus { border-color: #58a6ff; }
+    button { padding: 6px 16px; border-radius: 5px; border: none; cursor: pointer; font-family: monospace; font-size: 13px; font-weight: bold; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #btn-run  { background: #238636; color: #fff; }
+    #btn-stop { background: #da3633; color: #fff; }
+    #btn-clear { background: #21262d; color: #8b949e; }
+
+    /* ── PARSED PREVIEW ── */
+    #preview { font-size: 11px; color: #8b949e; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; min-height: 18px; }
+    #preview .method { font-weight: bold; }
+    .method-get  { color: #3fb950; }
+    .method-post { color: #58a6ff; }
+    .method-put  { color: #e3b341; }
+    .method-patch { color: #d29922; }
+    .method-delete { color: #f85149; }
+    #preview .url { color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 500px; }
+    #preview .err { color: #f85149; }
+
+    /* ── STATS BAR ── */
+    #statsbar { flex-shrink: 0; display: flex; align-items: center; gap: 20px; padding: 6px 18px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 12px; }
+    .stat { display: flex; align-items: center; gap: 5px; }
+    .stat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .stat-dot.ok     { background: #3fb950; }
+    .stat-dot.err    { background: #f85149; }
+    .stat-dot.pend   { background: #e3b341; }
+    .stat-val { font-weight: bold; min-width: 28px; }
+    .stat-label { color: #8b949e; }
+    #stat-avg { color: #8b949e; font-size: 12px; }
+    #progress-wrap { flex: 1; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
+    #progress-bar  { height: 100%; width: 0%; background: #238636; transition: width 0.2s; border-radius: 3px; }
+    #stat-elapsed { font-size: 12px; color: #8b949e; min-width: 50px; text-align: right; }
+
+    /* ── RESULTS ── */
+    #results { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 3px; }
+
+    .row { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border-radius: 4px; font-size: 11px; border: 1px solid transparent; cursor: pointer; flex-shrink: 0; }
+    .row:hover { background: #1c2128; }
+    .row.open { background: #1c2128; border-color: #30363d; border-radius: 4px 4px 0 0; margin-top: 3px; }
+    .row-n { color: #484f58; min-width: 36px; text-align: right; flex-shrink: 0; }
+    .row-status { font-weight: bold; min-width: 36px; text-align: center; flex-shrink: 0; }
+    .s-ok  { color: #3fb950; }
+    .s-err { color: #f85149; }
+    .s-pend { color: #e3b341; }
+    .row-ms { color: #484f58; min-width: 60px; text-align: right; font-size: 10px; flex-shrink: 0; }
+    .row-msg { flex: 1; color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row-chev { font-size: 8px; color: #484f58; transition: transform 0.15s; flex-shrink: 0; }
+    .row.open .row-chev { transform: rotate(90deg); }
+
+    .detail { display: none; background: #0d1117; border: 1px solid #30363d; border-top: none; border-radius: 0 0 4px 4px; margin-bottom: 3px; }
+    .detail.open { display: block; }
+    .tab-bar { display: flex; border-bottom: 1px solid #21262d; }
+    .tab { padding: 5px 14px; font-size: 11px; color: #8b949e; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+    .tab-panel { display: none; padding: 10px 12px; max-height: 200px; overflow-y: auto; overscroll-behavior: contain; }
+    .tab-panel.active { display: block; }
+    pre { font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: #c9d1d9; }
+  </style>
+</head>
+<body>
+
+<div id="top">
+  <h1>⚡ cURL BOMBER</h1>
+  <textarea id="curl-input" placeholder="Paste your cURL command here…&#10;&#10;curl -X POST https://api.example.com/endpoint \&#10;  -H 'Authorization: Bearer token' \&#10;  -H 'Content-Type: application/json' \&#10;  -d '{&quot;key&quot;: &quot;value&quot;}'"></textarea>
+  <div class="controls">
+    <span class="ctrl-label">Repeat</span>
+    <input type="number" id="repeat" value="10" min="1" />
+    <span class="ctrl-label">Concurrent</span>
+    <input type="number" id="concurrent" value="5" min="1" />
+    <button id="btn-run">▶ Run</button>
+    <button id="btn-stop" disabled>■ Stop</button>
+    <button id="btn-clear">✕ Clear</button>
+    <div id="preview"><span style="color:#484f58">— paste a cURL to preview —</span></div>
+  </div>
+</div>
+
+<div id="statsbar">
+  <div class="stat"><span class="stat-dot ok"></span><span class="stat-val" id="s-ok">0</span><span class="stat-label">ok</span></div>
+  <div class="stat"><span class="stat-dot err"></span><span class="stat-val" id="s-err">0</span><span class="stat-label">failed</span></div>
+  <div class="stat"><span class="stat-dot pend"></span><span class="stat-val" id="s-pend">0</span><span class="stat-label">pending</span></div>
+  <span id="stat-avg">avg —</span>
+  <div id="progress-wrap"><div id="progress-bar"></div></div>
+  <span id="stat-elapsed">—</span>
+</div>
+
+<div id="results"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// cURL parser
+// ─────────────────────────────────────────────────────────────────────────────
+function parseCurl(raw) {
+  // Normalise line continuations and collapse whitespace
+  const s = raw.trim().replace(/\\\s*\n\s*/g, ' ').replace(/\s+/g, ' ');
+
+  if (!s.startsWith('curl')) return { error: 'Must start with "curl"' };
+
+  // Tokenise respecting single and double quotes
+  const tokens = [];
+  let cur = '', inSingle = false, inDouble = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "'" && !inDouble) { inSingle = !inSingle; continue; }
+    if (c === '"' && !inSingle) { inDouble = !inDouble; continue; }
+    if (c === ' ' && !inSingle && !inDouble) { if (cur) { tokens.push(cur); cur = ''; } continue; }
+    cur += c;
+  }
+  if (cur) tokens.push(cur);
+
+  const result = { method: 'GET', url: '', headers: {}, body: null };
+  let i = 1; // skip 'curl'
+
+  while (i < tokens.length) {
+    const t = tokens[i];
+    if (t === '-X' || t === '--request') {
+      result.method = tokens[++i].toUpperCase();
+    } else if (t === '-H' || t === '--header') {
+      const h = tokens[++i];
+      const colon = h.indexOf(':');
+      if (colon !== -1) {
+        const key = h.slice(0, colon).trim();
+        const val = h.slice(colon + 1).trim();
+        result.headers[key] = val;
+      }
+    } else if (t === '-d' || t === '--data' || t === '--data-raw' || t === '--data-binary') {
+      result.body = tokens[++i];
+      if (!result.method || result.method === 'GET') result.method = 'POST';
+    } else if (t === '-u' || t === '--user') {
+      const creds = tokens[++i];
+      result.headers['Authorization'] = 'Basic ' + btoa(creds);
+    } else if (t === '-L' || t === '--location' || t === '--compressed' || t === '-s' || t === '--silent' || t === '-k' || t === '--insecure') {
+      // ignore
+    } else if (!t.startsWith('-')) {
+      if (!result.url) result.url = t;
+    }
+    i++;
+  }
+
+  if (!result.url) return { error: 'No URL found' };
+
+  // Infer Content-Type if body looks like JSON and header not set
+  if (result.body && !result.headers['Content-Type'] && !result.headers['content-type']) {
+    try { JSON.parse(result.body); result.headers['Content-Type'] = 'application/json'; } catch {}
+  }
+
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function fmtMs(ms) { return ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(2)}s`; }
+function fmtElapsed(ms) {
+  const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
+  return `${String(m).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function prettyJson(str) {
+  try { return escHtml(JSON.stringify(JSON.parse(str), null, 2)); }
+  catch { return escHtml(String(str)); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live cURL preview
+// ─────────────────────────────────────────────────────────────────────────────
+const previewEl = document.getElementById('preview');
+document.getElementById('curl-input').addEventListener('input', updatePreview);
+
+function updatePreview() {
+  const raw = document.getElementById('curl-input').value.trim();
+  if (!raw) { previewEl.innerHTML = '<span style="color:#484f58">— paste a cURL to preview —</span>'; return; }
+  const p = parseCurl(raw);
+  if (p.error) { previewEl.innerHTML = `<span class="err">⚠ ${escHtml(p.error)}</span>`; return; }
+  const mc = `method-${p.method.toLowerCase()}`;
+  const hdrs = Object.keys(p.headers).length;
+  const bodyNote = p.body ? `· body ${p.body.length}B` : '';
+  previewEl.innerHTML = `
+    <span class="method ${mc}">${p.method}</span>
+    <span class="url">${escHtml(p.url)}</span>
+    <span style="color:#484f58">${hdrs} header${hdrs!==1?'s':''} ${bodyNote}</span>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runner state
+// ─────────────────────────────────────────────────────────────────────────────
+let stopped = false, elapsedTimer = null, runStart = null;
+let totalMs = 0, doneCount = 0;
+
+function updateStats(ok, err, pend, total) {
+  document.getElementById('s-ok').textContent   = ok;
+  document.getElementById('s-err').textContent  = err;
+  document.getElementById('s-pend').textContent = pend;
+  document.getElementById('progress-bar').style.width = total ? `${((ok+err)/total)*100}%` : '0%';
+  document.getElementById('stat-avg').textContent = doneCount
+    ? `avg ${fmtMs(Math.round(totalMs / doneCount))}` : 'avg —';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Row UI
+// ─────────────────────────────────────────────────────────────────────────────
+function createRow(n, parsed) {
+  const results = document.getElementById('results');
+
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  const reqSummary = `${parsed.method} ${parsed.url}\n\nHeaders:\n${
+    Object.entries(parsed.headers).map(([k,v]) => `${k}: ${v}`).join('\n')
+  }${parsed.body ? `\n\nBody:\n${parsed.body}` : ''}`;
+
+  row.innerHTML = `
+    <span class="row-n">#${n}</span>
+    <span class="row-status s-pend" data-status>···</span>
+    <span class="row-msg" data-msg>pending</span>
+    <span class="row-ms" data-ms>—</span>
+    <span class="row-chev">▶</span>`;
+
+  const detail = document.createElement('div');
+  detail.className = 'detail';
+  detail.innerHTML = `
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchTab(this,'req')">Request</div>
+      <div class="tab" onclick="switchTab(this,'res')">Response</div>
+    </div>
+    <div class="tab-panel active" data-tab="req"><pre>${escHtml(reqSummary)}</pre></div>
+    <div class="tab-panel" data-tab="res"><pre data-res>—</pre></div>`;
+
+  row.addEventListener('click', () => {
+    const open = row.classList.toggle('open');
+    detail.classList.toggle('open', open);
+  });
+
+  results.appendChild(row);
+  results.appendChild(detail);
+  results.scrollTop = results.scrollHeight;
+
+  return {
+    resolve(status, ms, resBody) {
+      const ok = status >= 200 && status < 300;
+      row.querySelector('[data-status]').className  = `row-status ${ok ? 's-ok' : 's-err'}`;
+      row.querySelector('[data-status]').textContent = status;
+      row.querySelector('[data-ms]').textContent    = fmtMs(ms);
+
+      let preview = '';
+      if (typeof resBody === 'string') preview = resBody.slice(0, 120);
+      else if (resBody) { try { preview = JSON.stringify(resBody).slice(0, 120); } catch {} }
+      row.querySelector('[data-msg]').textContent = preview || (ok ? 'OK' : 'Error');
+      detail.querySelector('[data-res]').innerHTML = resBody
+        ? prettyJson(typeof resBody === 'string' ? resBody : JSON.stringify(resBody))
+        : '— empty body —';
+    },
+    error(msg) {
+      row.querySelector('[data-status]').className  = 'row-status s-err';
+      row.querySelector('[data-status]').textContent = 'ERR';
+      row.querySelector('[data-ms]').textContent    = '—';
+      row.querySelector('[data-msg]').textContent   = msg;
+      detail.querySelector('[data-res]').textContent = msg;
+    },
+  };
+}
+
+function switchTab(tab, which) {
+  const detail = tab.closest('.detail');
+  detail.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  detail.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  tab.classList.add('active');
+  detail.querySelector(`.tab-panel[data-tab="${which}"]`).classList.add('active');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fire one request
+// ─────────────────────────────────────────────────────────────────────────────
+async function fireOne(parsed, n, counters) {
+  counters.pend++;
+  const row = createRow(n, parsed);
+  const t0 = Date.now();
+
+  try {
+    const res = await fetch(parsed.url, {
+      method: parsed.method,
+      headers: parsed.headers,
+      body: parsed.body || undefined,
+    });
+    const ms = Date.now() - t0;
+    let body;
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('json')) { try { body = await res.json(); } catch { body = null; } }
+    else { body = await res.text(); }
+
+    row.resolve(res.status, ms, body);
+    if (res.ok) counters.ok++; else counters.err++;
+    totalMs += ms; doneCount++;
+  } catch (err) {
+    row.error(err.message);
+    counters.err++;
+  } finally {
+    counters.pend--;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main runner
+// ─────────────────────────────────────────────────────────────────────────────
+async function runAll() {
+  const raw        = document.getElementById('curl-input').value.trim();
+  const repeat     = Math.max(1, parseInt(document.getElementById('repeat').value, 10));
+  const concurrent = Math.max(1, parseInt(document.getElementById('concurrent').value, 10));
+
+  const parsed = parseCurl(raw);
+  if (parsed.error) { alert('cURL parse error: ' + parsed.error); return; }
+
+  // Reset
+  document.getElementById('results').innerHTML = '';
+  stopped = false; totalMs = 0; doneCount = 0;
+  document.getElementById('btn-run').disabled  = true;
+  document.getElementById('btn-stop').disabled = false;
+  document.getElementById('progress-bar').style.width = '0%';
+
+  runStart = Date.now();
+  clearInterval(elapsedTimer);
+  const counters = { ok: 0, err: 0, pend: 0 };
+
+  elapsedTimer = setInterval(() => {
+    document.getElementById('stat-elapsed').textContent = fmtElapsed(Date.now() - runStart);
+    updateStats(counters.ok, counters.err, counters.pend, repeat);
+  }, 300);
+
+  // Concurrency pool
+  let nextN = 1;
+  const runSlot = async () => {
+    while (nextN <= repeat && !stopped) {
+      const n = nextN++;
+      await fireOne(parsed, n, counters);
+      updateStats(counters.ok, counters.err, counters.pend, repeat);
+    }
+  };
+
+  const slots = Math.min(concurrent, repeat);
+  await Promise.all(Array.from({ length: slots }, runSlot));
+
+  clearInterval(elapsedTimer);
+  updateStats(counters.ok, counters.err, counters.pend, repeat);
+  document.getElementById('stat-elapsed').textContent = fmtElapsed(Date.now() - runStart);
+  document.getElementById('btn-run').disabled  = false;
+  document.getElementById('btn-stop').disabled = true;
+}
+
+document.getElementById('btn-run').addEventListener('click', runAll);
+document.getElementById('btn-stop').addEventListener('click', () => {
+  stopped = true;
+  document.getElementById('btn-stop').disabled = true;
+});
+document.getElementById('btn-clear').addEventListener('click', () => {
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('progress-bar').style.width = '0%';
+  ['s-ok','s-err','s-pend'].forEach(id => document.getElementById(id).textContent = '0');
+  document.getElementById('stat-avg').textContent = 'avg —';
+  document.getElementById('stat-elapsed').textContent = '—';
+  totalMs = 0; doneCount = 0;
+});
+</script>
+</body>
+</html>

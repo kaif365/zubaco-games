@@ -1,0 +1,130 @@
+groups:
+  - name: zubaco-backend-alerts
+    rules:
+      # ─── Availability ───
+      - alert: ServiceDown
+        expr: up{job="zubaco-backends"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend service {{ $labels.instance }} is down"
+          description: "{{ $labels.instance }} has been unreachable for more than 1 minute."
+
+      - alert: HighRestartRate
+        expr: changes(process_uptime_seconds{job="zubaco-backends"}[15m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service {{ $labels.instance }} restarting frequently"
+          description: "{{ $labels.instance }} has restarted more than 2 times in 15 minutes."
+
+      # ─── Latency ───
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_ms_bucket{job="zubaco-backends"}[5m])) by (instance, le)) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on {{ $labels.instance }}"
+          description: "p95 response time is {{ $value }}ms (threshold: 1000ms) for 5 minutes."
+
+      - alert: CriticalResponseTime
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket{job="zubaco-backends"}[5m])) by (instance, le)) > 5000
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical p99 latency on {{ $labels.instance }}"
+          description: "p99 response time is {{ $value }}ms (threshold: 5000ms) for 3 minutes."
+
+      # ─── Error Rate ───
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5..",job="zubaco-backends"}[5m])) by (instance)
+          / sum(rate(http_requests_total{job="zubaco-backends"}[5m])) by (instance) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.instance }}"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%) for 5 minutes."
+
+      - alert: CriticalErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5..",job="zubaco-backends"}[5m])) by (instance)
+          / sum(rate(http_requests_total{job="zubaco-backends"}[5m])) by (instance) > 0.15
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical error rate on {{ $labels.instance }}"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 15%) for 2 minutes."
+
+      # ─── Memory ───
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="zubaco-backends"} / 1024 / 1024 > 200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "RSS memory is {{ $value }}MB (threshold: 200MB) for 10 minutes."
+
+      - alert: CriticalMemoryUsage
+        expr: process_resident_memory_bytes{job="zubaco-backends"} / 1024 / 1024 > 240
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical memory usage on {{ $labels.instance }}"
+          description: "RSS memory is {{ $value }}MB (limit: 256MB) for 5 minutes. OOM risk!"
+
+      # ─── Game-specific ───
+      - alert: HighCheatRate
+        expr: sum(rate(game_cheat_flags_total{job="zubaco-backends"}[15m])) by (instance) * 900 > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High cheat detection rate on {{ $labels.instance }}"
+          description: "More than 50 cheat flags in 15 minutes on {{ $labels.instance }}."
+
+      - alert: NoGameSessions
+        expr: sum(rate(game_sessions_started_total{job="zubaco-backends"}[30m])) by (instance) == 0
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "No game sessions on {{ $labels.instance }}"
+          description: "{{ $labels.instance }} has had zero game sessions for 30 minutes during business hours."
+
+  - name: zubaco-infrastructure-alerts
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL database is unreachable for more than 1 minute."
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis is down"
+          description: "Redis cache is unreachable. Services will operate without caching."
+
+      - alert: HighDiskUsage
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space critically low"
+          description: "Less than 10% disk space remaining on root partition."

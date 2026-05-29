@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model GameSession {
+  id        String    @id @default(uuid())
+
+  userId    String    @map("user_id")
+  stageId   String    @map("stage_id")
+  status    Int       @default(1) // 1=active 2=completed 3=disconnected 4=result_processing 5=expired 6=manually_ended
+
+  serverSeed String?  @map("server_seed")
+  seed       Int?     @map("seed")
+
+  startedAt DateTime  @default(now()) @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+  score     Int?
+
+  endTime               DateTime? @map("end_time")
+  totalChanges          Int       @default(0) @map("total_changes")
+  correctTaps           Int       @default(0) @map("correct_taps")
+  wrongTaps             Int       @default(0) @map("wrong_taps")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  inputs    GameInput[]
+  flags     GameCheatFlag[]
+  snapshot  GameSessionSnapshot?
+
+  @@map("game_sessions")
+  @@unique([userId, stageId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([userId, status])
+}
+
+model GameSessionSnapshot {
+  id                    String      @id @default(uuid())
+  gameSessionId         String      @unique @map("game_session_id")
+  session               GameSession @relation(fields: [gameSessionId], references: [id])
+
+  timeLimit             Int         @map("time_limit")
+  gridSize              Int         @map("grid_size")
+  changeCount           Int         @map("change_count")
+  changeIntervalMs      Int         @map("change_interval_ms")
+  displayDurationMs     Int         @map("display_duration_ms")
+  pointsPerCorrectTap   Int         @map("points_per_correct_tap")
+  penaltyPerWrongTap    Int         @map("penalty_per_wrong_tap")
+  bonusTimeRatio        Float       @map("bonus_time_ratio")
+
+  createdAt             DateTime    @default(now()) @map("created_at")
+
+  @@map("game_session_snapshots")
+}
+
+model GameInput {
+  id            String      @id @default(uuid())
+  gameSessionId String      @map("game_session_id")
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+
+  cellId        Int         @map("cell_id")
+  isCorrect     Boolean     @default(false) @map("is_correct")
+  clientTime    DateTime    @map("client_time")
+  serverTime    DateTime    @default(now()) @map("server_time")
+
+  createdAt     DateTime    @default(now()) @map("created_at")
+  deletedAt     DateTime?   @map("deleted_at")
+
+  flags         GameCheatFlag[]
+
+  @@map("game_inputs")
+  @@index([gameSessionId])
+  @@index([deletedAt])
+}
+
+model GameConfiguration {
+  id          String   @id @default(uuid())
+
+  stageId             String   @unique @map("stage_id")
+  timeLimit           Int      @default(60000)  @map("time_limit")
+  gridSize            Int      @default(4)      @map("grid_size")
+  changeCount         Int      @default(12)     @map("change_count")
+  changeIntervalMs    Int      @default(3000)   @map("change_interval_ms")
+  displayDurationMs   Int      @default(2000)   @map("display_duration_ms")
+  pointsPerCorrectTap Int     @default(20)     @map("points_per_correct_tap")
+  penaltyPerWrongTap  Int     @default(10)     @map("penalty_per_wrong_tap")
+  bonusTimeRatio      Float    @default(10)     @map("bonus_time_ratio")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@map("game_configurations")
+  @@index([deletedAt])
+}
+
+model GameCheatFlag {
+  id            String      @id @default(uuid())
+  gameSessionId String      @map("game_session_id")
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+
+  inputId       String?     @map("input_id")
+  input         GameInput?  @relation(fields: [inputId], references: [id])
+
+  userId        String      @map("user_id")
+  flagType      Int         @map("flag_type")
+  evidence      Json?       @map("evidence")
+
+  createdAt     DateTime    @default(now()) @map("created_at")
+  deletedAt     DateTime?   @map("deleted_at")
+
+  @@map("game_cheat_flags")
+  @@index([gameSessionId])
+  @@index([inputId])
+  @@index([deletedAt])
+  @@index([userId, createdAt])
+}

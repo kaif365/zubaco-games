@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Block Fill — Board Generator</title>
+  <style>
+    :root {
+      --bg: #0a1120;
+      --panel: #111a2c;
+      --panel-soft: #0f1728;
+      --line: rgba(148, 163, 184, 0.18);
+      --text: #e5edf9;
+      --muted: #8ea1be;
+      --accent: #60a5fa;
+      --accent-2: #34d399;
+      --warn: #f59e0b;
+      --danger: #f87171;
+      --shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+      --cell: 52px;
+      --gap: 4px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background:
+        radial-gradient(circle at top left, rgba(96,165,250,0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(52,211,153,0.12), transparent 24%),
+        linear-gradient(180deg, #09101d 0%, #050814 100%);
+      color: var(--text);
+    }
+
+    .app {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr) 360px;
+      gap: 20px;
+    }
+
+    .panel {
+      background: rgba(17, 26, 44, 0.94);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .hero {
+      padding: 20px 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, p, pre { margin: 0; }
+    h1 { margin-top: 8px; font-size: 28px; line-height: 1.05; }
+    h2 { font-size: 18px; }
+    .subtle { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+    }
+
+    .group {
+      display: grid;
+      gap: 10px;
+    }
+
+    .group-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #bfd0e8;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    input, textarea, button {
+      font: inherit;
+    }
+
+    input, textarea {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid rgba(148,163,184,0.2);
+      background: rgba(7, 12, 24, 0.88);
+      color: var(--text);
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    input:focus, textarea:focus {
+      border-color: rgba(96,165,250,0.9);
+      box-shadow: 0 0 0 3px rgba(96,165,250,0.14);
+    }
+
+    textarea {
+      min-height: 240px;
+      resize: vertical;
+      line-height: 1.55;
+      font-size: 12px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 12px;
+      font-weight: 700;
+      color: white;
+      cursor: pointer;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    }
+
+    button.secondary { background: linear-gradient(135deg, #0f766e, #0f766e); }
+    button.warn { background: linear-gradient(135deg, #b45309, #d97706); }
+    button.danger { background: linear-gradient(135deg, #b91c1c, #ef4444); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .button-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .quick-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .quick-links a {
+      color: #93c5fd;
+      text-decoration: none;
+    }
+
+    .board-panel {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+
+    .board-head {
+      padding: 20px 22px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .status-line {
+      margin-top: 8px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .message {
+      min-height: 22px;
+      margin-top: 10px;
+      font-size: 14px;
+      color: #dbeafe;
+    }
+
+    .message.error { color: #fecaca; }
+    .message.success { color: #bbf7d0; }
+
+    .workspace {
+      padding: 18px 22px 24px;
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }
+
+    .legend {
+      padding: 14px 22px 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: rgba(6, 12, 24, 0.88);
+      border: 1px solid var(--line);
+      font-size: 12px;
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+
+    .grid-wrap {
+      position: relative;
+      width: fit-content;
+    }
+
+    .grid {
+      display: grid;
+      gap: var(--gap);
+      padding: var(--gap);
+      border-radius: 16px;
+      background: rgba(5, 10, 20, 0.94);
+      border: 1px solid rgba(148,163,184,0.14);
+    }
+
+    .cell {
+      width: var(--cell);
+      height: var(--cell);
+      border-radius: 12px;
+      background: rgba(30, 41, 59, 0.95);
+      position: relative;
+    }
+
+    .cell.endpoint::after {
+      content: "";
+      position: absolute;
+      inset: 11px;
+      border-radius: 999px;
+      background: var(--cell-color);
+      box-shadow: 0 0 0 4px rgba(6, 12, 24, 0.86);
+    }
+
+    .overlay {
+      position: absolute;
+      inset: var(--gap);
+      pointer-events: none;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 14px;
+      padding: 24px 0 6px;
+    }
+
+    .log-box {
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(6, 12, 24, 0.88);
+      padding: 14px;
+      min-height: 180px;
+      overflow: auto;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #dceafb;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(6, 12, 24, 0.8);
+      padding: 12px;
+    }
+
+    .stat .label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .stat .value {
+      margin-top: 8px;
+      font-size: 16px;
+      color: var(--text);
+    }
+
+    @media (max-width: 1280px) {
+      .app { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 720px) {
+      .button-grid, .meta-grid, .stat-grid { grid-template-columns: 1fr; }
+      :root { --cell: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <div class="hero">
+        <div class="eyebrow">Generator Lab</div>
+        <h1>Block Fill Board Generator</h1>
+        <p class="subtle">Generate solvable Block Fill board payloads locally, preview the solved paths, then validate or create the board through the admin APIs.</p>
+      </div>
+      <div class="stack">
+        <div class="quick-links">
+          <span>Also open:</span>
+          <a href="/public/game-client.html" target="_blank" rel="noreferrer">Game API Lab</a>
+          <a href="/public/admin-client.html" target="_blank" rel="noreferrer">Admin API Lab</a>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Connection</div>
+          <label>API Base URL
+            <input id="apiBase" value="http://localhost:8000" />
+          </label>
+          <label>Bearer Token
+            <textarea id="authToken" placeholder="Paste admin JWT"></textarea>
+          </label>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Board Settings</div>
+          <label>Level ID
+            <input id="levelId" placeholder="UUID used when creating the board" />
+          </label>
+          <label>Board Name
+            <input id="boardName" value="Generated Board" />
+          </label>
+          <div class="meta-grid">
+            <label>Rows
+              <input id="gridRow" type="number" min="2" max="8" value="5" />
+            </label>
+            <label>Cols
+              <input id="gridCol" type="number" min="2" max="8" value="5" />
+            </label>
+          </div>
+          <div class="meta-grid">
+            <label>Pairs
+              <input id="pairCount" type="number" min="2" max="8" value="4" />
+            </label>
+            <label>Attempts
+              <input id="maxAttempts" type="number" min="1" max="500" value="120" />
+            </label>
+          </div>
+          <div class="button-grid">
+            <button id="generateBtn">Generate Solvable</button>
+            <button class="secondary" id="solveBtn">Show Solution</button>
+          </div>
+          <div class="button-grid">
+            <button class="secondary" id="validateBtn">Validate API</button>
+            <button class="warn" id="createBtn">Create Board</button>
+          </div>
+          <div class="button-grid">
+            <button class="secondary" id="copyBtn">Copy JSON</button>
+            <button class="danger" id="clearBtn">Clear</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="panel board-panel">
+      <div class="board-head">
+        <div>
+          <div class="eyebrow" id="boardLabel">No board generated</div>
+          <h2 id="boardTitle">Waiting for input</h2>
+          <div class="status-line" id="boardMeta">Generate a solvable board to inspect the layout and payload.</div>
+          <div class="message" id="message"></div>
+        </div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="workspace">
+        <div class="grid-wrap" id="boardWrap">
+          <svg class="overlay" id="overlay"></svg>
+          <div class="grid" id="grid"></div>
+        </div>
+        <div class="empty" id="emptyState">The board preview will appear here after generation.</div>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="label">Generator Status</div>
+            <div class="value" id="generatorStatus">Idle</div>
+          </div>
+          <div class="stat">
+            <div class="label">Solution Length</div>
+            <div class="value" id="solutionLength">0 cells</div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="panel">
+      <div class="hero">
+        <div class="eyebrow">Payload</div>
+        <h2>JSON & Logs</h2>
+        <p class="subtle">The generated payload stays editable here, and all validate/create actions are logged with their latest request and response.</p>
+      </div>
+      <div class="stack">
+        <div class="group">
+          <div class="group-title">Board Payload</div>
+          <textarea id="payload"></textarea>
+        </div>
+        <div class="group">
+          <div class="group-title">Last Request</div>
+          <div class="log-box"><pre id="requestDump">Nothing sent yet.</pre></div>
+        </div>
+        <div class="group">
+          <div class="group-title">Last Response</div>
+          <div class="log-box"><pre id="responseDump">Nothing received yet.</pre></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const STORAGE_KEYS = {
+      apiBase: 'block-fill-generator-api-base',
+      token: 'block-fill-generator-token',
+      levelId: 'block-fill-generator-level-id',
+      payload: 'block-fill-generator-payload',
+      boardName: 'block-fill-generator-board-name',
+    };
+
+    const COLORS = ['blue', 'red', 'green', 'amber', 'purple', 'cyan', 'pink', 'orange'];
+    const CELL = 52;
+    const GAP = 4;
+
+    const state = {
+      payload: null,
+      solution: null,
+      showSolution: false,
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function normalizeColor(color) {
+      return String(color || '').trim().toLowerCase();
+    }
+
+    function colorHex(color) {
+      const map = {
+        blue: '#3399ff',
+        red: '#ff6666',
+        green: '#66e666',
+        amber: '#ffcc33',
+        yellow: '#ffcc33',
+        purple: '#cc66ff',
+        cyan: '#33cccc',
+        pink: '#ff66cc',
+        orange: '#ff9933',
+      };
+      const normalized = normalizeColor(color);
+      if (map[normalized]) return map[normalized];
+      if (/^#?[0-9a-f]{6}$/i.test(normalized)) {
+        return normalized.startsWith('#') ? normalized : `#${normalized}`;
+      }
+      return '#94a3b8';
+    }
+
+    function setMessage(text, kind = '') {
+      const el = $('message');
+      el.textContent = text;
+      el.className = `message${kind ? ` ${kind}` : ''}`;
+    }
+
+    function dump(id, value) {
+      $(id).textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    }
+
+    function persist() {
+      localStorage.setItem(STORAGE_KEYS.apiBase, $('apiBase').value.trim());
+      localStorage.setItem(STORAGE_KEYS.token, $('authToken').value.trim());
+      localStorage.setItem(STORAGE_KEYS.levelId, $('levelId').value.trim());
+      localStorage.setItem(STORAGE_KEYS.boardName, $('boardName').value.trim());
+      localStorage.setItem(STORAGE_KEYS.payload, $('payload').value);
+    }
+
+    function hydrate() {
+      $('apiBase').value = localStorage.getItem(STORAGE_KEYS.apiBase) || 'http://localhost:8000';
+      $('authToken').value = localStorage.getItem(STORAGE_KEYS.token) || '';
+      $('levelId').value = localStorage.getItem(STORAGE_KEYS.levelId) || '';
+      $('boardName').value = localStorage.getItem(STORAGE_KEYS.boardName) || 'Generated Board';
+      $('payload').value = localStorage.getItem(STORAGE_KEYS.payload) || '';
+    }
+
+    function pointKey(x, y) {
+      return `${x},${y}`;
+    }
+
+    function samePoint(a, b) {
+      return a && b && a.x === b.x && a.y === b.y;
+    }
+
+    function isAdjacent(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
+    }
+
+    function isInside(point, gridX, gridY) {
+      return point.x >= 0 && point.x < gridX && point.y >= 0 && point.y < gridY;
+    }
+
+    function shuffle(items) {
+      const copy = [...items];
+      for (let index = copy.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+      }
+      return copy;
+    }
+
+    function parsePayload() {
+      const payload = JSON.parse($('payload').value);
+      return {
+        ...payload,
+        nodes: (payload.nodes || []).map((node) => ({
+          colorCode: normalizeColor(node.colorCode),
+          points: node.points.map((point) => ({ row: point.row, col: point.col })),
+        })),
+      };
+    }
+
+    function payloadToPairs(payload) {
+      return (payload.nodes || []).map((node) => ({
+        color: normalizeColor(node.colorCode),
+        start: { x: node.points[0].col, y: node.points[0].row },
+        end: { x: node.points[1].col, y: node.points[1].row },
+      }));
+    }
+
+    function pairCountLimit(rows, cols) {
+      return Math.floor((rows * cols) / 2);
+    }
+
+    function randomBoardPayload() {
+      const gridRow = Number($('gridRow').value);
+      const gridCol = Number($('gridCol').value);
+      const pairCount = Math.min(Number($('pairCount').value), pairCountLimit(gridRow, gridCol));
+      const cells = [];
+      for (let row = 0; row < gridRow; row += 1) {
+        for (let col = 0; col < gridCol; col += 1) {
+          cells.push({ row, col });
+        }
+      }
+      const picked = shuffle(cells).slice(0, pairCount * 2);
+      const nodes = [];
+      for (let index = 0; index < pairCount; index += 1) {
+        nodes.push({
+          colorCode: COLORS[index % COLORS.length],
+          points: [picked[index * 2], picked[index * 2 + 1]],
+        });
+      }
+
+      return {
+        name: $('boardName').value.trim() || 'Generated Board',
+        levelId: $('levelId').value.trim(),
+        gridRow,
+        gridCol,
+        nodes,
+      };
+    }
+
+    function solveBlockFill(payload) {
+      const pairs = payloadToPairs(payload);
+      const gridX = payload.gridCol;
+      const gridY = payload.gridRow;
+      const blockedEndpoints = new Set();
+      for (const pair of pairs) {
+        blockedEndpoints.add(pointKey(pair.start.x, pair.start.y));
+        blockedEndpoints.add(pointKey(pair.end.x, pair.end.y));
+      }
+
+      const totalCells = gridX * gridY;
+
+      function shortestDistance(a, b) {
+        return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+      }
+
+      function canReach(from, end, occupied, localVisited, reservedEndpoints) {
+        const queue = [from];
+        const seen = new Set([pointKey(from.x, from.y)]);
+        while (queue.length > 0) {
+          const current = queue.shift();
+          if (samePoint(current, end)) return true;
+          for (const dir of [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}]) {
+            const next = { x: current.x + dir.x, y: current.y + dir.y };
+            const key = pointKey(next.x, next.y);
+            if (seen.has(key) || !isInside(next, gridX, gridY)) continue;
+            if (samePoint(next, end)) return true;
+            if (occupied.has(key) || localVisited.has(key) || reservedEndpoints.has(key)) continue;
+            seen.add(key);
+            queue.push(next);
+          }
+        }
+        return false;
+      }
+
+      function hasOpenRoute(start, end, occupied, remainingPairs, activeColor) {
+        const blocked = new Set();
+        for (const pair of remainingPairs) {
+          if (pair.color === activeColor) continue;
+          blocked.add(pointKey(pair.start.x, pair.start.y));
+          blocked.add(pointKey(pair.end.x, pair.end.y));
+        }
+        const queue = [start];
+        const seen = new Set([pointKey(start.x, start.y)]);
+        while (queue.length > 0) {
+          const current = queue.shift();
+          if (samePoint(current, end)) return true;
+          for (const dir of [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}]) {
+            const next = { x: current.x + dir.x, y: current.y + dir.y };
+            const key = pointKey(next.x, next.y);
+            if (seen.has(key) || !isInside(next, gridX, gridY)) continue;
+            if (samePoint(next, end)) return true;
+            if (occupied.has(key) || blocked.has(key)) continue;
+            seen.add(key);
+            queue.push(next);
+          }
+        }
+        return false;
+      }
+
+      function enumeratePaths(pair, occupied, remainingPairs) {
+        const paths = [];
+        const localVisited = new Set([pointKey(pair.start.x, pair.start.y)]);
+        const reservedEndpoints = new Set();
+        for (const other of remainingPairs) {
+          reservedEndpoints.add(pointKey(other.start.x, other.start.y));
+          reservedEndpoints.add(pointKey(other.end.x, other.end.y));
+        }
+
+        function dfs(current, path) {
+          if (paths.length >= 1500) return;
+          if (samePoint(current, pair.end)) {
+            paths.push([...path]);
+            return;
+          }
+
+          const nextSteps = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}]
+            .map((dir) => ({ x: current.x + dir.x, y: current.y + dir.y }))
+            .filter((point) => {
+              if (!isInside(point, gridX, gridY)) return false;
+              const key = pointKey(point.x, point.y);
+              if (occupied.has(key) || localVisited.has(key)) return false;
+              if (samePoint(point, pair.end)) return true;
+              return !reservedEndpoints.has(key);
+            })
+            .sort((a, b) => shortestDistance(a, pair.end) - shortestDistance(b, pair.end));
+
+          for (const next of nextSteps) {
+            localVisited.add(pointKey(next.x, next.y));
+            path.push(next);
+            if (canReach(next, pair.end, occupied, localVisited, reservedEndpoints)) {
+              dfs(next, path);
+            }
+            path.pop();
+            localVisited.delete(pointKey(next.x, next.y));
+          }
+        }
+
+        dfs(pair.start, [pair.start]);
+        return paths;
+      }
+
+      function solvePairs(remainingPairs, occupied, placed) {
+        if (remainingPairs.length === 0) {
+          return occupied.size === totalCells ? placed : null;
+        }
+
+        const ordered = [...remainingPairs].sort(
+          (a, b) => shortestDistance(a.start, a.end) - shortestDistance(b.start, b.end)
+        );
+        const pair = ordered[0];
+        const nextRemaining = ordered.slice(1);
+        const candidates = enumeratePaths(pair, occupied, nextRemaining);
+
+        for (const candidate of candidates) {
+          const nextOccupied = new Set(occupied);
+          for (const point of candidate) {
+            nextOccupied.add(pointKey(point.x, point.y));
+          }
+
+          let blocked = false;
+          for (const other of nextRemaining) {
+            if (!hasOpenRoute(other.start, other.end, nextOccupied, nextRemaining, other.color)) {
+              blocked = true;
+              break;
+            }
+          }
+          if (blocked) continue;
+
+          const result = solvePairs(nextRemaining, nextOccupied, {
+            ...placed,
+            [pair.color]: candidate,
+          });
+          if (result) return result;
+        }
+
+        return null;
+      }
+
+      return solvePairs(pairs, new Set(), {});
+    }
+
+    function writePayload(payload) {
+      $('payload').value = JSON.stringify(payload, null, 2);
+      persist();
+    }
+
+    function syncState() {
+      if (!$('payload').value.trim()) {
+        state.payload = null;
+        state.solution = null;
+        state.showSolution = false;
+        render();
+        return;
+      }
+
+      try {
+        state.payload = parsePayload();
+      } catch {
+        state.payload = null;
+      }
+      render();
+    }
+
+    function render() {
+      if (!state.payload) {
+        $('boardLabel').textContent = 'No board generated';
+        $('boardTitle').textContent = 'Waiting for input';
+        $('boardMeta').textContent = 'Generate a solvable board to inspect the layout and payload.';
+        $('legend').innerHTML = '';
+        $('grid').innerHTML = '';
+        $('overlay').innerHTML = '';
+        $('emptyState').style.display = 'block';
+        $('generatorStatus').textContent = 'Idle';
+        $('solutionLength').textContent = '0 cells';
+        return;
+      }
+
+      $('emptyState').style.display = 'none';
+      $('boardLabel').textContent = `Level ${state.payload.levelId || 'unassigned'}`;
+      $('boardTitle').textContent = state.payload.name || 'Generated Board';
+      $('boardMeta').textContent = `${state.payload.gridRow}x${state.payload.gridCol} • ${state.payload.nodes.length} pairs`;
+
+      $('legend').innerHTML = state.payload.nodes.map((node) => `
+        <div class="legend-chip">
+          <span class="swatch" style="background:${colorHex(node.colorCode)}"></span>
+          <span>${node.colorCode}</span>
+          <span>${node.points.map((point) => `(${point.row},${point.col})`).join(' → ')}</span>
+        </div>
+      `).join('');
+
+      const grid = $('grid');
+      const overlay = $('overlay');
+      grid.style.gridTemplateColumns = `repeat(${state.payload.gridCol}, var(--cell))`;
+      grid.innerHTML = '';
+
+      const pairMap = new Map();
+      for (const node of state.payload.nodes) {
+        pairMap.set(pointKey(node.points[0].col, node.points[0].row), node.colorCode);
+        pairMap.set(pointKey(node.points[1].col, node.points[1].row), node.colorCode);
+      }
+
+      for (let row = 0; row < state.payload.gridRow; row += 1) {
+        for (let col = 0; col < state.payload.gridCol; col += 1) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          const endpointColor = pairMap.get(pointKey(col, row));
+          if (endpointColor) {
+            cell.classList.add('endpoint');
+            cell.style.setProperty('--cell-color', colorHex(endpointColor));
+          }
+          grid.appendChild(cell);
+        }
+      }
+
+      const width = state.payload.gridCol * CELL + (state.payload.gridCol - 1) * GAP;
+      const height = state.payload.gridRow * CELL + (state.payload.gridRow - 1) * GAP;
+      overlay.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      overlay.setAttribute('width', String(width));
+      overlay.setAttribute('height', String(height));
+
+      const lines = [];
+      if (state.showSolution && state.solution) {
+        for (const [color, path] of Object.entries(state.solution)) {
+          const points = path.map((point) => (
+            `${point.x * (CELL + GAP) + CELL / 2},${point.y * (CELL + GAP) + CELL / 2}`
+          )).join(' ');
+          lines.push(
+            `<polyline points="${points}" fill="none" stroke="${colorHex(color)}" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"></polyline>`
+          );
+        }
+      }
+      overlay.innerHTML = lines.join('');
+
+      $('generatorStatus').textContent = state.solution ? 'Solvable' : 'Unsolved';
+      const solutionCells = state.solution
+        ? Object.values(state.solution).reduce((sum, path) => sum + path.length, 0)
+        : 0;
+      $('solutionLength').textContent = `${solutionCells} cells`;
+    }
+
+    async function request(path, options = {}) {
+      persist();
+      const token = $('authToken').value.trim();
+      const requestInit = {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...options,
+      };
+
+      dump('requestDump', {
+        url: `${$('apiBase').value.trim().replace(/\/$/, '')}${path}`,
+        ...requestInit,
+        body: options.body ? JSON.parse(options.body) : null,
+      });
+
+      const response = await fetch(`${$('apiBase').value.trim().replace(/\/$/, '')}${path}`, requestInit);
+      const body = await response.json().catch(() => null);
+      dump('responseDump', body ?? { success: false, message: 'Non-JSON response', statusCode: response.status });
+
+      if (!response.ok || !body?.success) {
+        const details = body?.data ? `\n${JSON.stringify(body.data, null, 2)}` : '';
+        throw new Error(`${body?.message || `HTTP ${response.status}`}${details}`);
+      }
+
+      return body.data;
+    }
+
+    function generateSolvableBoard() {
+      const attempts = Number($('maxAttempts').value) || 1;
+      let solved = null;
+      let payload = null;
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        payload = randomBoardPayload();
+        solved = solveBlockFill(payload);
+        if (solved) {
+          state.payload = payload;
+          state.solution = solved;
+          state.showSolution = false;
+          writePayload(payload);
+          render();
+          setMessage(`Solvable board found on attempt ${attempt}.`, 'success');
+          return;
+        }
+      }
+
+      state.payload = payload;
+      state.solution = null;
+      state.showSolution = false;
+      writePayload(payload);
+      render();
+      setMessage(`No solvable board found in ${attempts} attempts. Try fewer pairs or a larger grid.`, 'error');
+    }
+
+    function showSolution() {
+      try {
+        state.payload = parsePayload();
+      } catch (error) {
+        setMessage(error.message, 'error');
+        return;
+      }
+
+      const solved = solveBlockFill(state.payload);
+      state.solution = solved;
+      state.showSolution = Boolean(solved);
+      render();
+      setMessage(solved ? 'Solution rendered on the board.' : 'No full-coverage solution found for this payload.', solved ? 'success' : 'error');
+    }
+
+    async function validateApi() {
+      const payload = parsePayload();
+      const validatePayload = {
+        name: payload.name,
+        levelId: payload.levelId || undefined,
+        gridRow: payload.gridRow,
+        gridCol: payload.gridCol,
+        nodes: payload.nodes,
+      };
+      const data = await request('/v1/boards/validate', {
+        method: 'POST',
+        body: JSON.stringify(validatePayload),
+      });
+      setMessage('Board payload validated successfully.', 'success');
+      return data;
+    }
+
+    async function createBoard() {
+      const payload = parsePayload();
+      if (!payload.levelId) {
+        throw new Error('Level ID is required before creating a board.');
+      }
+      const data = await request('/v1/boards', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      setMessage(`Board created successfully. ID: ${data.id}`, 'success');
+      return data;
+    }
+
+    async function copyJson() {
+      const text = $('payload').value;
+      if (!text.trim()) {
+        setMessage('Generate or edit a payload first.', 'error');
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      setMessage('Board JSON copied to clipboard.', 'success');
+    }
+
+    function clearAll() {
+      state.payload = null;
+      state.solution = null;
+      state.showSolution = false;
+      $('payload').value = '';
+      persist();
+      render();
+      setMessage('Generator state cleared.', 'success');
+    }
+
+    for (const id of ['apiBase', 'authToken', 'levelId', 'boardName', 'payload']) {
+      $(id).addEventListener('change', () => {
+        persist();
+        if (id === 'payload') syncState();
+      });
+      $(id).addEventListener('blur', () => {
+        persist();
+        if (id === 'payload') syncState();
+      });
+    }
+
+    $('generateBtn').addEventListener('click', generateSolvableBoard);
+    $('solveBtn').addEventListener('click', showSolution);
+    $('validateBtn').addEventListener('click', async () => {
+      try {
+        await validateApi();
+      } catch (error) {
+        setMessage(error.message, 'error');
+      }
+    });
+    $('createBtn').addEventListener('click', async () => {
+      try {
+        await createBoard();
+      } catch (error) {
+        setMessage(error.message, 'error');
+      }
+    });
+    $('copyBtn').addEventListener('click', () => {
+      void copyJson().catch((error) => setMessage(error.message, 'error'));
+    });
+    $('clearBtn').addEventListener('click', clearAll);
+
+    hydrate();
+    syncState();
+  </script>
+</body>
+</html>

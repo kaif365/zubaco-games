@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model GameSession {
+  id           String     @id @default(uuid())
+  userId       String
+  stageId      String
+  serverSeed   String
+  clientSeed   String
+  nonce        Int
+  finalSeed    Int
+  status       String     @default("active") // active | submitted | expired
+  startedAt    DateTime   @default(now())
+  endTime      DateTime
+  finalScore   Int?
+  solved       Boolean?
+  totalMoves   Int?
+  sortedTubes  Int?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  inputs       Input[]
+  snapshots    Snapshot[]
+  cheatFlags   CheatFlag[]
+}
+
+model Input {
+  id            String      @id @default(uuid())
+  gameSessionId String
+  fromTube      Int
+  toTube        Int
+  color         String
+  timestamp     BigInt
+  sequence      Int
+  createdAt     DateTime    @default(now())
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+
+  @@index([gameSessionId])
+}
+
+model Snapshot {
+  id            String      @id @default(uuid())
+  gameSessionId String
+  tubes         Json
+  moveCount     Int
+  elapsed       Int
+  createdAt     DateTime    @default(now())
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+
+  @@index([gameSessionId])
+}
+
+model Configuration {
+  id               String   @id @default(uuid())
+  stageId          String   @unique
+  label            String
+  tubeCount        Int
+  colorCount       Int
+  ballsPerTube     Int      @default(4)
+  emptyTubes       Int      @default(2)
+  timeLimitMs      Int
+  pointsPerSortedTube Int   @default(100)
+  timeBonusMultiplier Int   @default(10)
+  createdAt        DateTime @default(now())
+}
+
+model CheatFlag {
+  id            String      @id @default(uuid())
+  gameSessionId String
+  reason        String
+  severity      String      @default("warning") // warning | critical
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  session       GameSession @relation(fields: [gameSessionId], references: [id])
+
+  @@index([gameSessionId])
+}

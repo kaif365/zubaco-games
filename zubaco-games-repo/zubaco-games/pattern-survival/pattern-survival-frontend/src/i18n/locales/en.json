@@ -1,0 +1,33 @@
+{
+  "game": {
+    "title": "Pattern Survival",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "round": "Round {{round}}",
+    "watch": "Watch the pattern!",
+    "repeat": "Repeat the pattern!",
+    "correct": "Correct!",
+    "incorrect": "Wrong pattern!",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Watch the pattern carefully, then repeat it in the same order. Patterns get longer each round.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}",
+    "survived": "Rounds Survived: {{count}}"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

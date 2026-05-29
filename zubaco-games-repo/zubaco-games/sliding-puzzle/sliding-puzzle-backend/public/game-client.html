@@ -1,0 +1,1853 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Sliding Puzzle — Game Client</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: monospace;
+      background: #0d1117;
+      color: #c9d1d9;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── TOP BAR ── */
+    #topbar {
+      display: flex;
+      flex-direction: column;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+    }
+
+    .topbar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+    }
+
+    .topbar-row + .topbar-row { border-top: 1px solid #21262d; }
+
+    .url-group { display: flex; align-items: center; gap: 6px; flex: 1; }
+
+    .url-label {
+      font-size: 11px; color: #484f58;
+      white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    #topbar input {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      border-radius: 5px; padding: 6px 10px;
+      font-family: monospace; font-size: 13px; outline: none; flex: 1;
+    }
+    #topbar input:focus { border-color: #58a6ff; }
+    #stage-input { width: 200px; flex: none; }
+
+    button {
+      padding: 6px 14px; border-radius: 5px; border: none;
+      cursor: pointer; font-family: monospace; font-size: 13px; font-weight: bold;
+    }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    #btn-get-token  { background: #6e40c9; color: #fff; }
+    #btn-start      { background: #1f6feb; color: #fff; }
+    #btn-next-board { background: #238636; color: #fff; }
+    #btn-autoplay, #btn-autoplay-random { background: #238636; color: #fff; }
+    #btn-forfeit { background: #da3633; color: #fff; }
+    #btn-autoplay.stopping, #btn-autoplay-random.stopping { background: #f85149; }
+    .cell.autoplay-flash { outline: 3px solid #3fb950 !important; filter: brightness(1.4) !important; transition: outline 0.15s; }
+
+    #loading-overlay .ov-sub { font-size: 16px; color: #58a6ff; }
+
+    #status-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #484f58; flex-shrink: 0;
+    }
+    #status-dot.playing   { background: #3fb950; }
+    #status-dot.waiting   { background: #e3b341; }
+    #status-dot.ended     { background: #f85149; }
+
+    #timer-display { font-size: 13px; color: #e3b341; min-width: 80px; text-align: right; }
+
+    /* ── MAIN AREA ── */
+    #main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── ROUND PANEL ── */
+    #round-panel {
+      width: 160px; min-width: 140px; border-right: 1px solid #30363d;
+      background: #161b22; display: flex; flex-direction: column;
+    }
+    #round-panel-header {
+      padding: 10px 14px; border-bottom: 1px solid #30363d;
+      font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    #round-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+    .round-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 8px; border-radius: 4px; font-size: 12px;
+      background: #0d1117; border: 1px solid #21262d;
+    }
+    .round-row.active  { border-color: #1f6feb; background: #0d2040; }
+    .round-row.done    { border-color: #238636; background: #0d2e1a; }
+    .round-row .rn     { color: #8b949e; }
+    .round-row .rs     { color: #3fb950; font-weight: bold; }
+    .round-row.active .rn { color: #58a6ff; }
+    .rs-loading { color: #e3b341; animation: rs-pulse 0.8s ease-in-out infinite alternate; }
+    @keyframes rs-pulse { from { opacity: 1; } to { opacity: 0.3; } }
+
+    /* ── GAME AREA ── */
+    #game-area {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 24px; overflow: auto; background: #0d1117; position: relative;
+    }
+
+    #board-info  { margin-bottom: 8px; font-size: 12px; color: #8b949e; text-align: center; }
+    #round-info  { margin-bottom: 12px; font-size: 14px; color: #58a6ff; text-align: center; font-weight: bold; }
+    #grid-wrap   { position: relative; }
+
+    /* ── OVERLAYS ── */
+    .overlay {
+      display: none; position: absolute; inset: 0;
+      background: rgba(13,17,23,0.85); backdrop-filter: blur(3px); border-radius: 8px;
+      flex-direction: column; align-items: center; justify-content: center; gap: 10px; z-index: 10;
+    }
+    .overlay.show { display: flex; animation: overlay-in 0.3s ease; }
+
+    @keyframes overlay-in {
+      from { opacity: 0; transform: scale(0.95); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    #game-end-overlay .ov-title  { font-size: 36px; font-weight: bold; letter-spacing: 3px; }
+    #game-end-overlay.completed .ov-title { color: #3fb950; }
+    #game-end-overlay.timeout .ov-title   { color: #f85149; }
+
+    #expiry-poll-overlay .ov-title { font-size: 22px; font-weight: bold; color: #e3b341; letter-spacing: 2px; }
+    #expiry-poll-overlay .poll-status { font-size: 28px; font-weight: bold; margin: 4px 0; }
+    #expiry-poll-overlay .poll-status.result-processing { color: #e3b341; }
+    #expiry-poll-overlay .poll-status.ended  { color: #3fb950; }
+    #expiry-poll-overlay .poll-status.expired { color: #f85149; }
+    .poll-spinner { width: 28px; height: 28px; border: 3px solid #30363d; border-top-color: #e3b341; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .ov-sub { font-size: 13px; color: #8b949e; text-align: center; }
+
+    .breakdown { margin-top: 15px; border-collapse: collapse; width: 240px; font-size: 12px; }
+    .breakdown td { padding: 4px 8px; border-bottom: 1px solid #30363d; }
+    .breakdown tr:last-child td { border-bottom: none; font-weight: bold; color: #e3b341; font-size: 14px; }
+    .breakdown .label { text-align: left; color: #8b949e; }
+    .breakdown .value { text-align: right; color: #c9d1d9; }
+
+    /* ── DISPLAY TIME OVERLAY (full-image memorize) ── */
+    #display-time-overlay {
+      display: none; position: absolute; inset: 0;
+      border-radius: 8px; z-index: 15; overflow: hidden;
+      flex-direction: column; align-items: center; justify-content: flex-end;
+      padding-bottom: 12px;
+    }
+    #display-time-overlay.show { display: flex; }
+    #dt-bg {
+      position: absolute; inset: 0;
+      display: grid; gap: 2px;
+    }
+    #dt-bar {
+      position: absolute; bottom: 0; left: 0; height: 4px;
+      background: #58a6ff; transition: width 1s linear;
+    }
+    #dt-label {
+      position: relative; z-index: 1;
+      background: rgba(0,0,0,0.65); border-radius: 4px;
+      padding: 4px 12px; font-size: 14px; font-weight: bold; color: #fff;
+      letter-spacing: 1px;
+    }
+
+    /* ── GRID ── */
+    #grid { display: grid; gap: 2px; user-select: none; }
+
+    .cell {
+      border-radius: 4px;
+      cursor: pointer;
+      transition: filter 0.1s;
+      background: #21262d;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .cell.blank { cursor: default; background: #0d1117; border-color: #21262d; }
+    .cell.tile:hover { filter: brightness(1.15); }
+    .cell.preview-tile { cursor: default; }
+    .cell.preview-tile:hover { filter: none; }
+
+    .cell.flash-fail { animation: flash-red 0.45s ease forwards; }
+
+    @keyframes flash-red {
+      0%   { box-shadow: 0 0 0 0 rgba(248,81,73,0); }
+      30%  { box-shadow: 0 0 0 8px rgba(248,81,73,0.7); filter: brightness(1.6) sepia(1) hue-rotate(-10deg); }
+      100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); filter: none; }
+    }
+
+    #empty-msg { color: #484f58; font-size: 14px; }
+
+    /* ── DEMO OVERLAY ── */
+    #demo-overlay {
+      display: none; position: absolute; inset: 0;
+      background: rgba(13,17,23,0.96); backdrop-filter: blur(4px);
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; z-index: 20; overflow: auto;
+    }
+    #demo-overlay.show { display: flex; }
+
+    #demo-label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #6e40c9; font-weight: bold; }
+    #demo-board-info { font-size: 12px; color: #8b949e; text-align: center; }
+    #demo-progress { font-size: 13px; color: #58a6ff; font-weight: bold; }
+    #demo-grid-wrap { position: relative; }
+    #demo-grid { display: grid; gap: 2px; user-select: none; }
+
+    #demo-dt-overlay {
+      display: none; position: absolute; inset: 0; border-radius: 8px;
+      z-index: 5; overflow: hidden;
+      flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 10px;
+    }
+    #demo-dt-overlay.show { display: flex; }
+    #demo-dt-bg { position: absolute; inset: 0; display: grid; gap: 2px; }
+    #demo-dt-bar { position: absolute; bottom: 0; left: 0; height: 4px; background: #6e40c9; transition: width 1s linear; }
+    #demo-dt-label {
+      position: relative; z-index: 1;
+      background: rgba(0,0,0,0.65); border-radius: 4px;
+      padding: 4px 12px; font-size: 13px; font-weight: bold; color: #fff;
+    }
+
+    #demo-round-end {
+      display: none; position: absolute; inset: 0;
+      background: rgba(13,17,23,0.85); backdrop-filter: blur(3px); border-radius: 8px;
+      flex-direction: column; align-items: center; justify-content: center; gap: 10px; z-index: 10;
+    }
+    #demo-round-end.show { display: flex; animation: overlay-in 0.3s ease; }
+    #demo-round-end .ov-title { font-size: 32px; font-weight: bold; color: #6e40c9; letter-spacing: 3px; }
+    #demo-round-end .ov-sub   { font-size: 13px; color: #8b949e; }
+
+    /* ── SIDEBAR ── */
+    #sidebar { width: 340px; min-width: 280px; border-left: 1px solid #30363d; display: flex; flex-direction: column; background: #161b22; }
+    #sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid #30363d; font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+    #btn-clear-log, #btn-export-log { background: #21262d; color: #8b949e; border: 1px solid #30363d; font-size: 11px; padding: 3px 8px; }
+    #btn-export-log { color: #58a6ff; border-color: #1f6feb; }
+    #log { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 5px; }
+
+    .log-entry { font-size: 11px; padding: 6px 8px; border-radius: 4px; border-left: 3px solid transparent; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+    .log-entry.out  { border-color: #1f6feb; background: #0d2040; }
+    .log-entry.in   { border-color: #3fb950; background: #0d2e1a; }
+    .log-entry.err  { border-color: #f85149; background: #2d0d0d; }
+    .log-entry.info { border-color: #8b949e; background: #1c2128; }
+    .log-entry .lt  { color: #484f58; font-size: 10px; display: block; margin-bottom: 2px; }
+    .log-entry .ev  { font-weight: bold; color: #c9d1d9; }
+    .log-entry .body { color: #8b949e; }
+  </style>
+  <script id="solver-worker-src" type="text/js-worker">
+    // ── Worker: self-contained puzzle solver ──────────────────────────────────
+
+    function stateKey(pieces) {
+      let key = 0n;
+      for (let i = 0; i < pieces.length; i++) {
+        const v = pieces[i] === -1 ? 127 : pieces[i];
+        key |= BigInt(v) << BigInt(i * 7);
+      }
+      return key;
+    }
+
+    function getAdjacentToBlank(blankSlot, gridX, n) {
+      const row = Math.floor(blankSlot / gridX), col = blankSlot % gridX;
+      const gridY = Math.ceil(n / gridX);
+      const result = [];
+      if (row > 0)        result.push(blankSlot - gridX);
+      if (row < gridY-1)  result.push(blankSlot + gridX);
+      if (col > 0)        result.push(blankSlot - 1);
+      if (col < gridX-1)  result.push(blankSlot + 1);
+      return result;
+    }
+
+    function manhattanDistance(pieces, gridX) {
+      let total = 0;
+      for (let slot = 0; slot < pieces.length; slot++) {
+        const piece = pieces[slot];
+        if (piece === -1) continue;
+        const row = Math.floor(slot / gridX), col = slot % gridX;
+        const targetRow = Math.floor(piece / gridX), targetCol = piece % gridX;
+        total += Math.abs(row - targetRow) + Math.abs(col - targetCol);
+      }
+      return total;
+    }
+
+    function linearConflict(pieces, gridX, gridY) {
+      let conflicts = 0;
+      for (let row = 0; row < gridY; row++) {
+        const rowStart = row * gridX;
+        for (let left = 0; left < gridX; left++) {
+          const leftPiece = pieces[rowStart + left];
+          if (leftPiece === -1 || Math.floor(leftPiece / gridX) !== row) continue;
+          const leftTargetCol = leftPiece % gridX;
+          for (let right = left + 1; right < gridX; right++) {
+            const rightPiece = pieces[rowStart + right];
+            if (rightPiece === -1 || Math.floor(rightPiece / gridX) !== row) continue;
+            const rightTargetCol = rightPiece % gridX;
+            if (leftTargetCol > rightTargetCol) conflicts += 2;
+          }
+        }
+      }
+      for (let col = 0; col < gridX; col++) {
+        for (let top = 0; top < gridY; top++) {
+          const topPiece = pieces[top * gridX + col];
+          if (topPiece === -1 || topPiece % gridX !== col) continue;
+          const topTargetRow = Math.floor(topPiece / gridX);
+          for (let bottom = top + 1; bottom < gridY; bottom++) {
+            const bottomPiece = pieces[bottom * gridX + col];
+            if (bottomPiece === -1 || bottomPiece % gridX !== col) continue;
+            const bottomTargetRow = Math.floor(bottomPiece / gridX);
+            if (topTargetRow > bottomTargetRow) conflicts += 2;
+          }
+        }
+      }
+      return conflicts;
+    }
+
+    function estimateDistance(pieces, gridX, gridY) {
+      return manhattanDistance(pieces, gridX) + linearConflict(pieces, gridX, gridY);
+    }
+
+    function solvePuzzleIdaStar(startPieces, gridX, gridY, timeLimitMs) {
+      const start = [...startPieces];
+      const deadline = performance.now() + timeLimitMs;
+      const path = [];
+      let threshold = estimateDistance(start, gridX, gridY);
+      let timedOut = false;
+
+      function dfs(pieces, blankSlot, g, limit, prevBlankSlot) {
+        if (performance.now() > deadline) { timedOut = true; return Infinity; }
+        const h = estimateDistance(pieces, gridX, gridY);
+        const f = g + h;
+        if (f > limit) return f;
+        if (h === 0) return true;
+
+        let min = Infinity;
+        const moves = getAdjacentToBlank(blankSlot, gridX, pieces.length)
+          .filter(slot => slot !== prevBlankSlot)
+          .map(slot => {
+            [pieces[blankSlot], pieces[slot]] = [pieces[slot], pieces[blankSlot]];
+            const estimate = estimateDistance(pieces, gridX, gridY);
+            [pieces[blankSlot], pieces[slot]] = [pieces[slot], pieces[blankSlot]];
+            return { slot, estimate };
+          })
+          .sort((a, b) => a.estimate - b.estimate);
+
+        for (const move of moves) {
+          const { slot } = move;
+          [pieces[blankSlot], pieces[slot]] = [pieces[slot], pieces[blankSlot]];
+          path.push(slot);
+          const result = dfs(pieces, slot, g + 1, limit, blankSlot);
+          if (result === true) return true;
+          if (typeof result === 'number' && result < min) min = result;
+          path.pop();
+          [pieces[blankSlot], pieces[slot]] = [pieces[slot], pieces[blankSlot]];
+          if (timedOut) return Infinity;
+        }
+        return min;
+      }
+
+      while (threshold < 400) {
+        const result = dfs(start, start.indexOf(-1), 0, threshold, -1);
+        if (result === true) return [...path];
+        if (timedOut || !Number.isFinite(result)) break;
+        threshold = result;
+      }
+      return null;
+    }
+
+    class MinHeap {
+      constructor() { this.h = []; }
+      push(item) {
+        this.h.push(item);
+        let i = this.h.length - 1;
+        while (i > 0) {
+          const p = (i - 1) >> 1;
+          if (this.h[p].f <= this.h[i].f) break;
+          [this.h[p], this.h[i]] = [this.h[i], this.h[p]];
+          i = p;
+        }
+      }
+      pop() {
+        const top = this.h[0];
+        const last = this.h.pop();
+        if (this.h.length > 0) {
+          this.h[0] = last;
+          let i = 0;
+          while (true) {
+            let smallest = i;
+            const l = 2*i+1, r = 2*i+2;
+            if (l < this.h.length && this.h[l].f < this.h[smallest].f) smallest = l;
+            if (r < this.h.length && this.h[r].f < this.h[smallest].f) smallest = r;
+            if (smallest === i) break;
+            [this.h[i], this.h[smallest]] = [this.h[smallest], this.h[i]];
+            i = smallest;
+          }
+        }
+        return top;
+      }
+      get size() { return this.h.length; }
+    }
+
+    function solveWeightedAStar(startPieces, gridX, gridY, timeLimitMs, weight = 1.5) {
+      const deadline = performance.now() + timeLimitMs;
+      const n = startPieces.length;
+      const goalKey = stateKey([...Array(n-1).keys(), -1]);
+
+      const startH = estimateDistance(startPieces, gridX, gridY);
+      const heap = new MinHeap();
+      const startNode = { pieces: [...startPieces], blankSlot: startPieces.indexOf(-1), g: 0, f: startH * weight, parent: null, movedSlot: -1 };
+      heap.push(startNode);
+
+      const bestG = new Map();
+      bestG.set(stateKey(startPieces), 0);
+
+      while (heap.size > 0) {
+        if (performance.now() > deadline) return null;
+        const node = heap.pop();
+        const key = stateKey(node.pieces);
+
+        if (key === goalKey) {
+          const path = [];
+          let cur = node;
+          while (cur.parent !== null) { path.push(cur.movedSlot); cur = cur.parent; }
+          return path.reverse();
+        }
+
+        const knownG = bestG.get(key);
+        if (knownG !== undefined && knownG < node.g) continue;
+
+        for (const slot of getAdjacentToBlank(node.blankSlot, gridX, n)) {
+          const newPieces = [...node.pieces];
+          [newPieces[node.blankSlot], newPieces[slot]] = [newPieces[slot], newPieces[node.blankSlot]];
+          const newG = node.g + 1;
+          const newKey = stateKey(newPieces);
+          const existingG = bestG.get(newKey);
+          if (existingG !== undefined && existingG <= newG) continue;
+          bestG.set(newKey, newG);
+          const h = estimateDistance(newPieces, gridX, gridY);
+          const f = newG + h * weight;
+          heap.push({ pieces: newPieces, blankSlot: slot, g: newG, f, parent: node, movedSlot: slot });
+        }
+      }
+      return null;
+    }
+
+    self.onmessage = function(e) {
+      const { pieces, gridX, gridY, timeLimitMs } = e.data;
+      const n = pieces.length;
+      let plan;
+      if (n <= 16) {
+        plan = solvePuzzleIdaStar(pieces, gridX, gridY, timeLimitMs);
+      } else {
+        plan = solveWeightedAStar(pieces, gridX, gridY, timeLimitMs);
+      }
+      self.postMessage({ plan });
+    };
+  </script>
+</head>
+
+<body>
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <div class="topbar-row">
+      <div id="status-dot"></div>
+      <div class="url-group">
+        <span class="url-label">Sliding Puzzle</span>
+        <input id="url-input" placeholder="http://localhost:3000" />
+      </div>
+      <button id="btn-start">Start Game</button>
+      <div id="timer-display"></div>
+    </div>
+    <div class="topbar-row" id="autoplay-row" style="display:none">
+      <button id="btn-autoplay">Start Autoplay</button>
+      <button id="btn-autoplay-random">Start Random Autoplay</button>
+      <button id="btn-forfeit">Forfeit</button>
+      <span class="url-label">Interval (ms)</span>
+      <input id="autoplay-interval" type="number" min="10" value="120" style="width:70px;flex:none" />
+      <span class="url-label">Solver timeout (ms)</span>
+      <input id="autoplay-solver-timeout" type="number" min="100" value="5000" style="width:88px;flex:none" />
+      <label style="display:flex;align-items:center;gap:4px;margin-left:12px;color:#f85149;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="chk-dupe-moves" />
+        Duplicate moveId test
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;margin-left:12px;color:#e3b341;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="chk-buffer-last" />
+        Buffer last flush + end-board
+      </label>
+      <button id="btn-release-buffer" style="display:none;background:#e3b341;color:#000;font-size:12px;padding:3px 10px">Release buffer</button>
+      <label style="display:flex;align-items:center;gap:4px;margin-left:12px;color:#9e6a03;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="chk-hold-last-endboard" />
+        Hold last end-board (expiry test)
+      </label>
+    </div>
+    <div class="topbar-row">
+      <label style="display:flex;align-items:center;gap:4px;color:#8b949e;font-size:12px">
+        Prefetch next board at % solved
+        <input id="prefetch-threshold" type="number" min="0" max="100" value="0" style="width:52px;flex:none;background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:1px 4px;font-size:12px" />
+      </label>
+    </div>
+    <div class="topbar-row">
+      <div class="url-group">
+        <span class="url-label">Users</span>
+        <input id="users-url-input" placeholder="http://localhost:5000" />
+      </div>
+      <input id="stage-input" placeholder="Stage ID" />
+      <button id="btn-get-token">Get Token</button>
+    </div>
+    <div class="topbar-row">
+      <div class="url-group">
+        <span class="url-label">CDN</span>
+        <input id="cdn-url-input" placeholder="https://cdn.example.com" />
+      </div>
+    </div>
+    <div class="topbar-row">
+      <label style="display:flex;align-items:center;gap:4px;color:#8b949e;font-size:12px">
+        <input type="checkbox" id="chk-encrypt" />
+        Encrypt
+      </label>
+      <input id="encryption-key-input" placeholder="AES-256 key (64 hex chars)" style="flex:1;font-family:monospace;font-size:11px" />
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+    <div id="round-panel">
+      <div id="round-panel-header">Rounds</div>
+      <div id="round-list"></div>
+    </div>
+    <div id="game-area">
+      <div id="demo-overlay">
+        <div id="demo-label">📖 Demo</div>
+        <div id="demo-progress"></div>
+        <div id="demo-board-info"></div>
+        <div id="demo-grid-wrap">
+          <div id="demo-grid"></div>
+          <div id="demo-dt-overlay">
+            <div id="demo-dt-bg"></div>
+            <div id="demo-dt-bar"></div>
+            <div id="demo-dt-label">Memorize!</div>
+          </div>
+          <div id="demo-round-end">
+            <div class="ov-title">✓ SOLVED!</div>
+            <div class="ov-sub">Loading next…</div>
+          </div>
+        </div>
+      </div>
+      <div id="round-info"></div>
+      <div id="board-info"></div>
+      <div id="grid-wrap">
+        <div id="grid"></div>
+        <div id="display-time-overlay">
+          <div id="dt-bg"></div>
+          <div id="dt-bar"></div>
+          <div id="dt-label">Memorize!</div>
+        </div>
+        <div id="loading-overlay" class="overlay">
+          <div class="ov-sub">Loading next round…</div>
+        </div>
+        <div id="game-end-overlay" class="overlay">
+          <div class="ov-title" id="game-end-title"></div>
+          <div id="game-end-content" class="ov-sub"></div>
+        </div>
+        <div id="expiry-poll-overlay" class="overlay">
+          <div class="ov-title">EXPIRY TEST</div>
+          <div class="poll-spinner" id="poll-spinner"></div>
+          <div class="poll-status" id="poll-status-label">Waiting…</div>
+          <div class="ov-sub" id="poll-sub">Polling status every 2s</div>
+          <div class="ov-sub" id="poll-elapsed" style="color:#484f58;margin-top:2px">0s</div>
+        </div>
+      </div>
+      <div id="empty-msg">Get a token and start a game</div>
+    </div>
+    <div id="sidebar">
+      <div id="sidebar-header">Event Log <span style="display:flex;gap:6px"><button id="btn-compact-log">Compact</button><button id="btn-export-log">Copy</button><button id="btn-clear-log">Clear</button></span></div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    // ── Constants ─────────────────────────────────────────────────────────────
+    const TILE_SIZE = 60; // px per tile
+
+    // ── AES-256-GCM helpers ───────────────────────────────────────────────────
+    async function importAesKey(hexKey) {
+      const raw = new Uint8Array(hexKey.match(/.{2}/g).map(b => parseInt(b, 16)));
+      return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+    }
+
+    async function aesEncrypt(cryptoKey, data) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const plaintext = new TextEncoder().encode(JSON.stringify(data));
+      const ciphertextWithTag = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, tagLength: 128 }, cryptoKey, plaintext);
+      const buf = new Uint8Array(ciphertextWithTag);
+      const ciphertext = buf.slice(0, buf.length - 16);
+      const tag = buf.slice(buf.length - 16);
+      const b64 = u8 => btoa(String.fromCharCode(...u8));
+      return { iv: b64(iv), ciphertext: b64(ciphertext), tag: b64(tag) };
+    }
+
+    async function aesDecrypt(cryptoKey, payload) {
+      const b64dec = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+      const iv = b64dec(payload.iv);
+      const ciphertext = b64dec(payload.ciphertext);
+      const tag = b64dec(payload.tag);
+      const combined = new Uint8Array(ciphertext.length + tag.length);
+      combined.set(ciphertext); combined.set(tag, ciphertext.length);
+      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, cryptoKey, combined);
+      return JSON.parse(new TextDecoder().decode(plaintext));
+    }
+
+    function isEncryptedPayload(obj) {
+      return obj && typeof obj.iv === 'string' && typeof obj.ciphertext === 'string' && typeof obj.tag === 'string';
+    }
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    let authToken     = null;
+    let slidingPuzzleBase = '';
+    let imageCdnBase = '';
+    let expiryAtMs    = null;
+    let timerInterval = null;
+
+    // Autoplay
+    let autoplaying    = false;
+    let autoplayRandom = false;
+    let autoplayTimer  = null;
+    let autoplayPlan   = [];
+    const getAutoplayDelay = () => Math.max(10, parseInt($('autoplay-interval')?.value, 10) || 120);
+    const getAutoplaySolverTimeout = () => Math.max(100, parseInt($('autoplay-solver-timeout')?.value, 10) || 5000);
+
+    // Solver worker
+    let solverRunning = false;
+    let activeWorker = null;
+    const solverWorkerBlobUrl = (() => {
+      const src = document.getElementById('solver-worker-src').textContent;
+      return URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+    })();
+
+    // Board state
+    // { sessionBoardId, boardId, roundNumber, totalRounds, gridX, gridY, fullImageUrl, pieces, isClearing }
+    let boardState = null;
+
+    // Move batching
+    let pendingMoves  = [];
+    let sentMoves     = [];
+    let flushTimer    = null;
+    let flushInFlight = null;
+    const FLUSH_INTERVAL_MS = 5000;
+    const isDupeMoveTest     = () => $('chk-dupe-moves')?.checked;
+    const isBufferLast       = () => $('chk-buffer-last')?.checked;
+    const isHoldLastEndboard = () => $('chk-hold-last-endboard')?.checked;
+    let expiryPollInterval   = null;
+    const getPrefetchThreshold = () => Math.min(100, Math.max(0, parseInt($('prefetch-threshold')?.value, 10) || 0)) / 100;
+    const BUFFER_THRESHOLD_MS = 20_000;
+    const secsLeft     = () => expiryAtMs ? expiryAtMs - Date.now() : Infinity;
+    const inBufferWindow = () => isBufferLast() && secsLeft() <= BUFFER_THRESHOLD_MS;
+    let bufferedRounds  = [];
+    let bufferedEndBoard = false;
+
+    // Next board pre-fetch
+    let nextBoardCache    = null;
+    let nextBoardFetching = false;
+    let prefetchPromise   = null;
+
+    // Background end-board call
+    let endBoardPromise = null;
+
+    // Demo
+    let demoBoards     = [];
+    let demoCursor     = 0;
+    let demoBoardState = null; // { gx, gy, pieces, fullImageUrl, solved }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    window.addEventListener('DOMContentLoaded', () => {
+      $('url-input').value       = window.location.origin;
+      $('users-url-input').value = 'http://localhost:5000';
+      $('cdn-url-input').value   = localStorage.getItem('slidingPuzzleCdnUrl') ?? '';
+    });
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    const $ = id => document.getElementById(id);
+    const ts = () => new Date().toLocaleTimeString('en-GB', { hour12: false, fractionalSecondDigits: 2 });
+
+    function log(type, event, data) {
+      const el = document.createElement('div');
+      el.className = `log-entry ${type}`;
+      const label = { out:'▲ SENT', in:'▼ RECV', err:'✖ ERR', info:'ℹ' }[type];
+      const body = data !== undefined ? '\n' + JSON.stringify(data, null, 2) : '';
+      el.innerHTML = `<span class="lt">${ts()}</span><span class="ev">${label}  ${event}</span><span class="body">${body}</span>`;
+      const logEl = $('log');
+      logEl.appendChild(el);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function normalizeBaseUrl(value) {
+      return (value ?? '').trim().replace(/\/+$/, '');
+    }
+
+    function getImageCdnBase() {
+      imageCdnBase = normalizeBaseUrl($('cdn-url-input')?.value);
+      localStorage.setItem('slidingPuzzleCdnUrl', imageCdnBase);
+      return imageCdnBase;
+    }
+
+    function resolveImageUrl(imageUrl) {
+      const raw = (imageUrl ?? '').trim();
+      if (!raw) return '';
+      if (/^(https?:|data:|blob:)/i.test(raw)) return raw;
+      if (raw.startsWith('//')) return `${window.location.protocol}${raw}`;
+
+      const base = getImageCdnBase() || slidingPuzzleBase || window.location.origin;
+      const path = raw.replace(/^\/+/, '');
+      return `${base}/${path}`;
+    }
+
+    function cssUrl(imageUrl) {
+      return resolveImageUrl(imageUrl).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    async function api(method, path, body) {
+      const url = slidingPuzzleBase + path;
+      const encryptEnabled = $('chk-encrypt').checked;
+      const hexKey = $('encryption-key-input').value.trim();
+
+      let cryptoKey = null;
+      if (encryptEnabled && hexKey) {
+        try { cryptoKey = await importAesKey(hexKey); }
+        catch { log('err', 'Bad encryption key — sending plaintext'); }
+      }
+
+      let requestBody = body ?? undefined;
+      if (cryptoKey && body) requestBody = await aesEncrypt(cryptoKey, body);
+
+      log('out', `${method} ${path}`, body ?? undefined);
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: requestBody ? JSON.stringify(requestBody) : undefined,
+      });
+
+      const json = await res.json();
+      let data = json?.data ?? json;
+      if (cryptoKey && isEncryptedPayload(data)) {
+        try {
+          const decrypted = await aesDecrypt(cryptoKey, data);
+          data = decrypted?.data ?? decrypted;
+        } catch (e) { log('err', `Decryption failed for ${method} ${path}`, { msg: e.message }); throw e; }
+      }
+
+      log('in', `${method} ${path} ← ${res.status}`, data);
+      if (!res.ok) throw Object.assign(new Error(data?.message ?? json?.message ?? 'Request failed'), { json: data, status: res.status });
+      return data;
+    }
+
+    // ── Puzzle helpers ────────────────────────────────────────────────────────
+    function isSolvedClient(pieces) {
+      const n = pieces.length;
+      for (let i = 0; i < n - 1; i++) if (pieces[i] !== i) return false;
+      return pieces[n - 1] === -1;
+    }
+
+    function countCorrectClient(pieces) {
+      const n = pieces.length;
+      let c = 0;
+      for (let i = 0; i < n - 1; i++) if (pieces[i] === i) c++;
+      if (pieces[n - 1] === -1) c++;
+      return c;
+    }
+
+    function isAdjacent(slotA, slotB, gridX) {
+      const rA = Math.floor(slotA / gridX), cA = slotA % gridX;
+      const rB = Math.floor(slotB / gridX), cB = slotB % gridX;
+      return (rA === rB && Math.abs(cA - cB) === 1) || (cA === cB && Math.abs(rA - rB) === 1);
+    }
+
+    function getAdjacentToBlank(blankSlot, gridX, n) {
+      const row = Math.floor(blankSlot / gridX), col = blankSlot % gridX;
+      const gridY = Math.ceil(n / gridX);
+      const result = [];
+      if (row > 0)       result.push(blankSlot - gridX);
+      if (row < gridY-1) result.push(blankSlot + gridX);
+      if (col > 0)       result.push(blankSlot - 1);
+      if (col < gridX-1) result.push(blankSlot + 1);
+      return result;
+    }
+
+    function countInversionsClient(pieces) {
+      const flat = pieces.filter(piece => piece !== -1);
+      let count = 0;
+      for (let i = 0; i < flat.length; i++) {
+        for (let j = i + 1; j < flat.length; j++) {
+          if (flat[i] > flat[j]) count++;
+        }
+      }
+      return count;
+    }
+
+    function isSolvableClient(pieces, gridX, gridY) {
+      const inversions = countInversionsClient(pieces);
+      if (gridX % 2 === 1) return inversions % 2 === 0;
+      const blankSlot = pieces.indexOf(-1);
+      const blankRowFromBottom = gridY - Math.floor(blankSlot / gridX);
+      return (inversions + blankRowFromBottom) % 2 === 1;
+    }
+
+    function tileBgStyle(pieceIndex, gridX, gridY, imageUrl) {
+      const col = pieceIndex % gridX;
+      const row = Math.floor(pieceIndex / gridX);
+      return `background-image:url('${cssUrl(imageUrl)}');` +
+             `background-size:${gridX * TILE_SIZE}px ${gridY * TILE_SIZE}px;` +
+             `background-position:-${col * TILE_SIZE}px -${row * TILE_SIZE}px;`;
+    }
+
+    function renderSolvedPreviewGrid(container, imageUrl, gridX, gridY) {
+      container.style.gridTemplateColumns = `repeat(${gridX}, ${TILE_SIZE}px)`;
+      container.innerHTML = '';
+
+      const blankSlot = gridX * gridY - 1;
+      for (let slot = 0; slot < gridX * gridY; slot++) {
+        const cell = document.createElement('div');
+        if (slot === blankSlot) {
+          cell.className = 'cell blank';
+          cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px`;
+        } else {
+          cell.className = 'cell tile preview-tile';
+          cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px;` + tileBgStyle(slot, gridX, gridY, imageUrl);
+        }
+        container.appendChild(cell);
+      }
+    }
+
+    // ── Get Token ─────────────────────────────────────────────────────────────
+    $('btn-get-token').addEventListener('click', async () => {
+      const usersUrl = $('users-url-input').value.trim().replace(/\/$/, '');
+      const stageId  = $('stage-input').value.trim();
+      if (!usersUrl) { alert('Enter Users Service URL'); return; }
+      if (!stageId)  { alert('Enter a Stage ID'); return; }
+
+      try {
+        const res = await fetch(`${usersUrl}/user/auth/dev-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stageId }),
+        });
+        const json = await res.json();
+        log('in', 'POST /user/auth/dev-session', json);
+        if (!res.ok) { log('err', 'dev-session failed', json); return; }
+        authToken = json?.data?.token ?? null;
+        if (authToken) log('info', 'token stored', { preview: authToken.slice(0, 30) + '…' });
+      } catch (err) {
+        log('err', 'dev-session error', { msg: err.message });
+      }
+    });
+
+    // ── Start Game ────────────────────────────────────────────────────────────
+    $('btn-start').addEventListener('click', async () => {
+      if (!authToken) { alert('Get a token first'); return; }
+      slidingPuzzleBase = $('url-input').value.trim().replace(/\/$/, '');
+      getImageCdnBase();
+      hideOverlays();
+      clearBoard();
+      await runDemo();
+    });
+
+    $('btn-forfeit').addEventListener('click', async () => {
+      if (!authToken) { alert('Get a token first'); return; }
+      slidingPuzzleBase = $('url-input').value.trim().replace(/\/$/, '');
+      getImageCdnBase();
+      if (!slidingPuzzleBase) { alert('Enter Sliding Puzzle Service URL'); return; }
+      try {
+        stopTimer(); stopMoveFlush(); setAutoplaying(false); setAutoplayingRandom(false);
+        await flushMoves(true);
+        const data = await api('POST', '/v1/game/end-game');
+        log('info', `forfeit: end-game status=${data.status} totalScore=${data.totalScore}`);
+        const result = await api('GET', '/v1/game/status');
+        showScoreboard(result);
+      } catch (err) {
+        log('err', 'forfeit failed', { msg: err.message });
+        if (boardState) { startTimer(); startMoveFlush(); }
+      }
+    });
+
+    // ── Demo flow ─────────────────────────────────────────────────────────────
+    async function runDemo() {
+      try {
+        const data = await api('GET', '/v1/user/demo');
+        const { alreadySeen, levels } = data ?? {};
+        if (alreadySeen || !levels?.length) { await startGame(); return; }
+
+        demoBoards = [];
+        for (const lvl of levels)
+          for (const b of lvl.boards)
+            demoBoards.push({ ...b, levelName: lvl.levelName });
+
+        demoCursor = 0;
+        $('empty-msg').style.display = 'none';
+        showDemoBoard();
+      } catch (err) {
+        log('err', 'demo error', { msg: err.message });
+        await startGame();
+      }
+    }
+
+    function showDemoBoard() {
+      if (demoCursor >= demoBoards.length) {
+        $('demo-overlay').classList.remove('show');
+        startGame();
+        return;
+      }
+      $('demo-round-end').classList.remove('show');
+      $('demo-dt-overlay').classList.remove('show');
+      const board = demoBoards[demoCursor];
+      $('demo-progress').textContent  = `Board ${demoCursor + 1} / ${demoBoards.length}`;
+      $('demo-board-info').textContent = `${board.levelName}  |  ${board.id}  |  Grid ${board.gridSize.x}×${board.gridSize.y}`;
+      $('demo-overlay').classList.add('show');
+
+      // Render shuffled board first (hidden behind display-time overlay)
+      renderDemoBoard(board);
+
+      // Show full image for displayTime seconds, then reveal puzzle
+      if (board.displayTime > 0) {
+        startDemoDisplayTime(resolveImageUrl(board.fullImageUrl), board.gridSize.x, board.gridSize.y, board.displayTime);
+      }
+    }
+
+    function startDemoDisplayTime(imageUrl, gx, gy, seconds) {
+      const overlay = $('demo-dt-overlay');
+      const bg = $('demo-dt-bg');
+      const bar = $('demo-dt-bar');
+      const label = $('demo-dt-label');
+
+      renderSolvedPreviewGrid(bg, imageUrl, gx, gy);
+      bar.style.width = '100%';
+      overlay.classList.add('show');
+      label.textContent = `Memorize!  ${seconds}s`;
+
+      // Kick off bar shrink
+      requestAnimationFrame(() => {
+        bar.style.transition = `width ${seconds}s linear`;
+        bar.style.width = '0%';
+      });
+
+      let remaining = seconds;
+      const timer = setInterval(() => {
+        remaining--;
+        if (remaining <= 0) {
+          clearInterval(timer);
+          overlay.classList.remove('show');
+          bar.style.transition = '';
+        } else {
+          label.textContent = `Memorize!  ${remaining}s`;
+        }
+      }, 1000);
+    }
+
+    function renderDemoBoard(board) {
+      const { gridSize, initialPieces, fullImageUrl } = board;
+      const gx = gridSize.x, gy = gridSize.y;
+      const resolvedImageUrl = resolveImageUrl(fullImageUrl);
+      demoBoardState = { gx, gy, pieces: [...initialPieces], fullImageUrl: resolvedImageUrl, solved: false };
+
+      const grid = $('demo-grid');
+      grid.style.gridTemplateColumns = `repeat(${gx}, ${TILE_SIZE}px)`;
+      grid.innerHTML = '';
+
+      for (let slot = 0; slot < gx * gy; slot++) {
+        const cell = document.createElement('div');
+        cell.id = `dcell-${slot}`;
+        cell.dataset.slot = slot;
+        const piece = initialPieces[slot];
+        if (piece === -1) {
+          cell.className = 'cell blank';
+          cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px`;
+        } else {
+          cell.className = 'cell tile';
+          cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px;` + tileBgStyle(piece, gx, gy, resolvedImageUrl);
+          cell.addEventListener('click', onDemoCellClick);
+        }
+        grid.appendChild(cell);
+      }
+    }
+
+    function onDemoCellClick(e) {
+      if (!demoBoardState || demoBoardState.solved) return;
+      const slot = +e.currentTarget.dataset.slot;
+      const { pieces, gx } = demoBoardState;
+      if (pieces[slot] === -1) return;
+      const blankSlot = pieces.indexOf(-1);
+      if (!isAdjacent(slot, blankSlot, gx)) {
+        flashDemoCellFail(slot);
+        return;
+      }
+      [pieces[slot], pieces[blankSlot]] = [pieces[blankSlot], pieces[slot]];
+      updateDemoCells(slot, blankSlot);
+      if (isSolvedClient(pieces)) {
+        demoBoardState.solved = true;
+        $('demo-round-end').classList.add('show');
+        setTimeout(() => { demoCursor++; showDemoBoard(); }, 1200);
+      }
+    }
+
+    function updateDemoCells(slotA, slotB) {
+      for (const slot of [slotA, slotB]) {
+        const cell = $(`dcell-${slot}`);
+        if (!cell) continue;
+        const { pieces, gx, gy, fullImageUrl } = demoBoardState;
+        const piece = pieces[slot];
+        if (piece === -1) {
+          cell.className = 'cell blank';
+          cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px`;
+          cell.removeEventListener('click', onDemoCellClick);
+        } else {
+          cell.className = 'cell tile';
+          cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px;` + tileBgStyle(piece, gx, gy, fullImageUrl);
+          cell.addEventListener('click', onDemoCellClick);
+        }
+      }
+    }
+
+    function flashDemoCellFail(slot) {
+      const cell = $(`dcell-${slot}`);
+      if (!cell) return;
+      cell.classList.remove('flash-fail'); void cell.offsetWidth; cell.classList.add('flash-fail');
+      setTimeout(() => cell.classList.remove('flash-fail'), 500);
+    }
+
+    // ── Game Start ────────────────────────────────────────────────────────────
+    async function startGame() {
+      setStatus('waiting');
+      try {
+        const data = await api('POST', '/v1/game/game-start');
+        handleGameStartResponse(data);
+      } catch (err) {
+        log('err', 'game-start failed', { msg: err.message });
+        setStatus('');
+      }
+    }
+
+    // ── Round panel ───────────────────────────────────────────────────────────
+    function initRoundPanel(totalRounds) {
+      const list = $('round-list');
+      list.innerHTML = '';
+      for (let i = 1; i <= totalRounds; i++) {
+        const row = document.createElement('div');
+        row.className = 'round-row';
+        row.id = `rrow-${i}`;
+        row.innerHTML = `<span class="rn">Round ${i}</span><span class="rs" id="rscore-${i}"></span>`;
+        list.appendChild(row);
+      }
+    }
+
+    function setRoundActive(roundNumber) {
+      document.querySelectorAll('.round-row').forEach(r => r.classList.remove('active'));
+      const row = $(`rrow-${roundNumber}`);
+      if (row) {
+        row.classList.add('active');
+        const scoreEl = $(`rscore-${roundNumber}`);
+        if (scoreEl) scoreEl.innerHTML = `<span class="rs-loading">…</span>`;
+      }
+    }
+
+    function setRoundDone(roundNumber, score) {
+      const row = $(`rrow-${roundNumber}`);
+      if (!row) return;
+      row.classList.remove('active'); row.classList.add('done');
+      const scoreEl = $(`rscore-${roundNumber}`);
+      if (scoreEl) scoreEl.textContent = score != null ? score : '—';
+    }
+
+    function syncAutoplayButtons() {
+      const buttonsDisabled = !boardState || !!boardState.isMemorizing;
+      $('btn-autoplay').disabled = buttonsDisabled;
+      $('btn-autoplay-random').disabled = buttonsDisabled;
+    }
+
+    function fillRoundScores(rounds) {
+      (rounds ?? []).forEach(r => {
+        const el = $(`rscore-${r.roundNumber}`);
+        if (el && r.score != null) el.textContent = r.score;
+      });
+    }
+
+    function handleGameStartResponse(data) {
+      if (data.status === 4) {
+        log('info', 'result processing — check back shortly', null);
+        setStatus('waiting');
+        $('empty-msg').textContent = 'Game result is being processed…';
+        $('empty-msg').style.display = '';
+        return;
+      }
+      if (data.status === 2 || data.status === 3 || data.status === 5) {
+        showScoreboard(data);
+        return;
+      }
+      expiryAtMs = new Date(data.expiryAt).getTime();
+      startTimer();
+      setStatus('playing');
+      $('autoplay-row').style.display = '';
+      $('prefetch-threshold').disabled = true;
+      initRoundPanel(data.totalRounds);
+      loadBoard(data.board, data.totalRounds);
+      $('empty-msg').style.display = 'none';
+    }
+
+    // ── Board loading ─────────────────────────────────────────────────────────
+    function loadBoard(board, totalRounds) {
+      const { sessionBoardId, id, roundNumber, gridSize, fullImageUrl, displayTime, pieces } = board;
+      const resolvedImageUrl = resolveImageUrl(fullImageUrl);
+      boardState = {
+        sessionBoardId, boardId: id, roundNumber,
+        totalRounds: totalRounds ?? boardState?.totalRounds ?? 1,
+        gridX: gridSize.x, gridY: gridSize.y,
+        fullImageUrl: resolvedImageUrl, displayTime,
+        pieces: [...pieces],
+        isMemorizing: displayTime > 0,
+      };
+
+      $('round-info').textContent = `Round ${roundNumber} / ${boardState.totalRounds}`;
+      updateBoardInfo();
+      setRoundActive(roundNumber);
+
+      // Render the grid first (hidden behind display-time overlay)
+      renderBoard();
+
+      // Reset per-board state
+      sentMoves         = [];
+      autoplayPlan      = [];
+      nextBoardCache    = null;
+      nextBoardFetching = false;
+      syncAutoplayButtons();
+      startMoveFlush();
+      tryPrefetchNextBoard();
+
+      // Show full image for displayTime seconds, then reveal puzzle
+      if (displayTime > 0) {
+        startDisplayTime(resolvedImageUrl, gridSize.x, gridSize.y, displayTime, () => {
+          if ((autoplaying || autoplayRandom) && !isSolvedClient(boardState.pieces)) scheduleAutoMove();
+          if (isSolvedClient(boardState.pieces)) setTimeout(onBoardCleared, 0);
+        });
+      } else {
+        if ((autoplaying || autoplayRandom) && !isSolvedClient(boardState.pieces)) scheduleAutoMove();
+        if (isSolvedClient(boardState.pieces)) setTimeout(onBoardCleared, 0);
+      }
+    }
+
+    function updateBoardInfo() {
+      if (!boardState) return;
+      const correct = countCorrectClient(boardState.pieces);
+      const total   = boardState.pieces.length;
+      $('board-info').textContent =
+        `Board: ${boardState.boardId}  |  Grid: ${boardState.gridX}×${boardState.gridY}  |  ${correct}/${total} correct`;
+    }
+
+    function startDisplayTime(imageUrl, gx, gy, seconds, onDone) {
+      const overlay = $('display-time-overlay');
+      const bg = $('dt-bg');
+      const bar = $('dt-bar');
+      const label = $('dt-label');
+
+      renderSolvedPreviewGrid(bg, imageUrl, gx, gy);
+      bar.style.transition = '';
+      bar.style.width = '100%';
+      overlay.classList.add('show');
+      label.textContent = `Memorize!  ${seconds}s`;
+
+      requestAnimationFrame(() => {
+        bar.style.transition = `width ${seconds}s linear`;
+        bar.style.width = '0%';
+      });
+
+      let remaining = seconds;
+      const timer = setInterval(() => {
+        remaining--;
+        if (remaining <= 0) {
+          clearInterval(timer);
+          overlay.classList.remove('show');
+          bar.style.transition = '';
+          if (boardState) {
+            boardState.isMemorizing = false;
+            syncAutoplayButtons();
+          }
+          onDone();
+        } else {
+          label.textContent = `Memorize!  ${remaining}s`;
+        }
+      }, 1000);
+    }
+
+    // ── Render ────────────────────────────────────────────────────────────────
+    function renderBoard() {
+      const { gridX, gridY, pieces, fullImageUrl } = boardState;
+      const grid = $('grid');
+      grid.style.gridTemplateColumns = `repeat(${gridX}, ${TILE_SIZE}px)`;
+      grid.innerHTML = '';
+
+      for (let slot = 0; slot < gridX * gridY; slot++) {
+        const cell = document.createElement('div');
+        cell.id = `cell-${slot}`;
+        cell.dataset.slot = slot;
+        const piece = pieces[slot];
+        if (piece === -1) {
+          cell.className = 'cell blank';
+          cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px`;
+        } else {
+          cell.className = 'cell tile';
+          cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px;` + tileBgStyle(piece, gridX, gridY, fullImageUrl);
+          cell.addEventListener('click', onCellClick);
+        }
+        grid.appendChild(cell);
+      }
+    }
+
+    function renderCell(slot) {
+      const cell = $(`cell-${slot}`);
+      if (!cell || !boardState) return;
+      const { pieces, gridX, gridY, fullImageUrl } = boardState;
+      const piece = pieces[slot];
+      cell.removeEventListener('click', onCellClick);
+      if (piece === -1) {
+        cell.className = 'cell blank';
+        cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px`;
+      } else {
+        cell.className = 'cell tile';
+        cell.style.cssText = `width:${TILE_SIZE}px;height:${TILE_SIZE}px;` + tileBgStyle(piece, gridX, gridY, fullImageUrl);
+        cell.addEventListener('click', onCellClick);
+      }
+    }
+
+    // ── Cell Click ────────────────────────────────────────────────────────────
+    function onCellClick(e) {
+      if (!boardState) return;
+      const slot = +e.currentTarget.dataset.slot;
+      const { pieces, gridX } = boardState;
+      if (pieces[slot] === -1) return; // tapped blank
+      const blankSlot = pieces.indexOf(-1);
+      if (!isAdjacent(slot, blankSlot, gridX)) {
+        flashCellFail(slot);
+        return;
+      }
+      // Swap locally
+      [pieces[slot], pieces[blankSlot]] = [pieces[blankSlot], pieces[slot]];
+      renderCell(slot);
+      renderCell(blankSlot);
+      updateBoardInfo();
+
+      pendingMoves.push({ slot, clickedAt: new Date().toISOString(), moveId: crypto.randomUUID() });
+      tryPrefetchNextBoard();
+      if (isSolvedClient(pieces)) onBoardCleared();
+    }
+
+    function flashCellFail(slot) {
+      const cell = $(`cell-${slot}`);
+      if (!cell) return;
+      cell.classList.remove('flash-fail'); void cell.offsetWidth; cell.classList.add('flash-fail');
+      setTimeout(() => cell.classList.remove('flash-fail'), 500);
+    }
+
+    // ── Board cleared ─────────────────────────────────────────────────────────
+    async function onBoardCleared() {
+      if (boardState.isClearing) return;
+      boardState.isClearing = true;
+      stopMoveFlush();
+
+      log('info', 'onBoardCleared', { pending: pendingMoves.length, inFlight: !!flushInFlight });
+
+      if (endBoardPromise) await endBoardPromise;
+      while (flushInFlight) await flushInFlight;
+
+      const isLastBoard = boardState && boardState.roundNumber >= boardState.totalRounds;
+
+      if (inBufferWindow()) {
+        const roundNumber = boardState.roundNumber;
+        const heldMoves   = pendingMoves.splice(0);
+        bufferedRounds.push({ roundNumber, moves: heldMoves });
+        syncReleaseBtn();
+        log('warn', `buffer-last: holding round ${roundNumber} moves (${heldMoves.length})`);
+        if (isLastBoard) {
+          bufferedEndBoard = true;
+          syncReleaseBtn();
+          log('warn', 'buffer-last: last round buffered — waiting for timeout');
+          return;
+        }
+        const cachedNext = nextBoardCache;
+        if (cachedNext) {
+          loadBoard(cachedNext, boardState?.totalRounds);
+          nextBoardCache = null; nextBoardFetching = false;
+          startMoveFlush();
+        } else {
+          log('warn', `buffer-last: no next-board cache — waiting for release`);
+          bufferedEndBoard = true;
+          syncReleaseBtn();
+        }
+        return;
+      }
+
+      if (pendingMoves.length > 0) await flushMoves(true);
+
+      const cachedNext    = nextBoardCache;
+      const canTransitNow = cachedNext && !isLastBoard;
+
+      if (canTransitNow) {
+        const finishedRound = boardState.roundNumber;
+        endBoardPromise = (async () => {
+          try {
+            if (prefetchPromise) await prefetchPromise;
+            const data = await api('POST', '/v1/game/end-board');
+            setRoundDone(finishedRound, data.roundScore);
+          } catch (err) {
+            log('err', 'end-board (bg) failed', { msg: err.message });
+          } finally {
+            endBoardPromise = null;
+          }
+        })();
+        loadBoard(cachedNext, boardState?.totalRounds);
+        return;
+      }
+
+      const finishedRound = boardState.roundNumber;
+
+      if (isLastBoard && isHoldLastEndboard()) {
+        log('warn', 'expiry-test: holding last end-board — waiting for timer to expire');
+        stopMoveFlush();
+        return;
+      }
+
+      if (isLastBoard && isBufferLast()) {
+        bufferedEndBoard = true;
+        syncReleaseBtn();
+        log('warn', `buffer-last: holding end-board for last round`);
+        return;
+      }
+
+      const loadingMsg = isLastBoard ? 'Calculating result…' : 'Loading next round…';
+      $('loading-overlay').querySelector('.ov-sub').textContent = loadingMsg;
+      $('loading-overlay').classList.add('show');
+      try {
+        if (!isLastBoard) {
+          if (prefetchPromise) {
+            await prefetchPromise;
+          } else if (!nextBoardCache) {
+            try {
+              nextBoardCache = await api('GET', '/v1/game/next-board');
+              log('info', 'next board fetched (blocking)', { roundNumber: nextBoardCache?.roundNumber });
+            } catch (err) {
+              if (err.status !== 400) log('err', 'next-board (blocking) failed', { msg: err.message });
+            }
+          }
+        }
+
+        const data = await api('POST', '/v1/game/end-board');
+        setRoundDone(finishedRound, data.roundScore);
+        $('loading-overlay').classList.remove('show');
+
+        if (data.gameOver) {
+          const result = await api('GET', '/v1/game/status');
+          fillRoundScores(result.scoreboard?.rounds ?? []);
+          showScoreboard(result);
+        } else {
+          const next = nextBoardCache;
+          nextBoardCache = null;
+          if (next) {
+            loadBoard(next, boardState?.totalRounds);
+          } else {
+            const resume = await api('POST', '/v1/game/game-start');
+            if (resume.board) loadBoard(resume.board, resume.totalRounds);
+          }
+        }
+      } catch (err) {
+        $('loading-overlay').classList.remove('show');
+        log('err', 'end-board failed', { msg: err.message });
+      }
+    }
+
+    // ── Next-board pre-fetch ──────────────────────────────────────────────────
+    async function tryPrefetchNextBoard() {
+      if (nextBoardCache || nextBoardFetching || !boardState) return;
+      if (inBufferWindow()) return;
+      if (bufferedRounds.length > 0) return;
+      const { pieces, roundNumber, totalRounds } = boardState;
+      if (roundNumber >= totalRounds) return;
+      const threshold = getPrefetchThreshold();
+      const correct   = countCorrectClient(pieces);
+      const pct       = pieces.length === 0 ? 1 : correct / pieces.length;
+      if (pct < threshold) return;
+
+      nextBoardFetching = true;
+      prefetchPromise = (async () => {
+        try {
+          if (endBoardPromise) await endBoardPromise;
+          await flushMoves();
+          nextBoardCache = await api('GET', '/v1/game/next-board');
+          if (nextBoardCache && boardState && nextBoardCache.roundNumber <= boardState.roundNumber) {
+            log('warn', `next-board stale (got ${nextBoardCache.roundNumber}, on ${boardState.roundNumber}) — retrying`);
+            nextBoardCache = null;
+            await new Promise(r => setTimeout(r, 300));
+            if (endBoardPromise) await endBoardPromise;
+            nextBoardCache = await api('GET', '/v1/game/next-board');
+          }
+          log('info', 'next board pre-fetched', { roundNumber: nextBoardCache?.roundNumber });
+          if (bufferedEndBoard && bufferedRounds.length > 0 && nextBoardCache) {
+            const board = nextBoardCache;
+            nextBoardCache = null;
+            bufferedEndBoard = false;
+            syncReleaseBtn();
+            log('warn', `buffer-last: late prefetch resolved — advancing to round ${board.roundNumber}`);
+            loadBoard(board, boardState?.totalRounds);
+            startMoveFlush();
+          }
+        } catch (err) {
+          if (err.status !== 400) log('err', 'next-board prefetch', { msg: err.message });
+        } finally {
+          nextBoardFetching = false;
+          prefetchPromise = null;
+        }
+      })();
+      await prefetchPromise;
+    }
+
+    // ── Move flushing ─────────────────────────────────────────────────────────
+    function startMoveFlush() {
+      stopMoveFlush();
+      flushTimer = setInterval(flushMoves, FLUSH_INTERVAL_MS);
+    }
+
+    function stopMoveFlush() {
+      clearInterval(flushTimer);
+      flushTimer = null;
+    }
+
+    async function flushMoves(isTransition = false) {
+      if (flushInFlight) await flushInFlight;
+      if (endBoardPromise && !isTransition) await endBoardPromise;
+      if (!pendingMoves.length) return;
+      if (inBufferWindow()) {
+        log('warn', `buffer-last: ≤20s left, holding ${pendingMoves.length} move(s)`);
+        return;
+      }
+      const batch = pendingMoves.splice(0);
+      const payload = isDupeMoveTest() ? [...sentMoves, ...batch] : batch;
+      flushInFlight = (async () => {
+        try {
+          const res = await api('POST', '/v1/game/submit-moves', { moves: payload });
+          sentMoves.push(...batch);
+          if (isDupeMoveTest()) log('warn', `dupe-test: sent ${payload.length} moves (incl. ${sentMoves.length - batch.length} dupes), accepted=${res.accepted}`);
+          else if (res.accepted < batch.length) log('warn', 'some moves rejected', { sent: batch.length, accepted: res.accepted });
+        } catch (err) {
+          pendingMoves.unshift(...batch);
+          log('err', 'submit-moves failed', { msg: err.message });
+        } finally {
+          flushInFlight = null;
+        }
+      })();
+      await flushInFlight;
+    }
+
+    // ── Scoreboard ────────────────────────────────────────────────────────────
+    function showScoreboard(d) {
+      setAutoplaying(false); setAutoplayingRandom(false);
+      $('autoplay-row').style.display = 'none';
+      $('prefetch-threshold').disabled = false;
+      stopTimer(); stopMoveFlush();
+      boardState = null;
+      syncAutoplayButtons();
+      setStatus('ended');
+      const sb = d.scoreboard ?? {};
+      fillRoundScores(sb.rounds ?? []);
+
+      const overlay = $('game-end-overlay');
+      const title   = $('game-end-title');
+      const content = $('game-end-content');
+
+      if (d.status === 2) {
+        overlay.className = 'overlay completed show';
+        title.textContent = '🎉 COMPLETED!';
+      } else if (d.status === 5) {
+        overlay.className = 'overlay timeout show';
+        title.textContent = 'FORFEITED';
+      } else {
+        overlay.className = 'overlay timeout show';
+        title.textContent = '⏱ TIME UP';
+      }
+
+      let rows = '';
+      (sb.rounds ?? []).forEach(r => {
+        rows += `<tr><td class="label">Round ${r.roundNumber}</td><td class="value">${r.score ?? '—'}</td></tr>`;
+      });
+      rows += `<tr><td class="label">Time Bonus</td><td class="value">${sb.timeBonus ?? 0}</td></tr>`;
+      rows += `<tr><td class="label">TOTAL SCORE</td><td class="value">${sb.totalScore ?? 0}</td></tr>`;
+      content.innerHTML = `<table class="breakdown">${rows}</table>`;
+    }
+
+    // ── Autoplay ──────────────────────────────────────────────────────────────
+    function flashAutoplayCell(slot) {
+      const cell = $(`cell-${slot}`);
+      if (!cell) return;
+      cell.classList.add('autoplay-flash');
+      setTimeout(() => cell.classList.remove('autoplay-flash'), 200);
+    }
+
+    function setAutoplaying(val) {
+      autoplaying = val;
+      const btn = $('btn-autoplay');
+      if (val) {
+        setAutoplayingRandom(false);
+        btn.textContent = 'Stop Autoplay';
+        btn.classList.add('stopping');
+        $('autoplay-interval').disabled = true;
+        $('autoplay-solver-timeout').disabled = true;
+      } else {
+        btn.textContent = 'Start Autoplay';
+        btn.classList.remove('stopping');
+        clearTimeout(autoplayTimer);
+        autoplayTimer = null;
+        if (activeWorker) { activeWorker.terminate(); activeWorker = null; }
+        solverRunning = false;
+        if (!autoplayRandom) {
+          $('autoplay-interval').disabled = false;
+          $('autoplay-solver-timeout').disabled = false;
+        }
+      }
+    }
+
+    function setAutoplayingRandom(val) {
+      autoplayRandom = val;
+      const btn = $('btn-autoplay-random');
+      if (val) {
+        setAutoplaying(false);
+        btn.textContent = 'Stop Random Autoplay';
+        btn.classList.add('stopping');
+        $('autoplay-interval').disabled = true;
+        $('autoplay-solver-timeout').disabled = true;
+      } else {
+        btn.textContent = 'Start Random Autoplay';
+        btn.classList.remove('stopping');
+        clearTimeout(autoplayTimer);
+        autoplayTimer = null;
+        if (!autoplaying) {
+          $('autoplay-interval').disabled = false;
+          $('autoplay-solver-timeout').disabled = false;
+        }
+      }
+    }
+
+    function scheduleAutoMove() {
+      clearTimeout(autoplayTimer);
+      autoplayTimer = setTimeout(autoplayRandom ? autoMoveRandom : autoMove, getAutoplayDelay());
+    }
+
+    function autoMove() {
+      if (!autoplaying || !boardState) return;
+      const { pieces, gridX, gridY } = boardState;
+      if (isSolvedClient(pieces)) return;
+
+      if (autoplayPlan.length > 0) {
+        const blankSlot = pieces.indexOf(-1);
+        let slot = autoplayPlan.shift();
+        if (!isAdjacent(slot, blankSlot, gridX) || pieces[slot] === -1) {
+          // plan is stale, replan
+          autoplayPlan = [];
+          if (!solverRunning) autoMove();
+          return;
+        }
+        flashAutoplayCell(slot);
+        const cell = $(`cell-${slot}`);
+        if (cell) cell.click();
+        if (autoplaying && boardState && !isSolvedClient(boardState.pieces)) scheduleAutoMove();
+        return;
+      }
+
+      if (solverRunning) return; // worker already thinking
+      solverRunning = true;
+
+      const worker = new Worker(solverWorkerBlobUrl);
+      activeWorker = worker;
+      worker.onmessage = (e) => {
+        solverRunning = false;
+        activeWorker = null;
+        worker.terminate();
+        const { plan } = e.data;
+        if (!autoplaying || !boardState) return;
+        if (plan && plan.length > 0) {
+          autoplayPlan = plan;
+          log('info', 'autoplay solver plan ready', { moves: plan.length });
+        } else {
+          log('err', 'autoplay solver failed', { grid: `${gridX}x${gridY}` });
+          setAutoplaying(false);
+          return;
+        }
+        scheduleAutoMove();
+      };
+      worker.onerror = (err) => {
+        solverRunning = false;
+        activeWorker = null;
+        worker.terminate();
+        log('err', 'solver worker error', { msg: err.message });
+        setAutoplaying(false);
+      };
+      worker.postMessage({ pieces: [...pieces], gridX, gridY, timeLimitMs: getAutoplaySolverTimeout() });
+    }
+
+    // Random autoplay: pick a random tile adjacent to the blank.
+    function autoMoveRandom() {
+      if (!autoplayRandom || !boardState) return;
+      const { pieces, gridX } = boardState;
+      if (isSolvedClient(pieces)) return;
+
+      const blankSlot = pieces.indexOf(-1);
+      const adjacent  = getAdjacentToBlank(blankSlot, gridX, pieces.length);
+      if (adjacent.length === 0) return;
+
+      const slot = adjacent[Math.floor(Math.random() * adjacent.length)];
+      flashAutoplayCell(slot);
+      const cell = $(`cell-${slot}`);
+      if (cell) cell.click();
+
+      if (autoplayRandom && boardState && !isSolvedClient(boardState.pieces)) scheduleAutoMove();
+    }
+
+    $('btn-autoplay').addEventListener('click', () => {
+      if (!authToken) { alert('Get a token first'); return; }
+      if (!autoplaying) {
+        setAutoplaying(true);
+        if (boardState && !isSolvedClient(boardState.pieces)) scheduleAutoMove();
+        else if (!boardState) {
+          slidingPuzzleBase = $('url-input').value.trim().replace(/\/$/, '');
+          hideOverlays(); clearBoard(); runDemo();
+        }
+      } else {
+        setAutoplaying(false); setAutoplayingRandom(false);
+      }
+    });
+
+    $('btn-autoplay-random').addEventListener('click', () => {
+      if (!authToken) { alert('Get a token first'); return; }
+      if (!autoplayRandom) {
+        setAutoplayingRandom(true);
+        if (boardState && !isSolvedClient(boardState.pieces)) scheduleAutoMove();
+        else if (!boardState) {
+          slidingPuzzleBase = $('url-input').value.trim().replace(/\/$/, '');
+          hideOverlays(); clearBoard(); runDemo();
+        }
+      } else {
+        setAutoplayingRandom(false);
+      }
+    });
+
+    // ── Timer ─────────────────────────────────────────────────────────────────
+    function startTimer() {
+      stopTimer();
+      updateTimerDisplay();
+      timerInterval = setInterval(() => {
+        updateTimerDisplay();
+        if (expiryAtMs && Date.now() >= expiryAtMs) {
+          stopTimer();
+          log('info', 'timer expired', null);
+          if (boardState) startExpiryPoll();
+        }
+      }, 250);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+
+    function startExpiryPoll() {
+      if (expiryPollInterval) return;
+      const STATUS_LABELS  = { 1:'STARTED', 2:'ENDED', 3:'EXPIRED', 4:'RESULT_PROCESSING', 5:'MANUALLY_ENDED' };
+      const STATUS_CLASSES = { 1:'', 2:'ended', 3:'expired', 4:'result-processing', 5:'expired' };
+      let lastStatus = null;
+
+      const overlay  = $('expiry-poll-overlay');
+      const spinner  = $('poll-spinner');
+      const statusEl = $('poll-status-label');
+      const subEl    = $('poll-sub');
+      const elapsedEl = $('poll-elapsed');
+
+      overlay.classList.add('show');
+      statusEl.className = 'poll-status';
+      statusEl.textContent = 'Waiting…';
+      subEl.textContent = 'Polling status every 2s';
+      elapsedEl.textContent = '0s';
+
+      const pollStart = Date.now();
+      const elapsedTimer = setInterval(() => {
+        elapsedEl.textContent = `${Math.floor((Date.now() - pollStart) / 1000)}s`;
+      }, 1000);
+
+      log('warn', 'expiry-test: starting status poll (2s interval)');
+
+      expiryPollInterval = setInterval(async () => {
+        try {
+          const data  = await api('GET', '/v1/game/status');
+          const label = STATUS_LABELS[data.status] ?? `STATUS_${data.status}`;
+          const cls   = STATUS_CLASSES[data.status] ?? '';
+          if (data.status !== lastStatus) {
+            log('warn', `expiry-test: status → ${label}`, { status: data.status, totalScore: data.scoreboard?.totalScore });
+            lastStatus = data.status;
+            statusEl.className = `poll-status ${cls}`;
+            statusEl.textContent = label;
+            subEl.textContent = `score: ${data.scoreboard?.totalScore ?? '—'}`;
+          }
+          if (data.status === 2 || data.status === 3) {
+            clearInterval(expiryPollInterval); clearInterval(elapsedTimer);
+            expiryPollInterval = null;
+            spinner.style.display = 'none';
+            subEl.textContent = 'Session settled — showing scoreboard…';
+            log('warn', `expiry-test: session settled as ${label} — poll stopped`);
+            setTimeout(() => { overlay.classList.remove('show'); showScoreboard(data); }, 1200);
+          }
+        } catch (err) {
+          log('err', 'expiry-test: status poll failed', { msg: err.message });
+        }
+      }, 2000);
+    }
+
+    function updateTimerDisplay() {
+      if (!expiryAtMs) return;
+      const msLeft = Math.max(0, expiryAtMs - Date.now());
+      const s = Math.ceil(msLeft / 1000);
+      const m = Math.floor(s / 60).toString().padStart(2, '0');
+      const sec = (s % 60).toString().padStart(2, '0');
+      $('timer-display').textContent = `⏱ ${m}:${sec}`;
+      $('timer-display').style.color = s <= 15 ? '#f85149' : '#e3b341';
+    }
+
+    // ── Buffer release ────────────────────────────────────────────────────────
+    function syncReleaseBtn() {
+      $('btn-release-buffer').style.display = (bufferedRounds.length > 0 || bufferedEndBoard) ? '' : 'none';
+    }
+    $('chk-buffer-last').addEventListener('change', syncReleaseBtn);
+
+    $('btn-release-buffer').addEventListener('click', async () => {
+      if (bufferedRounds.length === 0 && !bufferedEndBoard) return;
+      const rounds = bufferedRounds.splice(0);
+      bufferedEndBoard = false;
+      syncReleaseBtn();
+      log('warn', `buffer-last: releasing ${rounds.length} buffered round(s) + current moves`);
+
+      for (const { roundNumber, moves } of rounds) {
+        if (moves.length > 0) {
+          try {
+            const res = await api('POST', '/v1/game/submit-moves', { moves });
+            log('info', `buffer-last: round ${roundNumber} submit-moves accepted=${res.accepted}`);
+          } catch (err) {
+            log('err', `buffer-last: round ${roundNumber} submit-moves failed`, { msg: err.message });
+          }
+        }
+        try {
+          const data = await api('POST', '/v1/game/end-board');
+          log('info', `buffer-last: round ${roundNumber} end-board roundScore=${data.roundScore} gameOver=${data.gameOver}`);
+          if (data.gameOver) {
+            const result = await api('GET', '/v1/game/status');
+            showScoreboard(result);
+            return;
+          }
+        } catch (err) {
+          log('err', `buffer-last: round ${roundNumber} end-board failed`, { msg: err.message });
+        }
+      }
+
+      if (pendingMoves.length > 0) {
+        try {
+          const batch = pendingMoves.splice(0);
+          const res = await api('POST', '/v1/game/submit-moves', { moves: batch });
+          log('info', `buffer-last: final round submit-moves accepted=${res.accepted}`);
+        } catch (err) {
+          log('err', 'buffer-last: final round submit-moves failed', { msg: err.message });
+        }
+      }
+
+      try {
+        const data = await api('POST', '/v1/game/end-game');
+        log('info', `buffer-last: end-game status=${data.status} totalScore=${data.totalScore}`);
+        const result = await api('GET', '/v1/game/status');
+        showScoreboard(result);
+      } catch (err) {
+        log('err', 'buffer-last: end-game failed', { msg: err.message });
+      }
+
+      syncReleaseBtn();
+    });
+
+    // ── UI helpers ────────────────────────────────────────────────────────────
+    function setStatus(state) {
+      $('status-dot').className = state ? state : '';
+    }
+
+    function clearBoard() {
+      $('grid').innerHTML = '';
+      $('board-info').textContent = '';
+      $('round-info').textContent = '';
+      $('round-list').innerHTML = '';
+      $('empty-msg').textContent = 'Get a token and start a game';
+      $('empty-msg').style.display = '';
+      $('timer-display').textContent = '';
+      $('display-time-overlay').classList.remove('show');
+      stopTimer(); stopMoveFlush(); setAutoplaying(false); setAutoplayingRandom(false);
+      if (activeWorker) { activeWorker.terminate(); activeWorker = null; }
+      solverRunning = false;
+      boardState = null; pendingMoves = []; sentMoves = [];
+      syncAutoplayButtons();
+      autoplayPlan = [];
+      bufferedRounds = []; bufferedEndBoard = false;
+      if (expiryPollInterval) { clearInterval(expiryPollInterval); expiryPollInterval = null; }
+      $('expiry-poll-overlay').classList.remove('show');
+      $('poll-spinner').style.display = '';
+      nextBoardCache = null; prefetchPromise = null; endBoardPromise = null; flushInFlight = null;
+      syncReleaseBtn();
+      hideOverlays();
+    }
+
+    function hideOverlays() {
+      $('loading-overlay').classList.remove('show');
+      $('game-end-overlay').classList.remove('show');
+    }
+
+    // ── Log controls ──────────────────────────────────────────────────────────
+    $('btn-clear-log').addEventListener('click', () => { $('log').innerHTML = ''; });
+    $('btn-compact-log').addEventListener('click', () => {
+      const lines = [...$('log').querySelectorAll('.log-entry')].map(el => {
+        const lt   = el.querySelector('.lt')?.textContent ?? '';
+        const ev   = el.querySelector('.ev')?.textContent ?? '';
+        const body = el.classList.contains('info') ? (el.querySelector('.body')?.textContent ?? '').trim() : '';
+        return (`${lt} ${ev}` + (body ? `  ${body}` : '')).trim();
+      }).join('\n');
+      navigator.clipboard.writeText(lines).then(() => {
+        const btn = $('btn-compact-log');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Compact'; }, 1500);
+      }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = lines;
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      });
+    });
+    $('btn-export-log').addEventListener('click', () => {
+      const entries = [...$('log').querySelectorAll('.log-entry')].map(el => el.textContent).join('\n');
+      navigator.clipboard.writeText(entries).then(() => {
+        const btn = $('btn-export-log');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = entries;
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      });
+    });
+  </script>
+</body>
+
+</html>

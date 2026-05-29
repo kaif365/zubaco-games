@@ -1,0 +1,447 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// ─── Level ───────────────────────────────────────────────────────────────────
+
+model Level {
+  id        String    @id @default(uuid())
+
+  name      String
+  isDemo    Boolean   @default(false) @map("is_demo")
+
+  boards                Board[]
+  stageLevelConfigs     StageLevelConfig[]
+  stageDemoLevelConfigs StageDemoLevelConfig[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("levels")
+  @@index([deletedAt])
+}
+
+// ─── Board ───────────────────────────────────────────────────────────────────
+
+model Board {
+  id        String    @id @default(uuid())
+
+  levelId   String    @map("level_id")
+  level     Level     @relation(fields: [levelId], references: [id])
+
+  name      String?
+  gridX     Int       @map("grid_x")
+  gridY     Int       @map("grid_y")
+
+  cells            BoardCell[]
+  blocks           BoardBlock[]
+  availableBlocks  BoardAvailableBlock[]
+  sessionBoards    GameSessionBoard[]
+  demoBoards       UserStageDemoBoard[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("boards")
+  @@index([levelId, deletedAt])
+}
+
+// ─── BoardCell ───────────────────────────────────────────────────────────────
+// Immutable grid cells: emitters, receivers, walls, empty spaces.
+
+model BoardCell {
+  id          String    @id @default(uuid())
+
+  boardId     String    @map("board_id")
+  board       Board     @relation(fields: [boardId], references: [id])
+
+  row         Int
+  col         Int
+  cellType    Int       @map("cell_type")    // 1=emitter 2=target 3=blocker 4=reflect-block 5=mirror-fwd 6=mirror-bwd 7=splitter
+  direction   String?                        // emitter firing direction: N S E W NE NW SE SW
+  orientation Int       @default(0)
+  x           Float     @default(0)          // visual x position within grid (fractional)
+  y           Float     @default(0)          // visual y position within grid (fractional)
+  sortOrder   Int       @map("sort_order")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt      @map("updated_at")
+  deletedAt   DateTime?                 @map("deleted_at")
+
+  @@map("board_cells")
+  @@index([boardId, deletedAt])
+}
+
+// ─── BoardBlock ───────────────────────────────────────────────────────────────
+// Optionally pre-placed (fixed) blocks on the board.
+
+model BoardBlock {
+  id          String    @id @default(uuid())
+
+  boardId     String    @map("board_id")
+  board       Board     @relation(fields: [boardId], references: [id])
+
+  row         Int
+  col         Int
+  blockType   Int       @map("block_type")   // 1=reflect-block 2=mirror-fwd 3=mirror-bwd 4=splitter 5=blocker
+  orientation Int       @default(0)
+  isFixed     Boolean   @default(false) @map("is_fixed")
+  sortOrder   Int       @map("sort_order")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt      @map("updated_at")
+  deletedAt   DateTime?                 @map("deleted_at")
+
+  @@map("board_blocks")
+  @@index([boardId, deletedAt])
+}
+
+// ─── BoardAvailableBlock ──────────────────────────────────────────────────────
+// Defines how many of each block type the player has in their inventory.
+
+model BoardAvailableBlock {
+  id        String  @id @default(uuid())
+
+  boardId   String  @map("board_id")
+  board     Board   @relation(fields: [boardId], references: [id])
+
+  blockType Int @map("block_type")
+  count     Int
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("board_available_blocks")
+  @@index([boardId])
+}
+
+// ─── GameSession ─────────────────────────────────────────────────────────────
+
+model GameSession {
+  id        String    @id @default(uuid())
+
+  userId    String    @map("user_id")
+  stageId   String    @map("stage_id")
+  expiryAt  DateTime  @map("expiry_at")
+
+  status    Int       @default(1) @map("status")  // 1=STARTED 2=ENDED 3=EXPIRED 4=RESULT_PROCESSING 5=MANUALLY_ENDED
+  score     Int?
+  timeBonus Int?      @map("time_bonus")
+
+  startedAt DateTime  @default(now()) @map("started_at")
+  endedAt   DateTime?                 @map("ended_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  stageConfigSnapshot   GameSessionStageConfig?
+  sessionBoards         GameSessionBoard[]
+  sessionBlocks         GameSessionBlock[]
+  moves                 GameMove[]
+  cheatFlags            CheatFlag[]
+
+  @@map("game_sessions")
+  @@index([userId])
+  @@index([status])
+  @@unique([userId, stageId])
+  @@index([userId, stageId, status, deletedAt])
+}
+
+// ─── GameSessionStageConfig ───────────────────────────────────────────────────
+
+model GameSessionStageConfig {
+  id          String      @id @default(uuid())
+
+  sessionId   String      @unique @map("session_id")
+  session     GameSession @relation(fields: [sessionId], references: [id])
+
+  stageId     String      @map("stage_id")
+  timeLimit   Int         @map("time_limit")
+
+  levelConfigs  GameSessionStageLevelConfig[]
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("game_session_stage_configs")
+}
+
+// ─── GameSessionStageLevelConfig ──────────────────────────────────────────────
+
+model GameSessionStageLevelConfig {
+  id                    String                  @id @default(uuid())
+
+  sessionStageConfigId  String                  @map("session_stage_config_id")
+  sessionStageConfig    GameSessionStageConfig  @relation(fields: [sessionStageConfigId], references: [id])
+
+  levelId     String  @map("level_id")
+  levelName   String  @map("level_name")
+  boardCount  Int     @map("board_count")
+  order       Int     @map("order")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("game_session_stage_level_configs")
+  @@index([sessionStageConfigId])
+}
+
+// ─── GameSessionBoard ─────────────────────────────────────────────────────────
+
+model GameSessionBoard {
+  id          String   @id @default(uuid())
+
+  sessionId   String   @map("session_id")
+  session     GameSession @relation(fields: [sessionId], references: [id])
+
+  roundNumber Int      @map("round_number")
+
+  boardId     String   @map("board_id")
+  board       Board    @relation(fields: [boardId], references: [id])
+  levelId     String   @map("level_id")
+  gridX       Int      @map("grid_x")
+  gridY       Int      @map("grid_y")
+
+  isActive    Boolean   @default(false) @map("is_active")
+  score       Int?      @map("score")
+
+  startedAt   DateTime  @default(now()) @map("started_at")
+  endedAt     DateTime?                 @map("ended_at")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt      @map("updated_at")
+  deletedAt   DateTime?                 @map("deleted_at")
+
+  sessionBlocks GameSessionBlock[]
+  cheatFlags    CheatFlag[]
+
+  @@map("game_session_boards")
+  @@unique([sessionId, roundNumber])
+  @@index([sessionId])
+}
+
+// ─── GameSessionBlock ─────────────────────────────────────────────────────────
+// One row per block placement per round — snapshot of placed/fixed blocks.
+
+model GameSessionBlock {
+  id              String    @id @default(uuid())
+
+  sessionId       String    @map("session_id")
+  session         GameSession @relation(fields: [sessionId], references: [id])
+
+  sessionBoardId  String    @map("session_board_id")
+  sessionBoard    GameSessionBoard @relation(fields: [sessionBoardId], references: [id])
+
+  blockId         String?   @map("block_id")   // null for player-placed blocks
+
+  row         Int
+  col         Int
+  blockType   Int       @map("block_type")
+  isFixed     Boolean   @default(false) @map("is_fixed")
+
+  placedAt    DateTime  @map("placed_at")
+  removedAt   DateTime? @map("removed_at")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt      @map("updated_at")
+  deletedAt   DateTime?                 @map("deleted_at")
+
+  moves       GameMove[]
+
+  @@map("game_session_blocks")
+  @@index([sessionId])
+  @@index([sessionBoardId])
+}
+
+// ─── StageConfig ──────────────────────────────────────────────────────────────
+
+model StageConfig {
+  id        String    @id @default(uuid())
+
+  stageId     String    @map("stage_id")
+  timeLimit   Int       @map("time_limit")
+  enableDemo  Boolean   @default(false) @map("enable_demo")
+  isEnabled   Boolean   @default(true)  @map("is_enabled")
+
+  levels      StageLevelConfig[]
+  demoLevels  StageDemoLevelConfig[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("stage_configs")
+  @@index([deletedAt])
+  @@index([stageId])
+}
+
+// ─── StageLevelConfig ─────────────────────────────────────────────────────────
+
+model StageLevelConfig {
+  id            String      @id @default(uuid())
+
+  stageConfigId String      @map("stage_config_id")
+  stageConfig   StageConfig @relation(fields: [stageConfigId], references: [id])
+
+  levelId       String      @map("level_id")
+  level         Level       @relation(fields: [levelId], references: [id])
+
+  boardCount    Int         @map("board_count")
+  order         Int         @map("order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("stage_level_configs")
+  @@index([levelId])
+}
+
+// ─── StageDemoLevelConfig ─────────────────────────────────────────────────────
+
+model StageDemoLevelConfig {
+  id            String      @id @default(uuid())
+
+  stageConfigId String      @map("stage_config_id")
+  stageConfig   StageConfig @relation(fields: [stageConfigId], references: [id])
+
+  levelId       String      @map("level_id")
+  level         Level       @relation(fields: [levelId], references: [id])
+
+  boardCount    Int         @map("board_count")
+  order         Int         @map("order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+
+  @@map("stage_demo_level_configs")
+  @@index([levelId])
+}
+
+// ─── GameMove ─────────────────────────────────────────────────────────────────
+
+model GameMove {
+  id                  String    @id @default(uuid())
+
+  sessionId           String    @map("session_id")
+  session             GameSession @relation(fields: [sessionId], references: [id])
+
+  sessionBlockId      String?   @map("session_block_id")
+  sessionBlock        GameSessionBlock? @relation(fields: [sessionBlockId], references: [id])
+
+  clientMoveId        String    @map("client_move_id")
+
+  row         Int
+  col         Int
+  blockType   Int?    @map("block_type")   // null when removing
+  action      String                        // 'place' | 'remove'
+  success     Boolean
+
+  placedAt    DateTime  @default(now()) @map("placed_at")
+
+  @@unique([sessionId, clientMoveId])
+  @@map("game_moves")
+  @@index([sessionId, placedAt])
+}
+
+// ─── CheatFlag ───────────────────────────────────────────────────────────────
+
+model CheatFlag {
+  id             String    @id @default(uuid())
+
+  userId         String    @map("user_id")
+  sessionId      String    @map("session_id")
+  session        GameSession      @relation(fields: [sessionId], references: [id])
+  sessionBoardId String    @map("session_board_id")
+  sessionBoard   GameSessionBoard @relation(fields: [sessionBoardId], references: [id])
+
+  flagType       Int  @map("flag_type")
+  evidence       Json
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt      @map("updated_at")
+  deletedAt      DateTime?                 @map("deleted_at")
+
+  @@map("cheat_flags")
+  @@index([userId])
+  @@index([sessionId])
+  @@index([sessionBoardId])
+}
+
+// ─── UserStageDemoBoard ───────────────────────────────────────────────────────
+
+model UserStageDemoBoard {
+  id        String  @id @default(uuid())
+
+  userId    String  @map("user_id")
+  stageId   String  @map("stage_id")
+  levelId   String  @map("level_id")
+
+  boardId   String  @map("board_id")
+  board     Board   @relation(fields: [boardId], references: [id])
+
+  gridX     Int     @map("grid_x")
+  gridY     Int     @map("grid_y")
+  sortOrder Int     @map("sort_order")
+
+  cells      UserStageDemoCell[]
+  demoBlocks UserStageDemoBlock[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("user_stage_demo_boards")
+  @@index([userId, stageId])
+  @@index([userId, stageId, levelId])
+}
+
+// ─── UserStageDemoCell ────────────────────────────────────────────────────────
+
+model UserStageDemoCell {
+  id          String             @id @default(uuid())
+
+  demoBoardId String             @map("demo_board_id")
+  demoBoard   UserStageDemoBoard @relation(fields: [demoBoardId], references: [id])
+
+  cellId      String   @map("cell_id")
+  row         Int
+  col         Int
+  cellType    Int    @map("cell_type")
+  direction   String?
+  orientation Int    @default(0)
+  sortOrder   Int    @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("user_stage_demo_cells")
+  @@index([demoBoardId])
+}
+
+// ─── UserStageDemoBlock ───────────────────────────────────────────────────────
+
+model UserStageDemoBlock {
+  id          String             @id @default(uuid())
+
+  demoBoardId String             @map("demo_board_id")
+  demoBoard   UserStageDemoBoard @relation(fields: [demoBoardId], references: [id])
+
+  blockId     String  @map("block_id")
+  row         Int
+  col         Int
+  blockType   Int     @map("block_type")
+  orientation Int     @default(0)
+  isFixed     Boolean @default(false) @map("is_fixed")
+  sortOrder   Int     @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("user_stage_demo_blocks")
+  @@index([demoBoardId])
+}

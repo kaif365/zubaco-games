@@ -1,0 +1,183 @@
+.level-editor-page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  background-color: #f3f4f6;
+  font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+.level-editor-page * {
+  box-sizing: border-box;
+}
+
+.level-editor-page button:not(:disabled):hover {
+  opacity: 0.88;
+}
+
+.level-editor-page input[type="number"]::-webkit-inner-spin-button,
+.level-editor-page input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1;
+}
+
+.level-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+.level-editor-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.level-editor-header__icon {
+  font-size: 22px;
+}
+
+.level-editor-title {
+  margin: 0;
+  color: #111827;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.level-editor-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #6366f1;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.level-editor-back-link {
+  color: #6366f1;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.level-editor-body {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+  overflow-x: auto;
+  padding: 20px;
+}
+
+.level-editor-grid-card {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.level-editor-column-labels {
+  display: flex;
+  padding-left: 28px;
+}
+
+.level-editor-row-with-labels {
+  display: flex;
+}
+
+.level-editor-row-labels {
+  display: flex;
+  width: 28px;
+  flex-shrink: 0;
+  flex-direction: column;
+}
+
+.level-editor-axis-label {
+  color: #9ca3af;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.level-editor-column-label {
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.level-editor-row-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+}
+
+.level-editor-grid-canvas {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.level-editor-cell {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  box-sizing: border-box;
+  color: #fff;
+  font-weight: 800;
+  transition: background-color 0.07s;
+  user-select: none;
+}
+
+.level-editor-cell--blocked {
+  cursor: not-allowed;
+}
+
+.level-editor-cell--editable {
+  cursor: crosshair;
+}
+
+.level-editor-svg-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.level-editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.level-editor-label {
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.level-editor-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  outline: none;
+  background: #fff;
+  color: #111827;
+  font-size: 13px;
+}

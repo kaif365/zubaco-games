@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sliding Puzzle — Load Testing</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ── TOP BAR ── */
+    #topbar { background: #161b22; border-bottom: 1px solid #30363d; flex-shrink: 0; }
+    .topbar-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; }
+    .topbar-row + .topbar-row { border-top: 1px solid #21262d; }
+    .url-label { font-size: 11px; color: #484f58; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; min-width: 100px; }
+    #topbar input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 5px; padding: 6px 10px; font-family: monospace; font-size: 13px; outline: none; flex: 1; }
+    #topbar input:focus { border-color: #58a6ff; }
+    .input-narrow { width: 90px; flex: none !important; }
+    button { padding: 6px 16px; border-radius: 5px; border: none; cursor: pointer; font-family: monospace; font-size: 13px; font-weight: bold; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #btn-run  { background: #238636; color: #fff; }
+    #btn-stop { background: #da3633; color: #fff; }
+
+    /* ── STATS BAR ── */
+    #statsbar { display: flex; align-items: center; gap: 20px; padding: 6px 18px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 12px; flex-shrink: 0; }
+    .stat { display: flex; align-items: center; gap: 5px; }
+    .stat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .stat-dot.queued  { background: #484f58; }
+    .stat-dot.running { background: #e3b341; }
+    .stat-dot.done    { background: #3fb950; }
+    .stat-dot.failed  { background: #f85149; }
+    .stat-val { font-weight: bold; min-width: 22px; }
+    .stat-label { color: #8b949e; }
+    #progress-bar-wrap { flex: 1; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
+    #progress-bar { height: 100%; width: 0%; background: #238636; transition: width 0.3s; border-radius: 3px; }
+    #stat-elapsed { font-size: 12px; color: #8b949e; min-width: 40px; text-align: right; }
+
+    /* ── MAIN ── */
+    #main { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+
+    /* ── USER CARD ── */
+    .user-card { border: 1px solid #30363d; border-radius: 6px; background: #161b22; overflow: hidden; flex-shrink: 0; }
+    .user-header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; user-select: none; }
+    .user-header:hover { background: #1c2128; }
+    .user-badge { font-size: 10px; font-weight: bold; padding: 2px 7px; border-radius: 10px; min-width: 54px; text-align: center; flex-shrink: 0; }
+    .badge-queued  { background: #21262d; color: #8b949e; }
+    .badge-running { background: #2d2a0a; color: #e3b341; border: 1px solid #7a6519; }
+    .badge-done    { background: #0d2e1a; color: #3fb950; border: 1px solid #238636; }
+    .badge-failed  { background: #2d0d0d; color: #f85149; border: 1px solid #6e2222; }
+    .user-name { font-size: 12px; font-weight: bold; flex: 1; }
+    .user-meta { font-size: 11px; color: #8b949e; }
+    .user-meta .ok  { color: #3fb950; }
+    .user-meta .err { color: #f85149; }
+    .chevron { font-size: 9px; color: #484f58; transition: transform 0.15s; flex-shrink: 0; }
+    .user-card.open > .user-header .chevron { transform: rotate(90deg); }
+
+    /* ── CALL LOG ── */
+    .call-log { display: none; border-top: 1px solid #21262d; padding: 8px 12px 10px; flex-direction: column; gap: 2px; max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
+    .user-card.open > .call-log { display: flex; }
+    .phase-label { font-size: 10px; color: #484f58; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 0 3px; flex-shrink: 0; }
+    .phase-label:first-child { padding-top: 0; }
+
+    /* ── CALL ITEM ── */
+    .call-item { border-radius: 4px; overflow: hidden; border: 1px solid transparent; flex-shrink: 0; }
+    .call-item.expandable { cursor: pointer; }
+    .call-item.open { border-color: #30363d; margin: 2px 0; }
+    .call-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; font-size: 11px; }
+    .call-item.expandable .call-row:hover { background: #1c2128; }
+    .call-item.open .call-row { background: #1c2128; border-radius: 4px 4px 0 0; }
+    .call-method { font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; min-width: 36px; text-align: center; flex-shrink: 0; }
+    .method-post { background: #0a2540; color: #58a6ff; }
+    .method-get  { background: #122810; color: #3fb950; }
+    .call-endpoint { flex: 1; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .call-note { font-size: 10px; color: #484f58; }
+    .call-status { font-weight: bold; min-width: 32px; text-align: right; flex-shrink: 0; }
+    .status-ok      { color: #3fb950; }
+    .status-err     { color: #f85149; }
+    .status-pending { color: #e3b341; }
+    .call-ms { color: #484f58; min-width: 52px; text-align: right; font-size: 10px; flex-shrink: 0; }
+    .call-chevron { font-size: 8px; color: #484f58; transition: transform 0.15s; flex-shrink: 0; }
+    .call-item.open .call-chevron { transform: rotate(90deg); }
+
+    /* ── REQUEST / RESPONSE TABS ── */
+    .call-detail { display: none; background: #0d1117; border-top: 1px solid #21262d; }
+    .call-item.open .call-detail { display: block; }
+    .tab-bar { display: flex; border-bottom: 1px solid #21262d; }
+    .tab { padding: 5px 14px; font-size: 11px; color: #8b949e; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+    .tab-panel { display: none; padding: 8px 10px; max-height: 160px; overflow-y: auto; }
+    .tab-panel.active { display: block; }
+    pre { font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: #c9d1d9; }
+
+    /* ── API TIMINGS DRAWER ── */
+    #api-timings-wrap { flex-shrink: 0; border-bottom: 1px solid #30363d; background: #161b22; }
+    #api-timings-header { display: flex; align-items: center; gap: 8px; padding: 5px 16px; cursor: pointer; user-select: none; font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+    #api-timings-header:hover { background: #1c2128; }
+    #api-timings-chevron { font-size: 8px; color: #484f58; transition: transform 0.15s; }
+    #api-timings-wrap.open #api-timings-chevron { transform: rotate(90deg); }
+    #api-timings-drawer { display: none; overflow-x: auto; }
+    #api-timings-wrap.open #api-timings-drawer { display: block; }
+    #api-timings-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #api-timings-table thead tr { border-bottom: 1px solid #21262d; }
+    #api-timings-table th { padding: 5px 16px; text-align: left; color: #484f58; font-weight: normal; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+    #api-timings-table th.num { text-align: right; }
+    #api-timings-table td { padding: 4px 16px; border-bottom: 1px solid #161b22; white-space: nowrap; }
+    #api-timings-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #api-timings-table tbody tr:hover { background: #1c2128; }
+    .timing-endpoint { color: #c9d1d9; font-family: monospace; }
+    .timing-method { display: inline-block; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; min-width: 36px; text-align: center; margin-right: 6px; }
+    .timing-count { color: #8b949e; }
+    .timing-min   { color: #3fb950; }
+    .timing-avg   { color: #e3b341; }
+    .timing-max   { color: #f85149; }
+  </style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="topbar-row">
+    <span class="url-label">Users Service</span>
+    <input id="users-url" type="text" value="http://localhost:5000" />
+    <span class="url-label">Game Service</span>
+    <input id="game-url" type="text" value="http://localhost:3000" />
+  </div>
+  <div class="topbar-row">
+    <span class="url-label">Stage ID</span>
+    <input id="stage-id" type="text" value="" style="max-width:300px" placeholder="stage-uuid-here" />
+    <span class="url-label">Total Users</span>
+    <input id="total-users" type="number" value="20" class="input-narrow" min="1" />
+    <span class="url-label">Concurrent</span>
+    <input id="concurrent" type="number" value="5" class="input-narrow" min="1" />
+    <span class="url-label">Move interval (ms)</span>
+    <input id="autoplay-ms" type="number" value="80" class="input-narrow" min="10" />
+    <button id="btn-run">▶ Run</button>
+    <button id="btn-stop" disabled>■ Stop</button>
+  </div>
+  <div class="topbar-row">
+    <label style="display:flex;align-items:center;gap:6px;color:#8b949e;font-size:12px;white-space:nowrap;cursor:pointer">
+      <input type="checkbox" id="chk-encrypt" />
+      Encrypt
+    </label>
+    <input id="encryption-key-input" type="text" placeholder="AES-256 key (64 hex chars)" style="flex:1;font-family:monospace;font-size:11px" />
+  </div>
+</div>
+
+<div id="statsbar">
+  <div class="stat"><span class="stat-dot queued"></span><span class="stat-val" id="s-queued">0</span><span class="stat-label">queued</span></div>
+  <div class="stat"><span class="stat-dot running"></span><span class="stat-val" id="s-running">0</span><span class="stat-label">running</span></div>
+  <div class="stat"><span class="stat-dot done"></span><span class="stat-val" id="s-done">0</span><span class="stat-label">done</span></div>
+  <div class="stat"><span class="stat-dot failed"></span><span class="stat-val" id="s-failed">0</span><span class="stat-label">failed</span></div>
+  <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+  <span id="stat-elapsed">—</span>
+</div>
+
+<div id="api-timings-wrap">
+  <div id="api-timings-header" onclick="toggleApiTimings()">
+    <span id="api-timings-chevron">▶</span>
+    <span>API Timings</span>
+    <span id="api-timings-summary" style="margin-left:8px;color:#484f58;font-size:10px"></span>
+  </div>
+  <div id="api-timings-drawer">
+    <table id="api-timings-table">
+      <thead>
+        <tr>
+          <th>Endpoint</th>
+          <th class="num">Count</th>
+          <th class="num">Min</th>
+          <th class="num">Avg</th>
+          <th class="num">Max</th>
+        </tr>
+      </thead>
+      <tbody id="api-timings-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="main"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Config & state
+// ─────────────────────────────────────────────────────────────────────────────
+const FLUSH_INTERVAL_MS = 2000;
+const MAX_INFLIGHT = 100;
+
+let runnerStopped = false;
+let elapsedTimer  = null;
+let runStart      = null;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global HTTP semaphore
+// ─────────────────────────────────────────────────────────────────────────────
+class Semaphore {
+  constructor(max) { this._max = max; this._count = 0; this._queue = []; }
+  acquire() {
+    return new Promise(resolve => {
+      if (this._count < this._max) { this._count++; resolve(); }
+      else this._queue.push(resolve);
+    });
+  }
+  release() {
+    this._count--;
+    if (this._queue.length) { this._count++; this._queue.shift()(); }
+  }
+}
+const httpSem = new Semaphore(MAX_INFLIGHT);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API timings tracker
+// ─────────────────────────────────────────────────────────────────────────────
+// key: "METHOD /path"  →  { min, max, sum, count }
+const apiTimings = new Map();
+
+function recordTiming(method, path, ms) {
+  const key = `${method} ${path}`;
+  const s   = apiTimings.get(key) ?? { min: Infinity, max: -Infinity, sum: 0, count: 0 };
+  s.min    = Math.min(s.min, ms);
+  s.max    = Math.max(s.max, ms);
+  s.sum   += ms;
+  s.count += 1;
+  apiTimings.set(key, s);
+  renderApiTimings();
+}
+
+function renderApiTimings() {
+  const tbody = document.getElementById('api-timings-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  let totalCalls = 0;
+  for (const [key, s] of apiTimings) {
+    const [method, ...pathParts] = key.split(' ');
+    const path    = pathParts.join(' ');
+    const avg     = s.sum / s.count;
+    const mCls    = method === 'GET' ? 'method-get' : 'method-post';
+    totalCalls   += s.count;
+    const tr      = document.createElement('tr');
+    tr.innerHTML  = `
+      <td class="timing-endpoint"><span class="timing-method ${mCls}">${method}</span>${escHtml(path)}</td>
+      <td class="num timing-count">${s.count}</td>
+      <td class="num timing-min">${fmtMs(s.min)}</td>
+      <td class="num timing-avg">${fmtMs(Math.round(avg))}</td>
+      <td class="num timing-max">${fmtMs(s.max)}</td>`;
+    tbody.appendChild(tr);
+  }
+  const summary = document.getElementById('api-timings-summary');
+  if (summary) summary.textContent = apiTimings.size ? `${apiTimings.size} endpoints · ${totalCalls} calls` : '';
+}
+
+function toggleApiTimings() {
+  document.getElementById('api-timings-wrap').classList.toggle('open');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AES-256-GCM helpers (mirrors game-client implementation)
+// ─────────────────────────────────────────────────────────────────────────────
+async function importAesKey(hexKey) {
+  const raw = new Uint8Array(hexKey.match(/.{2}/g).map(b => parseInt(b, 16)));
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function aesEncrypt(cryptoKey, data) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(data));
+  const ciphertextWithTag = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, tagLength: 128 }, cryptoKey, plaintext);
+  const buf        = new Uint8Array(ciphertextWithTag);
+  const ciphertext = buf.slice(0, buf.length - 16);
+  const tag        = buf.slice(buf.length - 16);
+  const b64 = u8 => btoa(String.fromCharCode(...u8));
+  return { iv: b64(iv), ciphertext: b64(ciphertext), tag: b64(tag) };
+}
+
+async function aesDecrypt(cryptoKey, payload) {
+  const b64dec     = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const iv         = b64dec(payload.iv);
+  const ciphertext = b64dec(payload.ciphertext);
+  const tag        = b64dec(payload.tag);
+  const combined   = new Uint8Array(ciphertext.length + tag.length);
+  combined.set(ciphertext);
+  combined.set(tag, ciphertext.length);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, cryptoKey, combined);
+  return JSON.parse(new TextDecoder().decode(plaintext));
+}
+
+function isEncryptedPayload(obj) {
+  return obj && typeof obj.iv === 'string' && typeof obj.ciphertext === 'string' && typeof obj.tag === 'string';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sliding-puzzle game logic
+// ─────────────────────────────────────────────────────────────────────────────
+function isSolvedClient(pieces) {
+  const n = pieces.length;
+  for (let i = 0; i < n - 1; i++) if (pieces[i] !== i) return false;
+  return pieces[n - 1] === -1;
+}
+
+function getAdjacentToBlank(blankSlot, gridX, n) {
+  const row = Math.floor(blankSlot / gridX), col = blankSlot % gridX;
+  const gridY = Math.ceil(n / gridX);
+  const result = [];
+  if (row > 0)        result.push(blankSlot - gridX);
+  if (row < gridY-1)  result.push(blankSlot + gridX);
+  if (col > 0)        result.push(blankSlot - 1);
+  if (col < gridX-1)  result.push(blankSlot + 1);
+  return result;
+}
+
+// Pick a random tile adjacent to the blank (returns the tile's slot index).
+function pickRandomMove(pieces, gridX) {
+  const blankSlot = pieces.indexOf(-1);
+  const adj = getAdjacentToBlank(blankSlot, gridX, pieces.length);
+  if (adj.length === 0) return null;
+  return adj[Math.floor(Math.random() * adj.length)];
+}
+
+// Swap the tile at `slot` with the blank — mutates pieces in place.
+function applyMove(pieces, slot) {
+  const blankSlot = pieces.indexOf(-1);
+  [pieces[slot], pieces[blankSlot]] = [pieces[blankSlot], pieces[slot]];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BFS solver with solution cache + promise deduplication
+//
+// solutionCache  — persists solved results across all sessions for the run.
+//                  key: pieces.join(',')  →  slot[] | null
+// pendingSolves  — in-flight BFS promises keyed the same way.
+//                  All callers for the same shuffle await the same Promise so
+//                  BFS runs exactly once even when N sessions all miss the
+//                  cache simultaneously.
+// ─────────────────────────────────────────────────────────────────────────────
+const MAX_BFS_STATES = 200_000;
+const solutionCache  = new Map();
+const pendingSolves  = new Map(); // key → Promise<slot[] | null>
+
+function _bfsSolveSync(initialPieces, gridX) {
+  const startKey = initialPieces.join(',');
+  const n        = initialPieces.length;
+  const goalKey  = [...Array(n - 1).keys(), -1].join(',');
+  if (startKey === goalKey) { solutionCache.set(startKey, []); return []; }
+
+  const parent = new Map(); // piecesKey → { parentKey, slot } | null (root)
+  parent.set(startKey, null);
+  const queue = [initialPieces];
+  let states = 0;
+
+  while (queue.length > 0) {
+    if (++states > MAX_BFS_STATES) {
+      solutionCache.set(startKey, null);
+      return null;
+    }
+
+    const pieces    = queue.shift();
+    const blankSlot = pieces.indexOf(-1);
+    const curKey    = pieces.join(',');
+
+    for (const slot of getAdjacentToBlank(blankSlot, gridX, n)) {
+      const next    = pieces.slice();
+      [next[slot], next[blankSlot]] = [next[blankSlot], next[slot]];
+      const nextKey = next.join(',');
+
+      if (parent.has(nextKey)) continue;
+      parent.set(nextKey, { parentKey: curKey, slot });
+
+      if (nextKey === goalKey) {
+        const moves = [];
+        let k = nextKey;
+        while (parent.get(k) !== null) {
+          const { parentKey, slot: s } = parent.get(k);
+          moves.push(s);
+          k = parentKey;
+        }
+        moves.reverse();
+        solutionCache.set(startKey, moves);
+        return moves;
+      }
+
+      queue.push(next);
+    }
+  }
+
+  solutionCache.set(startKey, null);
+  return null;
+}
+
+// Async wrapper — yields to the event loop before solving so the UI stays
+// responsive, and deduplicates concurrent requests for the same shuffle so
+// BFS runs at most once per unique starting position.
+function bfsSolve(initialPieces, gridX) {
+  const startKey = initialPieces.join(',');
+
+  // Cache hit — return immediately (no promise overhead)
+  if (solutionCache.has(startKey)) return Promise.resolve(solutionCache.get(startKey));
+
+  // In-flight — join the existing promise instead of starting a second BFS
+  if (pendingSolves.has(startKey)) return pendingSolves.get(startKey);
+
+  // Cache miss and no one else is solving it yet — start BFS
+  const promise = new Promise(resolve => {
+    // setTimeout(0) yields to the event loop so the browser can repaint /
+    // process other micro-tasks before blocking on potentially heavy BFS.
+    setTimeout(() => resolve(_bfsSolveSync(initialPieces, gridX)), 0);
+  }).finally(() => pendingSolves.delete(startKey));
+
+  pendingSolves.set(startKey, promise);
+  return promise;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function fmtMs(ms) { return ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`; }
+function fmtElapsed(ms) {
+  const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
+  return `${String(m).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function prettyJson(obj) { return escHtml(JSON.stringify(obj, null, 2)); }
+
+function updateStats(users) {
+  let queued = 0, running = 0, done = 0, failed = 0;
+  for (const u of users) {
+    if (u.status === 'queued')       queued++;
+    else if (u.status === 'running') running++;
+    else if (u.status === 'done')    done++;
+    else if (u.status === 'failed')  failed++;
+  }
+  document.getElementById('s-queued').textContent  = queued;
+  document.getElementById('s-running').textContent = running;
+  document.getElementById('s-done').textContent    = done;
+  document.getElementById('s-failed').textContent  = failed;
+  const finished = done + failed;
+  const total    = users.length;
+  document.getElementById('progress-bar').style.width = total ? `${(finished/total)*100}%` : '0%';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User card DOM
+// ─────────────────────────────────────────────────────────────────────────────
+function createUserCard(userId) {
+  const card = document.createElement('div');
+  card.className = 'user-card';
+  card.id = `card-${userId}`;
+  card.innerHTML = `
+    <div class="user-header" onclick="toggleCard(this)">
+      <span class="user-badge badge-queued" id="badge-${userId}">QUEUED</span>
+      <span class="user-name">${userId}</span>
+      <span class="user-meta" id="meta-${userId}">waiting to start</span>
+      <span class="chevron">▶</span>
+    </div>
+    <div class="call-log" id="log-${userId}"></div>`;
+  return card;
+}
+
+function setCardStatus(userId, status) {
+  const badge = document.getElementById(`badge-${userId}`);
+  const card  = document.getElementById(`card-${userId}`);
+  if (!badge || !card) return;
+  badge.className = `user-badge badge-${status}`;
+  badge.textContent = status.toUpperCase();
+  card.style.borderColor = status === 'running' ? '#7a6519'
+    : status === 'done'    ? '#238636'
+    : status === 'failed'  ? '#6e2222'
+    : '#30363d';
+}
+
+function setCardMeta(userId, html) {
+  const el = document.getElementById(`meta-${userId}`);
+  if (el) el.innerHTML = html;
+}
+
+const MAX_LOG_ITEMS = 50;
+
+function scrollLog(log) {
+  requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+}
+
+function trimLog(log) {
+  while (log.children.length > MAX_LOG_ITEMS) log.removeChild(log.firstChild);
+}
+
+function addPhaseLabel(userId, label) {
+  const log = document.getElementById(`log-${userId}`);
+  if (!log) return;
+  const div = document.createElement('div');
+  div.className = 'phase-label';
+  div.textContent = label;
+  log.appendChild(div);
+  trimLog(log);
+  scrollLog(log);
+}
+
+function addCallRow(userId, method, endpoint, note = '') {
+  const log = document.getElementById(`log-${userId}`);
+  if (!log) return { update: () => {} };
+
+  const item = document.createElement('div');
+  item.className = 'call-item expandable';
+
+  const methodCls = method === 'GET' ? 'method-get' : 'method-post';
+  const noteHtml  = note ? `<span class="call-note">${escHtml(note)}</span>` : '';
+  item.innerHTML = `
+    <div class="call-row" onclick="this.closest('.call-item').classList.toggle('open')">
+      <span class="call-method ${methodCls}">${method}</span>
+      <span class="call-endpoint">${escHtml(endpoint)} ${noteHtml}</span>
+      <span class="call-status status-pending" data-status>···</span>
+      <span class="call-ms" data-ms>—</span>
+      <span class="call-chevron">▶</span>
+    </div>
+    <div class="call-detail">
+      <div class="tab-bar">
+        <div class="tab active" onclick="switchTab(this,'req')">Request</div>
+        <div class="tab" onclick="switchTab(this,'res')">Response</div>
+      </div>
+      <div class="tab-panel active" data-tab="req"><pre>—</pre></div>
+      <div class="tab-panel" data-tab="res"><pre>—</pre></div>
+    </div>`;
+  log.appendChild(item);
+  trimLog(log);
+  scrollLog(log);
+
+  return {
+    update(statusCode, ms, req, res) {
+      const ok = statusCode >= 200 && statusCode < 300;
+      item.querySelector('[data-status]').className  = `call-status ${ok ? 'status-ok' : 'status-err'}`;
+      item.querySelector('[data-status]').textContent = statusCode;
+      item.querySelector('[data-ms]').textContent     = fmtMs(ms);
+      item.querySelectorAll('.tab-panel')[0].innerHTML = `<pre>${prettyJson(req)}</pre>`;
+      item.querySelectorAll('.tab-panel')[1].innerHTML = `<pre>${prettyJson(res)}</pre>`;
+      scrollLog(log);
+    },
+  };
+}
+
+function toggleCard(header) {
+  const card = header.closest('.user-card');
+  card.classList.toggle('open');
+  if (card.classList.contains('open')) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function switchTab(tab, which) {
+  const detail = tab.closest('.call-detail');
+  detail.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  detail.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  tab.classList.add('active');
+  detail.querySelector(`.tab-panel[data-tab="${which}"]`).classList.add('active');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-user session
+// ─────────────────────────────────────────────────────────────────────────────
+class UserSession {
+  constructor(userId, cfg) {
+    this.userId   = userId;
+    this.cfg      = cfg;  // { usersUrl, gameUrl, stageId, autoplayMs, cryptoKey }
+    this.status   = 'queued';
+    this.token    = null;
+    this.okCount  = 0;
+    this.errCount = 0;
+    this.startMs  = null;
+  }
+
+  // ── HTTP ────────────────────────────────────────────────────────────────────
+  // cryptoKey is passed explicitly per-call — only game service requests use it.
+  async request(method, baseUrl, path, body, callRow, cryptoKey = null) {
+    const url = baseUrl.replace(/\/$/, '') + path;
+    const t0  = Date.now();
+
+    // Encrypt outgoing body when key is configured (plaintext body shown in UI)
+    let wireBody = body;
+    if (cryptoKey && body) wireBody = await aesEncrypt(cryptoKey, body);
+
+    const req     = body ?? '— no body —'; // always log plaintext
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    await httpSem.acquire();
+    try {
+      const res = await fetch(url, { method, headers, body: wireBody ? JSON.stringify(wireBody) : undefined });
+      const ms  = Date.now() - t0;
+      let resBody;
+      try { resBody = await res.json(); } catch { resBody = null; }
+
+      // Decrypt response — callRow.update below always receives plaintext
+      if (cryptoKey && isEncryptedPayload(resBody)) {
+        try {
+          const decrypted = await aesDecrypt(cryptoKey, resBody);
+          resBody = decrypted?.data ?? decrypted;
+        } catch { /* leave raw on decryption failure */ }
+      }
+
+      recordTiming(method, path, ms);
+      callRow.update(res.status, ms, req, resBody);
+      if (!res.ok) {
+        this.errCount++;
+        throw Object.assign(new Error(res.status), { status: res.status, body: resBody });
+      }
+      this.okCount++;
+      return resBody?.data ?? resBody;
+    } catch (err) {
+      if (err.status) throw err;
+      const ms = Date.now() - t0;
+      recordTiming(method, path, ms);
+      callRow.update(0, ms, req, { error: err.message });
+      this.errCount++;
+      throw err;
+    } finally {
+      httpSem.release();
+    }
+  }
+
+  // Users service — never encrypted (dev-session, etc. are plaintext)
+  usersReq(method, path, body, note) {
+    const row = addCallRow(this.userId, method, path, note);
+    return this.request(method, this.cfg.usersUrl, path, body, row, null);
+  }
+
+  // Game service — encrypted when cfg.cryptoKey is set
+  gameReq(method, path, body, note) {
+    const row = addCallRow(this.userId, method, path, note);
+    return this.request(method, this.cfg.gameUrl, path, body, row, this.cfg.cryptoKey);
+  }
+
+  // ── Flush moves ──────────────────────────────────────────────────────────
+  async flushMoves(pending) {
+    if (pending.length === 0) return;
+    const batch = pending.splice(0);
+    try {
+      await this.gameReq('POST', '/v1/game/submit-moves', { moves: batch });
+    } catch (err) {
+      pending.unshift(...batch);
+      throw err;
+    }
+  }
+
+  // ── Play one board ────────────────────────────────────────────────────────
+  async playBoard(boardData, totalRounds, pendingMoves, prefetchNextBoard) {
+    const { gridSize, pieces: initialPieces, roundNumber } = boardData;
+    const gridX = gridSize.x;
+    const localPieces = [...initialPieces];
+
+    // Resolve (or compute + cache) the optimal BFS solution for this shuffle.
+    // Returns null when the puzzle is too large for BFS — we fall back to random.
+    // All sessions with the same shuffle await the same in-flight Promise.
+    const solution    = await bfsSolve(initialPieces, gridX);
+    let   solutionIdx = 0;
+
+    this.flushError = null;
+
+    let flushTimer    = null;
+    let inflightFlush = null; // tracks the currently in-progress periodic flush
+
+    const startFlush = () => {
+      flushTimer = setInterval(() => {
+        inflightFlush = (async () => {
+          try { await this.flushMoves(pendingMoves); }
+          catch (err) { this.flushError = err; }
+          finally { inflightFlush = null; }
+        })();
+      }, FLUSH_INTERVAL_MS);
+    };
+    // Stop the interval AND wait for any already-started flush to settle so its
+    // submit-moves cannot arrive at Restate after end-board and cause a 404.
+    const stopFlush = async () => {
+      clearInterval(flushTimer);
+      flushTimer = null;
+      if (inflightFlush) await inflightFlush;
+    };
+
+    startFlush();
+    const autoplayMs = this.cfg.autoplayMs;
+
+    await new Promise(resolve => {
+      const tick = async () => {
+        if (runnerStopped || this.flushError) { stopFlush().then(resolve); return; }
+        if (isSolvedClient(localPieces)) { stopFlush().then(resolve); return; }
+
+        // Use cached solution move when available, otherwise random.
+        let slot;
+        if (solution && solutionIdx < solution.length) {
+          slot = solution[solutionIdx++];
+        } else {
+          slot = pickRandomMove(localPieces, gridX);
+        }
+        if (slot === null) { stopFlush().then(resolve); return; }
+
+        pendingMoves.push({ slot, clickedAt: new Date().toISOString(), moveId: crypto.randomUUID() });
+        applyMove(localPieces, slot);
+
+        // Trigger next-board prefetch once any move is made
+        if (roundNumber < totalRounds) prefetchNextBoard();
+
+        setTimeout(tick, autoplayMs);
+      };
+      setTimeout(tick, autoplayMs);
+    });
+
+    if (this.flushError) throw this.flushError;
+
+    if (pendingMoves.length > 0) await this.flushMoves(pendingMoves);
+  }
+
+  // ── Main run ──────────────────────────────────────────────────────────────
+  async run() {
+    this.status  = 'running';
+    this.startMs = Date.now();
+    setCardStatus(this.userId, 'running');
+    setCardMeta(this.userId, 'starting…');
+
+    try {
+      // ── Auth ──
+      addPhaseLabel(this.userId, 'Auth');
+      const authRes = await this.usersReq('POST', '/user/auth/dev-session', { stageId: this.cfg.stageId });
+      this.token = authRes?.token;
+      if (!this.token) throw new Error('No token in dev-session response');
+
+      // ── Game start ──
+      addPhaseLabel(this.userId, 'Game');
+      const startRes = await this.gameReq('POST', '/v1/game/game-start');
+
+      // Handle already-finalized session
+      if (startRes?.status === 2 || startRes?.status === 3 || startRes?.status === 5) {
+        const label = { 2: 'ENDED', 3: 'EXPIRED', 5: 'MANUALLY_ENDED' }[startRes.status] ?? 'DONE';
+        this._finish('done', `<span class="ok">${this.okCount}✓</span> <span class="err">${this.errCount}✗</span> &nbsp;·&nbsp; already ${label}`);
+        return;
+      }
+
+      let currentBoard  = startRes?.board;
+      const totalRounds = startRes?.totalRounds ?? 1;
+
+      if (!currentBoard) throw new Error('No board in game-start response');
+
+      // ── Rounds ──
+      const pendingMoves = [];
+      let nextBoardCache    = null;
+      let nextBoardFetching = false;
+
+      const prefetchNextBoard = async () => {
+        if (nextBoardCache || nextBoardFetching) return;
+        if (!currentBoard || currentBoard.roundNumber >= totalRounds) return;
+        nextBoardFetching = true;
+        try {
+          const res = await this.gameReq('GET', '/v1/game/next-board', null, '(prefetch)');
+          nextBoardCache = res;
+        } catch {
+          // non-fatal
+        } finally {
+          nextBoardFetching = false;
+        }
+      };
+
+      let gameOver = false;
+
+      for (let round = 1; round <= totalRounds; round++) {
+        if (runnerStopped) break;
+
+        addPhaseLabel(this.userId, `Round ${round} / ${totalRounds}`);
+        setCardMeta(this.userId,
+          `<span class="ok">${this.okCount}✓</span> <span class="err">${this.errCount}✗</span>` +
+          ` &nbsp;·&nbsp; round ${round} / ${totalRounds}` +
+          ` &nbsp;·&nbsp; ${fmtElapsed(Date.now() - this.startMs)}`
+        );
+
+        await this.playBoard(currentBoard, totalRounds, pendingMoves, prefetchNextBoard);
+        if (runnerStopped) break;
+
+        const isLast = round >= totalRounds;
+
+        if (!isLast) {
+          // Use pre-fetched board or fetch blocking
+          let nextData = nextBoardCache;
+          nextBoardCache = null;
+          if (!nextData) {
+            nextData = await this.gameReq('GET', '/v1/game/next-board');
+          }
+          // End-board fires in background while next board loads
+          this.gameReq('POST', '/v1/game/end-board').catch(() => {});
+          currentBoard = nextData;
+        } else {
+          const endBoardRes = await this.gameReq('POST', '/v1/game/end-board');
+          gameOver = endBoardRes?.gameOver ?? false;
+        }
+      }
+
+      if (runnerStopped) { this._finish('failed', 'stopped'); return; }
+
+      addPhaseLabel(this.userId, 'Result');
+      const statusRes = await this.gameReq('GET', '/v1/game/status');
+
+      const sb    = statusRes?.scoreboard ?? {};
+      const score = sb.totalScore ?? '—';
+      const bonus = sb.timeBonus  ?? 0;
+      const label = gameOver ? 'completed' : 'ended';
+
+      this._finish('done',
+        `<span class="ok">${this.okCount}✓</span> <span class="err">${this.errCount}✗</span>` +
+        ` &nbsp;·&nbsp; ${totalRounds} rounds &nbsp;·&nbsp; ${label}` +
+        ` &nbsp;·&nbsp; score ${score} + ${bonus} bonus` +
+        ` &nbsp;·&nbsp; ${fmtElapsed(Date.now() - this.startMs)}`
+      );
+
+    } catch (err) {
+      const msg = err?.body?.message ?? err?.message ?? String(err);
+      this._finish('failed',
+        `<span class="ok">${this.okCount}✓</span> <span class="err">${this.errCount}✗</span>` +
+        ` &nbsp;·&nbsp; ${escHtml(msg)}`
+      );
+    }
+  }
+
+  _finish(status, metaHtml) {
+    this.status = status;
+    setCardStatus(this.userId, status);
+    setCardMeta(this.userId, metaHtml);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runner
+// ─────────────────────────────────────────────────────────────────────────────
+async function runAll() {
+  const usersUrl   = document.getElementById('users-url').value.trim();
+  const gameUrl    = document.getElementById('game-url').value.trim();
+  const stageId    = document.getElementById('stage-id').value.trim();
+  const totalUsers = Math.max(1, parseInt(document.getElementById('total-users').value, 10));
+  const concurrent = Math.max(1, parseInt(document.getElementById('concurrent').value, 10));
+  const autoplayMs = Math.max(10, parseInt(document.getElementById('autoplay-ms').value, 10));
+
+  if (!stageId) { alert('Enter a Stage ID'); return; }
+
+  // Reset timings for this run
+  apiTimings.clear();
+  renderApiTimings();
+
+  // Import AES key once up-front and share it across all sessions
+  let cryptoKey = null;
+  const encryptEnabled = document.getElementById('chk-encrypt').checked;
+  const hexKey         = document.getElementById('encryption-key-input').value.trim();
+  if (encryptEnabled && hexKey) {
+    try { cryptoKey = await importAesKey(hexKey); }
+    catch { alert('Invalid encryption key — must be 64 hex characters'); return; }
+  }
+
+  document.getElementById('btn-run').disabled  = true;
+  document.getElementById('btn-stop').disabled = false;
+  runnerStopped = false;
+
+  const users = Array.from({ length: totalUsers }, (_, i) => {
+    const userId = `lt_user_${String(i + 1).padStart(3, '0')}`;
+    return new UserSession(userId, { usersUrl, gameUrl, stageId, autoplayMs, cryptoKey });
+  });
+
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  users.forEach(u => main.appendChild(createUserCard(u.userId)));
+  updateStats(users);
+
+  runStart = Date.now();
+  clearInterval(elapsedTimer);
+  elapsedTimer = setInterval(() => {
+    document.getElementById('stat-elapsed').textContent = fmtElapsed(Date.now() - runStart);
+    updateStats(users);
+  }, 500);
+
+  let nextIdx = 0;
+  const runOne = async () => {
+    if (nextIdx >= users.length || runnerStopped) return;
+    const session = users[nextIdx++];
+    await session.run();
+    updateStats(users);
+    await runOne();
+  };
+
+  const slots = Math.min(concurrent, totalUsers);
+  await Promise.all(Array.from({ length: slots }, (_, i) =>
+    new Promise(r => setTimeout(r, i * 100)).then(runOne)
+  ));
+
+  clearInterval(elapsedTimer);
+  updateStats(users);
+  document.getElementById('btn-run').disabled  = false;
+  document.getElementById('btn-stop').disabled = true;
+  runnerStopped = false;
+}
+
+document.getElementById('btn-run').addEventListener('click', runAll);
+document.getElementById('btn-stop').addEventListener('click', () => {
+  runnerStopped = true;
+  document.getElementById('btn-stop').disabled = true;
+});
+</script>
+</body>
+</html>

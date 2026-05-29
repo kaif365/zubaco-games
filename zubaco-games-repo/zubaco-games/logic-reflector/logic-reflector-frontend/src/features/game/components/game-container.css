@@ -1,0 +1,717 @@
+/* =============================================================================
+   Logic Reflector — in-game shell
+   Shell bg is always near-black (#1c1b20).
+   Stage colours drive ONLY the eclipse glow + accent — never the shell bg.
+   ============================================================================= */
+
+/* ── Shell ─────────────────────────────────────────────────────────────────── */
+
+.lr-game-shell {
+  /* Stage colours — set at runtime by buildGameThemeStyle(stage) */
+  --game-bg: #19224d;
+  --game-bg-rgb: 25, 34, 77;
+  --game-eclipse: #364bae;
+  --game-eclipse-rgb: 54, 75, 174;
+  --game-accent: #6d85ff;
+  --game-accent-rgb: 109, 133, 255;
+
+  /* Shell bg is always near-black */
+  background: #1c1b20;
+
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Match body bg so no seam shows on wide screens */
+body {
+  background: #1c1b20;
+}
+
+/* ── Top eclipse glow ────────────────────────────────────────────────────── */
+
+.gradient-layer-top {
+  width: 100%;
+  height: 10vh;
+  background: linear-gradient(var(--game-eclipse), rgba(var(--game-eclipse-rgb), 0.32));
+  box-shadow: 0px 0px 108px rgba(var(--game-eclipse-rgb), 0.72);
+  position: absolute;
+  top: -5vh;
+  left: 0;
+  right: 0;
+  z-index: 999;
+  filter: blur(38px);
+  pointer-events: none;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+.lr-game-header {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-height: 62px;
+  box-sizing: border-box;
+  padding-top: max(8px, env(safe-area-inset-top));
+  padding-bottom: 8px;
+  border-bottom: none;
+  background: transparent;
+  max-width: 465px;
+  width: 100%;
+  margin: 0 auto;
+  justify-content: space-between; /* override — left label + right group */
+  padding: 0 15px;
+}
+
+/* Frosted pill wrapping the timer */
+.lr-game-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: min-content;
+  background: #ffffff2e;
+  z-index: 99;
+  border: 1px solid #ffffff96;
+  border-radius: 30px;
+}
+
+.lr-demo-label {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.lr-demo-skip {
+  position: relative;
+  z-index: 99;
+  min-width: 74px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.lr-demo-skip:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.68);
+  transform: translateY(-1px);
+}
+
+/* ── Timer badge ──────────────────────────────────────────────────────────── */
+
+.timer-badge {
+  position: relative;
+  display: inline-flex;
+  height: 42px;
+}
+
+.timer-badge__content {
+  position: relative;
+  z-index: 1;
+  width: 94px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-badge__text {
+  display: inline-flex;
+  align-items: center;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.timer-badge__icon {
+  flex: 0 0 auto;
+}
+
+.timer-badge__value {
+  display: inline-block;
+  color: currentColor;
+  line-height: 1;
+  text-align: center;
+}
+
+.timer-badge__value--clock {
+  min-width: 5.6ch;
+}
+
+.timer-badge__text--urgent {
+  color: #ff4e30;
+  text-shadow: 0 0 16px rgba(255, 78, 48, 0.7);
+  will-change: color, text-shadow;
+}
+
+.timer-badge__text--running.timer-badge__text--urgent {
+  animation: timerUrgentPulse 0.8s infinite alternate;
+}
+
+@keyframes timerUrgentPulse {
+  from {
+    color: #ff4e30;
+    text-shadow: 0 0 16px rgba(255, 78, 48, 0.7);
+  }
+  to {
+    color: #ff7a63;
+    text-shadow: 0 0 24px rgba(255, 78, 48, 0.95);
+  }
+}
+
+/* ── Playfield ────────────────────────────────────────────────────────────── */
+
+.lr-playfield {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 0;
+  /*
+   * overflow: visible (not hidden) because the LaserBeam SVG is intentionally
+   * overflow:visible and exits the game grid — clipping it here would cut the
+   * beam at the playfield boundary. The beam must be able to pass through.
+   */
+  overflow: visible;
+}
+
+/* Board transition animations */
+.lr-board-frame--opening {
+  will-change: transform, opacity, filter;
+  animation: lrBoardFrameOpen 520ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+.lr-board-frame--solved {
+  will-change: transform, opacity, filter;
+  animation: lrBoardSolvedGlow 1500ms ease-in-out both;
+}
+
+.lr-board-frame--closing {
+  will-change: transform, opacity, filter;
+  animation: lrBoardFrameClose 900ms cubic-bezier(0.5, 0, 0.2, 1) both;
+  pointer-events: none;
+}
+
+.lr-board-grid {
+  isolation: isolate;
+}
+
+.lr-grid-cell--opening {
+  will-change: transform, opacity, filter;
+  opacity: 0;
+  transform: translate3d(-8px, -8px, 0) scale(0.82);
+  animation: lrCellOpen 380ms cubic-bezier(0.18, 0.88, 0.24, 1.08) both;
+  animation-delay: var(--cell-delay, 0ms);
+}
+
+.lr-grid-cell--solved {
+  will-change: transform, opacity, filter;
+  animation: lrCellSolved 900ms ease-in-out both;
+  animation-delay: var(--cell-delay, 0ms);
+}
+
+.lr-grid-cell--closing {
+  will-change: transform, opacity, filter;
+  animation: lrCellClose 340ms cubic-bezier(0.4, 0, 0.7, 0.25) both;
+  animation-delay: var(--cell-delay, 0ms);
+}
+
+.lr-board-laser-layer--opening,
+.lr-board-fixtures-layer--opening {
+  will-change: opacity, transform, filter;
+  opacity: 0;
+  animation: lrLayerOpen 360ms ease-out both;
+  animation-delay: var(--lr-layer-delay, 0ms);
+}
+
+.lr-board-laser-layer--solved,
+.lr-board-fixtures-layer--solved {
+  will-change: opacity, transform, filter;
+  animation: lrLayerSolved 1200ms ease-in-out both;
+}
+
+.lr-board-laser-layer--closing,
+.lr-board-fixtures-layer--closing {
+  will-change: opacity, transform, filter;
+  animation: lrLayerClose 260ms ease-in both;
+}
+
+@keyframes lrBoardFrameOpen {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: brightness(0.72) blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1) blur(0);
+  }
+}
+
+@keyframes lrBoardFrameClose {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1) blur(0);
+  }
+  68% {
+    opacity: 0.82;
+    transform: scale(0.985);
+    filter: brightness(0.8) blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.92);
+    filter: brightness(0.48) blur(3px);
+  }
+}
+
+@keyframes lrBoardSolvedGlow {
+  0% {
+    filter: brightness(1);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.1),
+      0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+  45% {
+    filter: brightness(1.22);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.18),
+      0 8px 32px rgba(0, 0, 0, 0.5),
+      0 0 34px rgba(0, 229, 255, 0.34);
+  }
+  100% {
+    filter: brightness(1.02);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.1),
+      0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+
+@keyframes lrCellOpen {
+  0% {
+    opacity: 0;
+    transform: translate3d(-8px, -8px, 0) scale(0.82);
+    filter: brightness(0.7);
+  }
+  70% {
+    opacity: 1;
+    transform: translate3d(1px, 1px, 0) scale(1.03);
+    filter: brightness(1.16);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes lrCellSolved {
+  0% {
+    filter: brightness(1);
+  }
+  45% {
+    filter: brightness(1.25) drop-shadow(0 0 8px rgba(0, 229, 255, 0.3));
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
+@keyframes lrCellClose {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: brightness(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(8px, 8px, 0) scale(0.72);
+    filter: brightness(0.42);
+  }
+}
+
+@keyframes lrLayerOpen {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+    filter: brightness(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes lrLayerSolved {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  45% {
+    filter: brightness(1.24) drop-shadow(0 0 12px rgba(0, 229, 255, 0.45));
+  }
+}
+
+@keyframes lrLayerClose {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+/* ── Offline modal ──────────────────────────────────────────────────────────── */
+
+.sp-offline-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.sp-offline-card {
+  position: relative;
+  width: min(360px, 100%);
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.sp-offline-accent-line {
+  position: absolute;
+  inset-x: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(253, 230, 138, 0.4), transparent);
+}
+
+.sp-offline-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.sp-offline-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sp-offline-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid rgba(252, 211, 77, 0.3);
+  background: rgba(245, 158, 11, 0.1);
+  color: rgba(253, 230, 138, 1);
+}
+
+.sp-offline-kicker {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.sp-offline-title {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.sp-offline-message {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.25);
+  padding: 12px;
+}
+
+.sp-offline-message p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sp-offline-retry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 20px;
+  border: 1px solid #8b5cf6;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #8b5cf6 0%, #7c3aed 100%);
+  box-shadow: 0 4px 0 #4c1d95;
+  color: #1f1f1f;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.sp-offline-retry:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sp-offline-retry:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lr-board-frame,
+  .lr-grid-cell,
+  .lr-board-laser-layer,
+  .lr-board-fixtures-layer {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* ── Round progress dots — inside playfield, absolute bottom ─────────────── */
+
+.round-progress-dots {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  z-index: 12;
+  display: flex;
+  gap: 6px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.round-progress-dot {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(200, 149, 12, 0.38);
+  border-radius: 50%;
+  background: rgba(80, 42, 8, 0.38);
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.6);
+  transition:
+    background 0.35s,
+    border-color 0.35s,
+    box-shadow 0.35s;
+}
+
+.round-progress-dot.complete {
+  border-color: rgba(106, 226, 54, 0.95);
+  background: #6ee238;
+  box-shadow: 0 0 8px rgba(106, 226, 54, 0.5);
+}
+
+.round-progress-dot.current {
+  border-color: rgba(232, 176, 32, 0.98);
+  background: #e8b020;
+  box-shadow: 0 0 10px rgba(232, 176, 32, 0.62);
+}
+
+/* ── Controls (toolbar) ───────────────────────────────────────────────────── */
+
+.lr-game-controls {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  padding: 12px 14px max(14px, env(safe-area-inset-bottom));
+  border-top: none;
+}
+
+/* ── Win card ─────────────────────────────────────────────────────────────── */
+
+.win-card {
+  display: flex;
+  min-width: 268px;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 38px 44px;
+  border-radius: 14px;
+  background: var(--game-bg);
+  border: 1px solid #ffffff3d;
+  box-shadow:
+    0 12px 48px rgba(0, 0, 0, 0.55),
+    0 0 40px rgba(var(--game-accent-rgb), 0.12);
+  text-align: center;
+}
+
+.win-kicker {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  animation: winPulse 1.4s infinite alternate;
+}
+
+.win-title {
+  margin: 0;
+  color: var(--game-accent);
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 32px rgba(var(--game-accent-rgb), 0.45);
+}
+
+@keyframes winPulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+/* ── Auth loading state (copied from sliding-puzzle) ─────────────────────── */
+
+.puzzle-loading__spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(215, 165, 33, 0.22);
+  border-top-color: #f4ca46;
+  border-radius: 50%;
+  animation: puzzle-spin 0.8s linear infinite;
+}
+
+.puzzle-loading__text {
+  margin: 0;
+  color: #9f9ca5;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+@keyframes puzzle-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Shell loading state (loading + calculating_result) ───────────────────── */
+
+.shell-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.shell-loading-spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(var(--game-accent-rgb), 0.22);
+  border-top-color: var(--game-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.shell-loading-text {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  animation: calcFade 1.4s ease-in-out infinite alternate;
+}
+
+/* ── Calculating results screen ───────────────────────────────────────────── */
+
+.calculating-spinner {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 3px solid rgba(var(--game-accent-rgb), 0.18);
+  border-top-color: var(--game-accent);
+  animation: calcSpin 0.9s linear infinite;
+  box-shadow: 0 0 24px rgba(var(--game-accent-rgb), 0.35);
+}
+
+@keyframes calcSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.calculating-text {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  animation: calcFade 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes calcFade {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── Error toast ──────────────────────────────────────────────────────────── */
+
+.micro-screen-error {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 40;
+  width: min(360px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 117, 111, 0.62);
+  border-radius: 12px;
+  background: rgba(36, 8, 14, 0.86);
+  padding: 12px 16px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+}

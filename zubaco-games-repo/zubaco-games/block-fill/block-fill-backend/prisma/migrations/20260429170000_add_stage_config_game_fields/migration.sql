@@ -1,0 +1,4 @@
+ALTER TABLE "stage_configs"
+ADD COLUMN "enable_demo" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "total_rounds" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "total_demo_rounds" INTEGER NOT NULL DEFAULT 0;

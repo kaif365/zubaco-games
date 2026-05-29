@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin API Lab</title>
+<style>
+  :root {
+    --bg: #f4efe5;
+    --ink: #172033;
+    --muted: #5e6b84;
+    --line: rgba(23, 32, 51, 0.14);
+    --paper: rgba(255, 252, 247, 0.95);
+    --paper-soft: rgba(250, 246, 239, 0.95);
+    --accent: #d97706;
+    --accent-2: #0f766e;
+    --danger: #b91c1c;
+    --shadow: 0 18px 40px rgba(25, 30, 44, 0.12);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--ink);
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top right, rgba(217, 119, 6, 0.14), transparent 26%),
+      radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 30%),
+      linear-gradient(180deg, #f8f3ea 0%, #f3ede2 100%);
+  }
+
+  .app {
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 360px minmax(0, 1fr) 360px;
+    gap: 20px;
+  }
+
+  .panel {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+  }
+
+  .hero {
+    padding: 20px 22px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .eyebrow {
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  h1, h2, h3, p { margin: 0; }
+  h1 { margin-top: 8px; font-size: 28px; line-height: 1.08; }
+  .subtle { margin-top: 8px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+
+  .stack {
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+  }
+
+  .group {
+    display: grid;
+    gap: 10px;
+  }
+
+  .group-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #34415d;
+  }
+
+  label {
+    display: grid;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  input, textarea, button {
+    font: inherit;
+  }
+
+  input, textarea {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid rgba(23, 32, 51, 0.16);
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--ink);
+    padding: 11px 12px;
+    outline: none;
+  }
+
+  textarea {
+    min-height: 280px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  input:focus, textarea:focus {
+    border-color: rgba(217, 119, 6, 0.8);
+    box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.14);
+  }
+
+  button {
+    border: 0;
+    border-radius: 12px;
+    padding: 11px 12px;
+    cursor: pointer;
+    color: white;
+    font-weight: 700;
+    background: linear-gradient(135deg, #d97706, #ea580c);
+  }
+
+  button.secondary {
+    background: linear-gradient(135deg, #0f766e, #0f766e);
+  }
+
+  button.neutral {
+    background: #475569;
+  }
+
+  button.danger {
+    background: linear-gradient(135deg, #b91c1c, #ef4444);
+  }
+
+  .button-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .button-grid.three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .meta-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .canvas {
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+  }
+
+  .preview {
+    background: var(--paper-soft);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px;
+  }
+
+  .preview-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: start;
+    margin-bottom: 12px;
+  }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: white;
+    font-size: 13px;
+    color: #334155;
+  }
+
+  .swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+  }
+
+  .list {
+    display: grid;
+    gap: 10px;
+    max-height: 520px;
+    overflow: auto;
+  }
+
+  .card {
+    padding: 14px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: white;
+    cursor: pointer;
+  }
+
+  .card small {
+    display: block;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .log-box {
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: white;
+    padding: 14px;
+    min-height: 180px;
+    overflow: auto;
+  }
+
+  .quick-links {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .quick-links a {
+    color: #0f766e;
+    text-decoration: none;
+  }
+
+  @media (max-width: 1280px) {
+    .app {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .button-grid, .button-grid.three, .meta-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <div class="hero">
+        <div class="eyebrow">Admin Lab</div>
+        <h1>Board Authoring API Tester</h1>
+        <p class="subtle">Use this page for board validation and CRUD. The editor payload matches the shared board structure used across admin and game flows.</p>
+      </div>
+      <div class="stack">
+        <div class="quick-links">
+          <span>Also open:</span>
+          <a href="/public/game-client.html" target="_blank" rel="noreferrer">Game API Lab</a>
+          <a href="/public/board-generator.html" target="_blank" rel="noreferrer">Board Generator</a>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Connection</div>
+          <label>API Base URL
+            <input id="apiBase" value="http://localhost:8000" />
+          </label>
+          <label>Bearer Token
+            <textarea id="authToken" placeholder="Paste admin JWT"></textarea>
+          </label>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Board Actions</div>
+          <label>Selected Board ID
+            <input id="boardId" placeholder="Used for get, update, and delete" />
+          </label>
+          <div class="button-grid">
+            <button id="validateBtn">Validate</button>
+            <button class="secondary" id="createBtn">Create</button>
+          </div>
+          <div class="button-grid">
+            <button class="secondary" id="updateBtn">Update</button>
+            <button class="neutral" id="getBtn">Get Details</button>
+          </div>
+          <button class="danger" id="deleteBtn">Delete Selected Board</button>
+        </div>
+
+        <div class="group">
+          <div class="group-title">List Filters</div>
+          <div class="meta-grid">
+            <label>Level ID
+              <input id="filterLevelId" placeholder="Optional" />
+            </label>
+            <label>Search
+              <input id="filterSearch" placeholder="Board name search" />
+            </label>
+          </div>
+          <div class="meta-grid">
+            <label>Grid Row
+              <input id="filterGridRow" type="number" min="1" />
+            </label>
+            <label>Grid Col
+              <input id="filterGridCol" type="number" min="1" />
+            </label>
+          </div>
+          <div class="meta-grid">
+            <label>Skip
+              <input id="filterSkip" type="number" min="0" value="0" />
+            </label>
+            <label>Limit
+              <input id="filterLimit" type="number" min="1" value="10" />
+            </label>
+          </div>
+          <button class="neutral" id="listBtn">List Boards</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="panel">
+      <div class="hero">
+        <div class="eyebrow">Board Payload</div>
+        <h2>Shared Structure Editor</h2>
+        <p class="subtle">Edit the exact board payload you want to send. Admin and game now align on this core board definition: name, levelId, gridRow, gridCol, and nodes.</p>
+      </div>
+      <div class="canvas">
+        <div class="button-grid three">
+          <button id="sampleBtn">Load Sample</button>
+          <button class="secondary" id="prettyBtn">Prettify JSON</button>
+          <button class="neutral" id="useSelectionBtn">Load Selected Board</button>
+        </div>
+        <textarea id="boardPayload"></textarea>
+
+        <section class="preview">
+          <div class="preview-header">
+            <div>
+              <div class="group-title">Payload Preview</div>
+              <p class="subtle" id="previewMeta">Update the editor to inspect the current board definition.</p>
+            </div>
+          </div>
+          <div class="chip-row" id="nodePreview"></div>
+        </section>
+      </div>
+    </main>
+
+    <aside class="panel">
+      <div class="hero">
+        <div class="eyebrow">Inspector</div>
+        <h2>Responses & Boards</h2>
+        <p class="subtle">Review the last request/response and click a listed board to load it back into the editor for update/delete tests.</p>
+      </div>
+      <div class="stack">
+        <div class="group">
+          <div class="group-title">Boards</div>
+          <div class="list" id="boardList"></div>
+        </div>
+        <div class="group">
+          <div class="group-title">Last Request</div>
+          <div class="log-box"><pre id="requestDump">Nothing sent yet.</pre></div>
+        </div>
+        <div class="group">
+          <div class="group-title">Last Response</div>
+          <div class="log-box"><pre id="responseDump">Nothing received yet.</pre></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+<script>
+const STORAGE_KEYS = {
+  apiBase: 'admin-lab-api-base',
+  token: 'admin-lab-token',
+  payload: 'admin-lab-board-payload',
+};
+
+const sampleBoard = {
+  name: 'Board 1',
+  levelId: '00000000-0000-0000-0000-000000000000',
+  gridRow: 5,
+  gridCol: 5,
+  nodes: [
+    {
+      colorCode: 'blue',
+      points: [
+        { row: 0, col: 0 },
+        { row: 0, col: 4 },
+      ],
+    },
+    {
+      colorCode: 'red',
+      points: [
+        { row: 4, col: 0 },
+        { row: 4, col: 4 },
+      ],
+    },
+    {
+      colorCode: 'amber',
+      points: [
+        { row: 1, col: 2 },
+        { row: 3, col: 2 },
+      ],
+    },
+  ],
+};
+
+const NAMED_COLORS = {
+  blue: '#3399ff',
+  red: '#ff6666',
+  green: '#66e666',
+  yellow: '#ffcc33',
+  amber: '#ffcc33',
+  purple: '#cc66ff',
+  cyan: '#33cccc',
+  pink: '#ff66cc',
+};
+
+const state = {
+  selectedBoard: null,
+  lastBoards: [],
+};
+
+const $ = (id) => document.getElementById(id);
+
+function normalizeColorCode(colorCode) {
+  return String(colorCode || '').trim().toLowerCase();
+}
+
+function colorHex(colorCode) {
+  const normalized = normalizeColorCode(colorCode);
+  if (NAMED_COLORS[normalized]) return NAMED_COLORS[normalized];
+  if (/^#?[0-9a-f]{6}$/i.test(normalized)) {
+    return normalized.startsWith('#') ? normalized : `#${normalized}`;
+  }
+  return '#94a3b8';
+}
+
+function hydrate() {
+  $('apiBase').value = localStorage.getItem(STORAGE_KEYS.apiBase) || 'http://localhost:8000';
+  $('authToken').value = localStorage.getItem(STORAGE_KEYS.token) || '';
+  $('boardPayload').value = localStorage.getItem(STORAGE_KEYS.payload) || JSON.stringify(sampleBoard, null, 2);
+  renderPreview();
+}
+
+function persist() {
+  localStorage.setItem(STORAGE_KEYS.apiBase, $('apiBase').value.trim());
+  localStorage.setItem(STORAGE_KEYS.token, $('authToken').value.trim());
+  localStorage.setItem(STORAGE_KEYS.payload, $('boardPayload').value);
+}
+
+function apiBase() {
+  return $('apiBase').value.trim().replace(/\/$/, '');
+}
+
+function dump(id, value) {
+  $(id).textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function readPayload() {
+  return JSON.parse($('boardPayload').value);
+}
+
+function writePayload(payload) {
+  $('boardPayload').value = JSON.stringify(payload, null, 2);
+  persist();
+  renderPreview();
+}
+
+function renderPreview() {
+  try {
+    const payload = readPayload();
+    $('previewMeta').textContent = `${payload.name || 'Untitled'} • level ${payload.levelId || 'n/a'} • ${payload.gridRow || '?'}x${payload.gridCol || '?'} • ${(payload.nodes || []).length} nodes`;
+    $('nodePreview').innerHTML = (payload.nodes || []).map((node, index) => {
+      const points = (node.points || []).map((point) => `(${point.row},${point.col})`).join(' → ');
+      return `
+        <div class="chip">
+          <span class="swatch" style="background:${colorHex(node.colorCode)}"></span>
+          <span>#${index + 1} ${node.colorCode}</span>
+          <span>${points}</span>
+        </div>
+      `;
+    }).join('');
+  } catch {
+    $('previewMeta').textContent = 'Payload contains invalid JSON.';
+    $('nodePreview').innerHTML = '';
+  }
+}
+
+async function request(path, options = {}) {
+  persist();
+  const token = $('authToken').value.trim();
+  const requestInit = {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...options,
+  };
+
+  dump('requestDump', {
+    url: `${apiBase()}${path}`,
+    ...requestInit,
+    body: options.body ? JSON.parse(options.body) : null,
+  });
+
+  const response = await fetch(`${apiBase()}${path}`, requestInit);
+  const body = await response.json().catch(() => null);
+  dump('responseDump', body ?? { success: false, message: 'Non-JSON response', statusCode: response.status });
+
+  if (!response.ok || !body?.success) {
+    const details = body?.data ? `\n${JSON.stringify(body.data, null, 2)}` : '';
+    throw new Error(`${body?.message || `HTTP ${response.status}`}${details}`);
+  }
+
+  return body.data;
+}
+
+function renderBoardList(boards) {
+  state.lastBoards = boards;
+  $('boardList').innerHTML = boards.length
+    ? boards.map((board) => `
+        <div class="card" data-board-id="${board.id}">
+          <strong>${board.name}</strong>
+          <small>${board.id}</small>
+          <small>level ${board.levelId}</small>
+          <small>${board.gridRow}x${board.gridCol} • ${(board.nodes || []).length} nodes</small>
+        </div>
+      `).join('')
+    : '<div class="card">No boards found.</div>';
+
+  [...document.querySelectorAll('[data-board-id]')].forEach((el) => {
+    el.addEventListener('click', () => {
+      const board = state.lastBoards.find((item) => item.id === el.dataset.boardId);
+      if (!board) return;
+      state.selectedBoard = board;
+      $('boardId').value = board.id;
+      writePayload({
+        name: board.name,
+        levelId: board.levelId,
+        gridRow: board.gridRow,
+        gridCol: board.gridCol,
+        nodes: board.nodes,
+      });
+    });
+  });
+}
+
+async function validateBoard() {
+  const payload = readPayload();
+  const response = await request('/v1/boards/validate', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return response;
+}
+
+async function createBoard() {
+  const payload = readPayload();
+  const board = await request('/v1/boards', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  $('boardId').value = board.id;
+  state.selectedBoard = board;
+  return board;
+}
+
+async function updateBoard() {
+  const boardId = $('boardId').value.trim();
+  if (!boardId) throw new Error('Board id is required for update.');
+  const payload = readPayload();
+  const board = await request(`/v1/boards/${boardId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  state.selectedBoard = board;
+  return board;
+}
+
+async function getBoard() {
+  const boardId = $('boardId').value.trim();
+  if (!boardId) throw new Error('Board id is required for get.');
+  const board = await request(`/v1/boards/${boardId}`);
+  state.selectedBoard = board;
+  writePayload({
+    name: board.name,
+    levelId: board.levelId,
+    gridRow: board.gridRow,
+    gridCol: board.gridCol,
+    nodes: board.nodes,
+  });
+  return board;
+}
+
+async function listBoards() {
+  const params = new URLSearchParams();
+  const values = {
+    levelId: $('filterLevelId').value.trim(),
+    search: $('filterSearch').value.trim(),
+    gridRow: $('filterGridRow').value.trim(),
+    gridCol: $('filterGridCol').value.trim(),
+    skip: $('filterSkip').value.trim() || '0',
+    limit: $('filterLimit').value.trim() || '10',
+  };
+
+  for (const [key, value] of Object.entries(values)) {
+    if (value) params.set(key, value);
+  }
+
+  const result = await request(`/v1/boards?${params.toString()}`);
+  renderBoardList(result.data || []);
+  return result;
+}
+
+async function deleteBoard() {
+  const boardId = $('boardId').value.trim();
+  if (!boardId) throw new Error('Board id is required for delete.');
+  return request('/v1/boards', {
+    method: 'DELETE',
+    body: JSON.stringify({ boardIds: [boardId] }),
+  });
+}
+
+function attachAction(id, handler) {
+  $(id).addEventListener('click', async () => {
+    try {
+      const result = await handler();
+      if (result?.id) {
+        $('boardId').value = result.id;
+      }
+      if (Array.isArray(result?.data)) {
+        renderBoardList(result.data);
+      }
+    } catch (error) {
+      dump('responseDump', { success: false, message: error.message });
+    }
+  });
+}
+
+$('sampleBtn').addEventListener('click', () => writePayload(sampleBoard));
+$('prettyBtn').addEventListener('click', () => writePayload(readPayload()));
+$('useSelectionBtn').addEventListener('click', () => {
+  if (!state.selectedBoard) return;
+  writePayload({
+    name: state.selectedBoard.name,
+    levelId: state.selectedBoard.levelId,
+    gridRow: state.selectedBoard.gridRow,
+    gridCol: state.selectedBoard.gridCol,
+    nodes: state.selectedBoard.nodes,
+  });
+});
+
+for (const id of ['apiBase', 'authToken', 'boardPayload']) {
+  $(id).addEventListener('change', () => {
+    persist();
+    if (id === 'boardPayload') renderPreview();
+  });
+  $(id).addEventListener('blur', () => {
+    persist();
+    if (id === 'boardPayload') renderPreview();
+  });
+}
+
+attachAction('validateBtn', validateBoard);
+attachAction('createBtn', createBoard);
+attachAction('updateBtn', updateBoard);
+attachAction('getBtn', getBoard);
+attachAction('listBtn', listBoards);
+attachAction('deleteBtn', deleteBoard);
+
+hydrate();
+renderBoardList([]);
+</script>
+</body>
+</html>

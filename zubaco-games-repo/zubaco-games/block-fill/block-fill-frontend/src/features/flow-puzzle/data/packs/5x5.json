@@ -1,0 +1,287 @@
+{
+  "id": "grid-5x5",
+  "backendPackId": "pack_grid_5x5",
+  "name": "5 x 5",
+  "themeName": "Compact logic warm-up",
+  "levels": [
+    {
+      "schemaVersion": 1,
+      "id": "grid-5x5-01",
+      "slug": "grid-5x5-01",
+      "packId": "grid-5x5",
+      "worldId": "grid-5x5",
+      "order": 1,
+      "name": "Ribbon Start",
+      "description": "A compact opener with longer routes than the size suggests.",
+      "gridSize": 5,
+      "timeLimitSec": 120,
+      "difficulty": "easy",
+      "theme": {
+        "name": "Aurora Grid",
+        "boardGradient": ["#081224", "#10203d"],
+        "accent": "#5cf2ff",
+        "backgroundGlow": "rgba(92, 242, 255, 0.36)"
+      },
+      "nodes": [
+        {
+          "id": "pink-link",
+          "colorId": "pink",
+          "colorHex": "#ff4bbd",
+          "glowHex": "#ff9ad9",
+          "endpoints": [
+            { "row": 0, "col": 0 },
+            { "row": 1, "col": 2 }
+          ]
+        },
+        {
+          "id": "cyan-link",
+          "colorId": "cyan",
+          "colorHex": "#5cf2ff",
+          "glowHex": "#c7fbff",
+          "endpoints": [
+            { "row": 1, "col": 1 },
+            { "row": 3, "col": 2 }
+          ]
+        },
+        {
+          "id": "amber-link",
+          "colorId": "amber",
+          "colorHex": "#ffc247",
+          "glowHex": "#ffe29d",
+          "endpoints": [
+            { "row": 3, "col": 1 },
+            { "row": 4, "col": 4 }
+          ]
+        }
+      ],
+      "objectives": { "requireFullCoverage": true },
+      "validation": {
+        "referenceSolutionPaths": {
+          "pink": [
+            { "row": 0, "col": 0 },
+            { "row": 0, "col": 1 },
+            { "row": 0, "col": 2 },
+            { "row": 0, "col": 3 },
+            { "row": 0, "col": 4 },
+            { "row": 1, "col": 4 },
+            { "row": 1, "col": 3 },
+            { "row": 1, "col": 2 }
+          ],
+          "cyan": [
+            { "row": 1, "col": 1 },
+            { "row": 1, "col": 0 },
+            { "row": 2, "col": 0 },
+            { "row": 2, "col": 1 },
+            { "row": 2, "col": 2 },
+            { "row": 2, "col": 3 },
+            { "row": 2, "col": 4 },
+            { "row": 3, "col": 4 },
+            { "row": 3, "col": 3 },
+            { "row": 3, "col": 2 }
+          ],
+          "amber": [
+            { "row": 3, "col": 1 },
+            { "row": 3, "col": 0 },
+            { "row": 4, "col": 0 },
+            { "row": 4, "col": 1 },
+            { "row": 4, "col": 2 },
+            { "row": 4, "col": 3 },
+            { "row": 4, "col": 4 }
+          ]
+        }
+      },
+      "metadata": {
+        "backendLevelId": "lvl_5x5_01",
+        "editorGroupId": "world_5x5",
+        "analyticsKey": "grid_5x5_01",
+        "version": 1
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "grid-5x5-02",
+      "slug": "grid-5x5-02",
+      "packId": "grid-5x5",
+      "worldId": "grid-5x5",
+      "order": 2,
+      "name": "Pulse Weave",
+      "description": "The same grid size, but with less obvious pair sequencing.",
+      "gridSize": 5,
+      "timeLimitSec": 130,
+      "difficulty": "medium",
+      "theme": {
+        "name": "Aurora Grid",
+        "boardGradient": ["#091329", "#14284a"],
+        "accent": "#7cf1ff",
+        "backgroundGlow": "rgba(124, 241, 255, 0.32)"
+      },
+      "nodes": [
+        {
+          "id": "violet-link",
+          "colorId": "violet",
+          "colorHex": "#9f79ff",
+          "glowHex": "#d2c3ff",
+          "endpoints": [
+            { "row": 0, "col": 0 },
+            { "row": 1, "col": 3 }
+          ]
+        },
+        {
+          "id": "mint-link",
+          "colorId": "mint",
+          "colorHex": "#58f3c1",
+          "glowHex": "#b9fde7",
+          "endpoints": [
+            { "row": 1, "col": 2 },
+            { "row": 3, "col": 2 }
+          ]
+        },
+        {
+          "id": "orange-link",
+          "colorId": "orange",
+          "colorHex": "#ff8a54",
+          "glowHex": "#ffd1ba",
+          "endpoints": [
+            { "row": 3, "col": 1 },
+            { "row": 4, "col": 4 }
+          ]
+        }
+      ],
+      "objectives": { "requireFullCoverage": true },
+      "validation": {
+        "referenceSolutionPaths": {
+          "violet": [
+            { "row": 0, "col": 0 },
+            { "row": 0, "col": 1 },
+            { "row": 0, "col": 2 },
+            { "row": 0, "col": 3 },
+            { "row": 0, "col": 4 },
+            { "row": 1, "col": 4 },
+            { "row": 1, "col": 3 }
+          ],
+          "mint": [
+            { "row": 1, "col": 2 },
+            { "row": 1, "col": 1 },
+            { "row": 1, "col": 0 },
+            { "row": 2, "col": 0 },
+            { "row": 2, "col": 1 },
+            { "row": 2, "col": 2 },
+            { "row": 2, "col": 3 },
+            { "row": 2, "col": 4 },
+            { "row": 3, "col": 4 },
+            { "row": 3, "col": 3 },
+            { "row": 3, "col": 2 }
+          ],
+          "orange": [
+            { "row": 3, "col": 1 },
+            { "row": 3, "col": 0 },
+            { "row": 4, "col": 0 },
+            { "row": 4, "col": 1 },
+            { "row": 4, "col": 2 },
+            { "row": 4, "col": 3 },
+            { "row": 4, "col": 4 }
+          ]
+        }
+      },
+      "metadata": {
+        "backendLevelId": "lvl_5x5_02",
+        "editorGroupId": "world_5x5",
+        "analyticsKey": "grid_5x5_02",
+        "version": 1
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "grid-5x5-03",
+      "slug": "grid-5x5-03",
+      "packId": "grid-5x5",
+      "worldId": "grid-5x5",
+      "order": 3,
+      "name": "Final Arc",
+      "description": "The 5x5 finale spaces the endpoints to force longer commitment.",
+      "gridSize": 5,
+      "timeLimitSec": 140,
+      "difficulty": "medium",
+      "theme": {
+        "name": "Aurora Grid",
+        "boardGradient": ["#0b1731", "#193256"],
+        "accent": "#89f5ff",
+        "backgroundGlow": "rgba(137, 245, 255, 0.34)"
+      },
+      "nodes": [
+        {
+          "id": "rose-link",
+          "colorId": "rose",
+          "colorHex": "#ff5a7c",
+          "glowHex": "#ffbfcb",
+          "endpoints": [
+            { "row": 0, "col": 0 },
+            { "row": 1, "col": 1 }
+          ]
+        },
+        {
+          "id": "teal-link",
+          "colorId": "teal",
+          "colorHex": "#4de6d8",
+          "glowHex": "#bafcf5",
+          "endpoints": [
+            { "row": 1, "col": 0 },
+            { "row": 3, "col": 3 }
+          ]
+        },
+        {
+          "id": "gold-link",
+          "colorId": "gold",
+          "colorHex": "#ffd548",
+          "glowHex": "#ffefab",
+          "endpoints": [
+            { "row": 3, "col": 2 },
+            { "row": 4, "col": 4 }
+          ]
+        }
+      ],
+      "objectives": { "requireFullCoverage": true },
+      "validation": {
+        "referenceSolutionPaths": {
+          "rose": [
+            { "row": 0, "col": 0 },
+            { "row": 0, "col": 1 },
+            { "row": 0, "col": 2 },
+            { "row": 0, "col": 3 },
+            { "row": 0, "col": 4 },
+            { "row": 1, "col": 4 },
+            { "row": 1, "col": 3 },
+            { "row": 1, "col": 2 },
+            { "row": 1, "col": 1 }
+          ],
+          "teal": [
+            { "row": 1, "col": 0 },
+            { "row": 2, "col": 0 },
+            { "row": 2, "col": 1 },
+            { "row": 2, "col": 2 },
+            { "row": 2, "col": 3 },
+            { "row": 2, "col": 4 },
+            { "row": 3, "col": 4 },
+            { "row": 3, "col": 3 }
+          ],
+          "gold": [
+            { "row": 3, "col": 2 },
+            { "row": 3, "col": 1 },
+            { "row": 3, "col": 0 },
+            { "row": 4, "col": 0 },
+            { "row": 4, "col": 1 },
+            { "row": 4, "col": 2 },
+            { "row": 4, "col": 3 },
+            { "row": 4, "col": 4 }
+          ]
+        }
+      },
+      "metadata": {
+        "backendLevelId": "lvl_5x5_03",
+        "editorGroupId": "world_5x5",
+        "analyticsKey": "grid_5x5_03",
+        "version": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "game": {
+    "title": "Live Route Builder",
+    "start": "Start Game",
+    "submit": "Submit",
+    "score": "Score",
+    "timeLeft": "Time Left",
+    "buildRoute": "Connect the nodes!",
+    "nodesConnected": "Connected: {{count}}/{{total}}",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "instructions": "Build a route by connecting all nodes in the correct order before time expires.",
+    "gameOver": "Game Over",
+    "finalScore": "Final Score: {{score}}",
+    "pathComplete": "Path Complete!"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "language": "Language",
+    "english": "English",
+    "hindi": "हिन्दी"
+  }
+}

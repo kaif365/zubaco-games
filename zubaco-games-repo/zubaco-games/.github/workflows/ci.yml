@@ -1,0 +1,310 @@
+name: CI – Build & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  # ─── Detect changed games ───
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changes: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            colour-sorting:
+              - 'colour-sorting/**'
+            flash-spot:
+              - 'flash-spot/**'
+            object-placement-memory:
+              - 'object-placement-memory/**'
+            rapid-category-sort:
+              - 'rapid-category-sort/**'
+            true-false-blitz:
+              - 'true-false-blitz/**'
+            word-unscramble:
+              - 'word-unscramble/**'
+            number-grid-sprint:
+              - 'number-grid-sprint/**'
+            live-route-builder:
+              - 'live-route-builder/**'
+            memory-groups:
+              - 'memory-groups/**'
+            reflex-endurance:
+              - 'reflex-endurance/**'
+            pattern-survival:
+              - 'pattern-survival/**'
+            speed-type-answer:
+              - 'speed-type-answer/**'
+            sequence-recall:
+              - 'sequence-recall/**'
+            memory-card-matching:
+              - 'memory-card-matching/**'
+            sliding-puzzle:
+              - 'sliding-puzzle/**'
+            block-fill:
+              - 'block-fill/**'
+            maze-navigation:
+              - 'maze-navigation/**'
+            infinity-loop:
+              - 'Infinity-loop/**'
+            arrows:
+              - 'arrows/**'
+            logic-reflector:
+              - 'logic-reflector/**'
+
+  # ─── Backend: Lint + Type-check + Test ───
+  backend:
+    runs-on: ubuntu-latest
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - game: colour-sorting
+            dir: colour-sorting/colour-sorting-backend
+          - game: flash-spot
+            dir: flash-spot/flash-spot-backend
+          - game: object-placement-memory
+            dir: object-placement-memory/object-placement-memory-backend
+          - game: rapid-category-sort
+            dir: rapid-category-sort/rapid-sort-backend
+          - game: true-false-blitz
+            dir: true-false-blitz/true-false-blitz-backend
+          - game: word-unscramble
+            dir: word-unscramble/word-unscramble-backend
+          - game: number-grid-sprint
+            dir: number-grid-sprint/number-grid-backend
+          - game: live-route-builder
+            dir: live-route-builder/live-route-backend
+          - game: memory-groups
+            dir: memory-groups/memory-groups-backend
+          - game: reflex-endurance
+            dir: reflex-endurance/reflex-endurance-backend
+          - game: pattern-survival
+            dir: pattern-survival/pattern-survival-backend
+          - game: speed-type-answer
+            dir: speed-type-answer/speed-type-backend
+          - game: sequence-recall
+            dir: sequence-recall/sequence-recall-backend
+          - game: memory-card-matching
+            dir: memory-card-matching/memory-card-matching-backend
+          - game: sliding-puzzle
+            dir: sliding-puzzle/sliding-puzzle-backend
+          - game: block-fill
+            dir: block-fill/block-fill-backend
+          - game: maze-navigation
+            dir: maze-navigation/maze-navigation-backend
+          - game: infinity-loop
+            dir: Infinity-loop/Infinity-Loop-backend
+          - game: arrows
+            dir: arrows/arrows-backend
+          - game: logic-reflector
+            dir: logic-reflector/logic-reflector-backend
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.dir }}
+        run: npm ci --legacy-peer-deps
+
+      - name: Generate Prisma Client
+        working-directory: ${{ matrix.dir }}
+        run: npx prisma generate
+
+      - name: Type-check
+        working-directory: ${{ matrix.dir }}
+        run: npx tsc --noEmit
+
+      - name: Run Tests with Coverage
+        working-directory: ${{ matrix.dir }}
+        run: npx jest --coverage --forceExit --passWithNoTests
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+          JWT_SECRET: ci-test-jwt-secret-min-32-characters-long
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+      - name: Run E2E Tests
+        working-directory: ${{ matrix.dir }}
+        run: npx jest --config jest-e2e.config.ts --forceExit --passWithNoTests --detectOpenHandles
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+          JWT_SECRET: ci-test-jwt-secret-min-32-characters-long
+          HMAC_SECRET: ci-test-hmac-secret-min-32-characters-long
+          ADMIN_API_KEYS: ci-test-api-key-1,ci-test-api-key-2
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+      - name: Build
+        working-directory: ${{ matrix.dir }}
+        run: npm run build
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-be-${{ matrix.game }}
+          path: ${{ matrix.dir }}/coverage/
+          retention-days: 7
+
+  # ─── Frontend: Lint + Type-check + Build ───
+  frontend:
+    runs-on: ubuntu-latest
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - game: colour-sorting
+            dir: colour-sorting/colour-sorting-frontend
+          - game: flash-spot
+            dir: flash-spot/flash-spot-frontend
+          - game: object-placement-memory
+            dir: object-placement-memory/object-placement-memory-frontend
+          - game: rapid-category-sort
+            dir: rapid-category-sort/rapid-sort-frontend
+          - game: true-false-blitz
+            dir: true-false-blitz/true-false-blitz-frontend
+          - game: word-unscramble
+            dir: word-unscramble/word-unscramble-frontend
+          - game: number-grid-sprint
+            dir: number-grid-sprint/number-grid-frontend
+          - game: live-route-builder
+            dir: live-route-builder/live-route-frontend
+          - game: memory-groups
+            dir: memory-groups/memory-groups-frontend
+          - game: reflex-endurance
+            dir: reflex-endurance/reflex-endurance-frontend
+          - game: pattern-survival
+            dir: pattern-survival/pattern-survival-frontend
+          - game: speed-type-answer
+            dir: speed-type-answer/speed-type-frontend
+          - game: sequence-recall
+            dir: sequence-recall/sequence-recall-frontend
+          - game: memory-card-matching
+            dir: memory-card-matching/memory-card-matching-frontend
+          - game: sliding-puzzle
+            dir: sliding-puzzle/sliding-puzzle-frontend
+          - game: block-fill
+            dir: block-fill/block-fill-frontend
+          - game: maze-navigation
+            dir: maze-navigation/maze-navigation-frontend
+          - game: infinity-loop
+            dir: Infinity-loop/infinity-loop-frontend
+          - game: arrows
+            dir: arrows/arrows-frontend
+          - game: logic-reflector
+            dir: logic-reflector/logic-reflector-frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.dir }}
+        run: npm ci
+
+      - name: Type-check
+        working-directory: ${{ matrix.dir }}
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: ${{ matrix.dir }}
+        run: npm run build
+
+  # ─── Docker build validation ───
+  docker:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: colour-sorting-backend
+            dockerfile: docker/backend.Dockerfile
+            game_dir: colour-sorting/colour-sorting-backend
+          - name: colour-sorting-frontend
+            dockerfile: docker/frontend.Dockerfile
+            game_dir: colour-sorting/colour-sorting-frontend
+          - name: flash-spot-backend
+            dockerfile: docker/backend.Dockerfile
+            game_dir: flash-spot/flash-spot-backend
+          - name: flash-spot-frontend
+            dockerfile: docker/frontend.Dockerfile
+            game_dir: flash-spot/flash-spot-frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          build-args: |
+            GAME_DIR=${{ matrix.game_dir }}
+          push: false
+          tags: zubaco/${{ matrix.name }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Final status gate (for branch protection rules) ───
+  ci-status:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: always()
+    steps:
+      - name: Check CI results
+        run: |
+          if [[ "${{ needs.backend.result }}" == "failure" || "${{ needs.frontend.result }}" == "failure" ]]; then
+            echo "❌ CI failed"
+            exit 1
+          fi
+          echo "✅ All checks passed"

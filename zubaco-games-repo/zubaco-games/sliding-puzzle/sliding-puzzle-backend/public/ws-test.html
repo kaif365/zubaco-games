@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>WS Test — Sliding Puzzle</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: monospace;
+            background: #0d1117;
+            color: #c9d1d9;
+            display: flex;
+            height: 100vh;
+        }
+
+        #sidebar {
+            width: 340px;
+            min-width: 260px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 12px;
+        }
+
+        #log-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 12px;
+            overflow: hidden;
+        }
+
+        h2 {
+            color: #58a6ff;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        label {
+            font-size: 11px;
+            color: #8b949e;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        input,
+        textarea,
+        select {
+            width: 100%;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            border-radius: 6px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 13px;
+            outline: none;
+        }
+
+        input:focus,
+        textarea:focus {
+            border-color: #58a6ff;
+        }
+
+        button {
+            width: 100%;
+            padding: 9px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        #btn-connect {
+            background: #238636;
+            color: #fff;
+        }
+
+        #btn-disconnect {
+            background: #da3633;
+            color: #fff;
+            display: none;
+        }
+
+        #btn-emit {
+            background: #1f6feb;
+            color: #fff;
+        }
+
+        #btn-clear {
+            background: #21262d;
+            color: #8b949e;
+        }
+
+        #status {
+            font-size: 12px;
+            text-align: center;
+            padding: 6px;
+            border-radius: 4px;
+            background: #21262d;
+            color: #8b949e;
+        }
+
+        #status.connected {
+            background: #0d4429;
+            color: #3fb950;
+        }
+
+        #status.disconnected {
+            background: #3d1a1a;
+            color: #f85149;
+        }
+
+        #log {
+            flex: 1;
+            overflow-y: auto;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .entry {
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            border-left: 3px solid transparent;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .entry.out {
+            border-color: #1f6feb;
+            background: #0d2040;
+        }
+
+        .entry.in {
+            border-color: #3fb950;
+            background: #0d2e1a;
+        }
+
+        .entry.err {
+            border-color: #f85149;
+            background: #2d0d0d;
+        }
+
+        .entry.info {
+            border-color: #8b949e;
+            background: #161b22;
+        }
+
+        .entry .ts {
+            color: #484f58;
+            font-size: 10px;
+            margin-bottom: 2px;
+        }
+
+        .entry .ev {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        #quick-btns {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .quick {
+            background: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            font-size: 12px;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #30363d;
+        }
+
+        #log-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="sidebar">
+        <h2>🔌 Connection</h2>
+
+        <div>
+            <label>Server URL</label>
+            <input id="url" value="http://localhost:3000/realtime" />
+        </div>
+
+        <div id="status">Disconnected</div>
+        <button id="btn-connect">Connect</button>
+        <button id="btn-disconnect">Disconnect</button>
+
+        <hr />
+
+        <h2>📤 Emit Event</h2>
+
+        <div>
+            <label>Event name</label>
+            <input id="event-name" value="sliding-puzzle:game-start" placeholder="e.g. sliding-puzzle:click" />
+        </div>
+        <div>
+            <label>Payload (JSON)</label>
+            <textarea id="payload" rows="5">{ "levelId": 1 }</textarea>
+        </div>
+        <button id="btn-emit">Send</button>
+
+        <hr />
+
+        <h2>⚡ Quick Events</h2>
+        <div id="quick-btns">
+            <button class="quick" data-event="sliding-puzzle:game-start" data-payload='{"levelId":1}'>sliding-puzzle:game-start (level
+                1)</button>
+            <button class="quick" data-event="sliding-puzzle:click" data-payload='{"x":0,"y":0}'>sliding-puzzle:click (0,0)</button>
+        </div>
+    </div>
+
+    <div id="log-panel">
+        <div id="log-header">
+            <h2>📋 Event Log</h2>
+            <button id="btn-clear" style="width:auto;padding:4px 12px;">Clear</button>
+        </div>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let socket = null;
+
+        /**
+         * Get an element by id.
+         *
+         * @param {string} id - id value.
+         *
+         * @returns {HTMLElement | null} The matching element, if found.
+         */
+        const $ = id => document.getElementById(id);
+
+        /**
+         * Get the current timestamp label.
+         *
+         * @returns {string} The formatted string.
+         */
+        function ts() {
+            return new Date().toLocaleTimeString('en-GB', { hour12: false, fractionalSecondDigits: 3 });
+        }
+
+        /**
+         * Handle add entry.
+         *
+         * @param {string} type - type value.
+         * @param {string} event - event value.
+         * @param {Object} data - data value.
+         */
+        function addEntry(type, event, data) {
+            const div = document.createElement('div');
+            div.className = `entry ${type}`;
+            const label = { out: '▲ SENT', in: '▼ RECV', err: '✖ ERROR', info: 'ℹ INFO' }[type];
+            div.innerHTML = `<div class="ts">${ts()}</div><div class="ev">${label}  ${event}</div>${data !== undefined ? JSON.stringify(data, null, 2) : ''
+                }`;
+            const log = $('log');
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        /**
+         * Set connected.
+         *
+         * @param {boolean} yes - yes value.
+         */
+        function setConnected(yes) {
+            const s = $('status');
+            if (yes) {
+                s.textContent = `Connected  ${$('url').value}`;
+                s.className = 'connected';
+                $('btn-connect').style.display = 'none';
+                $('btn-disconnect').style.display = 'block';
+            } else {
+                s.textContent = 'Disconnected';
+                s.className = 'disconnected';
+                $('btn-connect').style.display = 'block';
+                $('btn-disconnect').style.display = 'none';
+            }
+        }
+
+        $('btn-connect').addEventListener('click', () => {
+            if (socket?.connected) return;
+
+            const url = $('url').value.trim();
+            const parts = url.match(/^(https?:\/\/[^/]+)(\/.*)?$/);
+            const serverUrl = parts?.[1] ?? url;
+            const nsp = parts?.[2] ?? '/';
+
+            addEntry('info', 'connect', { url: serverUrl, namespace: nsp });
+
+            socket = io(serverUrl + nsp, {
+                transports: ['websocket'],
+                reconnection: false,
+            });
+
+            socket.on('connect', () => {
+                addEntry('info', 'connect', { socketId: socket.id });
+                setConnected(true);
+            });
+
+            socket.on('connect_error', (err) => {
+                addEntry('err', 'connect_error', { message: err.message });
+                setConnected(false);
+            });
+
+            socket.on('disconnect', (reason) => {
+                addEntry('info', 'disconnect', { reason });
+                setConnected(false);
+                socket = null;
+            });
+
+            socket.onAny((event, ...args) => {
+                addEntry('in', event, args.length === 1 ? args[0] : args);
+            });
+        });
+
+        $('btn-disconnect').addEventListener('click', () => {
+            socket?.disconnect();
+        });
+
+        $('btn-emit').addEventListener('click', () => {
+            const event = $('event-name').value.trim();
+            if (!event) return alert('Event name is required');
+            if (!socket?.connected) return alert('Not connected');
+
+            let payload;
+            try {
+                const raw = $('payload').value.trim();
+                payload = raw ? JSON.parse(raw) : undefined;
+            } catch {
+                return alert('Invalid JSON payload');
+            }
+
+            socket.emit(event, payload, (ack) => {
+                addEntry('in', `${event} (ack)`, ack);
+            });
+
+            addEntry('out', event, payload);
+        });
+
+        document.querySelectorAll('.quick').forEach(btn => {
+            btn.addEventListener('click', () => {
+                $('event-name').value = btn.dataset.event;
+                $('payload').value = JSON.stringify(JSON.parse(btn.dataset.payload), null, 2);
+            });
+        });
+
+        $('btn-clear').addEventListener('click', () => { $('log').innerHTML = ''; });
+    </script>
+</body>
+
+</html>

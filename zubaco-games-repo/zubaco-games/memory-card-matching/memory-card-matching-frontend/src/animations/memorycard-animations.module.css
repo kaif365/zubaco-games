@@ -1,0 +1,78 @@
+/* FX overlays — transform + opacity only (no shadows) */
+
+.fxHost {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.cardFxLayer {
+  position: fixed;
+  pointer-events: none;
+  z-index: 45;
+  overflow: visible;
+}
+
+.levelConfettiLayer {
+  position: fixed;
+  pointer-events: none;
+  z-index: 40;
+  overflow: visible;
+}
+
+/* Center “hole” flash during level-complete blast */
+.levelEmitterHole {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: clamp(26px, 7.5vw, 42px);
+  height: clamp(26px, 7.5vw, 42px);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(8, 8, 12, 0.9) 0%,
+    rgba(22, 20, 28, 0.45) 55%,
+    rgba(40, 36, 30, 0.18) 78%,
+    transparent 100%
+  );
+  border: 1px solid rgba(255, 214, 120, 0.26);
+  will-change: opacity;
+}
+
+.mismatchTint {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  pointer-events: none;
+  background: rgba(235, 55, 65, 0.38);
+  will-change: opacity;
+}
+
+/* Pieces sit above emitter */
+.levelConfettiPiece {
+  z-index: 1;
+}
+
+.confetti {
+  position: absolute;
+  border-radius: 1px;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.wrapperMismatch {
+  z-index: 3;
+}
+
+.innerMatchBounce {
+  z-index: 1;
+}
+
+.innerMismatchSquash {
+  z-index: 1;
+}

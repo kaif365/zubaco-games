@@ -1,0 +1,265 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  Zubaco Games – Docker Compose Production Override          ║
+# ╚══════════════════════════════════════════════════════════════╝
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile all up -d
+#
+# This file adds production-specific configuration:
+#   - Resource limits (CPU + memory)
+#   - Restart policies
+#   - JSON logging driver with size rotation
+#   - Read-only filesystem where possible
+#   - Security options
+
+x-backend-defaults: &backend-defaults
+  restart: always
+  environment:
+    REDIS_HOST: redis
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+      tag: "{{.Name}}"
+  deploy:
+    resources:
+      limits:
+        cpus: "0.50"
+        memory: 256M
+      reservations:
+        cpus: "0.10"
+        memory: 128M
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp
+
+x-frontend-defaults: &frontend-defaults
+  restart: always
+  logging:
+    driver: json-file
+    options:
+      max-size: "5m"
+      max-file: "3"
+      tag: "{{.Name}}"
+  deploy:
+    resources:
+      limits:
+        cpus: "0.25"
+        memory: 64M
+      reservations:
+        cpus: "0.05"
+        memory: 32M
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp
+    - /var/cache/nginx
+    - /var/run
+
+services:
+  # ─── Infrastructure ───
+  postgres:
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 1G
+        reservations:
+          cpus: "0.50"
+          memory: 512M
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_buffers=16MB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=1000
+
+  redis:
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 64M
+    command: >
+      redis-server
+      --maxmemory 192mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+      --protected-mode yes
+
+  # ─── Game Backends ───
+  colour-sorting-backend:
+    <<: *backend-defaults
+  flash-spot-backend:
+    <<: *backend-defaults
+  object-placement-backend:
+    <<: *backend-defaults
+  rapid-sort-backend:
+    <<: *backend-defaults
+  true-false-blitz-backend:
+    <<: *backend-defaults
+  word-unscramble-backend:
+    <<: *backend-defaults
+  number-grid-backend:
+    <<: *backend-defaults
+  live-route-backend:
+    <<: *backend-defaults
+  memory-groups-backend:
+    <<: *backend-defaults
+  reflex-endurance-backend:
+    <<: *backend-defaults
+  pattern-survival-backend:
+    <<: *backend-defaults
+  speed-type-backend:
+    <<: *backend-defaults
+  sequence-recall-backend:
+    <<: *backend-defaults
+  memory-card-matching-backend:
+    <<: *backend-defaults
+  sliding-puzzle-backend:
+    <<: *backend-defaults
+  block-fill-backend:
+    <<: *backend-defaults
+  maze-navigation-backend:
+    <<: *backend-defaults
+  infinity-loop-backend:
+    <<: *backend-defaults
+  arrows-backend:
+    <<: *backend-defaults
+  logic-reflector-backend:
+    <<: *backend-defaults
+
+  # ─── Game Frontends ───
+  colour-sorting-frontend:
+    <<: *frontend-defaults
+  flash-spot-frontend:
+    <<: *frontend-defaults
+  object-placement-frontend:
+    <<: *frontend-defaults
+  rapid-sort-frontend:
+    <<: *frontend-defaults
+  true-false-blitz-frontend:
+    <<: *frontend-defaults
+  word-unscramble-frontend:
+    <<: *frontend-defaults
+  number-grid-frontend:
+    <<: *frontend-defaults
+  live-route-frontend:
+    <<: *frontend-defaults
+  memory-groups-frontend:
+    <<: *frontend-defaults
+  reflex-endurance-frontend:
+    <<: *frontend-defaults
+  pattern-survival-frontend:
+    <<: *frontend-defaults
+  speed-type-frontend:
+    <<: *frontend-defaults
+  sequence-recall-frontend:
+    <<: *frontend-defaults
+  memory-card-matching-frontend:
+    <<: *frontend-defaults
+  sliding-puzzle-frontend:
+    <<: *frontend-defaults
+  block-fill-frontend:
+    <<: *frontend-defaults
+  maze-navigation-frontend:
+    <<: *frontend-defaults
+  infinity-loop-frontend:
+    <<: *frontend-defaults
+  arrows-frontend:
+    <<: *frontend-defaults
+  logic-reflector-frontend:
+    <<: *frontend-defaults
+
+  # ─── Gateway ───
+  gateway:
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "10"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 64M
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+
+  # ─── Monitoring ───
+  prometheus:
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  grafana:
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}

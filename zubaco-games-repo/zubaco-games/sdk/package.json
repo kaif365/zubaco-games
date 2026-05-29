@@ -1,0 +1,15 @@
+{
+  "name": "@zubaco/sdk-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generate TypeScript SDK clients from game backend OpenAPI specs",
+  "scripts": {
+    "generate:all": "node generate.js",
+    "generate:flash-spot": "node generate.js flash-spot",
+    "generate:colour-sorting": "node generate.js colour-sorting"
+  },
+  "devDependencies": {
+    "@openapitools/openapi-generator-cli": "^2.13.0",
+    "typescript": "^5.7.0"
+  }
+}

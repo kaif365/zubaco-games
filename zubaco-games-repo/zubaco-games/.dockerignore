@@ -1,0 +1,50 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  Docker Build Ignore                                        ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+# Version control
+.git
+.gitignore
+
+# Dependencies (installed fresh in Docker)
+**/node_modules
+
+# Build outputs (rebuilt in Docker)
+**/dist
+**/build
+
+# Environment files (secrets injected via compose/env)
+**/.env
+**/.env.local
+**/.env.*.local
+
+# IDE / Editor
+.vscode
+.idea
+**/*.swp
+**/*.swo
+
+# OS files
+**/Thumbs.db
+**/.DS_Store
+
+# Test / Coverage
+**/coverage
+**/.nyc_output
+
+# Docker-in-Docker prevention
+docker-compose*.yml
+
+# Logs
+**/*.log
+**/logs
+
+# Temporary files
+**/tmp
+**/.cache
+
+# Husky hooks
+.husky
+
+# Scripts (not needed in containers)
+scripts/

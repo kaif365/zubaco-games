@@ -1,0 +1,163 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: zubaco-api-ingress
+  namespace: zubaco
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/websocket-services: "flash-spot-backend,colour-sorting-backend,object-placement-memory-backend,rapid-sort-backend,true-false-blitz-backend,word-unscramble-backend,number-grid-backend,live-route-backend,memory-groups-backend,reflex-endurance-backend,pattern-survival-backend,speed-type-backend,sequence-recall-backend,memory-card-matching-backend,sliding-puzzle-backend,block-fill-backend,maze-navigation-backend,infinity-loop-backend,arrows-backend,logic-reflector-backend"
+    nginx.ingress.kubernetes.io/connection-proxy-header: "keep-alive"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.zubaco.com
+      secretName: zubaco-api-tls
+  rules:
+    - host: api.zubaco.com
+      http:
+        paths:
+          - path: /api/flash-spot
+            pathType: Prefix
+            backend:
+              service:
+                name: flash-spot-backend
+                port:
+                  number: 3000
+          - path: /api/colour-sorting
+            pathType: Prefix
+            backend:
+              service:
+                name: colour-sorting-backend
+                port:
+                  number: 3000
+          - path: /api/object-placement
+            pathType: Prefix
+            backend:
+              service:
+                name: object-placement-memory-backend
+                port:
+                  number: 3000
+          - path: /api/rapid-sort
+            pathType: Prefix
+            backend:
+              service:
+                name: rapid-sort-backend
+                port:
+                  number: 3000
+          - path: /api/true-false-blitz
+            pathType: Prefix
+            backend:
+              service:
+                name: true-false-blitz-backend
+                port:
+                  number: 3000
+          - path: /api/word-unscramble
+            pathType: Prefix
+            backend:
+              service:
+                name: word-unscramble-backend
+                port:
+                  number: 3000
+          - path: /api/number-grid
+            pathType: Prefix
+            backend:
+              service:
+                name: number-grid-backend
+                port:
+                  number: 3000
+          - path: /api/live-route
+            pathType: Prefix
+            backend:
+              service:
+                name: live-route-backend
+                port:
+                  number: 3000
+          - path: /api/memory-groups
+            pathType: Prefix
+            backend:
+              service:
+                name: memory-groups-backend
+                port:
+                  number: 3000
+          - path: /api/reflex-endurance
+            pathType: Prefix
+            backend:
+              service:
+                name: reflex-endurance-backend
+                port:
+                  number: 3000
+          - path: /api/pattern-survival
+            pathType: Prefix
+            backend:
+              service:
+                name: pattern-survival-backend
+                port:
+                  number: 3000
+          - path: /api/speed-type
+            pathType: Prefix
+            backend:
+              service:
+                name: speed-type-backend
+                port:
+                  number: 3000
+          - path: /api/sequence-recall
+            pathType: Prefix
+            backend:
+              service:
+                name: sequence-recall-backend
+                port:
+                  number: 3000
+          - path: /api/memory-card-matching
+            pathType: Prefix
+            backend:
+              service:
+                name: memory-card-matching-backend
+                port:
+                  number: 3000
+          - path: /api/sliding-puzzle
+            pathType: Prefix
+            backend:
+              service:
+                name: sliding-puzzle-backend
+                port:
+                  number: 3000
+          - path: /api/block-fill
+            pathType: Prefix
+            backend:
+              service:
+                name: block-fill-backend
+                port:
+                  number: 3000
+          - path: /api/maze-navigation
+            pathType: Prefix
+            backend:
+              service:
+                name: maze-navigation-backend
+                port:
+                  number: 3000
+          - path: /api/infinity-loop
+            pathType: Prefix
+            backend:
+              service:
+                name: infinity-loop-backend
+                port:
+                  number: 3000
+          - path: /api/arrows
+            pathType: Prefix
+            backend:
+              service:
+                name: arrows-backend
+                port:
+                  number: 3000
+          - path: /api/logic-reflector
+            pathType: Prefix
+            backend:
+              service:
+                name: logic-reflector-backend
+                port:
+                  number: 3000

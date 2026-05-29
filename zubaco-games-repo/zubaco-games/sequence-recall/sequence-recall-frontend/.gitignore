@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+.next/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.*.local
+.env.staging
+.env.production
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Testing
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+
+# Docs
+*.md
+!README.md
+private-docs/
+clientdoc/
+
+# AI tool local files
+.cursor/
+.claude/
+CLAUDE.md
+
+# AI agent runtime artifacts
+.codex/
+.agents/
+AGENTS.md
+agent-transcripts/
+terminals/
+mcps/
+.env.test

@@ -1,0 +1,3648 @@
+import { useEffect, useRef, useState, useCallback } from "react";
+import type { CSSProperties } from "react";
+import { GAME_EVENTS, type GridPos, type ServerBoard } from "@/game/gameTypes";
+import "./HomePage.css";
+import { Alert } from "@/components/ui/alert";
+import { DemoHintOverlay } from "./arrows-animations";
+
+import { serverRoundBridge } from "@/game/serverRoundBridge";
+import {
+  GameFailureScreen,
+  GameInstructionsScreen,
+  GameInstructionsSkeleton,
+  GameSuccessScreen,
+  STAGE_THEME_COLORS,
+} from "@micro-screens/src";
+import type { StageId } from "@micro-screens/src";
+import PhaserGame from "@components/PhaserGame";
+import type { PhaserGameHandle } from "@components/PhaserGame";
+import {
+  DEFAULT_STAGE_ID,
+  gameApiClient,
+  NoAuthTokenError,
+  type GameStatusResponse,
+  type NextBoardData,
+  type EndBoardResponse,
+  type NextBoardResponse,
+  type DemoLevelData,
+} from "@services/gameApiClient";
+import {
+  useAuth,
+  useGameStart,
+  useSubmitMoves,
+  useNextBoard,
+  useEndBoard,
+  useEndGame,
+  useGameStatus,
+  useDemo,
+} from "@/hooks/useGameApi";
+import {
+  liveSessionStorage,
+  type PersistedLiveSession,
+  type PersistedMoveEntry,
+} from "@services/liveSessionStorage";
+import {
+  demoSessionStorage,
+  type PersistedDemoSession,
+} from "@services/demoSessionStorage";
+import { storage } from "@/utils/storage";
+import { useTranslation } from "react-i18next";
+import { MUSIC_VOL_KEY, SFX_VOL_KEY, PLAYED_KEY } from "@/constants/storage";
+import {
+  DEFAULT_ZOOM,
+  MOVE_BATCH_INTERVAL_MS,
+  NEXT_BOARD_DELAY_MS,
+  GAME_END_DELAY_MS,
+  FETCH_NEXT_ROUND_THRESOLD,
+  GAME_SESSION_STATUS,
+} from "@/constants/ui";
+import DEV_LEVEL from "@/dev/devLevel";
+import { useStageContent } from "@/features/stage-content/hooks/useStageContent";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { OfflineStatusModal } from "@/components/shared/OfflineStatusModal";
+import { GameClearModal } from "@/components/shared/GameClearModal";
+
+const DEV_LEVEL_ENABLED = import.meta.env.VITE_DEV_LEVEL === "true";
+const MICRO_SCREEN_STAGE = resolveStageNumber(
+  import.meta.env.VITE_STAGE_NUMBER,
+);
+
+function resolveStageNumber(_value?: string): StageId {
+  const parsed = Number(_value);
+  return parsed === 1 || parsed === 2 || parsed === 3 || parsed === 4 || parsed === 5 || parsed === 6 || parsed === 7
+    ? parsed
+    : 1;
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const normalized = hex.replace("#", "");
+  const value = Number.parseInt(normalized, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+function rgbString(hex: string): string {
+  const { r, g, b } = hexToRgb(hex);
+  return `${r}, ${g}, ${b}`;
+}
+
+function buildGameThemeStyle(stage: StageId): CSSProperties {
+  const theme = STAGE_THEME_COLORS[stage];
+  return {
+    "--game-bg": theme.background,
+    "--game-bg-rgb": rgbString(theme.background),
+    "--game-eclipse": theme.eclipse,
+    "--game-eclipse-rgb": rgbString(theme.eclipse),
+    "--game-accent": theme.resultAccent,
+    "--game-accent-rgb": rgbString(theme.resultAccent),
+  } as CSSProperties;
+}
+
+const GAME_THEME_STYLE = buildGameThemeStyle(MICRO_SCREEN_STAGE);
+
+function parseResultMetric(value?: string | null): number {
+  const metric = Number(value);
+  return Number.isFinite(metric) ? metric : 0;
+}
+
+function isExpiryReached(expiryAt?: string | null): boolean {
+  const expiryTime = expiryAt ? new Date(expiryAt).getTime() : NaN;
+  return !Number.isNaN(expiryTime) && expiryTime <= Date.now();
+}
+
+function parseTimestampMs(value?: string | null): number | null {
+  const timestamp = value ? new Date(value).getTime() : NaN;
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+type Phase =
+  | "tutorial" // new user plays local 4×4 warm-up
+  | "start" // returning user / tutorial done → "Begin" screen
+  | "connecting" // authenticating + fetching first board
+  | "waiting_round" // round ended, showing GREAT! then loading next board
+  | "calculating_result" // final round complete; flushing queues and fetching score
+  | "server_game"; // playing the server level
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+// ─── component ───────────────────────────────────────────────────────────────
+type ServerGameResult = {
+  title: string;
+  subtitle: string;
+  badge: string;
+  badgeColor: string;
+  badgeBackground: string;
+  /** Short label shown on the reason chip, e.g. "Time Expired" */
+  reason: string;
+  /** One-sentence plain-English explanation shown below the reason chip */
+  reasonDescription: string;
+  /** Hex / rgba colour used for glows, borders and accents in the popup */
+  accentColor: string;
+  score: string;
+  roundsCompleted: string;
+  timeTaken: string;
+  timeBonus: string;
+  arrowsRemoved: string;
+  totalArrows: string;
+};
+
+type RoundQueueState = {
+  pendingMoves: PersistedMoveEntry[];
+  submitBarrier: Promise<void>;
+  prefetchPromise: Promise<NextBoardData | null> | null;
+  prefetchedBoard: NextBoardData | null;
+  allowAsyncFinish: boolean;
+  endBoardPromise: Promise<EndBoardResponse> | null;
+};
+
+type DemoBoard = {
+  roundNumber: number;
+  board: ServerBoard;
+};
+
+class GameSessionClearedError extends Error {
+  constructor(message = "Game session was cleared by the server.") {
+    super(message);
+    this.name = "GameSessionClearedError";
+  }
+}
+
+type ClearDataEnvelope = {
+  success?: boolean;
+  statusCode?: number;
+  message?: string;
+  data?: {
+    clearData?: boolean;
+    [key: string]: unknown;
+  };
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function asClearDataEnvelope(value: unknown): ClearDataEnvelope | null {
+  if (!isRecord(value)) return null;
+  const data = isRecord(value.data) ? value.data : undefined;
+  const envelope: ClearDataEnvelope = {
+    success: typeof value.success === "boolean" ? value.success : undefined,
+    statusCode:
+      typeof value.statusCode === "number" ? value.statusCode : undefined,
+    message: typeof value.message === "string" ? value.message : undefined,
+    data: data as ClearDataEnvelope["data"],
+  };
+  return envelope.data?.clearData === true ? envelope : null;
+}
+
+function extractClearDataEnvelope(value: unknown): ClearDataEnvelope | null {
+  const direct = asClearDataEnvelope(value);
+  if (direct) return direct;
+
+  if (!isRecord(value)) return null;
+  const response = isRecord(value.response) ? value.response : null;
+  if (!response) return null;
+
+  const responseEnvelope = asClearDataEnvelope(response.data);
+  if (!responseEnvelope) return null;
+
+  return {
+    ...responseEnvelope,
+    statusCode:
+      responseEnvelope.statusCode ??
+      (typeof response.status === "number" ? response.status : undefined),
+  };
+}
+
+function isGameSessionClearedError(
+  value: unknown,
+): value is GameSessionClearedError {
+  return value instanceof GameSessionClearedError;
+}
+
+function buildArrowId(
+  roundNumber: number,
+  arrow: {
+    headDirection: string;
+    color: number;
+    waypoints: Array<{ x: number; y: number }>;
+  },
+): string {
+  return [
+    roundNumber,
+    arrow.headDirection,
+    arrow.color,
+    arrow.waypoints.map((point) => `${point.x},${point.y}`).join("|"),
+  ].join("::");
+}
+
+function generateMoveId(): string {
+  return crypto.randomUUID();
+}
+
+function enrichBoardWithRecoveryState(
+  roundNumber: number,
+  board: ServerBoard,
+  removedArrowIds: string[],
+): ServerBoard {
+  const removedSet = new Set(removedArrowIds);
+  return {
+    ...board,
+    arrows: board.arrows.map((arrow) => {
+      const arrowId = buildArrowId(roundNumber, arrow);
+      return {
+        ...arrow,
+        arrowId,
+        isRemoved: removedSet.has(arrowId),
+      };
+    }),
+  };
+}
+
+function markBoardArrowRemoved(
+  roundNumber: number,
+  board: ServerBoard,
+  removedArrowId: string,
+): ServerBoard {
+  return {
+    ...board,
+    arrows: board.arrows.map((arrow) => {
+      const arrowId = arrow.arrowId ?? buildArrowId(roundNumber, arrow);
+      if (arrowId !== removedArrowId) return arrow;
+      return {
+        ...arrow,
+        arrowId,
+        isRemoved: true,
+      };
+    }),
+  };
+}
+
+function flattenDemoBoards(levels: DemoLevelData[]): ServerBoard[] {
+  return levels.flatMap((level) =>
+    (level.boards ?? []).filter(
+      (board): board is ServerBoard =>
+        Boolean(board.gridSize) && Array.isArray(board.arrows),
+    ),
+  );
+}
+
+function toDemoRounds(boards: ServerBoard[]): DemoBoard[] {
+  return boards.map((board, index) => ({
+    roundNumber: index + 1,
+    board: {
+      ...board,
+      id: board.id ?? `demo-${index + 1}`,
+      name: board.name ?? `Demo Board ${index + 1}`,
+    },
+  }));
+}
+
+function findArrowIdByHeadPos(
+  roundNumber: number,
+  board: ServerBoard | null,
+  pos: GridPos,
+): string | null {
+  if (!board) return null;
+  for (const arrow of board.arrows) {
+    const head = arrow.waypoints[arrow.waypoints.length - 1];
+    if (head?.x === pos.x && head?.y === pos.y) {
+      return arrow.arrowId ?? buildArrowId(roundNumber, arrow);
+    }
+  }
+  return null;
+}
+
+function formatReason(value?: string): string {
+  if (!value) return "Game ended";
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatDuration(totalSeconds?: number): string {
+  if (typeof totalSeconds !== "number" || Number.isNaN(totalSeconds))
+    return "--";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function normalizeServerGameEndResult(payload: unknown): ServerGameResult {
+  const eventPayload = payload as
+    | { success?: boolean; message?: string; data?: Record<string, unknown> }
+    | undefined;
+  const data = eventPayload?.data;
+  const statusCode = data?.status as number | undefined;
+  const scoreboard = data?.scoreboard as
+    | {
+        totalScore?: number;
+        timeBonus?: number;
+        rounds?: Array<{ roundNumber?: number; score?: number }>;
+      }
+    | undefined;
+
+  const completed =
+    (data?.completed as boolean | undefined) ??
+    statusCode === GAME_SESSION_STATUS.ENDED;
+  const expired = statusCode === GAME_SESSION_STATUS.EXPIRED;
+  const processing = statusCode === GAME_SESSION_STATUS.RESULT_PROCESSING;
+
+  const rounds = scoreboard?.rounds ?? [];
+  const totalScore =
+    (data?.score as number | undefined) ?? scoreboard?.totalScore;
+  const timeBonus =
+    (data?.timeBonus as number | undefined) ?? scoreboard?.timeBonus;
+  const roundsCompleted =
+    (data?.roundsCompleted as number | undefined) ??
+    rounds.filter((r) => (r.score ?? 0) > 0).length;
+
+  // ── Status-aware user-friendly copy ─────────────────────────────────────
+  let title: string;
+  let subtitle: string;
+  let reason: string;
+  let reasonDescription: string;
+  let badge: string;
+  let badgeColor: string;
+  let badgeBackground: string;
+
+  if (completed) {
+    title = "Game Completed!";
+    subtitle = "You cleared all rounds of the live session.";
+    reason = "Completed";
+    reasonDescription = "All rounds were solved successfully. Well done!";
+    badge = "Success";
+    badgeColor = "var(--game-bg)";
+    badgeBackground = "var(--game-accent)";
+  } else if (expired || processing) {
+    // Both EXPIRED and RESULT_PROCESSING surface as "Time Ended" to the player
+    title = "Time Ended";
+    subtitle = "The session timer ran out.";
+    reason = "Time Ended";
+    reasonDescription = processing
+      ? "Your session ended and results are being tallied."
+      : "The session window closed before all rounds were cleared.";
+    badge = "Time Ended";
+    badgeColor = "var(--game-accent)";
+    badgeBackground = "rgba(255,142,36,0.22)";
+  } else {
+    // ENDED (2) or any other terminal state — use the server message if present
+    const serverMessage = eventPayload?.message;
+    const friendlyMessage = serverMessage
+      ? formatReason(serverMessage)
+      : "Game Ended";
+    title = "Game Over";
+    subtitle = "The live game session has ended.";
+    reason = friendlyMessage;
+    reasonDescription =
+      "The session was closed by the server. Your score up to this point has been recorded.";
+    badge = friendlyMessage;
+    badgeColor = "var(--game-accent)";
+    badgeBackground = "rgba(255,78,48,0.22)";
+  }
+
+  return {
+    title,
+    subtitle,
+    badge,
+    badgeColor,
+    badgeBackground,
+    reason,
+    reasonDescription,
+    accentColor: completed
+      ? "215,165,33"
+      : expired || processing
+        ? "255,142,36"
+        : "255,78,48",
+    score: totalScore?.toString() ?? "--",
+    roundsCompleted: roundsCompleted?.toString() ?? "--",
+    timeTaken: formatDuration(data?.timeTakenSeconds as number | undefined),
+    timeBonus: timeBonus?.toString() ?? "--",
+    arrowsRemoved: data?.arrowsRemoved?.toString() ?? "--",
+    totalArrows: data?.totalArrows?.toString() ?? "--",
+  };
+}
+
+export default function HomePage() {
+  const { t } = useTranslation();
+  const gameRef = useRef<PhaserGameHandle>(null);
+
+  // game HUD state
+  const [hints, setHints] = useState(3);
+  const [status, setStatus] = useState<
+    "playing" | "won" | "gameover" | "completed"
+  >("playing");
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+
+  // sound settings
+  const [showSettings, setShowSettings] = useState(false);
+  const [musicVol, setMusicVol] = useState(1.0);
+  const [sfxVol, setSfxVol] = useState(1.0);
+
+  // phase state
+  const [phase, setPhase] = useState<Phase>("start");
+  const [connError, setConnError] = useState<string | null>(null);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [gameEndData, setGameEndData] = useState<ServerGameResult | null>(null);
+  const [currentRound, setCurrentRound] = useState<number | null>(null);
+  const [totalRounds, setTotalRounds] = useState<number | null>(null);
+  const [lastRoundScore, setLastRoundScore] = useState<number | null>(null);
+  const [demoRound, setDemoRound] = useState<number | null>(null);
+  const [demoRoundTotal, setDemoRoundTotal] = useState<number | null>(null);
+  const [demoHintMovesShown, setDemoHintMovesShown] = useState(0);
+  const [demoHintsEnabled, setDemoHintsEnabled] = useState(true);
+  const [showDemoCompleteModal, setShowDemoCompleteModal] = useState(false);
+  const [gameMountKey] = useState(0);
+  const [startingFlow, setStartingFlow] = useState<"live" | "demo" | null>(
+    null,
+  );
+  const [isDevSessionReady, setIsDevSessionReady] = useState(false);
+  const [devSessionError, setDevSessionError] = useState<string | null>(null);
+  const [isRecoveryCheckPending, setIsRecoveryCheckPending] = useState(true);
+  const [collisionGlow, setCollisionGlow] = useState(false);
+  const [isLevelLoading, setIsLevelLoading] = useState(false);
+  const [isBoardReadyForHints, setIsBoardReadyForHints] = useState(false);
+  const [levelCompleteBurst, setLevelCompleteBurst] = useState(false);
+  const collisionGlowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const levelCompleteBurstTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const boardReadyRafRef = useRef<number | null>(null);
+  const [demoMessage, setDemoMessage] = useState<"hint" | "wrong" | "few">(
+    "hint",
+  );
+  const [demoShakeKey, setDemoShakeKey] = useState(0);
+  const demoMessageRef = useRef<"hint" | "wrong" | "few">("hint");
+  const demoMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const demoRemainingRef = useRef(Infinity);
+  const { isOnline } = useNetworkStatus();
+  const [offlineModalOpen, setOfflineModalOpen] = useState(false);
+
+  // stores the last failed manual API call so retry can re-fire it
+  const pendingRetryRef = useRef<(() => void) | null>(null);
+
+  // refs kept outside React state to avoid re-renders
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const batchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tutorialAdvanceTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const phaseRef = useRef<Phase>(phase);
+  const currentRoundRef = useRef<number | null>(currentRound);
+  const serverGameEndedRef = useRef(false);
+  const sessionFinalizingRef = useRef(false);
+  const recoveryInFlightRef = useRef(false);
+  const recoveryAttemptedRef = useRef(false);
+  const isBoardEndingRef = useRef(false);
+  const totalRoundsRef = useRef<number | null>(null);
+  const currentBoardRef = useRef<ServerBoard | null>(null);
+  const demoBoardsRef = useRef<DemoBoard[]>([]);
+  const demoRoundIndexRef = useRef(0);
+  const demoFetchAttemptedRef = useRef(false);
+  const beginServerGameRef = useRef<(() => void) | null>(null);
+  const devSessionPromiseRef = useRef<Promise<string> | null>(null);
+  const roundQueuesRef = useRef<Map<number, RoundQueueState>>(new Map());
+  const backendMutationBarrierRef = useRef<Promise<void>>(Promise.resolve());
+  const prefetchedNextBoardRef = useRef<NextBoardData | null>(null);
+  const prefetchAttemptedRef = useRef(false);
+  const clearDataRecoveryRef = useRef(false);
+  const sessionStageIdRef = useRef(DEFAULT_STAGE_ID);
+  const sessionIdRef = useRef<string | null>(null);
+  const sessionStartedAtRef = useRef<string | null>(null);
+  const sessionExpiryAtRef = useRef<string | null>(null);
+  const serverStartedAtMsRef = useRef<number | null>(null);
+  const clientStartedAtMsRef = useRef<number | null>(null);
+  const timerOriginPerfRef = useRef<number | null>(null);
+  const timerInitialRemainingMsRef = useRef<number | null>(null);
+
+  // ── Tutorial hint overlay state ───────────────────────────────────────────
+  const [hintBoard, setHintBoard] = useState<ServerBoard | null>(null);
+  const [liveZoom,  setLiveZoom]  = useState(1.0);
+
+  const { contentByStage, isLoading: isStageContentLoading } =
+    useStageContent();
+
+  const [demoPrefetchStatus, setDemoPrefetchStatus] = useState<
+    "idle" | "loading" | "available" | "unavailable"
+  >("idle");
+  const prefetchedDemoDataRef = useRef<{
+    stageId: string;
+    alreadySeen: boolean;
+    boards: ServerBoard[];
+  } | null>(null);
+  // Prevent skeleton from flashing for <300 ms when APIs resolve very quickly
+  const [skeletonMinDurationMet, setSkeletonMinDurationMet] = useState(false);
+
+  const { mutateAsync: authMutate } = useAuth();
+  const { mutateAsync: gameStartMutate } = useGameStart();
+  const { mutateAsync: submitMovesMutate } = useSubmitMoves();
+  const { mutateAsync: nextBoardMutate } = useNextBoard();
+  const { mutateAsync: endBoardMutate } = useEndBoard();
+  const { mutateAsync: endGameMutate } = useEndGame();
+  const { mutateAsync: gameStatusMutate } = useGameStatus();
+  const { mutateAsync: demoMutate } = useDemo();
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  // Start the 300 ms minimum-skeleton timer the moment the session is ready.
+  // Using [isDevSessionReady] (not demoPrefetchStatus) so cleanup only fires on
+  // unmount — never mid-flight when the API resolves and cancels the timer early.
+  useEffect(() => {
+    if (!isDevSessionReady) return;
+    const timer = setTimeout(() => setSkeletonMinDurationMet(true), 300);
+    return () => clearTimeout(timer);
+  }, [isDevSessionReady]);
+
+  useEffect(() => {
+    currentRoundRef.current = currentRound;
+  }, [currentRound]);
+
+  const anchorSessionClock = useCallback(
+    (startedAt?: string | null, clientStartedAtMs?: number | null) => {
+      const startedAtMs = parseTimestampMs(startedAt);
+      serverStartedAtMsRef.current = startedAtMs;
+      clientStartedAtMsRef.current =
+        startedAtMs === null
+          ? null
+          : typeof clientStartedAtMs === "number" &&
+              Number.isFinite(clientStartedAtMs)
+            ? clientStartedAtMs
+            : Date.now();
+    },
+    [],
+  );
+
+  const getServerAnchoredTimestamp = useCallback(() => {
+    const serverStartedAtMs = serverStartedAtMsRef.current;
+    const clientStartedAtMs = clientStartedAtMsRef.current;
+    if (serverStartedAtMs === null || clientStartedAtMs === null) {
+      return new Date().toISOString();
+    }
+
+    const elapsedMs = Math.max(0, Date.now() - clientStartedAtMs);
+    return new Date(serverStartedAtMs + elapsedMs).toISOString();
+  }, []);
+
+  const persistSessionSnapshot = useCallback(
+    (patch: Partial<PersistedLiveSession>) => {
+      if (clearDataRecoveryRef.current) return Promise.resolve();
+      return liveSessionStorage.update({
+        token: gameApiClient.getToken(),
+        stageId: sessionStageIdRef.current,
+        sessionId: sessionIdRef.current,
+        currentRound: currentRoundRef.current,
+        totalRounds: totalRoundsRef.current,
+        startedAt: sessionStartedAtRef.current,
+        clientStartedAtMs: clientStartedAtMsRef.current,
+        expiryAt: sessionExpiryAtRef.current,
+        capturedAtMs: Date.now(),
+        phase:
+          phaseRef.current === "server_game" ||
+          phaseRef.current === "waiting_round" ||
+          phaseRef.current === "calculating_result" ||
+          phaseRef.current === "connecting"
+            ? phaseRef.current
+            : "connecting",
+        ...patch,
+      });
+    },
+    [],
+  );
+
+  const syncRoundQueueToStorage = useCallback((roundNumber: number) => {
+    const queue = roundQueuesRef.current.get(roundNumber);
+    void liveSessionStorage.replacePendingMoves(
+      roundNumber,
+      queue?.pendingMoves ?? [],
+    );
+  }, []);
+
+  const clearRoundPersistence = useCallback((roundNumber: number) => {
+    void liveSessionStorage.clearRound(roundNumber);
+  }, []);
+
+  useEffect(() => {
+    if (
+      !clearDataRecoveryRef.current &&
+      (phase === "server_game" ||
+        phase === "waiting_round" ||
+        phase === "calculating_result" ||
+        phase === "connecting")
+    ) {
+      persistSessionSnapshot({});
+    }
+  }, [currentRound, persistSessionSnapshot, phase, totalRounds]);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    timerOriginPerfRef.current = null;
+    timerInitialRemainingMsRef.current = null;
+  }, []);
+
+  const clearTutorialAdvanceTimeout = useCallback(() => {
+    if (tutorialAdvanceTimeoutRef.current) {
+      clearTimeout(tutorialAdvanceTimeoutRef.current);
+      tutorialAdvanceTimeoutRef.current = null;
+    }
+  }, []);
+
+  const loadDemoRound = useCallback((index: number) => {
+    const demoRoundData = demoBoardsRef.current[index];
+    if (!demoRoundData) return false;
+
+    demoRoundIndexRef.current = index;
+    if (index === 0) setDemoHintMovesShown(0);
+    setDemoRound(index + 1);
+    setDemoRoundTotal(demoBoardsRef.current.length);
+    void demoSessionStorage.update({
+      status: "playing",
+      currentBoardIndex: index,
+    });
+    if (boardReadyRafRef.current !== null) {
+      cancelAnimationFrame(boardReadyRafRef.current);
+      boardReadyRafRef.current = null;
+    }
+    setIsBoardReadyForHints(false);
+    setStatus("playing");
+    setHints(3);
+    phaseRef.current = "tutorial";
+    setPhase("tutorial");
+    setStartingFlow(null);
+
+    const roundData = {
+      roundNumber: demoRoundData.roundNumber,
+      board: enrichBoardWithRecoveryState(
+        demoRoundData.roundNumber,
+        demoRoundData.board,
+        [],
+      ),
+    };
+    // Seed the board ref AND the hint overlay state
+    currentBoardRef.current = roundData.board;
+    setHintBoard({ ...roundData.board });
+    setLiveZoom(1.0);
+    serverRoundBridge.set(roundData);
+    window.dispatchEvent(
+      new CustomEvent(GAME_EVENTS.CMD_LOAD_SERVER, { detail: roundData }),
+    );
+    return true;
+  }, []);
+
+  // Dev level bypass: skip API entirely and load devLevel.ts straight into demo mode
+  useEffect(() => {
+    if (!DEV_LEVEL_ENABLED) return;
+    demoBoardsRef.current = toDemoRounds([DEV_LEVEL]);
+    loadDemoRound(0);
+  }, [loadDemoRound]);
+
+  const finishDemo = useCallback(() => {
+    void storage.set(PLAYED_KEY, true);
+    void demoSessionStorage.update({
+      alreadySeen: true,
+      status: "completed",
+      currentBoardIndex: demoBoardsRef.current.length,
+    });
+    serverRoundBridge.clear();
+    demoBoardsRef.current = [];
+    demoRoundIndexRef.current = 0;
+    setDemoRound(null);
+    setDemoRoundTotal(null);
+    setDemoHintMovesShown(0);
+    setDemoHintsEnabled(true);
+    setShowDemoCompleteModal(false);
+    setStatus("playing");
+    phaseRef.current = "start";
+    setPhase("start");
+  }, []);
+
+  const restoreDemoSession = useCallback(
+    (session: PersistedDemoSession) => {
+      if (session.status !== "playing" || session.boards.length === 0) {
+        return false;
+      }
+
+      const nextIndex = Math.min(
+        Math.max(session.currentBoardIndex, 0),
+        session.boards.length - 1,
+      );
+      setDemoHintsEnabled(!session.alreadySeen);
+      demoBoardsRef.current = toDemoRounds(session.boards);
+      return loadDemoRound(nextIndex);
+    },
+    [loadDemoRound],
+  );
+
+  const finishServerGame = useCallback(
+    (payload: unknown) => {
+      clearTimer();
+      serverRoundBridge.clear();
+      sessionFinalizingRef.current = false;
+      isBoardEndingRef.current = false;
+      sessionIdRef.current = null;
+      sessionStartedAtRef.current = null;
+      sessionExpiryAtRef.current = null;
+      serverStartedAtMsRef.current = null;
+      clientStartedAtMsRef.current = null;
+      currentBoardRef.current = null;
+      roundQueuesRef.current = new Map();
+      liveSessionStorage.clear();
+      setGameEndData(normalizeServerGameEndResult(payload));
+      setStatus("completed");
+      gameApiClient.reset();
+    },
+    [clearTimer],
+  );
+
+  const handleClearDataGameSession = useCallback(
+    async (source: unknown): Promise<never> => {
+      const clearDataEnvelope = extractClearDataEnvelope(source);
+      if (!clearDataEnvelope) {
+        throw source instanceof Error
+          ? source
+          : new Error(t("errors.gameApiFailed"));
+      }
+
+      if (clearDataRecoveryRef.current) {
+        throw new GameSessionClearedError(clearDataEnvelope.message);
+      }
+
+      clearDataRecoveryRef.current = true;
+      sessionFinalizingRef.current = true;
+      serverGameEndedRef.current = true;
+      isBoardEndingRef.current = true;
+      clearTimer();
+      if (batchTimerRef.current) {
+        clearInterval(batchTimerRef.current);
+        batchTimerRef.current = null;
+      }
+      serverRoundBridge.clear();
+      roundQueuesRef.current = new Map();
+      backendMutationBarrierRef.current = Promise.resolve();
+      await liveSessionStorage.clear();
+      setConnError(null);
+      setLastRoundScore(null);
+      setPhase("calculating_result");
+
+      try {
+        const finalPayload = await gameStatusMutate();
+        finishServerGame(finalPayload);
+      } catch (statusError) {
+        console.warn(
+          "[game-session] status lookup failed after clearData response",
+          statusError,
+        );
+        finishServerGame({
+          success: false,
+          statusCode: clearDataEnvelope.statusCode ?? 404,
+          message: clearDataEnvelope.message ?? t("errors.gameSessionNotFound"),
+          data: {
+            status: GAME_SESSION_STATUS.RESULT_PROCESSING,
+            completed: false,
+            score: 0,
+          },
+        });
+      }
+
+      throw new GameSessionClearedError(clearDataEnvelope.message);
+    },
+    [clearTimer, finishServerGame, gameStatusMutate, t],
+  );
+
+  const runGameApiStep = useCallback(
+    async <T,>(task: () => Promise<T>): Promise<T> => {
+      try {
+        const result = await task();
+        if (extractClearDataEnvelope(result)) {
+          return await handleClearDataGameSession(result);
+        }
+        return result;
+      } catch (err) {
+        if (err instanceof NoAuthTokenError) {
+          return null as T;
+        }
+        if (extractClearDataEnvelope(err)) {
+          return await handleClearDataGameSession(err);
+        }
+        throw err;
+      }
+    },
+    [handleClearDataGameSession],
+  );
+
+  const getRoundQueue = useCallback((roundNumber: number): RoundQueueState => {
+    let queue = roundQueuesRef.current.get(roundNumber);
+    if (!queue) {
+      queue = {
+        pendingMoves: [],
+        submitBarrier: Promise.resolve(),
+        prefetchPromise: null,
+        prefetchedBoard: null,
+        allowAsyncFinish: false,
+        endBoardPromise: null,
+      };
+      roundQueuesRef.current.set(roundNumber, queue);
+    }
+    return queue;
+  }, []);
+
+  const queueBackendMutation = useCallback(
+    function <T>(task: () => Promise<T>): Promise<T> {
+      const run = backendMutationBarrierRef.current
+        .catch(() => undefined)
+        .then(() => runGameApiStep(task));
+      backendMutationBarrierRef.current = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    },
+    [runGameApiStep],
+  );
+
+  const submitRoundMoves = useCallback(
+    (
+      roundNumber: number,
+      moves: PersistedMoveEntry[],
+      requeueOnFailure = true,
+    ) => {
+      const roundQueue = getRoundQueue(roundNumber);
+      if (moves.length === 0) return roundQueue.submitBarrier;
+
+      const submission = roundQueue.submitBarrier.then(async () => {
+        try {
+          await queueBackendMutation(() => submitMovesMutate(moves));
+          await liveSessionStorage.removePendingMoves(
+            roundNumber,
+            moves.map((move) => move.moveId),
+          );
+        } catch (error) {
+          if (isGameSessionClearedError(error)) {
+            throw error;
+          }
+          if (requeueOnFailure) {
+            roundQueue.pendingMoves.unshift(...moves);
+            syncRoundQueueToStorage(roundNumber);
+          }
+          throw error;
+        }
+      });
+
+      roundQueue.submitBarrier = submission.then(
+        () => undefined,
+        () => undefined,
+      );
+
+      return submission;
+    },
+    [
+      getRoundQueue,
+      queueBackendMutation,
+      syncRoundQueueToStorage,
+      submitMovesMutate,
+    ],
+  );
+
+  const flushRoundPendingMoves = useCallback(
+    (roundNumber: number, requeueOnFailure = true) => {
+      const roundQueue = getRoundQueue(roundNumber);
+      const moves = roundQueue.pendingMoves.splice(0);
+      if (moves.length === 0) return roundQueue.submitBarrier;
+      return submitRoundMoves(roundNumber, moves, requeueOnFailure);
+    },
+    [getRoundQueue, submitRoundMoves],
+  );
+
+  const applyNextBoard = useCallback(
+    async (data: NextBoardData) => {
+      const { roundNumber: nextRound, gridSize, arrows, id } = data;
+      const baseBoard: ServerBoard = {
+        id: id ?? "",
+        name: `Round ${nextRound}`,
+        gridSize,
+        arrows,
+      };
+      const persistedSession = await liveSessionStorage.read();
+      const removedArrowIds =
+        persistedSession?.removedArrowIdsByRound[String(nextRound)] ?? [];
+      const board = enrichBoardWithRecoveryState(
+        nextRound,
+        baseBoard,
+        removedArrowIds,
+      );
+
+      getRoundQueue(nextRound);
+      isBoardEndingRef.current = false;
+      currentBoardRef.current = board;
+      prefetchedNextBoardRef.current = null;
+      prefetchAttemptedRef.current = false;
+      currentRoundRef.current = nextRound;
+      phaseRef.current = "server_game";
+      setCurrentRound(nextRound);
+      setLastRoundScore(null);
+      setStatus("playing");
+      setPhase("server_game");
+      const roundData = { roundNumber: nextRound, board };
+      serverRoundBridge.set(roundData);
+      await persistSessionSnapshot({
+        currentRound: nextRound,
+        board,
+        phase: "server_game",
+      });
+      window.dispatchEvent(
+        new CustomEvent(GAME_EVENTS.CMD_LOAD_SERVER, { detail: roundData }),
+      );
+    },
+    [getRoundQueue, persistSessionSnapshot],
+  );
+
+  const prefetchNextBoardForRound = useCallback(
+    (roundNumber: number) => {
+      const roundQueue = getRoundQueue(roundNumber);
+      if (roundQueue.prefetchedBoard) {
+        return Promise.resolve(roundQueue.prefetchedBoard);
+      }
+      if (roundQueue.prefetchPromise) {
+        return roundQueue.prefetchPromise;
+      }
+
+      roundQueue.prefetchPromise = (async () => {
+        const fetchNextBoard = async (
+          attempt: number,
+        ): Promise<NextBoardData | null> => {
+          const response = await runGameApiStep(() => nextBoardMutate());
+          if (response.success && response.data) {
+            return response.data;
+          }
+
+          if (response.message === "NEXT_BOARD_NOT_UNLOCKED" && attempt < 4) {
+            if (attempt === 1) {
+              void flushRoundPendingMoves(roundNumber).catch(() => undefined);
+            }
+            await new Promise((resolve) =>
+              setTimeout(resolve, Math.min(300 * attempt, 900)),
+            );
+            return fetchNextBoard(attempt + 1);
+          }
+
+          return null;
+        };
+
+        const nextBoard = await fetchNextBoard(1);
+        if (!nextBoard) {
+          roundQueue.prefetchPromise = null;
+          return null;
+        }
+
+        roundQueue.prefetchedBoard = nextBoard;
+        roundQueue.allowAsyncFinish = true;
+        if (currentRoundRef.current === roundNumber) {
+          prefetchedNextBoardRef.current = nextBoard;
+        }
+        return nextBoard;
+      })().catch((error) => {
+        roundQueue.prefetchPromise = null;
+        throw error;
+      });
+
+      return roundQueue.prefetchPromise;
+    },
+    [flushRoundPendingMoves, getRoundQueue, nextBoardMutate, runGameApiStep],
+  );
+
+  const scheduleRoundEnd = useCallback(
+    (roundNumber: number) => {
+      const roundQueue = getRoundQueue(roundNumber);
+      if (roundQueue.endBoardPromise) {
+        return roundQueue.endBoardPromise;
+      }
+
+      const endPromise = roundQueue.submitBarrier.then(() =>
+        queueBackendMutation(() => endBoardMutate()),
+      );
+      roundQueue.endBoardPromise = endPromise;
+      return endPromise;
+    },
+    [getRoundQueue, queueBackendMutation, endBoardMutate],
+  );
+
+  const flushAllRoundQueues = useCallback(async () => {
+    const roundNumbers = Array.from(roundQueuesRef.current.keys()).sort(
+      (left, right) => left - right,
+    );
+
+    for (const roundNumber of roundNumbers) {
+      await flushRoundPendingMoves(roundNumber);
+    }
+
+    await backendMutationBarrierRef.current;
+  }, [flushRoundPendingMoves]);
+
+  const endQueuedBoardsSequentially =
+    useCallback(async (): Promise<boolean> => {
+      const roundNumbers = Array.from(roundQueuesRef.current.keys()).sort(
+        (left, right) => left - right,
+      );
+
+      let lastGameOver = false;
+      for (const roundNumber of roundNumbers) {
+        const queue = roundQueuesRef.current.get(roundNumber);
+        if (!queue) continue;
+
+        await queue.submitBarrier;
+        const endResp = await scheduleRoundEnd(roundNumber);
+        if (endResp?.data?.gameOver) {
+          lastGameOver = true;
+        }
+        clearRoundPersistence(roundNumber);
+        roundQueuesRef.current.delete(roundNumber);
+      }
+
+      await backendMutationBarrierRef.current;
+      return lastGameOver;
+    }, [clearRoundPersistence, scheduleRoundEnd]);
+
+  const fetchFinalGameStatus = useCallback(
+    () => gameStatusMutate() as Promise<GameStatusResponse>,
+    [gameStatusMutate],
+  );
+
+  const fetchFinalGameStatusAfterEnd =
+    useCallback(async (): Promise<unknown> => {
+      try {
+        return await fetchFinalGameStatus();
+      } catch (statusError) {
+        console.warn(
+          "[expiry] Final status failed after end-game; falling back to game-start",
+          statusError,
+        );
+        return runGameApiStep(() => gameStartMutate(sessionStageIdRef.current));
+      }
+    }, [fetchFinalGameStatus, gameStartMutate, runGameApiStep]);
+
+  const endGameOnBackend = useCallback(
+    () => runGameApiStep(() => endGameMutate()),
+    [endGameMutate, runGameApiStep],
+  );
+
+  const retryBackendStep = useCallback(
+    async <T,>(label: string, task: () => Promise<T>): Promise<T> => {
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          return await task();
+        } catch (err) {
+          lastError = err;
+          console.warn(`[expiry] ${label} failed on attempt ${attempt}`, err);
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+      }
+      throw lastError;
+    },
+    [],
+  );
+
+  const finalizeBackendExpiredSession = useCallback(async () => {
+    const activeRoundNumber = currentRoundRef.current;
+    if (
+      activeRoundNumber !== null &&
+      !roundQueuesRef.current.has(activeRoundNumber)
+    ) {
+      getRoundQueue(activeRoundNumber);
+    }
+
+    await retryBackendStep("flush moves", flushAllRoundQueues);
+    const lastBoardEndedGame = await retryBackendStep(
+      "end queued boards",
+      endQueuedBoardsSequentially,
+    );
+    if (!lastBoardEndedGame) {
+      await retryBackendStep("end game", endGameOnBackend);
+    }
+  }, [
+    endGameOnBackend,
+    endQueuedBoardsSequentially,
+    flushAllRoundQueues,
+    getRoundQueue,
+    retryBackendStep,
+  ]);
+
+  const finalizeExpiredSession = useCallback(async () => {
+    if (sessionFinalizingRef.current || status === "completed") return;
+    sessionFinalizingRef.current = true;
+    serverGameEndedRef.current = true;
+    isBoardEndingRef.current = true;
+    clearTimer();
+    if (batchTimerRef.current) {
+      clearInterval(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
+    setPhase("calculating_result");
+    setLastRoundScore(null);
+
+    try {
+      await finalizeBackendExpiredSession();
+    } catch (err) {
+      if (isGameSessionClearedError(err)) return;
+      sessionFinalizingRef.current = false;
+      isBoardEndingRef.current = false;
+      setConnError(
+        err instanceof Error
+          ? err.message
+          : t("errors.failedFinalizeExpiredSession"),
+      );
+      setPhase("start");
+      return;
+    }
+
+    try {
+      const finalPayload = await fetchFinalGameStatusAfterEnd();
+      persistSessionSnapshot({ lastStatusPayload: finalPayload });
+      finishServerGame(finalPayload);
+    } catch (err) {
+      if (isGameSessionClearedError(err)) return;
+      sessionFinalizingRef.current = false;
+      isBoardEndingRef.current = false;
+      setConnError(
+        err instanceof Error
+          ? err.message
+          : t("errors.failedFinalizeExpiredSession"),
+      );
+      setPhase("start");
+      gameApiClient.reset();
+    }
+  }, [
+    clearTimer,
+    fetchFinalGameStatusAfterEnd,
+    finishServerGame,
+    finalizeBackendExpiredSession,
+    persistSessionSnapshot,
+    status,
+    t,
+  ]);
+
+  const hydrateQueuesFromPersistedSession = useCallback(
+    (persistedSession: PersistedLiveSession) => {
+      roundQueuesRef.current = new Map();
+      backendMutationBarrierRef.current = Promise.resolve();
+
+      for (const [roundKey, moves] of Object.entries(
+        persistedSession.pendingMovesByRound,
+      )) {
+        const roundNumber = Number(roundKey);
+        const queue = getRoundQueue(roundNumber);
+        queue.pendingMoves = [...moves];
+      }
+
+      if (persistedSession.currentRound !== null) {
+        getRoundQueue(persistedSession.currentRound);
+      }
+    },
+    [getRoundQueue],
+  );
+
+  const finalizePersistedExpiredSession = useCallback(
+    async (persistedSession: PersistedLiveSession) => {
+      gameApiClient.setToken(persistedSession.token);
+      sessionStageIdRef.current = persistedSession.stageId || DEFAULT_STAGE_ID;
+      sessionIdRef.current = persistedSession.sessionId;
+      sessionStartedAtRef.current = persistedSession.startedAt;
+      anchorSessionClock(
+        persistedSession.startedAt,
+        persistedSession.clientStartedAtMs,
+      );
+      sessionExpiryAtRef.current = persistedSession.expiryAt;
+      currentRoundRef.current = persistedSession.currentRound;
+      totalRoundsRef.current = persistedSession.totalRounds;
+      currentBoardRef.current = persistedSession.board;
+      hydrateQueuesFromPersistedSession(persistedSession);
+
+      sessionFinalizingRef.current = true;
+      serverGameEndedRef.current = true;
+      isBoardEndingRef.current = true;
+      clearTimer();
+      if (batchTimerRef.current) {
+        clearInterval(batchTimerRef.current);
+        batchTimerRef.current = null;
+      }
+      setPhase("calculating_result");
+      setLastRoundScore(null);
+
+      await finalizeBackendExpiredSession();
+      const finalPayload = await fetchFinalGameStatusAfterEnd();
+      persistSessionSnapshot({ lastStatusPayload: finalPayload });
+      finishServerGame(finalPayload);
+    },
+    [
+      anchorSessionClock,
+      clearTimer,
+      fetchFinalGameStatusAfterEnd,
+      finalizeBackendExpiredSession,
+      finishServerGame,
+      hydrateQueuesFromPersistedSession,
+      persistSessionSnapshot,
+    ],
+  );
+
+  const isPersistedSessionExpired = useCallback(
+    (persistedSession: PersistedLiveSession | null) => {
+      return isExpiryReached(persistedSession?.expiryAt);
+    },
+    [],
+  );
+
+  // ── handleServerBoardComplete ─────────────────────────────────────────────
+  const handleServerBoardComplete = useCallback(async () => {
+    if (serverGameEndedRef.current || isBoardEndingRef.current) return;
+    const roundNumber = currentRoundRef.current;
+    if (roundNumber === null) return;
+    const isFinalRound =
+      totalRoundsRef.current !== null && roundNumber >= totalRoundsRef.current;
+    isBoardEndingRef.current = true;
+
+    if (batchTimerRef.current) {
+      clearInterval(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
+
+    const failRound = (message: string) => {
+      if (clearDataRecoveryRef.current) return;
+      sessionFinalizingRef.current = false;
+      isBoardEndingRef.current = false;
+      roundQueuesRef.current.delete(roundNumber);
+      clearRoundPersistence(roundNumber);
+      prefetchedNextBoardRef.current = null;
+      prefetchAttemptedRef.current = false;
+      setConnError(message);
+      setPhase("start");
+      gameApiClient.reset();
+    };
+
+    const handleGameOver = async (endResp: EndBoardResponse) => {
+      sessionFinalizingRef.current = true;
+      serverGameEndedRef.current = true;
+      clearTimer();
+      let finalPayload: unknown = endResp;
+      try {
+        finalPayload = await fetchFinalGameStatus();
+        persistSessionSnapshot({ lastStatusPayload: finalPayload });
+      } catch {
+        // fall back to endBoard data
+      }
+      setTimeout(() => finishServerGame(finalPayload), GAME_END_DELAY_MS);
+    };
+
+    const roundQueue = getRoundQueue(roundNumber);
+    let prefetchedBoard =
+      roundQueue.prefetchedBoard ?? prefetchedNextBoardRef.current;
+
+    if (isFinalRound) {
+      setPhase("calculating_result");
+      setLastRoundScore(null);
+
+      try {
+        await flushRoundPendingMoves(roundNumber);
+      } catch (err) {
+        if (isGameSessionClearedError(err)) return;
+        // keep calculating UI visible while remaining queue work retries/settles
+      }
+
+      let endResp: EndBoardResponse;
+      try {
+        endResp = await scheduleRoundEnd(roundNumber);
+      } catch (err) {
+        if (isGameSessionClearedError(err)) return;
+        failRound(
+          err instanceof Error ? err.message : t("errors.failedEndBoard"),
+        );
+        return;
+      }
+
+      roundQueuesRef.current.delete(roundNumber);
+      clearRoundPersistence(roundNumber);
+      if (!endResp.success || !endResp.data) {
+        failRound(endResp.message ?? t("errors.boardEndFailed"));
+        return;
+      }
+
+      setLastRoundScore(endResp.data.roundScore);
+      await handleGameOver(endResp);
+      return;
+    }
+
+    if (!prefetchedBoard && roundQueue.prefetchPromise) {
+      try {
+        prefetchedBoard = await roundQueue.prefetchPromise;
+      } catch {
+        prefetchedBoard = null;
+      }
+    }
+
+    if (prefetchedBoard && roundQueue.allowAsyncFinish) {
+      void flushRoundPendingMoves(roundNumber).catch(() => undefined);
+      void scheduleRoundEnd(roundNumber)
+        .then(async (endResp) => {
+          roundQueuesRef.current.delete(roundNumber);
+          clearRoundPersistence(roundNumber);
+          if (!endResp.success || !endResp.data) {
+            failRound(endResp.message ?? t("errors.boardEndFailed"));
+            return;
+          }
+          if (endResp.data.gameOver) {
+            await handleGameOver(endResp);
+          }
+        })
+        .catch((err) => {
+          if (isGameSessionClearedError(err)) return;
+          failRound(
+            err instanceof Error ? err.message : t("errors.failedEndBoard"),
+          );
+        });
+
+      setTimeout(() => {
+        if (serverGameEndedRef.current) return;
+        void applyNextBoard(prefetchedBoard).catch((err) => {
+          failRound(
+            err instanceof Error ? err.message : t("errors.failedLoadBoard"),
+          );
+        });
+      }, NEXT_BOARD_DELAY_MS);
+      return;
+    }
+
+    try {
+      await flushRoundPendingMoves(roundNumber);
+    } catch (err) {
+      if (isGameSessionClearedError(err)) return;
+      // best-effort flush before end-board; endBoard remains the source of truth
+    }
+
+    let endResp: EndBoardResponse;
+    try {
+      endResp = await scheduleRoundEnd(roundNumber);
+    } catch (err) {
+      if (isGameSessionClearedError(err)) return;
+      failRound(
+        err instanceof Error ? err.message : t("errors.failedEndBoard"),
+      );
+      return;
+    }
+
+    roundQueuesRef.current.delete(roundNumber);
+    clearRoundPersistence(roundNumber);
+    if (!endResp.success || !endResp.data) {
+      failRound(endResp.message ?? t("errors.boardEndFailed"));
+      return;
+    }
+
+    const { roundScore, gameOver } = endResp.data;
+    setLastRoundScore(roundScore);
+    setPhase("waiting_round");
+
+    if (gameOver) {
+      await handleGameOver(endResp);
+    }
+  }, [
+    applyNextBoard,
+    clearRoundPersistence,
+    clearTimer,
+    fetchFinalGameStatus,
+    finishServerGame,
+    flushRoundPendingMoves,
+    getRoundQueue,
+    persistSessionSnapshot,
+    scheduleRoundEnd,
+    t,
+  ]);
+
+  // ── Phaser event listeners ─────────────────────────────────────────────────
+  useEffect(() => {
+    const onLevelLoading = () => {
+      if (boardReadyRafRef.current !== null) {
+        cancelAnimationFrame(boardReadyRafRef.current);
+        boardReadyRafRef.current = null;
+      }
+      setIsLevelLoading(true);
+      setIsBoardReadyForHints(false);
+    };
+    const onLoad = (e: Event) => {
+      setIsLevelLoading(false);
+      setIsBoardReadyForHints(false);
+      if (serverGameEndedRef.current) return;
+      const d = (e as CustomEvent).detail;
+      setHints(d.hints ?? 3);
+      setStatus("playing");
+      setZoom(DEFAULT_ZOOM);
+      if (d && d.cameraZoom != null) {
+        setLiveZoom(d.cameraZoom);
+      }
+      demoRemainingRef.current = Infinity;
+      demoMessageRef.current = "hint";
+      setDemoMessage("hint");
+    };
+    const onHints = (e: Event) => setHints((e as CustomEvent).detail);
+    const onBoardReady = () => {
+      boardReadyRafRef.current = requestAnimationFrame(() => {
+        boardReadyRafRef.current = requestAnimationFrame(() => {
+          boardReadyRafRef.current = null;
+          setIsBoardReadyForHints(true);
+        });
+      });
+    };
+    const onWin = (e: Event) => {
+      setLevelCompleteBurst(true);
+      if (levelCompleteBurstTimerRef.current) {
+        clearTimeout(levelCompleteBurstTimerRef.current);
+      }
+      levelCompleteBurstTimerRef.current = setTimeout(() => {
+        setLevelCompleteBurst(false);
+        levelCompleteBurstTimerRef.current = null;
+      }, 2300);
+
+      if (phaseRef.current === "tutorial") {
+        if (demoMessageTimerRef.current) {
+          clearTimeout(demoMessageTimerRef.current);
+          demoMessageTimerRef.current = null;
+        }
+        setDemoShakeKey((k) => k + 1);
+      }
+
+      if (serverGameEndedRef.current) return;
+      if (phaseRef.current === "server_game") {
+        void handleServerBoardComplete();
+        return;
+      }
+      if (phaseRef.current === "waiting_round") return;
+
+      const d = (e as CustomEvent).detail;
+      if (phaseRef.current === "tutorial" && (d === 0 || d == null)) {
+        clearTutorialAdvanceTimeout();
+        const nextDemoRoundIndex = demoRoundIndexRef.current + 1;
+        const hasNextDemoRound =
+          nextDemoRoundIndex < demoBoardsRef.current.length;
+        if (hasNextDemoRound) {
+          tutorialAdvanceTimeoutRef.current = setTimeout(() => {
+            tutorialAdvanceTimeoutRef.current = null;
+            loadDemoRound(nextDemoRoundIndex);
+          }, NEXT_BOARD_DELAY_MS);
+          return;
+        }
+
+        // Demo complete — show completion alert, then redirect to start screen.
+        setShowDemoCompleteModal(true);
+        return;
+      }
+
+      setStatus("won");
+    };
+    const onGameOver = () => {
+      if (serverGameEndedRef.current) return;
+      if (phaseRef.current === "server_game") {
+        void handleServerBoardComplete();
+        return;
+      }
+      if (phaseRef.current === "waiting_round") return;
+      setStatus("gameover");
+    };
+
+    window.addEventListener(GAME_EVENTS.LEVEL_LOADING, onLevelLoading);
+    window.addEventListener(GAME_EVENTS.LEVEL_LOAD, onLoad);
+    window.addEventListener(GAME_EVENTS.BOARD_READY, onBoardReady);
+    window.addEventListener(GAME_EVENTS.HINTS, onHints);
+    window.addEventListener(GAME_EVENTS.WIN, onWin);
+    window.addEventListener(GAME_EVENTS.GAMEOVER, onGameOver);
+    return () => {
+      window.removeEventListener(GAME_EVENTS.LEVEL_LOADING, onLevelLoading);
+      window.removeEventListener(GAME_EVENTS.LEVEL_LOAD, onLoad);
+      window.removeEventListener(GAME_EVENTS.BOARD_READY, onBoardReady);
+      window.removeEventListener(GAME_EVENTS.HINTS, onHints);
+      window.removeEventListener(GAME_EVENTS.WIN, onWin);
+      window.removeEventListener(GAME_EVENTS.GAMEOVER, onGameOver);
+      if (boardReadyRafRef.current !== null) {
+        cancelAnimationFrame(boardReadyRafRef.current);
+        boardReadyRafRef.current = null;
+      }
+      if (levelCompleteBurstTimerRef.current) {
+        clearTimeout(levelCompleteBurstTimerRef.current);
+        levelCompleteBurstTimerRef.current = null;
+      }
+    };
+  }, [
+    clearTutorialAdvanceTimeout,
+    finishDemo,
+    handleServerBoardComplete,
+    loadDemoRound,
+    setZoom,
+    setLiveZoom,
+  ]);
+
+  useEffect(() => {
+    const applyZoom = () => {
+      gameRef.current?.setZoom(zoom);
+    };
+
+    applyZoom();
+    window.addEventListener(GAME_EVENTS.SCENE_READY, applyZoom);
+
+    return () => {
+      window.removeEventListener(GAME_EVENTS.SCENE_READY, applyZoom);
+    };
+  }, [zoom]);
+
+  useEffect(() => {
+    const onGlow = () => {
+      setCollisionGlow(true);
+      if (collisionGlowTimerRef.current)
+        clearTimeout(collisionGlowTimerRef.current);
+      collisionGlowTimerRef.current = setTimeout(
+        () => setCollisionGlow(false),
+        600,
+      );
+      if (phaseRef.current === "tutorial") {
+        demoMessageRef.current = "wrong";
+        setDemoMessage("wrong");
+        setDemoShakeKey((k) => k + 1);
+      }
+    };
+    window.addEventListener(GAME_EVENTS.COLLISION_GLOW, onGlow);
+    return () => {
+      window.removeEventListener(GAME_EVENTS.COLLISION_GLOW, onGlow);
+      if (collisionGlowTimerRef.current)
+        clearTimeout(collisionGlowTimerRef.current);
+      if (demoMessageTimerRef.current)
+        clearTimeout(demoMessageTimerRef.current);
+    };
+  }, []);
+
+  // load saved volumes on mount
+  useEffect(() => {
+    void (async () => {
+      const savedMusic = await storage.get<number>(MUSIC_VOL_KEY);
+      const savedSfx = await storage.get<number>(SFX_VOL_KEY);
+      if (savedMusic !== null) setMusicVol(savedMusic);
+      if (savedSfx !== null) setSfxVol(savedSfx);
+    })();
+  }, []);
+
+  // re-apply volumes whenever the Phaser scene re-mounts
+  useEffect(() => {
+    const applyVolumes = () => {
+      window.dispatchEvent(
+        new CustomEvent(GAME_EVENTS.CMD_SET_MUSIC_VOL, { detail: musicVol }),
+      );
+      window.dispatchEvent(
+        new CustomEvent(GAME_EVENTS.CMD_SET_SFX_VOL, { detail: sfxVol }),
+      );
+    };
+    window.addEventListener(GAME_EVENTS.SCENE_READY, applyVolumes);
+    return () =>
+      window.removeEventListener(GAME_EVENTS.SCENE_READY, applyVolumes);
+  }, [musicVol, sfxVol]);
+
+  // close settings panel on outside click
+  useEffect(() => {
+    if (!showSettings) return;
+    const close = () => setShowSettings(false);
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [showSettings]);
+
+  // ── Tutorial hint overlay: sync liveZoom from Phaser camerazoomchanged ────
+  useEffect(() => {
+    const onCameraZoom = (e: Event) => {
+      const zoomVal = (e as CustomEvent).detail as number;
+      setLiveZoom(zoomVal);
+    };
+    window.addEventListener("arrowgame:camerazoomchanged", onCameraZoom);
+    return () => window.removeEventListener("arrowgame:camerazoomchanged", onCameraZoom);
+  }, []);
+
+  // ── Tutorial hint overlay: update hintBoard when an arrow is cleared ───────
+  useEffect(() => {
+    if (phase !== "tutorial") return;
+    const onCleared = (e: Event) => {
+      const pos = (e as CustomEvent).detail as GridPos;
+      setDemoHintMovesShown((prev) => Math.min(3, prev + 1));
+      const board = currentBoardRef.current;
+      if (!board) return;
+      // find and mark removed
+      const arrowId = findArrowIdByHeadPos(0, board, pos);
+      if (arrowId) {
+        const updated = markBoardArrowRemoved(0, board, arrowId);
+        currentBoardRef.current = updated;
+        setHintBoard({ ...updated });
+      }
+      // Revert wrong-move banner on successful arrow clear
+      if (demoMessageRef.current === "wrong") {
+        demoMessageRef.current = "hint";
+        setDemoMessage("hint");
+        setDemoShakeKey((k) => k + 1);
+        // ARROWS_PROGRESS fires right after and will upgrade to "few" if needed
+      }
+    };
+    window.addEventListener(GAME_EVENTS.ARROW_CLEARED, onCleared);
+    return () => window.removeEventListener(GAME_EVENTS.ARROW_CLEARED, onCleared);
+  }, [phase]);
+
+  // ── Tutorial hint overlay: seed hintBoard when demo round loads ───────────
+  useEffect(() => {
+    if (phase === "tutorial" && currentBoardRef.current) {
+      setHintBoard({ ...currentBoardRef.current });
+      setLiveZoom(1.0); // reset zoom approximation on new round
+    } else if (phase !== "tutorial") {
+      setHintBoard(null);
+    }
+  }, [phase]);
+
+  // ── buffer arrow clicks for batch submission ──────────────────────────────
+  useEffect(() => {
+    if (phase !== "server_game") return;
+
+    const onArrowClicked = (e: Event) => {
+      if (serverGameEndedRef.current || isBoardEndingRef.current) return;
+      const roundNumber = currentRoundRef.current;
+      if (roundNumber === null) return;
+      const pos = (e as CustomEvent).detail as GridPos;
+      const clickedAt = getServerAnchoredTimestamp();
+      const move: PersistedMoveEntry = {
+        x: pos.x,
+        y: pos.y,
+        clickedAt,
+        moveId: generateMoveId(),
+      };
+      const queue = getRoundQueue(roundNumber);
+      queue.pendingMoves.push(move);
+      void liveSessionStorage.appendPendingMove(roundNumber, move);
+    };
+
+    const onArrowCleared = (e: Event) => {
+      if (serverGameEndedRef.current) return;
+      const roundNumber = currentRoundRef.current;
+      if (roundNumber === null) return;
+      const pos = (e as CustomEvent).detail as GridPos;
+      const arrowId = findArrowIdByHeadPos(
+        roundNumber,
+        currentBoardRef.current,
+        pos,
+      );
+      if (arrowId) {
+        if (currentBoardRef.current) {
+          currentBoardRef.current = markBoardArrowRemoved(
+            roundNumber,
+            currentBoardRef.current,
+            arrowId,
+          );
+        }
+        void liveSessionStorage.addRemovedArrow(roundNumber, arrowId);
+      }
+      persistSessionSnapshot({
+        board: currentBoardRef.current,
+        phase: "server_game",
+      });
+    };
+
+    window.addEventListener(GAME_EVENTS.ARROW_CLICKED, onArrowClicked);
+    window.addEventListener(GAME_EVENTS.ARROW_CLEARED, onArrowCleared);
+    return () => {
+      window.removeEventListener(GAME_EVENTS.ARROW_CLICKED, onArrowClicked);
+      window.removeEventListener(GAME_EVENTS.ARROW_CLEARED, onArrowCleared);
+    };
+  }, [
+    getRoundQueue,
+    getServerAnchoredTimestamp,
+    phase,
+    persistSessionSnapshot,
+  ]);
+
+  // ── pre-fetch next board at 80% completion ───────────────────────────────
+  useEffect(() => {
+    if (phase !== "server_game") return;
+
+    const onProgress = (e: Event) => {
+      const { remaining, total } = (e as CustomEvent).detail as {
+        remaining: number;
+        total: number;
+      };
+      const completionRatio = total > 0 ? (total - remaining) / total : 0;
+      if (
+        total > 0 &&
+        completionRatio >= FETCH_NEXT_ROUND_THRESOLD &&
+        !prefetchAttemptedRef.current &&
+        !serverGameEndedRef.current &&
+        !isBoardEndingRef.current
+      ) {
+        const roundNumber = currentRoundRef.current;
+        if (
+          roundNumber === null ||
+          (totalRoundsRef.current !== null &&
+            roundNumber >= totalRoundsRef.current)
+        ) {
+          return;
+        }
+        prefetchAttemptedRef.current = true;
+
+        (async () => {
+          try {
+            const board = await prefetchNextBoardForRound(roundNumber);
+            if (!board) {
+              prefetchAttemptedRef.current = false;
+            }
+          } catch {
+            prefetchAttemptedRef.current = false;
+          }
+        })();
+      }
+    };
+
+    window.addEventListener(GAME_EVENTS.ARROWS_PROGRESS, onProgress);
+    return () =>
+      window.removeEventListener(GAME_EVENTS.ARROWS_PROGRESS, onProgress);
+  }, [phase, prefetchNextBoardForRound]);
+
+  // ── tutorial demo message: track remaining arrows for "few left" banner ────
+  useEffect(() => {
+    if (phase !== "tutorial") return;
+    const onProgress = (e: Event) => {
+      const { remaining } = (e as CustomEvent).detail as {
+        remaining: number;
+        total: number;
+      };
+      demoRemainingRef.current = remaining;
+      if (
+        remaining > 0 &&
+        remaining < 6 &&
+        demoMessageRef.current !== "wrong"
+      ) {
+        if (demoMessageRef.current !== "few") {
+          demoMessageRef.current = "few";
+          setDemoMessage("few");
+          setDemoShakeKey((k) => k + 1);
+        }
+      }
+    };
+    window.addEventListener(GAME_EVENTS.ARROWS_PROGRESS, onProgress);
+    return () =>
+      window.removeEventListener(GAME_EVENTS.ARROWS_PROGRESS, onProgress);
+  }, [phase]);
+
+  // ── 5-second move batch timer ─────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== "server_game") return;
+
+    const timer = setInterval(() => {
+      const roundNumber = currentRoundRef.current;
+      if (roundNumber === null) return;
+      void flushRoundPendingMoves(roundNumber).catch(() => undefined);
+    }, MOVE_BATCH_INTERVAL_MS);
+
+    batchTimerRef.current = timer;
+    return () => {
+      clearInterval(timer);
+      batchTimerRef.current = null;
+    };
+  }, [flushRoundPendingMoves, phase]);
+
+  // ── next-board loader (fires when waiting_round with a round score) ────────
+  useEffect(() => {
+    if (
+      phase !== "waiting_round" ||
+      lastRoundScore === null ||
+      serverGameEndedRef.current ||
+      (currentRoundRef.current !== null &&
+        totalRoundsRef.current !== null &&
+        currentRoundRef.current >= totalRoundsRef.current)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const loadNextBoard = async (attempt: number) => {
+      if (cancelled || serverGameEndedRef.current) return;
+
+      // Use pre-fetched board if the background fetch already completed
+      if (prefetchedNextBoardRef.current) {
+        applyNextBoard(prefetchedNextBoardRef.current);
+        return;
+      }
+
+      let nextResp: NextBoardResponse;
+      try {
+        nextResp = await runGameApiStep(() => nextBoardMutate());
+      } catch (err) {
+        if (cancelled) return;
+        if (isGameSessionClearedError(err)) return;
+        setConnError(
+          err instanceof Error ? err.message : t("errors.failedLoadNextBoard"),
+        );
+        setPhase("start");
+        gameApiClient.reset();
+        return;
+      }
+
+      if (cancelled) return;
+
+      // Server hasn't unlocked the next board yet — retry with backoff
+      if (
+        !nextResp.success &&
+        nextResp.message === "NEXT_BOARD_NOT_UNLOCKED" &&
+        attempt < 10
+      ) {
+        const delay = Math.min(1000 * attempt, 5000);
+        retryTimeout = setTimeout(() => loadNextBoard(attempt + 1), delay);
+        return;
+      }
+
+      if (!nextResp.success || !nextResp.data) {
+        setConnError(nextResp.message ?? t("errors.failedLoadNextBoard"));
+        setPhase("start");
+        gameApiClient.reset();
+        return;
+      }
+
+      applyNextBoard(nextResp.data);
+    };
+
+    // Initial delay to show GREAT! screen, then attempt to load next board
+    retryTimeout = setTimeout(() => loadNextBoard(1), NEXT_BOARD_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
+  }, [
+    applyNextBoard,
+    phase,
+    lastRoundScore,
+    nextBoardMutate,
+    runGameApiStep,
+    t,
+  ]);
+
+  // ── countdown timer (server game) ─────────────────────────────────────────
+  const startTimerToExpiry = useCallback(
+    (expiryAt?: string, startedAt?: string | null) => {
+      const expiryTime = expiryAt ? new Date(expiryAt).getTime() : NaN;
+      if (Number.isNaN(expiryTime)) {
+        clearTimer();
+        timerOriginPerfRef.current = null;
+        timerInitialRemainingMsRef.current = null;
+        setTimerSeconds(0);
+        return;
+      }
+
+      const startedTime = startedAt ? new Date(startedAt).getTime() : NaN;
+      const sessionDurationMs = Number.isNaN(startedTime)
+        ? null
+        : Math.max(0, expiryTime - startedTime);
+      const wallClockRemainingMs = Math.max(0, expiryTime - Date.now());
+      const initialRemainingMs =
+        sessionDurationMs === null
+          ? wallClockRemainingMs
+          : Math.min(wallClockRemainingMs, sessionDurationMs);
+      const getRemainingSeconds = () => {
+        if (
+          timerOriginPerfRef.current === null ||
+          timerInitialRemainingMsRef.current === null
+        ) {
+          return 0;
+        }
+        const elapsedMs = performance.now() - timerOriginPerfRef.current;
+        return Math.max(
+          0,
+          Math.ceil((timerInitialRemainingMsRef.current - elapsedMs) / 1000),
+        );
+      };
+
+      clearTimer();
+      timerOriginPerfRef.current = performance.now();
+      timerInitialRemainingMsRef.current = initialRemainingMs;
+      const initialRemainingSeconds = getRemainingSeconds();
+      setTimerSeconds(initialRemainingSeconds);
+      if (initialRemainingSeconds <= 0) {
+        if (
+          phaseRef.current === "server_game" ||
+          phaseRef.current === "waiting_round"
+        ) {
+          if (navigator.onLine) {
+            void finalizeExpiredSession();
+          }
+          // Offline: session preserved, offline modal already visible.
+          // Retry → recoverServerGame() detects expired session and finalizes.
+        }
+        return;
+      }
+      timerRef.current = setInterval(() => {
+        const remainingSeconds = getRemainingSeconds();
+        if (remainingSeconds <= 0) {
+          clearTimer();
+          setTimerSeconds(0);
+          if (
+            phaseRef.current === "server_game" ||
+            phaseRef.current === "waiting_round"
+          ) {
+            if (navigator.onLine) {
+              void finalizeExpiredSession();
+            }
+            // Offline: session preserved, offline modal already visible.
+            // Retry → recoverServerGame() detects expired session and finalizes.
+          }
+          return;
+        }
+        setTimerSeconds(remainingSeconds);
+      }, 1000);
+    },
+    [clearTimer, finalizeExpiredSession],
+  );
+
+  const recoverServerGame = useCallback(async () => {
+    const persistedSession = await liveSessionStorage.read();
+    if (
+      recoveryInFlightRef.current ||
+      !persistedSession ||
+      !persistedSession.token ||
+      !isOnline ||
+      status === "completed"
+    ) {
+      return;
+    }
+
+    recoveryInFlightRef.current = true;
+    recoveryAttemptedRef.current = true;
+    serverGameEndedRef.current = false;
+    sessionFinalizingRef.current = false;
+    isBoardEndingRef.current = false;
+    setConnError(null);
+    setGameEndData(null);
+    setStatus("playing");
+    setPhase("connecting");
+
+    sessionStageIdRef.current = persistedSession.stageId || DEFAULT_STAGE_ID;
+    sessionIdRef.current = persistedSession.sessionId;
+    sessionStartedAtRef.current = persistedSession.startedAt;
+    anchorSessionClock(
+      persistedSession.startedAt,
+      persistedSession.clientStartedAtMs,
+    );
+    sessionExpiryAtRef.current = persistedSession.expiryAt;
+    currentRoundRef.current = persistedSession.currentRound;
+    totalRoundsRef.current = persistedSession.totalRounds;
+    currentBoardRef.current = persistedSession.board;
+
+    hydrateQueuesFromPersistedSession(persistedSession);
+    prefetchedNextBoardRef.current = null;
+    prefetchAttemptedRef.current = false;
+
+    gameApiClient.setToken(persistedSession.token);
+
+    if (isPersistedSessionExpired(persistedSession)) {
+      try {
+        await finalizePersistedExpiredSession(persistedSession);
+        recoveryInFlightRef.current = false;
+      } catch (err) {
+        recoveryInFlightRef.current = false;
+        if (isGameSessionClearedError(err)) return;
+        sessionFinalizingRef.current = false;
+        isBoardEndingRef.current = false;
+        setConnError(
+          err instanceof Error
+            ? err.message
+            : t("errors.failedFinalizeExpiredSession"),
+        );
+        setPhase("start");
+      }
+      return;
+    }
+
+    let startResp;
+    try {
+      startResp = await runGameApiStep(() =>
+        gameStartMutate(sessionStageIdRef.current),
+      );
+    } catch (err) {
+      recoveryInFlightRef.current = false;
+      if (isGameSessionClearedError(err)) return;
+      setConnError(
+        err instanceof Error ? err.message : t("errors.failedRestoreLiveGame"),
+      );
+      setPhase("start");
+      return;
+    }
+
+    // RESULT_PROCESSING can arrive while local storage still has unsent moves.
+    // Flush local telemetry before asking the backend for the final result.
+    const recoveryRespStatus =
+      (startResp.data as { status?: number } | undefined)?.status ??
+      startResp.statusCode;
+    if (
+      recoveryRespStatus === GAME_SESSION_STATUS.EXPIRED ||
+      recoveryRespStatus === GAME_SESSION_STATUS.RESULT_PROCESSING
+    ) {
+      try {
+        await finalizePersistedExpiredSession(persistedSession);
+        recoveryInFlightRef.current = false;
+      } catch (err) {
+        recoveryInFlightRef.current = false;
+        if (isGameSessionClearedError(err)) return;
+        sessionFinalizingRef.current = false;
+        isBoardEndingRef.current = false;
+        setConnError(
+          err instanceof Error
+            ? err.message
+            : t("errors.failedFinalizeExpiredSession"),
+        );
+        setPhase("start");
+      }
+      return;
+    }
+
+    if (recoveryRespStatus === GAME_SESSION_STATUS.ENDED) {
+      recoveryInFlightRef.current = false;
+      try {
+        const finalPayload = await fetchFinalGameStatus();
+        finishServerGame(finalPayload);
+      } catch {
+        finishServerGame({
+          success: false,
+          message: startResp.message,
+          data: startResp.data,
+        });
+      }
+      return;
+    }
+
+    if (!startResp.success || !startResp.data) {
+      recoveryInFlightRef.current = false;
+      setConnError(startResp.message ?? t("errors.failedRestoreLiveGame"));
+      setPhase("start");
+      return;
+    }
+
+    const {
+      expiryAt,
+      totalRounds,
+      board: boardData,
+      sessionId,
+      startedAt,
+    } = startResp.data;
+    const recoveredExpiryAt = expiryAt ?? persistedSession.expiryAt;
+    if (isExpiryReached(recoveredExpiryAt)) {
+      try {
+        await finalizePersistedExpiredSession(persistedSession);
+        recoveryInFlightRef.current = false;
+      } catch (err) {
+        recoveryInFlightRef.current = false;
+        if (isGameSessionClearedError(err)) return;
+        sessionFinalizingRef.current = false;
+        isBoardEndingRef.current = false;
+        setConnError(
+          err instanceof Error
+            ? err.message
+            : t("errors.failedFinalizeExpiredSession"),
+        );
+        setPhase("start");
+      }
+      return;
+    }
+
+    const { roundNumber, ...boardFields } = boardData;
+    const baseBoard: ServerBoard = {
+      id: boardFields.id ?? "",
+      name: boardFields.name ?? `Round ${roundNumber}`,
+      gridSize: boardFields.gridSize,
+      arrows: boardFields.arrows,
+    };
+    const removedArrowIds =
+      persistedSession.removedArrowIdsByRound[String(roundNumber)] ?? [];
+    const board = enrichBoardWithRecoveryState(
+      roundNumber,
+      baseBoard,
+      removedArrowIds,
+    );
+
+    sessionIdRef.current = sessionId ?? persistedSession.sessionId;
+    const recoveredStartedAt = startedAt ?? persistedSession.startedAt;
+    sessionStartedAtRef.current = recoveredStartedAt;
+    anchorSessionClock(
+      recoveredStartedAt,
+      parseTimestampMs(recoveredStartedAt) ===
+        parseTimestampMs(persistedSession.startedAt)
+        ? persistedSession.clientStartedAtMs
+        : null,
+    );
+    sessionExpiryAtRef.current = expiryAt ?? persistedSession.expiryAt;
+    totalRoundsRef.current =
+      totalRounds ?? persistedSession.totalRounds ?? null;
+    currentBoardRef.current = board;
+    currentRoundRef.current = roundNumber;
+    setCurrentRound(roundNumber);
+    setTotalRounds(totalRounds ?? persistedSession.totalRounds ?? null);
+    setLastRoundScore(null);
+    phaseRef.current = "server_game";
+    setPhase("server_game");
+    setStatus("playing");
+
+    const roundData = { roundNumber, board };
+    serverRoundBridge.set(roundData);
+    await persistSessionSnapshot({
+      sessionId: sessionId ?? persistedSession.sessionId,
+      currentRound: roundNumber,
+      totalRounds: totalRounds ?? persistedSession.totalRounds ?? null,
+      startedAt: recoveredStartedAt,
+      expiryAt: recoveredExpiryAt,
+      board,
+      phase: "server_game",
+      lastStatusPayload: persistedSession.lastStatusPayload,
+    });
+    window.dispatchEvent(
+      new CustomEvent(GAME_EVENTS.CMD_LOAD_SERVER, { detail: roundData }),
+    );
+
+    startTimerToExpiry(
+      recoveredExpiryAt ?? undefined,
+      startedAt ?? persistedSession.startedAt,
+    );
+    recoveryInFlightRef.current = false;
+  }, [
+    anchorSessionClock,
+    fetchFinalGameStatus,
+    finalizePersistedExpiredSession,
+    finishServerGame,
+    gameStartMutate,
+    hydrateQueuesFromPersistedSession,
+    isOnline,
+    isPersistedSessionExpired,
+    persistSessionSnapshot,
+    runGameApiStep,
+    startTimerToExpiry,
+    status,
+    t,
+  ]);
+
+  useEffect(
+    () => () => {
+      clearTimer();
+      clearTutorialAdvanceTimeout();
+    },
+    [clearTimer, clearTutorialAdvanceTimeout],
+  );
+
+  const prepareDevSession = useCallback(() => {
+    const existingToken = gameApiClient.getToken();
+    if (existingToken) return Promise.resolve(existingToken);
+
+    if (!devSessionPromiseRef.current) {
+      devSessionPromiseRef.current = authMutate(DEFAULT_STAGE_ID).then(
+        (result) => {
+          devSessionPromiseRef.current = null;
+          return result;
+        },
+        (err) => {
+          devSessionPromiseRef.current = null;
+          throw err;
+        },
+      );
+    }
+
+    return devSessionPromiseRef.current;
+  }, [authMutate]);
+
+  useEffect(() => {
+    if (demoFetchAttemptedRef.current) {
+      return;
+    }
+
+    demoFetchAttemptedRef.current = true;
+
+    (async () => {
+      try {
+        const liveSession = await liveSessionStorage.read();
+        if (liveSession?.token) {
+          setIsDevSessionReady(true);
+          if (!isOnline) {
+            return;
+          }
+          await recoverServerGame();
+          return;
+        }
+
+        await prepareDevSession();
+        setDevSessionError(null);
+        setIsDevSessionReady(true);
+
+        // Prefetch demo data in parallel with stage config APIs.
+        // Set "loading" synchronously so it batches with setIsRecoveryCheckPending(false)
+        // and the auth-gate stays up until both promises resolve.
+        setDemoPrefetchStatus("loading");
+        void (async () => {
+          try {
+            const cachedDemo = await demoSessionStorage.read();
+            if (cachedDemo?.boards.length) {
+              setDemoPrefetchStatus("available");
+              return;
+            }
+            const token = gameApiClient.getToken()!;
+            const response = await gameApiClient.demoWithToken(token);
+            const boards =
+              response.success && response.data
+                ? flattenDemoBoards(response.data.levels)
+                : [];
+            if (
+              !response.success ||
+              !response.data ||
+              response.data.enableDemo === false ||
+              boards.length === 0
+            ) {
+              setDemoPrefetchStatus("unavailable");
+              return;
+            }
+            prefetchedDemoDataRef.current = {
+              stageId: response.data.stageId,
+              alreadySeen: response.data.alreadySeen,
+              boards,
+            };
+            setDemoPrefetchStatus("available");
+          } catch (err) {
+            console.error("[demo] prefetch failed", err);
+            setDemoPrefetchStatus("unavailable");
+          }
+        })();
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : t("errors.authenticationFailed");
+        console.warn("[auth] failed to prepare dev-session token", err);
+        setDevSessionError(message);
+        setConnError(message);
+      } finally {
+        setIsRecoveryCheckPending(false);
+      }
+    })();
+  }, [isOnline, prepareDevSession, recoverServerGame, t]);
+
+  // When connection drops: open the offline modal and save the session so
+  // recovery works on retry. Tutorial is excluded — demo play is fully local.
+  useEffect(() => {
+    if (isOnline || phaseRef.current === "tutorial") return;
+    setOfflineModalOpen(true);
+    void (async () => {
+      const persistedSession = await liveSessionStorage.read();
+      if (!persistedSession) return;
+      persistSessionSnapshot({});
+    })();
+  }, [isOnline, persistSessionSnapshot]);
+
+  useEffect(() => {
+    void (async () => {
+      const persistedSession = await liveSessionStorage.read();
+      if (
+        isRecoveryCheckPending ||
+        recoveryAttemptedRef.current ||
+        !persistedSession ||
+        status === "completed"
+      ) {
+        return;
+      }
+
+      if (!isOnline) {
+        return;
+      }
+
+      void recoverServerGame();
+    })();
+  }, [isOnline, isRecoveryCheckPending, recoverServerGame, status, t]);
+
+  // ── REST API game start flow ───────────────────────────────────────────────
+  const beginServerGame = useCallback(async () => {
+    const persistedSession = await liveSessionStorage.read();
+    if (
+      persistedSession?.token &&
+      isPersistedSessionExpired(persistedSession)
+    ) {
+      setConnError(null);
+      try {
+        await finalizePersistedExpiredSession(persistedSession);
+      } catch (err) {
+        if (isGameSessionClearedError(err)) return;
+        sessionFinalizingRef.current = false;
+        isBoardEndingRef.current = false;
+        setConnError(
+          err instanceof Error
+            ? err.message
+            : t("errors.failedFinalizeExpiredSession"),
+        );
+        setPhase("start");
+      }
+      return;
+    }
+
+    clearTutorialAdvanceTimeout();
+    clearDataRecoveryRef.current = false;
+    serverGameEndedRef.current = false;
+    sessionFinalizingRef.current = false;
+    recoveryAttemptedRef.current = true;
+    isBoardEndingRef.current = false;
+    currentRoundRef.current = null;
+    currentBoardRef.current = null;
+    demoBoardsRef.current = [];
+    demoRoundIndexRef.current = 0;
+    roundQueuesRef.current = new Map();
+    backendMutationBarrierRef.current = Promise.resolve();
+    prefetchedNextBoardRef.current = null;
+    prefetchAttemptedRef.current = false;
+    sessionStageIdRef.current = DEFAULT_STAGE_ID;
+    sessionIdRef.current = null;
+    sessionStartedAtRef.current = null;
+    sessionExpiryAtRef.current = null;
+    serverStartedAtMsRef.current = null;
+    clientStartedAtMsRef.current = null;
+    clearTimer();
+    serverRoundBridge.clear();
+    await liveSessionStorage.clear();
+    setGameEndData(null);
+    setCurrentRound(null);
+    setTotalRounds(null);
+    setLastRoundScore(null);
+    setDemoRound(null);
+    setDemoRoundTotal(null);
+    setStartingFlow(null);
+    totalRoundsRef.current = null;
+    setTimerSeconds(0);
+    setStatus("playing");
+    setConnError(null);
+    setPhase("connecting");
+
+    try {
+      await prepareDevSession();
+    } catch (err) {
+      setConnError(
+        err instanceof Error ? err.message : t("errors.failedPrepareSession"),
+      );
+      setPhase("start");
+      return;
+    }
+    persistSessionSnapshot({ phase: "connecting" });
+
+    let startResp;
+    try {
+      startResp = await runGameApiStep(() => gameStartMutate(DEFAULT_STAGE_ID));
+    } catch (err) {
+      if (isGameSessionClearedError(err)) return;
+      setConnError(
+        err instanceof Error ? err.message : t("errors.failedStartGame"),
+      );
+      setPhase("start");
+      return;
+    }
+
+    // RESULT_PROCESSING can still require flushing local pending moves if this
+    // start attempt is resuming a stored game near timer expiry.
+    const startRespStatus =
+      (startResp.data as { status?: number } | undefined)?.status ??
+      startResp.statusCode;
+    if (
+      persistedSession?.token &&
+      (startRespStatus === GAME_SESSION_STATUS.EXPIRED ||
+        startRespStatus === GAME_SESSION_STATUS.RESULT_PROCESSING)
+    ) {
+      try {
+        await finalizePersistedExpiredSession(persistedSession);
+      } catch (err) {
+        sessionFinalizingRef.current = false;
+        isBoardEndingRef.current = false;
+        setConnError(
+          err instanceof Error
+            ? err.message
+            : t("errors.failedFinalizeExpiredSession"),
+        );
+        setPhase("start");
+      }
+      return;
+    }
+
+    if (
+      startRespStatus === GAME_SESSION_STATUS.ENDED ||
+      startRespStatus === GAME_SESSION_STATUS.EXPIRED ||
+      startRespStatus === GAME_SESSION_STATUS.RESULT_PROCESSING
+    ) {
+      // Fetch the authoritative final result and show the end screen
+      try {
+        const finalPayload = await fetchFinalGameStatus();
+        finishServerGame(finalPayload);
+      } catch {
+        finishServerGame({
+          success: false,
+          message: startResp.message,
+          data: startResp.data,
+        });
+      }
+      return;
+    }
+
+    if (!startResp.success || !startResp.data) {
+      setConnError(startResp.message ?? t("errors.serverRejectedGameStart"));
+      setPhase("start");
+      return;
+    }
+
+    const {
+      expiryAt,
+      totalRounds,
+      board: boardData,
+      sessionId,
+      startedAt,
+    } = startResp.data;
+    const { roundNumber, ...boardFields } = boardData;
+    const baseBoard: ServerBoard = {
+      id: boardFields.id ?? "",
+      name: boardFields.name ?? `Round ${roundNumber}`,
+      gridSize: boardFields.gridSize,
+      arrows: boardFields.arrows,
+    };
+    const board = enrichBoardWithRecoveryState(roundNumber, baseBoard, []);
+
+    sessionIdRef.current = sessionId ?? null;
+    sessionStartedAtRef.current = startedAt ?? null;
+    anchorSessionClock(startedAt ?? null);
+    sessionExpiryAtRef.current = expiryAt ?? null;
+    totalRoundsRef.current = totalRounds ?? null;
+    setTotalRounds(totalRounds ?? null);
+    getRoundQueue(roundNumber);
+    currentBoardRef.current = board;
+    currentRoundRef.current = roundNumber;
+    setCurrentRound(roundNumber);
+    setStatus("playing");
+    phaseRef.current = "server_game";
+    setPhase("server_game");
+    setStartingFlow(null);
+
+    const roundData = { roundNumber, board };
+    serverRoundBridge.set(roundData);
+    await persistSessionSnapshot({
+      sessionId: sessionId ?? null,
+      currentRound: roundNumber,
+      totalRounds: totalRounds ?? null,
+      startedAt: startedAt ?? null,
+      expiryAt: expiryAt ?? null,
+      board,
+      phase: "server_game",
+    });
+    if (isExpiryReached(expiryAt)) {
+      void finalizeExpiredSession();
+      return;
+    }
+    startTimerToExpiry(expiryAt, startedAt ?? null);
+    window.dispatchEvent(
+      new CustomEvent(GAME_EVENTS.CMD_LOAD_SERVER, { detail: roundData }),
+    );
+  }, [
+    anchorSessionClock,
+    clearTimer,
+    clearTutorialAdvanceTimeout,
+    fetchFinalGameStatus,
+    finalizePersistedExpiredSession,
+    finalizeExpiredSession,
+    finishServerGame,
+    gameStartMutate,
+    getRoundQueue,
+    isPersistedSessionExpired,
+    persistSessionSnapshot,
+    prepareDevSession,
+    runGameApiStep,
+    startTimerToExpiry,
+    t,
+  ]);
+
+  // ── Phaser commands ────────────────────────────────────────────────────────
+  beginServerGameRef.current = beginServerGame;
+
+  const beginPlay = useCallback(async () => {
+    if (!navigator.onLine) {
+      pendingRetryRef.current = () => {
+        void beginPlay();
+      };
+      return;
+    }
+    setConnError(null);
+    setStartingFlow("live");
+    try {
+      const liveSession = await liveSessionStorage.read();
+      if (liveSession?.token) {
+        setPhase("connecting");
+        await recoverServerGame();
+        return;
+      }
+      await beginServerGame();
+    } catch (err) {
+      if (!navigator.onLine) {
+        pendingRetryRef.current = () => {
+          void beginPlay();
+        };
+      } else {
+        setConnError(
+          err instanceof Error ? err.message : t("errors.failedStartGame"),
+        );
+      }
+    } finally {
+      setStartingFlow(null);
+    }
+  }, [beginServerGame, recoverServerGame, t]);
+
+  const beginHowToPlay = useCallback(async () => {
+    if (!navigator.onLine) {
+      pendingRetryRef.current = () => {
+        void beginHowToPlay();
+      };
+      return;
+    }
+    setConnError(null);
+    setStartingFlow("demo");
+
+    // No valid live session found — mark recovery as handled so the recovery
+    // useEffect doesn't fire (and hijack the flow) when status changes during
+    // or after the demo (e.g. when setStatus("won") shows the win popup).
+    recoveryAttemptedRef.current = true;
+
+    const demoSession = await demoSessionStorage.read();
+    if (demoSession?.boards.length) {
+      const replaySession: PersistedDemoSession = {
+        ...demoSession,
+        status: "playing",
+        currentBoardIndex: 0,
+        capturedAtMs: Date.now(),
+      };
+      await demoSessionStorage.write(replaySession);
+      restoreDemoSession(replaySession);
+      setStartingFlow(null);
+      return;
+    }
+
+    // Use prefetched demo data if available (avoids a duplicate API call)
+    if (prefetchedDemoDataRef.current) {
+      const { stageId, alreadySeen, boards } = prefetchedDemoDataRef.current;
+      try {
+        await demoSessionStorage.write({
+          stageId,
+          alreadySeen,
+          status: "playing",
+          boards,
+          currentBoardIndex: 0,
+          capturedAtMs: Date.now(),
+        });
+        setDemoHintsEnabled(!alreadySeen);
+        demoBoardsRef.current = toDemoRounds(boards);
+        loadDemoRound(0);
+      } catch (err) {
+        console.error("[demo] failed to start from prefetched data", err);
+        setConnError(
+          err instanceof Error ? err.message : t("errors.failedStartDemo"),
+        );
+        setPhase("start");
+      } finally {
+        setStartingFlow(null);
+      }
+      return;
+    }
+
+    try {
+      const preparedToken =
+        gameApiClient.getToken() ?? (await prepareDevSession());
+      const response = await demoMutate(preparedToken);
+      const boards =
+        response.success && response.data
+          ? flattenDemoBoards(response.data.levels)
+          : [];
+
+      if (!response.success || !response.data || boards.length === 0) {
+        setConnError(response.message ?? t("errors.demoUnavailable"));
+        setPhase("start");
+        return;
+      }
+
+      await demoSessionStorage.write({
+        stageId: response.data.stageId,
+        alreadySeen: response.data.alreadySeen,
+        status: "playing",
+        boards,
+        currentBoardIndex: 0,
+        capturedAtMs: Date.now(),
+      });
+      setDemoHintsEnabled(!response.data.alreadySeen);
+      demoBoardsRef.current = toDemoRounds(boards);
+      loadDemoRound(0);
+    } catch (err) {
+      console.error("[demo] failed to fetch demo data", err);
+      if (!navigator.onLine) {
+        pendingRetryRef.current = () => {
+          void beginHowToPlay();
+        };
+      } else {
+        setConnError(
+          err instanceof Error ? err.message : t("errors.failedStartDemo"),
+        );
+      }
+      setPhase("start");
+    } finally {
+      setStartingFlow(null);
+    }
+  }, [demoMutate, loadDemoRound, prepareDevSession, restoreDemoSession, t]);
+
+  const handleOfflineRetry = useCallback(async () => {
+    if (!navigator.onLine) return; // still offline — modal stays open
+    setOfflineModalOpen(false);
+    const persistedSession = await liveSessionStorage.read();
+    if (persistedSession) {
+      void recoverServerGame();
+    } else if (pendingRetryRef.current) {
+      const refire = pendingRetryRef.current;
+      pendingRetryRef.current = null;
+      refire();
+    }
+    // else: modal closed, start screen is visible, user can tap Play Now again
+  }, [recoverServerGame]);
+
+  const retry = () => {
+    setStatus("playing");
+    gameRef.current?.retry();
+  };
+  const guides = () => gameRef.current?.guides();
+  const hint = () => gameRef.current?.hint();
+
+  // ── timer display ─────────────────────────────────────────────────────────
+  const timerDisplay = `${String(Math.floor(timerSeconds / 60)).padStart(2, "0")}:${String(timerSeconds % 60).padStart(2, "0")}`;
+  const timerUrgent = timerSeconds > 0 && timerSeconds <= 15;
+  const showDemoHud = phase === "tutorial";
+  const showLiveHud =
+    (phase === "server_game" ||
+      phase === "waiting_round" ||
+      phase === "calculating_result") &&
+    status !== "completed";
+  const isActiveGame = phase !== "start" && phase !== "connecting";
+  const displayTimer =
+    phase === "server_game" ||
+    phase === "waiting_round" ||
+    phase === "calculating_result"
+      ? timerDisplay
+      : null;
+  const roundDotTotal = totalRounds ?? totalRoundsRef.current ?? 0;
+  const activeRound = currentRound ?? (roundDotTotal > 0 ? 1 : null);
+  const completedRoundCount =
+    status === "completed"
+      ? roundDotTotal
+      : phase === "waiting_round" && lastRoundScore !== null
+        ? Math.min(currentRound ?? 0, roundDotTotal)
+        : Math.max((activeRound ?? 1) - 1, 0);
+  const currentRoundDot =
+    status === "completed"
+      ? null
+      : phase === "waiting_round" && lastRoundScore !== null
+        ? Math.min((currentRound ?? 0) + 1, roundDotTotal)
+        : activeRound;
+  const showRoundDots =
+    roundDotTotal > 0 &&
+    status !== "completed" &&
+    (phase === "server_game" || phase === "waiting_round");
+  const showDemoRoundDots =
+    phase === "tutorial" &&
+    status !== "completed" &&
+    (demoRoundTotal ?? 0) > 1 &&
+    demoRound !== null;
+  const showRoundTransitionState =
+    phase === "waiting_round" || phase === "calculating_result";
+  const isFinalResultCalculation = phase === "calculating_result";
+  const resultScore = parseResultMetric(gameEndData?.score);
+  const resultCompletedGames = parseResultMetric(gameEndData?.roundsCompleted);
+  const resultTotalGames = Math.max(roundDotTotal, resultCompletedGames, 1);
+  const isSuccessfulResult =
+    gameEndData?.badge === "Success" || gameEndData?.reason === "Completed";
+  const renderLegacyOverlays: boolean = false;
+  const gameThemeStyle = GAME_THEME_STYLE;
+
+  useEffect(() => {
+    const rootStyle = document.documentElement.style;
+    Object.entries(GAME_THEME_STYLE).forEach(([property, value]) => {
+      if (typeof value === "string") {
+        rootStyle.setProperty(property, value);
+      }
+    });
+  }, []);
+
+  const returnToLobby = () => {
+    clearTimer();
+    gameApiClient.reset();
+    setGameEndData(null);
+    setStatus("playing");
+    setCurrentRound(null);
+    setTotalRounds(null);
+    setLastRoundScore(null);
+    setPhase("start");
+  };
+
+  if (!isDevSessionReady || isRecoveryCheckPending) {
+    return <AuthGateScreen gameThemeStyle={gameThemeStyle} error={devSessionError} />;
+  }
+
+  if (
+    phase === "start" &&
+    (isStageContentLoading ||
+      demoPrefetchStatus === "loading" ||
+      !skeletonMinDurationMet)
+  ) {
+    return (
+      <main
+        className="arrow-game-shell arrow-game-shell--micro select-none"
+        style={gameThemeStyle}
+      >
+        <GameInstructionsSkeleton stage={MICRO_SCREEN_STAGE} />
+      </main>
+    );
+  }
+
+  if ((phase === "start" || phase === "connecting") && status !== "completed") {
+    return (
+      <main
+        className="arrow-game-shell arrow-game-shell--micro select-none"
+        style={gameThemeStyle}
+      >
+        <GameInstructionsScreen
+          stage={MICRO_SCREEN_STAGE}
+          contentByStage={contentByStage}
+          onPlayNow={() => {
+            void beginPlay();
+          }}
+          isPlayNowLoading={startingFlow === "live"}
+          disablePlayNow={startingFlow === "demo"}
+          onLearnHowToPlay={() => {
+            void beginHowToPlay();
+          }}
+          isLearnHowToPlayLoading={startingFlow === "demo"}
+          disableLearnHowToPlay={startingFlow === "live"}
+          hideLearnHowToPlay={demoPrefetchStatus === "unavailable"}
+        />
+        {connError && (
+          <div className="fixed left-1/2 bottom-[max(18px,env(safe-area-inset-bottom))] z-40 w-[calc(100vw-32px)] max-w-[520px] -translate-x-1/2 shadow-2xl">
+            <Alert
+              variant="error"
+              title="Connection Lost"
+              description={connError}
+              onClose={() => setConnError(null)}
+            />
+          </div>
+        )}
+        <OfflineStatusModal isOpen={offlineModalOpen} stage={MICRO_SCREEN_STAGE} onRetry={handleOfflineRetry} />
+      </main>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <main
+      className={`arrow-game-shell flex flex-col h-screen overflow-hidden select-none${
+        levelCompleteBurst ? " arrow-game-shell--level-complete" : ""
+      }`}
+      style={gameThemeStyle}
+    >
+      <div className="gradient-layer-top" />
+      <div className="background-layer" />
+      {levelCompleteBurst && (
+        <div className="level-complete-burst" aria-hidden="true" />
+      )}
+      {/* Full-page vignette — sits above everything, pointer-events none */}
+      <div className="arrow-game-vignette" />
+      {/* Full-screen collision glow — fixed so it covers the entire viewport */}
+      {collisionGlow && <div className="collision-glow-overlay" />}
+      {phase !== "tutorial" && (
+        <OfflineStatusModal
+          isOpen={offlineModalOpen}
+          stage={MICRO_SCREEN_STAGE}
+          onRetry={handleOfflineRetry}
+        />
+      )}
+      <div className="h-[100dvh] flex flex-col justify-between py-[32px]">
+        {/* ── Top HUD ─────────────────────────────────────────────────────── */}
+        <header className="arrow-game-header flex-shrink-0 relative flex items-center justify-center">
+          {/* Start / connecting screens: no header content */}
+          {isActiveGame && (
+            <>
+              {/* Left label: "Demo" in tutorial, "Level N" in live game */}
+              <div className="font-semibold text-[16px] md:text-[18px] tracking-[1px] tracking-[0.16px] text-white">
+                {phase === "tutorial"
+                  ? t("hud.demo")
+                  : levelCompleteBurst
+                    ? t("win.levelComplete")
+                    : t("hud.level", { level: currentRound ?? 1 })}
+              </div>
+
+              {/* Right: badge + settings */}
+              <div className="flex gap-3">
+                {/* Done badge — clickable in demo to skip to Begin Game screen */}
+                <div
+                  className={`arrow-game-header-inner${phase === "tutorial" ? " cursor-pointer" : ""}`}
+                  onClick={phase === "tutorial" ? finishDemo : undefined}
+                  role={phase === "tutorial" ? "button" : undefined}
+                  aria-label={
+                    phase === "tutorial" ? t("hud.endDemo") : undefined
+                  }
+                >
+                  <div className="timer-badge">
+                    <div className="timer-badge__content">
+                      <span
+                        className={[
+                          "timer-badge__text flex items-center gap-[3px]",
+                          timerUrgent ? "timer-badge__text--urgent" : "",
+                          phase === "server_game"
+                            ? "timer-badge__text--running"
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        {phase !== "tutorial" && (
+                          <svg
+                            className="timer-badge__icon"
+                            aria-hidden="true"
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="13"
+                            height="15"
+                            viewBox="0 0 13 15"
+                            fill="none"
+                          >
+                            <path
+                              d="M6.44767 5.78274V8.44147L8.10938 9.4385M6.44767 2.79166C3.32736 2.79166 0.797852 5.32117 0.797852 8.44147C0.797852 11.5618 3.32736 14.0913 6.44767 14.0913C9.56797 14.0913 12.0975 11.5618 12.0975 8.44147C12.0975 5.32117 9.56797 2.79166 6.44767 2.79166ZM6.44767 2.79166V0.797607M5.1183 0.797607H7.77703M11.9838 3.18518L10.9868 2.18815L11.4853 2.68667M0.911526 3.18518L1.90855 2.18815L1.41004 2.68667"
+                              stroke="#fff"
+                              strokeWidth="1.59524"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                        {/* Demo: "Done" button | Live: live timer, falls back to "Done" */}
+                        <span
+                          className={[
+                            "timer-badge__value",
+                            displayTimer ? "timer-badge__value--clock" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
+                          {phase === "tutorial"
+                            ? t("hud.done")
+                            : (displayTimer ?? t("hud.done"))}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Settings gear */}
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setShowSettings((v) => !v)}
+                  aria-label={t("settings.soundSettings")}
+                  className={`settings-toggle ${showSettings ? "settings-toggle--open" : ""}`}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#fff"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  </svg>
+                </button>
+
+                {/* Settings panel */}
+                {showSettings && (
+                  <div
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="settings-panel"
+                  >
+                    <div className="settings-panel__ring" />
+                    <div className="settings-panel__title">
+                      {t("settings.soundSettings")}
+                    </div>
+                    <div className="settings-panel__group">
+                      <div className="settings-panel__row">
+                        <span className="settings-panel__label">
+                          {t("settings.music")}
+                        </span>
+                        <span className="settings-panel__value">
+                          {musicVol === 0
+                            ? t("settings.off")
+                            : `${Math.round(musicVol * 100)}%`}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={musicVol}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          setMusicVol(v);
+                          void storage.set(MUSIC_VOL_KEY, v);
+                          window.dispatchEvent(
+                            new CustomEvent(GAME_EVENTS.CMD_SET_MUSIC_VOL, {
+                              detail: v,
+                            }),
+                          );
+                        }}
+                        className="gold-range"
+                        style={
+                          {
+                            "--range-progress": `${musicVol * 100}%`,
+                          } as CSSProperties
+                        }
+                      />
+                    </div>
+                    <div className="settings-panel__group">
+                      <div className="settings-panel__row">
+                        <span className="settings-panel__label">
+                          {t("settings.effects")}
+                        </span>
+                        <span className="settings-panel__value">
+                          {sfxVol === 0
+                            ? t("settings.off")
+                            : `${Math.round(sfxVol * 100)}%`}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={sfxVol}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          setSfxVol(v);
+                          void storage.set(SFX_VOL_KEY, v);
+                          window.dispatchEvent(
+                            new CustomEvent(GAME_EVENTS.CMD_SET_SFX_VOL, {
+                              detail: v,
+                            }),
+                          );
+                        }}
+                        className="gold-range"
+                        style={
+                          {
+                            "--range-progress": `${sfxVol * 100}%`,
+                          } as CSSProperties
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </header>
+
+        {/* Win Condition text — visible during the level-complete burst animation for both demo and live game */}
+        {levelCompleteBurst && (
+          <h2 className="font-semibold text-[18px] leading-[32px] tracking-[0.16px] text-center align-middle text-[#9E9BA4] mt-[53px] mb-[-117px] z-[9]">
+            {t("win.allArrowsCleared")} <br /> {t("win.levelComplete")}
+          </h2>
+        )}
+
+        {/* ── Phaser canvas (always mounted) ──────────────────────────────── */}
+        <div className="arrow-playfield flex-1 relative overflow-hidden">
+          <PhaserGame key={gameMountKey} ref={gameRef} />
+
+          {/* ── Demo tutorial hint overlay ─────────────────────────────────── */}
+          <DemoHintOverlay
+            board={hintBoard}
+            phase={phase}
+            status={status}
+            cameraZoom={liveZoom}
+            movesShown={demoHintMovesShown}
+            isBoardReady={isBoardReadyForHints}
+            hintsEnabled={demoHintsEnabled}
+          />
+
+          {isActiveGame && isLevelLoading && (
+            <div className="level-loading-overlay">
+              <svg
+                className="level-skeleton"
+                viewBox="0 0 300 300"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                {[25, 75, 125, 175, 225, 275].flatMap((x) =>
+                  [25, 75, 125, 175, 225, 275].map((y) => (
+                    <circle
+                      key={`${x}-${y}`}
+                      cx={x}
+                      cy={y}
+                      r={3}
+                      className="level-skeleton__dot"
+                    />
+                  )),
+                )}
+                <path
+                  className="level-skeleton__snake level-skeleton__snake--1"
+                  d="M25,225 L25,75 L175,75"
+                />
+                <path
+                  className="level-skeleton__snake level-skeleton__snake--2"
+                  d="M225,25 L225,175 L275,175"
+                />
+                <path
+                  className="level-skeleton__snake level-skeleton__snake--3"
+                  d="M75,275 L225,275"
+                />
+                <path
+                  className="level-skeleton__snake level-skeleton__snake--4"
+                  d="M125,225 L275,225 L275,125"
+                />
+              </svg>
+            </div>
+          )}
+
+          {showRoundDots && (
+            <div className="round-progress-dots" aria-label="Round progress">
+              {Array.from({ length: roundDotTotal }, (_, index) => {
+                const roundNumber = index + 1;
+                const dotState =
+                  roundNumber <= completedRoundCount
+                    ? "complete"
+                    : roundNumber === currentRoundDot
+                      ? "current"
+                      : "future";
+
+                return (
+                  <span
+                    key={roundNumber}
+                    className={`round-progress-dot ${dotState}`}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {showDemoRoundDots && (
+            <div
+              className="round-progress-dots !bottom-20"
+              aria-label="Demo round progress"
+            >
+              {Array.from({ length: demoRoundTotal ?? 0 }, (_, index) => {
+                const roundNumber = index + 1;
+                const dotState =
+                  roundNumber < (demoRound ?? 1)
+                    ? "complete"
+                    : roundNumber === demoRound
+                      ? "current"
+                      : "future";
+
+                return (
+                  <span
+                    key={roundNumber}
+                    className={`round-progress-dot ${dotState}`}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── TUTORIAL hint banner ──────────────────────────────────────── */}
+          {phase === "tutorial" && status === "playing" && (
+            <div
+              key={demoShakeKey}
+              className={`tutorial-banner${demoShakeKey > 0 ? " tutorial-banner--shake" : ""}${demoMessage === "wrong" ? " tutorial-banner--error" : ""}`}
+            >
+              {demoMessage === "wrong"
+                ? t("tutorial.wrongMove")
+                : demoMessage === "few"
+                  ? t("tutorial.fewArrows")
+                  : t("tutorial.hint")}
+            </div>
+          )}
+
+          {/* ── START SCREEN overlay ─────────────────────────────────────── */}
+          {(phase === "start" ||
+            phase === "connecting" ||
+            phase === "waiting_round" ||
+            phase === "calculating_result") &&
+            status !== "completed" && (
+              <div className="game-flow-overlay">
+                {/* Logo */}
+                {!showRoundTransitionState ? (
+                  <div className="game-intro">
+                    <div className="game-intro__mark">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="103"
+                        height="103"
+                        viewBox="0 0 103 103"
+                        fill="none"
+                      >
+                        <circle
+                          cx="51.3473"
+                          cy="51.3473"
+                          r="50.4598"
+                          fill="var(--game-bg)"
+                          stroke="rgba(var(--game-accent-rgb), 0.62)"
+                          strokeWidth="1.775"
+                          strokeMiterlimit="16"
+                        />
+                        <circle
+                          cx="51.3468"
+                          cy="51.3468"
+                          r="45.6312"
+                          fill="var(--game-bg)"
+                          stroke="rgba(var(--game-accent-rgb), 0.62)"
+                          strokeWidth="1.775"
+                          strokeMiterlimit="16"
+                        />
+                        <path
+                          d="M53.2163 65.3162L50.6662 68.7837L49.7621 67.6002L47.7256 64.7929L42.2965 64.8017L41.11 64.8377L43.6211 60.9635L38.174 60.9409L40.3591 57.418L34.9766 57.4285L38.5509 52.9167L34.9796 48.3912L41.6267 48.3717L39.6412 45.1382L42.0697 45.1426C42.6149 45.1937 43.142 45.2177 43.6136 45.2087L40.7241 40.9429L47.5814 40.9144L50.7112 36.5811L53.2748 40.1716L53.8006 40.9369L56.7876 40.9204L60.5798 40.9279L57.7895 45.1922L61.6745 45.1457L59.7298 48.3521L66.3798 48.3597L64.5117 50.8249L62.8836 52.9284L65.285 55.9413C65.6755 56.4319 66.0478 56.8567 66.4218 57.4241L60.9703 57.4103L63.2454 60.9348L57.7564 60.9712L60.2026 64.8288L53.5874 64.7912L53.2163 65.3162ZM49.3145 40.9384L52.6711 40.9309L50.7112 38.215L48.7814 40.8483L49.316 40.9384H49.3145ZM46.8636 41.9092L42.5082 41.9122L44.5973 44.9791L46.8636 41.9092ZM48.2978 45.1592L50.5385 41.9182L47.9959 41.9047L45.617 45.1292L48.2978 45.1607V45.1592ZM55.7139 45.1277L53.3726 41.9167H50.8027L53.1157 45.2042L55.7139 45.1277ZM58.7897 41.9137H54.5275L56.7848 45.0361L58.7881 41.9137H58.7897ZM51.9576 45.1292L50.7052 43.4006L49.4227 45.1397L51.9592 45.1277L51.9576 45.1292ZM43.6001 46.232C43.6481 46.19 43.7382 46.1225 43.7007 46.1164C43.6752 46.1135 43.561 46.0759 43.537 46.0759C42.8206 46.0805 41.9946 46.0564 41.2377 46.0189L42.4016 47.842L43.6001 46.2305V46.232ZM47.64 46.0805L45.2836 46.0415L46.4881 47.7835L47.64 46.0805ZM54.8368 47.7474L56.1011 46.0144L53.7283 46.061L54.8368 47.7474ZM58.8814 47.902L60.0706 46.0009L57.5928 46.0969L58.8814 47.9035V47.902ZM53.4461 47.2268L52.6037 46.0549L48.8294 46.0399L47.9433 47.2613C49.9813 46.343 51.4201 46.4706 53.4461 47.2268ZM45.7928 48.3671L44.5147 46.5741L43.178 48.3746L45.7928 48.3671ZM58.0822 48.3641L56.8163 46.5981L55.5681 48.3491L58.0822 48.3656V48.3641ZM55.9255 52.8129C55.9255 49.9231 53.5813 47.5809 50.6887 47.5809C47.7962 47.5809 45.4518 49.9231 45.4518 52.8129C45.4518 55.703 47.7962 58.0451 50.6887 58.0451C53.5813 58.0451 55.9255 55.703 55.9255 52.8129ZM41.3969 49.2659L36.8163 49.2539L39.0976 52.1664L41.3969 49.2659ZM45.5089 49.2704L43.2066 49.2584L44.5042 51.1055L45.5074 49.2704H45.5089ZM58.0491 49.2704L55.8851 49.2569L56.8433 51.011L58.0491 49.2704ZM64.5973 49.2599H60.012L62.3114 52.1515L64.5973 49.2599ZM59.6591 55.5136L61.7375 52.9002L59.0494 49.4625L58.3887 50.4018L57.3388 51.8931L59.6591 55.5136ZM42.5563 54.1831L43.9245 51.9338C43.4259 51.14 42.8777 50.3417 42.301 49.599L39.6848 52.9002L41.7168 55.4914L42.5563 54.1843V54.1831ZM58.803 56.4368C58.8571 56.4368 59.009 56.375 59.0134 56.3225C59.0179 56.27 58.9908 56.1291 58.9577 56.0766L56.9919 53.0064C56.7965 54.234 56.4589 55.3412 55.7349 56.3843L58.8046 56.4368H58.803ZM45.578 56.3992L45.4843 56.2135C44.9784 55.2104 44.576 54.1584 44.2834 53.0742L42.2574 56.3887L45.578 56.3992ZM40.9463 56.4832C41.044 56.459 41.2737 56.2865 41.1776 56.2821L39.1381 53.6488L36.9049 56.4743L40.9448 56.4848L40.9463 56.4832ZM60.434 56.4771L64.5174 56.4816L62.3053 53.6666L60.2778 56.2042L60.2345 56.3721C60.2269 56.4036 60.3694 56.4561 60.434 56.4771ZM44.0897 60.0618L42.0937 57.3506L41.544 57.3534L39.8035 60.0707L44.0897 60.0634V60.0618ZM45.9504 57.3159L43.1946 57.3413L44.6799 59.3054L45.9504 57.3159ZM58.207 57.3397L55.3848 57.3098L56.6539 59.3281L58.2054 57.3385L58.207 57.3397ZM61.5768 60.0634L59.8978 57.481C59.7011 57.2755 59.3724 57.2932 59.2101 57.5424L57.2443 60.0586L61.5768 60.0634ZM47.9013 60.0392L46.6263 58.0104L45.2656 60.0678L47.9013 60.0392ZM56.0022 60.0363L54.7706 58.0783L53.5123 59.9822L56.0006 60.0347L56.0022 60.0363ZM53.4715 58.3932C51.5312 59.2049 49.669 59.2291 47.8428 58.2701L48.9631 60.0105L52.4171 59.9851L53.4715 58.3932ZM50.4004 63.8758L49.271 62.0857L48.5351 60.9453L45.9745 60.9635L48.2017 63.9L50.4004 63.8758ZM51.8167 60.8884L49.5894 60.9187L50.6467 62.5509L51.8167 60.8884ZM53.1577 63.8819L55.346 60.9486L52.8932 60.8868L50.9109 63.8863L53.1561 63.8819H53.1577ZM47.0843 63.9089L45.2866 61.5728C45.0569 61.2559 45.0569 61.2559 44.8316 60.9558L42.8432 63.8968L47.0843 63.9073V63.9089ZM58.0838 63.1812L56.5716 60.89L54.2779 63.9012H58.4953L58.0851 63.1812H58.0838ZM52.4369 64.8033L48.849 64.7852L50.6662 67.2295L52.4369 64.8033Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M66.9036 35.4137L64.9052 37.8795C64.8527 37.9441 64.8365 38.0579 64.8567 38.2208C64.8797 38.3803 64.9262 38.542 64.9964 38.7059C65.0731 38.8691 65.1555 38.9866 65.244 39.0582C65.3699 39.1602 65.5286 39.1871 65.7201 39.139L65.9845 39.8772C65.7713 39.9245 65.5779 39.8779 65.4043 39.7373C65.1931 39.5664 65.0069 39.2917 64.8454 38.9132C64.6875 38.5375 64.5845 38.1669 64.5369 37.8014C64.4888 37.4358 64.509 37.1986 64.5975 37.0897L64.7671 36.8804C64.6253 36.8953 64.4872 36.8849 64.3523 36.8492C64.2211 36.8163 64.1044 36.7585 64.0022 36.6758C63.7947 36.5077 63.6352 36.2831 63.5245 36.002C63.4203 35.7203 63.3751 35.4386 63.3892 35.1569C63.409 34.8745 63.4854 34.6517 63.6178 34.4883C63.7228 34.359 63.8633 34.2726 64.0394 34.2292C64.2154 34.1858 64.4012 34.1866 64.5958 34.2315C64.7909 34.2764 64.9649 34.3609 65.1184 34.4849C65.292 34.6255 65.4273 34.8027 65.5246 35.0167C65.6256 35.2334 65.676 35.4632 65.6768 35.706L66.3056 34.93L64.1799 33.2103L64.631 32.6538L66.8027 34.4108L66.9036 35.4137ZM67.4811 35.8808L67.1948 35.6493L67.089 34.6423L67.9321 35.3244L67.4811 35.8808ZM65.25 35.2931C65.1071 35.1774 64.935 35.0973 64.7339 35.0531C64.5328 35.0088 64.341 35.0056 64.1577 35.0435C63.9776 35.078 63.8419 35.1513 63.7511 35.2637C63.682 35.3488 63.6602 35.4523 63.6852 35.5741C63.7107 35.6961 63.7745 35.7983 63.8766 35.881C64.0709 36.0381 64.2942 36.1455 64.5462 36.203C64.7986 36.2606 65.0457 36.2549 65.288 36.1859L65.4862 35.9408C65.4907 35.8034 65.4713 35.6778 65.4281 35.564C65.3877 35.4468 65.3284 35.3565 65.25 35.2931Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M70.336 63.335V66.2615C70.336 66.3386 70.3938 66.4295 70.5097 66.5344C70.6251 66.6354 70.7592 66.7242 70.9118 66.801C71.0689 66.8736 71.201 66.91 71.3084 66.91C71.461 66.91 71.585 66.8393 71.6799 66.698L72.3115 67.0675C72.1713 67.225 72.0017 67.3037 71.8039 67.3037C71.5559 67.3037 71.2567 67.2169 70.9058 67.0432C70.5589 66.8736 70.2556 66.6738 69.9956 66.4436C69.7396 66.209 69.6116 66.0091 69.6116 65.8435V65.5225C69.4961 65.6275 69.3661 65.7082 69.2215 65.7648C69.081 65.8213 68.9384 65.8496 68.7943 65.8496C68.5338 65.8496 68.2842 65.7769 68.0448 65.6315C67.8053 65.4821 67.597 65.2782 67.4193 65.0197C67.2416 64.7569 67.1136 64.4641 67.0352 64.141L67.1406 64.0744C67.2396 64.1229 67.3615 64.1471 67.5061 64.1471C67.6341 64.1471 67.7597 64.1249 67.8837 64.0805C68.0076 64.0361 68.1086 63.9755 68.1873 63.8988C68.2657 63.822 68.3048 63.7393 68.3048 63.65C68.3048 63.5612 68.2782 63.4865 68.2245 63.4259C68.1748 63.3653 68.1045 63.335 68.0137 63.335H66.7812V62.6748H67.7722L68.4223 63.335C68.6041 63.5289 68.6949 63.7716 68.6949 64.0623C68.6949 64.2804 68.594 64.456 68.3917 64.5893C68.1893 64.7185 67.9168 64.7831 67.5739 64.7831C67.6317 64.9325 67.731 65.0561 67.8711 65.153C68.0117 65.2499 68.1708 65.2984 68.348 65.2984C68.5919 65.2984 68.8249 65.2378 69.0478 65.1167C69.2708 64.9951 69.4589 64.8295 69.6116 64.6196V63.335H68.7753L68.1316 62.6748H69.6673L70.336 63.335ZM71.0419 63.335H70.6954L70.0202 62.6748H71.0419V63.335Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M47.5 28.3962H51.2978L52.0053 29.0993V32.2147C52.0053 32.2963 52.0638 32.3931 52.181 32.5049C52.2977 32.6124 52.4341 32.707 52.5896 32.7887C52.7499 32.8661 52.8864 32.9048 52.9987 32.9048C53.1545 32.9048 53.291 32.8274 53.4077 32.6726L54.0764 33.0725C54.0114 33.1542 53.9315 33.2165 53.8362 33.2596C53.7453 33.3026 53.646 33.324 53.5378 33.324C53.304 33.324 53.0011 33.2316 52.6288 33.0467C52.2609 32.8661 51.9383 32.649 51.6612 32.3952C51.3842 32.1416 51.2457 31.9158 51.2457 31.718V30.5054C51.1896 30.4409 51.131 30.3914 51.0705 30.357C51.0143 30.3183 50.9622 30.299 50.915 30.299C50.7418 30.299 50.601 30.3914 50.4928 30.5763C50.389 30.7612 50.337 31.0515 50.337 31.4471L49.6359 31.1439C49.6359 31.0236 49.651 30.8537 49.6813 30.6344C49.6294 30.5484 49.5645 30.4774 49.4866 30.4216C49.4087 30.3656 49.3329 30.3377 49.2593 30.3377C49.1381 30.3377 49.0235 30.385 48.9153 30.4796C48.8071 30.5742 48.7205 30.6968 48.6556 30.8473C48.5907 30.9978 48.5582 31.1547 48.5582 31.3181C48.5582 31.503 48.6318 31.7073 48.7789 31.9309C48.9304 32.1544 49.1122 32.3437 49.3243 32.4985C49.5407 32.649 49.7354 32.7242 49.9085 32.7242C49.9994 32.7242 50.0882 32.7048 50.1747 32.6662C50.2656 32.6231 50.3413 32.5673 50.402 32.4985L50.915 32.9629C50.8455 33.036 50.7611 33.0919 50.6616 33.1305C50.5664 33.1693 50.4668 33.1886 50.363 33.1886C50.0297 33.1886 49.6727 33.0596 49.2918 32.8016C48.9153 32.5436 48.5972 32.2254 48.3375 31.847C48.0778 31.4686 47.9479 31.1117 47.9479 30.7763C47.9479 30.5871 47.9869 30.4086 48.0648 30.2409C48.147 30.0732 48.2531 29.9399 48.3829 29.841C48.5171 29.7378 48.6577 29.6863 48.8049 29.6863C48.9607 29.6863 49.1273 29.7486 49.3048 29.8733C49.4866 29.9937 49.6467 30.1571 49.7852 30.3635C49.8458 30.1786 49.9389 30.0281 50.0644 29.912C50.1899 29.7916 50.3219 29.7314 50.4604 29.7314C50.5599 29.7314 50.6789 29.768 50.8173 29.841C50.9558 29.9099 51.0987 30.0109 51.2457 30.1442V29.0993H47.5V28.3962ZM51.6677 28.3962H52.739V29.0993H52.3821L51.6677 28.3962Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M28.9688 62.8167H31.3044L31.9462 63.5294C32.0918 63.6909 32.202 63.8589 32.277 64.0333C32.3564 64.2033 32.3961 64.358 32.3961 64.4977C32.3961 64.6152 32.3586 64.7287 32.2836 64.8377C32.2131 64.9423 32.1204 65.0231 32.0057 65.08L32.1315 65.2173C32.2946 65.0295 32.4733 64.8858 32.6674 64.7856C32.8659 64.6806 33.0644 64.6286 33.2629 64.6286C33.4305 64.6286 33.6091 64.6984 33.7988 64.8377C33.9885 64.973 34.1451 65.143 34.2685 65.3482C34.3965 65.5529 34.4604 65.7491 34.4604 65.9369C34.4604 66.1505 34.3899 66.3448 34.2487 66.5188C34.1075 66.6933 33.9289 66.8112 33.7128 66.8721L33.2364 66.3032C33.4569 66.2248 33.6356 66.1089 33.7723 65.9563C33.9091 65.7996 33.9774 65.6336 33.9774 65.4592C33.9774 65.3853 33.9488 65.3199 33.8914 65.2629C33.8341 65.202 33.7701 65.1713 33.6995 65.1713C33.4922 65.1713 33.2893 65.2258 33.0908 65.3348C32.8924 65.4439 32.7115 65.5945 32.5483 65.7863C32.6321 65.9523 32.674 66.1134 32.674 66.2705C32.674 66.4275 32.6299 66.5733 32.5416 66.7086C32.4535 66.8394 32.3344 66.9464 32.1844 67.0292C32.0344 67.1076 31.869 67.1471 31.6881 67.1471C31.3705 67.1471 31.0529 67.0446 30.7353 66.8394C30.4222 66.6303 30.131 66.3403 29.862 65.9696C29.5973 65.5945 29.3768 65.1672 29.2003 64.6875L29.4253 64.6152C29.637 65.1693 29.9083 65.6183 30.2391 65.9632C30.5743 66.3076 30.9228 66.4796 31.2845 66.4796C31.5007 66.4796 31.6881 66.4142 31.8469 66.2834C32.0101 66.1485 32.0918 65.987 32.0918 65.7996C32.0918 65.6074 31.9903 65.4071 31.7874 65.1975C31.6683 65.2456 31.5315 65.2694 31.3772 65.2694C31.2228 65.2694 31.1059 65.2565 31.0265 65.2302C30.8368 65.0558 30.6758 64.7965 30.5435 64.4517C30.6802 64.4997 30.8875 64.524 31.1654 64.524C31.3595 64.524 31.5293 64.4779 31.6749 64.3863C31.8205 64.295 31.8932 64.1815 31.8932 64.0463C31.8932 63.9328 31.8602 63.8282 31.794 63.7325C31.7278 63.6364 31.644 63.569 31.5426 63.5294H28.9688V62.8167ZM31.6815 62.8167H34.7979V63.5294H32.3233L31.6815 62.8167Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M29.8161 49.2227V52.4324C29.8161 52.5164 29.8757 52.6162 29.9948 52.7317C30.1183 52.8423 30.2616 52.9396 30.4248 53.024C30.5925 53.1036 30.7336 53.1435 30.8483 53.1435C31.0115 53.1435 31.146 53.066 31.2519 52.911L31.9268 53.3164C31.8518 53.4004 31.7658 53.4646 31.6687 53.509C31.5761 53.5534 31.4768 53.5756 31.371 53.5756C31.1107 53.5756 30.7931 53.4803 30.4182 53.2897C30.0477 53.1036 29.7257 52.8843 29.4522 52.6319C29.1787 52.3747 29.042 52.1554 29.042 51.9737V51.1897H27.7782V51.7015C27.7782 51.75 27.7628 51.79 27.7319 51.8211C27.7011 51.8522 27.6613 51.8675 27.6128 51.8675C27.5158 51.8675 27.3636 51.7879 27.1563 51.6283C26.949 51.4688 26.7615 51.2916 26.5939 51.0967C26.4263 50.9017 26.3425 50.7555 26.3425 50.6581C26.3425 50.6138 26.3623 50.5761 26.402 50.5451C26.4417 50.5141 26.4925 50.4986 26.5542 50.4986H27.0041V49.2227H26.0977V48.4983H29.0883L29.8161 49.2227ZM30.5572 49.2227H30.1932L29.4721 48.4983H30.5572V49.2227ZM27.7782 49.2227V50.4986H29.042V49.2227H27.7782Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M54.7852 71.8514L56.7073 71.3143L57.521 71.8086C57.6793 71.9011 57.8097 72.0036 57.9119 72.1159C58.014 72.2286 58.0782 72.3319 58.1045 72.426C58.1307 72.5201 58.1093 72.6166 58.0399 72.7156C57.9745 72.8133 57.8784 72.8795 57.7512 72.915C57.6817 72.9344 57.4972 72.9772 57.1979 73.043C57.0942 73.0677 56.9928 73.0915 56.8935 73.1149C56.7982 73.1371 56.7134 73.1585 56.6399 73.1791C56.5373 73.2078 56.4573 73.2611 56.3996 73.3386C56.3423 73.4166 56.3245 73.4965 56.3475 73.5785C56.3693 73.656 56.4602 73.7364 56.6205 73.8196C56.8442 73.6249 57.1442 73.4751 57.521 73.3697C57.6765 73.3261 57.8679 73.3322 58.0956 73.3879C58.327 73.4424 58.5346 73.53 58.7187 73.6504C58.9053 73.7659 59.0175 73.8911 59.0555 74.0263C59.0942 74.1652 59.0825 74.3054 59.0207 74.4463C58.9573 74.5828 58.8564 74.7035 58.7179 74.8085L57.9349 74.4713C58.0811 74.3776 58.1937 74.2755 58.2733 74.1652C58.3528 74.055 58.3803 73.9569 58.3565 73.8709C58.3415 73.8176 58.308 73.7764 58.2555 73.7469C58.2071 73.7162 58.1542 73.7089 58.0968 73.7251C57.884 73.7844 57.6777 73.8906 57.4778 74.0433C57.2775 74.1963 57.1224 74.3676 57.0122 74.5569C56.9048 74.7415 56.8733 74.9135 56.9181 75.073C56.9524 75.1958 57.0659 75.3096 57.2585 75.4146C57.4511 75.5196 57.6704 75.5927 57.9159 75.6343C58.1618 75.6759 58.3706 75.6731 58.5426 75.625C58.6775 75.5871 58.7946 75.5325 58.8939 75.4607C58.9941 75.3928 59.0631 75.3165 59.1011 75.2309L59.8986 75.4312C59.8445 75.5216 59.7529 75.6044 59.624 75.6799C59.4993 75.7546 59.3527 75.8152 59.1851 75.8621C58.833 75.9606 58.4259 75.9727 57.9636 75.8992C57.5069 75.8281 57.1014 75.6965 56.7473 75.5043C56.3935 75.3121 56.184 75.0993 56.1185 74.8663C56.083 74.7395 56.0951 74.6014 56.1553 74.4524C56.2179 74.2981 56.3176 74.1491 56.4537 74.0053C56.2534 73.9201 56.0846 73.8216 55.9473 73.7101C55.8133 73.593 55.7285 73.4711 55.6929 73.3443C55.6675 73.2542 55.6744 73.1597 55.7127 73.0608C55.7503 72.9578 55.8104 72.8662 55.894 72.7854C55.9817 72.7038 56.0806 72.6473 56.1912 72.6166C56.3301 72.5774 56.5619 72.5217 56.8858 72.449C56.9565 72.4337 57.0356 72.4159 57.1228 72.3961C57.2096 72.376 57.3005 72.3529 57.3946 72.3267C57.4313 72.3166 57.4612 72.2972 57.4842 72.2685C57.506 72.2358 57.5117 72.2015 57.5016 72.1644C57.483 72.0989 57.3772 72.0117 57.1834 71.9027L54.9721 72.5201L54.7852 71.8514ZM57.0639 71.215L58.4825 70.8188L58.6694 71.4876L57.8836 71.7072L57.0639 71.215Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M33.5285 35.1476C33.4459 35.0651 33.3937 34.9595 33.3718 34.8309C33.3451 34.7022 33.3511 34.5724 33.39 34.4413C33.4264 34.3078 33.492 34.1938 33.5868 34.0992C33.7155 33.9705 33.8576 33.8844 34.0131 33.8407C34.1661 33.7994 34.3106 33.7837 34.4467 33.7934C34.5803 33.8055 34.7382 33.8299 34.9204 33.8662C35.0491 33.893 35.1427 33.9088 35.201 33.9136C35.2617 33.916 35.3054 33.9039 35.3321 33.8772C35.354 33.8554 35.3673 33.8275 35.3722 33.7935C35.3746 33.7571 35.3734 33.7098 35.3685 33.6515L35.9552 33.6697C35.9625 33.7498 35.9516 33.8287 35.9224 33.9064C35.8933 33.984 35.852 34.0496 35.7986 34.1029C35.7354 34.1661 35.6504 34.1976 35.5435 34.1976C35.4342 34.1951 35.2835 34.1757 35.0916 34.1393C34.856 34.0932 34.6653 34.0701 34.5196 34.0701C34.3714 34.0725 34.2463 34.1247 34.1443 34.2266C34.0787 34.2921 34.0325 34.3722 34.0058 34.4669C33.9767 34.5591 33.9694 34.6513 33.984 34.7436C33.9986 34.8357 34.0374 34.9134 34.1006 34.9766C34.1468 35.0227 34.216 35.0578 34.3083 35.0821C34.3958 35.1064 34.4966 35.1173 34.6107 35.1149L34.578 35.3224C34.3448 35.3612 34.1358 35.3661 33.9512 35.3369C33.7666 35.3078 33.6257 35.2447 33.5285 35.1476ZM35.2557 34.6963L35.6856 34.2668L36.48 34.2668L38.2401 36.0253C38.2862 36.0714 38.3737 36.0933 38.5024 36.0909C38.6287 36.086 38.7587 36.063 38.8923 36.0217C39.0259 35.9756 39.1243 35.921 39.1874 35.8579C39.2749 35.7706 39.3077 35.6504 39.2858 35.4975L39.887 35.3483C39.8967 35.4308 39.887 35.5109 39.8579 35.5886C39.8312 35.6638 39.7874 35.7318 39.7267 35.7924C39.581 35.938 39.3514 36.0606 39.0381 36.16C38.7296 36.2595 38.4284 36.3129 38.1344 36.3202C37.838 36.325 37.6376 36.2753 37.5331 36.1709L36.0537 34.6927L35.6529 35.0931L35.2557 34.6963ZM35.8969 34.0556L36.4945 33.4586L36.8917 33.8555L36.6876 34.0593L35.8969 34.0556ZM34.8219 32.6248L35.4268 32.603L35.3903 33.1928L34.7928 33.2364L34.8219 32.6248Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M34.7993 35.9468C35.1394 35.9759 35.3653 36.0463 35.4771 36.158C35.5305 36.2114 35.55 36.2818 35.5354 36.3691C35.5208 36.4516 35.4771 36.5293 35.4042 36.6021C35.3678 36.6385 35.2524 36.7441 35.0581 36.9188L34.7229 37.2319C34.6379 37.3168 34.5869 37.4139 34.5699 37.5231C34.5505 37.6299 34.5711 37.7136 34.6318 37.7743C34.6634 37.8059 34.7083 37.8217 34.7667 37.8217C34.825 37.8217 34.9063 37.8107 35.0108 37.7889C35.0861 37.5341 35.2391 37.2914 35.4699 37.0608C35.601 36.9298 35.8014 36.8339 36.0711 36.7733C36.3407 36.7078 36.6067 36.6896 36.8691 36.7187C37.1314 36.743 37.3185 36.811 37.4302 36.9226C37.5274 37.0197 37.5906 37.1386 37.6197 37.2794C37.6464 37.4178 37.6343 37.5585 37.5833 37.7017L37.0149 37.8618C37.0878 37.7114 37.1181 37.5597 37.1059 37.4068C37.0938 37.2539 37.0416 37.1313 36.9493 37.0391C36.9225 37.0124 36.8873 36.9942 36.8436 36.9845C36.7999 36.9699 36.7513 36.965 36.6978 36.9699C36.7343 37.2538 36.7428 37.4954 36.7234 37.6944C36.7039 37.8934 36.6566 38.0305 36.5813 38.1057C36.506 38.181 36.3056 38.2356 35.9801 38.2695L35.9655 38.1239C36.0384 38.1142 36.093 38.0911 36.1295 38.0547C36.1853 37.9989 36.2145 37.8873 36.2169 37.7198C36.2242 37.6203 36.2229 37.4322 36.2132 37.1555L36.2096 36.999C36.1391 36.9868 36.0662 37.0184 35.9909 37.0936C35.833 37.2514 35.7092 37.448 35.6193 37.6833C35.5295 37.9139 35.4869 38.1384 35.4918 38.3568C35.4967 38.5704 35.5514 38.7294 35.6558 38.8338C35.7579 38.9357 35.9109 38.9915 36.1149 39.0013C36.319 39.011 36.5303 38.977 36.749 38.8994C36.97 38.8193 37.1498 38.7101 37.2882 38.5718C37.468 38.3922 37.5748 38.2029 37.6088 38.0039L38.1846 37.9529C38.1384 38.1155 38.0158 38.2964 37.8166 38.4954C37.5785 38.7332 37.2749 38.9176 36.9057 39.0486C36.5389 39.1821 36.183 39.2391 35.8381 39.2196C35.4955 39.2026 35.2368 39.1067 35.0619 38.932C34.9744 38.8446 34.9198 38.7172 34.8979 38.5497C34.8784 38.3798 34.8942 38.1917 34.9452 37.9855C34.7582 38.0364 34.5845 38.0546 34.4241 38.04C34.2638 38.0206 34.1436 37.9709 34.0634 37.8907C33.976 37.8034 33.948 37.6832 33.9796 37.5303C34.0087 37.375 34.0876 37.2331 34.2164 37.1044C34.2844 37.0365 34.4083 36.9224 34.588 36.7622C34.6366 36.7186 34.6888 36.6712 34.7447 36.6203C34.8006 36.5693 34.854 36.5183 34.905 36.4674C34.9439 36.4285 34.9682 36.3849 34.9779 36.3363C34.9852 36.2853 34.9743 36.2453 34.9451 36.2162C34.9184 36.1895 34.8758 36.1688 34.8175 36.1543C34.7592 36.1349 34.6936 36.1252 34.6208 36.1252L33.1707 37.574L32.7734 37.1771L34.0232 35.9285L34.7993 35.9468ZM35.7904 34.9566L35.0106 35.7356L34.2381 35.7137L35.3932 34.5598L35.7904 34.9566Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M72.3769 48.6448C72.5885 48.9041 72.7508 49.1563 72.8639 49.4012C72.9766 49.6413 73.0331 49.855 73.0331 50.0423C73.0331 50.2536 72.9673 50.4433 72.8356 50.6114C72.7084 50.7795 72.5416 50.9115 72.3345 51.0076C72.1326 51.1036 71.9254 51.1516 71.7138 51.1516C71.6529 51.1516 71.608 51.1492 71.5798 51.1444C72.0454 51.692 72.4617 52.112 72.8284 52.4051C73.1954 52.6931 73.4938 52.8372 73.7244 52.8372C73.8185 52.8372 73.9053 52.8134 73.9853 52.7653C74.0652 52.7173 74.1266 52.6547 74.1686 52.578L74.8531 53.111C74.778 53.1926 74.6883 53.2576 74.5849 53.3056C74.4864 53.3581 74.3826 53.3848 74.2744 53.3848C74.0111 53.3848 73.682 53.2624 73.2871 53.0173C72.8966 52.777 72.4686 52.4265 72.003 51.9658C71.5656 51.5526 71.1917 51.1516 70.8816 50.7626C70.5759 50.3736 70.4228 50.0663 70.4228 49.8406C70.4228 49.6821 70.4862 49.5476 70.6134 49.4372C70.7451 49.3268 70.8977 49.2715 71.0718 49.2715C71.2555 49.2715 71.434 49.3532 71.608 49.5164C71.7869 49.6797 71.9327 49.8934 72.0454 50.1576C72.1536 50.0855 72.2404 49.9967 72.3062 49.891C72.3769 49.7806 72.4124 49.6629 72.4124 49.538C72.4124 49.3892 72.3676 49.2259 72.2784 49.0482C72.1887 48.8657 72.0829 48.7312 71.9606 48.6448H70.0703V47.8596H71.749L72.3769 48.6448ZM73.4631 48.6448H72.7791L72.1443 47.8596H73.4631V48.6448ZM71.4247 49.9487C71.3072 49.9487 71.2034 49.9799 71.1142 50.0423C71.0298 50.1047 70.9874 50.1768 70.9874 50.2584C70.9874 50.316 71.0035 50.3664 71.0366 50.4097C71.0742 50.4529 71.119 50.4745 71.1707 50.4745C71.3916 50.4745 71.6129 50.4097 71.8338 50.28C71.7962 50.1792 71.7372 50.0999 71.6573 50.0423C71.5822 49.9799 71.5047 49.9487 71.4247 49.9487Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M40.7728 72.4012C40.7636 72.9168 40.8403 73.3646 41.003 73.7454C41.1657 74.1258 41.39 74.3726 41.676 74.4848C41.8247 74.5434 41.9735 74.5624 42.1225 74.5418C42.2753 74.5224 42.4104 74.4699 42.5279 74.3843C42.6506 74.2962 42.7382 74.1852 42.7907 74.0519C42.8462 73.911 42.8459 73.722 42.7897 73.4842C42.6578 73.5512 42.5271 73.592 42.3979 73.6073C42.2686 73.6227 42.1544 73.6106 42.0553 73.5718C41.9295 73.5221 41.8099 73.4289 41.6965 73.292C41.5885 73.153 41.5089 73.0028 41.4577 72.8421C41.4104 72.6826 41.4093 72.5457 41.4542 72.4314C41.5082 72.2945 41.6176 72.2013 41.7824 72.1516C41.9487 72.0983 42.1139 72.1035 42.2778 72.1681C42.3769 72.2069 42.4686 72.276 42.5528 72.3753C42.6425 72.4718 42.7135 72.5877 42.766 72.7226C42.8616 72.681 42.9487 72.6164 43.0273 72.5288C43.106 72.4407 43.1655 72.3454 43.206 72.2425C43.257 72.1132 43.2597 71.9889 43.2141 71.8697C43.1686 71.7506 43.081 71.6654 42.9514 71.6145C42.7874 71.5503 42.6066 71.5233 42.4088 71.5334C42.2111 71.5435 42.0127 71.5887 41.8139 71.669L41.5154 70.9515C41.6877 70.8828 41.8754 70.8529 42.0786 70.8626C42.2856 70.8735 42.4978 70.9216 42.7151 71.0072C42.94 71.0956 43.1333 71.2418 43.295 71.4461C43.462 71.648 43.5736 71.8681 43.6297 72.1056C43.6897 72.3446 43.6837 72.5558 43.6117 72.7383C43.5412 72.9176 43.4265 73.0747 43.2675 73.21C43.3076 73.3093 43.3906 73.384 43.5164 73.4333C43.6155 73.4725 43.7202 73.4914 43.8306 73.491C43.9447 73.4918 44.0529 73.4684 44.1554 73.4208L44.4883 72.5748L43.9794 72.3749L43.7042 71.5475L44.8422 71.9949L45.1517 72.8356L44.0651 75.5953C44.0366 75.6676 44.0562 75.7746 44.124 75.9155C44.1933 76.0524 44.2842 76.1853 44.3967 76.3129C44.5146 76.4385 44.6231 76.5204 44.7223 76.5596C44.8671 76.6165 45.0077 76.5947 45.1441 76.4946L45.5902 77.072C45.5007 77.1205 45.4066 77.1476 45.3077 77.1524C45.2088 77.1577 45.1155 77.1431 45.0278 77.1084C44.7991 77.0187 44.5568 76.829 44.301 76.539C44.0438 76.2535 43.8397 75.9555 43.6888 75.6454C43.5394 75.3316 43.4955 75.0966 43.557 74.9403L43.9191 74.0204C43.8142 74.0188 43.7197 74.0015 43.6358 73.9683C43.449 73.8953 43.2687 73.6877 43.0948 73.3469L43.0106 73.3929C43.1018 73.6312 43.1559 73.8569 43.1731 74.0705C43.1903 74.2837 43.1674 74.4707 43.1044 74.6306C43.0369 74.8018 42.9328 74.9436 42.7919 75.0554C42.651 75.1673 42.4909 75.2383 42.3115 75.269C42.1375 75.2973 41.9666 75.2787 41.7988 75.2125C41.5319 75.1079 41.298 74.9189 41.0972 74.6467C40.8963 74.3742 40.7445 74.0439 40.6419 73.6562C40.5392 73.2681 40.4939 72.8526 40.5058 72.4084L40.7728 72.4012ZM45.1739 72.1253L46.0432 72.467L45.7979 73.0896L45.4777 72.9637L45.1739 72.1253ZM41.8834 73.0355C41.9405 73.0582 42.0269 73.0569 42.1424 73.0319C42.2579 73.0069 42.3975 72.954 42.5614 72.8732C42.5319 72.7694 42.479 72.7024 42.4028 72.6725C42.3189 72.6394 42.2083 72.6467 42.0708 72.6935C41.9372 72.7424 41.8554 72.8046 41.8254 72.8809C41.8134 72.9116 41.8125 72.9419 41.8225 72.9721C41.8364 73.004 41.8567 73.025 41.8834 73.0355Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          d="M42.0792 70.7721H42.0796C42.2975 70.7834 42.5193 70.8343 42.7445 70.9227C42.9849 71.0172 43.1905 71.1735 43.3611 71.3883C43.5363 71.6003 43.6549 71.8325 43.7145 72.0849C43.7775 72.3369 43.7727 72.5675 43.6923 72.7714C43.6245 72.9438 43.5189 73.0965 43.3775 73.2293C43.4117 73.277 43.4656 73.3174 43.546 73.3489C43.634 73.3836 43.7271 73.4009 43.8263 73.4001H43.8276C43.9164 73.4009 44.0007 73.3848 44.0811 73.3521L44.3672 72.626L43.9031 72.4439L43.8896 72.4035L43.5533 71.3924L44.8717 71.9105L44.9096 71.9254L44.9237 71.9634L45.2333 72.8045L45.245 72.8368L44.146 75.6284C44.1325 75.6627 44.1357 75.7378 44.2022 75.8759C44.2671 76.0043 44.3526 76.1295 44.4592 76.2506L44.5011 76.2939C44.5971 76.3892 44.6806 76.4473 44.7517 76.4752C44.8646 76.5196 44.9728 76.5055 45.0867 76.4215L45.1582 76.369L45.2122 76.4388L45.6584 77.0167L45.7234 77.1015L45.6298 77.152C45.5288 77.2065 45.4215 77.2372 45.3088 77.2432C45.1976 77.2489 45.0914 77.2323 44.991 77.1927C44.7436 77.0954 44.4901 76.8943 44.2299 76.5995C43.9676 76.3084 43.7585 76.0035 43.6035 75.6849L43.6033 75.6841C43.5266 75.5234 43.4749 75.378 43.451 75.2504C43.4272 75.1228 43.4299 75.0065 43.4689 74.9072L43.7862 74.1012C43.7203 74.0915 43.6576 74.0757 43.5989 74.0527C43.4556 73.9966 43.3238 73.877 43.2004 73.705C43.2305 73.8274 43.2505 73.9469 43.2599 74.0632C43.278 74.2869 43.2542 74.488 43.1851 74.6637C43.1119 74.8494 42.9983 75.0041 42.8446 75.126C42.6917 75.2476 42.5174 75.3251 42.3232 75.3582L42.3225 75.3586C42.132 75.3893 41.9445 75.3687 41.762 75.2968C41.4765 75.185 41.2297 74.9839 41.0205 74.7C40.8118 74.4169 40.6555 74.0761 40.5504 73.6796C40.4454 73.2822 40.3993 72.8578 40.4114 72.4059L40.4138 72.3199L40.4998 72.3179L40.8615 72.3078L40.8598 72.4027C40.8507 72.9087 40.9261 73.3432 41.0827 73.7099C41.2393 74.0761 41.4491 74.2998 41.7055 74.4004C41.8406 74.4537 41.9738 74.4702 42.1065 74.4517H42.1075C42.246 74.4343 42.3664 74.3875 42.4707 74.3111L42.4713 74.3103C42.5807 74.232 42.6569 74.1351 42.7027 74.0188C42.7408 73.9219 42.7492 73.789 42.7195 73.6137C42.6149 73.6566 42.51 73.6848 42.4049 73.6973C42.2641 73.7139 42.1343 73.7014 42.0185 73.6557C41.8747 73.5992 41.7431 73.495 41.6229 73.3497L41.6212 73.3476C41.5068 73.2002 41.4222 73.0407 41.3676 72.8695L41.3672 72.8679C41.3162 72.6959 41.3115 72.5372 41.3661 72.3983C41.4318 72.2315 41.5655 72.1213 41.7511 72.0651L41.8208 72.0457C41.984 72.0078 42.1469 72.0207 42.3073 72.0837C42.422 72.1289 42.5245 72.2069 42.6157 72.3135C42.692 72.3958 42.7552 72.4908 42.8061 72.597C42.8585 72.5638 42.9087 72.521 42.9562 72.4681C43.0281 72.3878 43.0817 72.3014 43.118 72.2093C43.1615 72.0986 43.1625 71.9981 43.1258 71.902C43.0902 71.8091 43.0228 71.7417 42.9146 71.6989C42.7641 71.6399 42.5964 71.6141 42.41 71.6238C42.2231 71.6335 42.0344 71.6763 41.8441 71.753L41.7608 71.7865L41.7265 71.7037L41.3926 70.9013L41.4781 70.867C41.6636 70.7931 41.8644 70.762 42.0792 70.7721ZM42.0708 70.953C41.9135 70.9458 41.7675 70.9635 41.6322 71.0051L41.86 71.5531C42.0397 71.4889 42.2199 71.4521 42.4005 71.4429C42.6095 71.432 42.8036 71.4606 42.981 71.5301C43.1319 71.5894 43.2396 71.692 43.2951 71.8374C43.3496 71.9795 43.3452 72.1273 43.2867 72.2755C43.242 72.389 43.1765 72.4936 43.0912 72.5889C43.0051 72.6854 42.9076 72.7585 42.7985 72.8057L42.712 72.8433L42.6779 72.7552C42.6291 72.6301 42.5637 72.5243 42.4826 72.4366L42.4813 72.435L42.4802 72.4338C42.4035 72.3438 42.3235 72.2848 42.241 72.2521C42.0964 72.1956 41.9526 72.1907 41.8065 72.2376L41.8049 72.2384C41.6618 72.2812 41.5771 72.3579 41.535 72.4645C41.4998 72.5541 41.4975 72.6684 41.5406 72.8146L41.5596 72.8703C41.6071 72.9991 41.6749 73.1207 41.7635 73.2354C41.8699 73.3634 41.9775 73.445 42.085 73.4874C42.1674 73.5197 42.266 73.531 42.3836 73.5172C42.5009 73.5035 42.6212 73.466 42.745 73.4034L42.8479 73.3513L42.8743 73.4635C42.9323 73.7091 42.9366 73.9194 42.8714 74.0854C42.8122 74.2356 42.7133 74.3596 42.5776 74.4569C42.447 74.5526 42.2973 74.6104 42.1301 74.6314C41.9652 74.6536 41.8009 74.6326 41.6391 74.5692C41.3236 74.4452 41.0848 74.1759 40.916 73.7809C40.7574 73.4098 40.6789 72.9802 40.6778 72.4944L40.5916 72.4968C40.5876 72.9006 40.6322 73.2794 40.7258 73.6327C40.826 74.0119 40.9736 74.3313 41.1666 74.593C41.3592 74.8543 41.5801 75.0307 41.8283 75.128C41.9622 75.1809 42.0972 75.2003 42.2344 75.1874L42.2933 75.1793C42.4575 75.1515 42.6033 75.0865 42.7319 74.9843C42.8599 74.8829 42.9546 74.7541 43.0164 74.5974C43.0732 74.4529 43.0954 74.2804 43.079 74.0777C43.0626 73.8742 43.0109 73.657 42.9223 73.4252L42.894 73.3513L42.9635 73.3137L43.0476 73.2673L43.1295 73.2225L43.172 73.3056C43.3438 73.6424 43.5111 73.8237 43.6653 73.8843C43.7375 73.9126 43.8212 73.9283 43.917 73.9299L44.0479 73.932L43.9999 74.0535L43.6376 74.9738C43.6153 75.0303 43.6091 75.1095 43.6292 75.2173C43.6493 75.3243 43.6944 75.4539 43.7671 75.6066C43.8955 75.8703 44.0639 76.1255 44.2728 76.373L44.3649 76.4788L44.3654 76.4792C44.6165 76.7639 44.8476 76.9416 45.0575 77.0239C45.1325 77.0534 45.2127 77.0663 45.2992 77.0619C45.3485 77.0595 45.3965 77.0502 45.4434 77.0353L45.119 76.6153C44.9813 76.6904 44.8348 76.7025 44.6855 76.644C44.5685 76.5979 44.4491 76.5046 44.3271 76.375L44.3251 76.3726C44.208 76.2397 44.1126 76.1008 44.0395 75.9563L44.0386 75.9546C43.9696 75.8109 43.9335 75.6728 43.977 75.5621L45.0511 72.8344L44.7674 72.0643L43.8477 71.7029L44.0483 72.3058L44.6023 72.5239L44.2361 73.4538L44.2228 73.4874L44.19 73.5027C44.0755 73.556 43.9543 73.5818 43.8271 73.581L43.8274 73.5814L43.8267 73.581L43.8263 73.5814C43.7053 73.5818 43.5895 73.5609 43.4795 73.5176C43.337 73.4615 43.2316 73.3723 43.1798 73.2443L43.1552 73.1833L43.205 73.1413C43.3537 73.0145 43.459 72.8691 43.5236 72.7052C43.5871 72.544 43.5947 72.353 43.5382 72.1273L43.5378 72.1265C43.4851 71.9032 43.3802 71.696 43.2214 71.5038L43.2203 71.5022C43.0677 71.3096 42.8871 71.1735 42.6783 71.0915C42.4692 71.0092 42.2667 70.9635 42.0708 70.953ZM56.7545 71.2369L57.567 71.73L57.6276 71.7663C57.7657 71.8531 57.8832 71.9492 57.9789 72.055C58.0859 72.1725 58.1602 72.2884 58.1917 72.4015C58.2268 72.5271 58.1949 72.6507 58.115 72.7653C58.0358 72.8833 57.9207 72.9616 57.7758 73.002C57.7031 73.0222 57.5157 73.0658 57.2173 73.1316L56.914 73.2031C56.8195 73.2249 56.7363 73.2459 56.6645 73.2661C56.5793 73.2899 56.5171 73.3323 56.4727 73.3925C56.429 73.4514 56.4206 73.5027 56.4351 73.5536C56.4391 73.5693 56.4537 73.5948 56.4924 73.6291C56.5207 73.6541 56.5595 73.6812 56.6095 73.7103C56.8397 73.5245 57.1365 73.3828 57.4963 73.2822C57.672 73.2334 57.8803 73.2418 58.1162 73.2992C58.356 73.3557 58.5733 73.447 58.7659 73.5734C58.9618 73.6941 59.0958 73.835 59.1427 74.0014C59.1875 74.1621 59.1733 74.3237 59.1035 74.4823L59.1027 74.484C59.0324 74.6358 58.921 74.7683 58.7728 74.8805L58.7308 74.9124L58.6819 74.8914L57.7426 74.4868L57.886 74.3951C58.0249 74.3059 58.1283 74.211 58.1994 74.1121C58.2712 74.0119 58.2825 73.9429 58.2688 73.8948C58.2611 73.8669 58.2442 73.8443 58.2111 73.8258L58.2086 73.8241L58.2066 73.8229C58.1812 73.8068 58.1549 73.8023 58.1214 73.812C57.9211 73.8677 57.7249 73.9683 57.5327 74.1153C57.3647 74.2437 57.2314 74.3838 57.1313 74.5365L57.0905 74.6023C56.9915 74.7719 56.9689 74.9185 57.0053 75.0485C57.0295 75.1353 57.1163 75.2334 57.3021 75.3344C57.4846 75.4341 57.6942 75.5044 57.9312 75.5448C58.1687 75.5852 58.3629 75.5807 58.518 75.5375C58.6444 75.502 58.7514 75.4515 58.8406 75.3869L58.843 75.3853L58.8753 75.3623C58.9464 75.3081 58.9924 75.2516 59.0179 75.1939L59.049 75.124L60.0395 75.3732L59.9765 75.4777C59.9119 75.5852 59.8069 75.6776 59.67 75.758L59.6696 75.7576C59.5368 75.8371 59.3833 75.9005 59.2093 75.9494C58.8418 76.052 58.4206 76.0637 57.9494 75.9882C57.4838 75.9159 57.0683 75.7814 56.704 75.5835C56.3422 75.3869 56.106 75.1587 56.0309 74.8902C55.9893 74.7404 56.0054 74.5817 56.0709 74.4185L56.0713 74.4181C56.125 74.2857 56.2033 74.1589 56.3047 74.0365C56.1464 73.961 56.0079 73.8758 55.89 73.7801L55.8875 73.7781C55.7446 73.6537 55.6469 73.5172 55.6053 73.3686C55.5742 73.258 55.5835 73.1437 55.6275 73.0298C55.6699 72.9131 55.7381 72.8098 55.831 72.7201L55.8322 72.7189C55.9295 72.6276 56.0414 72.5638 56.1666 72.5291C56.3083 72.4895 56.5417 72.433 56.8656 72.3603H56.8668C56.937 72.345 57.0158 72.3272 57.1026 72.3074C57.1878 72.2876 57.277 72.265 57.3699 72.2392C57.3881 72.2343 57.4006 72.2258 57.4107 72.2145C57.4164 72.2053 57.4168 72.198 57.4143 72.1887C57.4139 72.1883 57.4135 72.1863 57.4119 72.1834C57.4095 72.1798 57.4063 72.1746 57.401 72.1681C57.3901 72.1552 57.374 72.139 57.3505 72.1196C57.3089 72.0853 57.2492 72.0453 57.1704 71.9997L54.9091 72.6317L54.6975 71.8753L54.6733 71.7881L56.683 71.2268L56.721 71.2163L56.7545 71.2369ZM54.8966 71.9137L55.0351 72.408L57.1587 71.8152L57.1951 71.8051L57.2278 71.8236C57.3267 71.8794 57.4071 71.9315 57.4656 71.9795C57.5209 72.0252 57.5718 72.0785 57.5888 72.1398C57.6066 72.2028 57.5957 72.2646 57.5597 72.3187L57.5573 72.322L57.5549 72.3252C57.5197 72.3688 57.4733 72.3987 57.4192 72.4136C57.3235 72.4403 57.2314 72.4637 57.1426 72.4839C57.0554 72.5041 56.9762 72.5214 56.9055 72.5368C56.5817 72.6095 56.3523 72.6652 56.2154 72.7036C56.1201 72.7302 56.0337 72.7783 55.9566 72.8501H55.957C55.8831 72.922 55.8302 73.002 55.7979 73.0916L55.7975 73.0932C55.7648 73.1768 55.7607 73.2511 55.7801 73.3198C55.8092 73.4244 55.8811 73.5318 56.0062 73.6408C56.1351 73.7454 56.2958 73.8395 56.4892 73.9215L56.6091 73.9723L56.5195 74.0672C56.3895 74.2041 56.297 74.3438 56.2388 74.4856L56.2392 74.486C56.1851 74.6205 56.1767 74.738 56.2057 74.8413C56.2611 75.0396 56.4448 75.2367 56.7909 75.4244C57.1341 75.611 57.5294 75.7398 57.9777 75.8093L58.0621 75.8218C58.4796 75.8795 58.8451 75.863 59.1604 75.775C59.322 75.7297 59.4609 75.6716 59.5776 75.6021L59.578 75.6017C59.6438 75.5634 59.6963 75.5234 59.7383 75.4842L59.1467 75.3356C59.0986 75.4111 59.03 75.4777 58.9448 75.5355L58.9444 75.5351C58.8362 75.6134 58.7098 75.672 58.5668 75.712C58.3778 75.7649 58.1545 75.7665 57.9009 75.7233C57.6465 75.6805 57.4176 75.6041 57.2153 75.4939C57.0154 75.3853 56.8752 75.2557 56.8308 75.097C56.7779 74.9076 56.8179 74.7105 56.9338 74.5114L56.9798 74.4367C57.0925 74.2655 57.2403 74.1104 57.4224 73.9711C57.6304 73.812 57.8472 73.7002 58.0726 73.6372C58.1521 73.6154 58.2296 73.6246 58.2999 73.6675C58.371 73.7078 58.4219 73.7676 58.4437 73.8463C58.4784 73.9699 58.4336 74.0971 58.3467 74.2179C58.2866 74.3014 58.2099 74.379 58.1186 74.4513L58.7037 74.7032C58.8107 74.6144 58.8883 74.5159 58.9383 74.4076C58.992 74.2853 59.0005 74.1674 58.9678 74.0503C58.9391 73.9469 58.8487 73.8375 58.671 73.7272L58.6686 73.726C58.4941 73.6117 58.2967 73.5281 58.0746 73.476L58.0738 73.4756C57.8553 73.4223 57.6805 73.4191 57.5452 73.4567C57.1777 73.5596 56.8906 73.7042 56.6798 73.8879L56.6334 73.9283L56.5784 73.9001C56.4949 73.8564 56.425 73.8116 56.3721 73.7644C56.3196 73.7183 56.2776 73.6646 56.2602 73.6024C56.2287 73.4898 56.255 73.3812 56.3269 73.2846C56.3975 73.1889 56.4957 73.1251 56.6152 73.0916C56.6907 73.0706 56.7763 73.0488 56.8724 73.0266L57.1769 72.9547L57.1781 72.9543C57.4785 72.8885 57.6603 72.8461 57.7269 72.8275C57.8355 72.7972 57.9126 72.7423 57.9643 72.6648L57.9655 72.6632C58.0233 72.5808 58.0342 72.5121 58.0168 72.4504C57.9958 72.3753 57.9421 72.284 57.8444 72.1766C57.7499 72.072 57.6272 71.9751 57.4753 71.8862L57.4741 71.8854L56.6939 71.4118L54.8966 71.9137ZM46.1571 72.4156L45.8454 73.2071L45.4026 73.0331L45.0167 71.9674L46.1571 72.4156ZM42.0378 72.6079C42.1839 72.5578 42.3193 72.5436 42.4323 72.5881C42.5429 72.6313 42.6106 72.727 42.6451 72.8485L42.6657 72.9212L42.5979 72.9543C42.4306 73.0371 42.2834 73.0932 42.1578 73.1203C42.0385 73.1461 41.9298 73.1526 41.8465 73.1199C41.7929 73.0989 41.7569 73.0573 41.7356 73.0084L41.7341 73.0044L41.7327 73.0004C41.7158 72.9495 41.7178 72.8974 41.7374 72.8477C41.782 72.7346 41.8951 72.6599 42.036 72.6087L42.0378 72.6079ZM45.5454 72.8946L45.7429 72.9721L45.9218 72.5178L45.3236 72.2828L45.5454 72.8946ZM42.3659 72.7569C42.3112 72.7355 42.2254 72.7351 42.0967 72.7795L42.0965 72.7791C41.9715 72.8247 41.9214 72.8752 41.9061 72.9139C41.9022 72.9236 41.9023 72.9313 41.9043 72.9394C41.907 72.945 41.9088 72.9479 41.9101 72.9491C41.9113 72.9507 41.9121 72.9507 41.9129 72.9511C41.944 72.9636 42.0079 72.9672 42.1195 72.9434C42.2079 72.924 42.3148 72.8857 42.4417 72.8275C42.4199 72.7888 42.394 72.7678 42.3659 72.7569ZM58.5701 70.7939L58.7812 71.5503L58.694 71.5745L57.9078 71.7942L57.8702 71.8047L57.8367 71.7845L56.8365 71.184L58.5454 70.7071L58.5701 70.7939ZM57.2908 71.2454L57.8965 71.6088L58.5575 71.4247L58.4194 70.93L57.2908 71.2454ZM69.5206 65.8432V65.7087C69.4379 65.7648 69.3494 65.8113 69.2549 65.8484H69.2553C69.1047 65.9094 68.9509 65.9401 68.7942 65.9401C68.516 65.9401 68.2502 65.8618 67.9979 65.7087L67.9967 65.7083C67.7455 65.5512 67.5282 65.338 67.3445 65.0703L67.3441 65.0699C67.1604 64.7981 67.0279 64.4953 66.9471 64.1621L66.9318 64.0991L66.9867 64.0644L67.0921 63.9974L67.1349 63.9703L67.1805 63.9925C67.2637 64.0333 67.3711 64.0559 67.506 64.0559C67.6231 64.0559 67.7386 64.0357 67.8529 63.9949C67.9672 63.9537 68.056 63.8996 68.1234 63.8334C68.1889 63.7696 68.2139 63.709 68.2139 63.6501C68.2139 63.581 68.1937 63.5281 68.1566 63.4857L68.1549 63.4845L68.1541 63.4829C68.1247 63.447 68.0819 63.4256 68.0136 63.4256H66.6907V62.5836H67.8101L67.8367 62.6107L68.4873 63.2713L68.4889 63.2729C68.6876 63.4849 68.7857 63.7502 68.7857 64.062C68.7857 64.314 68.6658 64.5171 68.4412 64.6649L68.44 64.6653C68.2494 64.7872 68.0076 64.853 67.7192 64.8692C67.7697 64.9491 67.8367 65.0186 67.9228 65.078C68.0475 65.164 68.1881 65.2072 68.348 65.2072C68.5761 65.2072 68.7942 65.1507 69.0046 65.0368C69.2073 64.9265 69.3789 64.7771 69.5206 64.5885V63.4256H68.7372L67.9163 62.5836H69.7044L69.731 62.6099L70.3997 63.2705L70.4268 63.2967V66.2615C70.4268 66.2769 70.4324 66.3019 70.4559 66.3387C70.4789 66.3746 70.5156 66.417 70.5689 66.4659C70.6776 66.5608 70.8044 66.6448 70.9501 66.7182C71.1016 66.7885 71.2199 66.8188 71.3083 66.8188C71.427 66.8188 71.524 66.7667 71.6043 66.6472L71.652 66.5765L71.7255 66.6193L72.4527 67.0449L72.3792 67.1273C72.223 67.3026 72.0295 67.3942 71.8038 67.3942C71.5361 67.3942 71.2223 67.3009 70.8653 67.1241C70.5124 66.9512 70.2019 66.7469 69.9354 66.5107L69.9341 66.5099C69.8029 66.3895 69.7007 66.2753 69.6309 66.1662C69.5614 66.0576 69.5206 65.9494 69.5206 65.8432ZM33.8848 65.4592C33.8848 65.4115 33.8674 65.3687 33.8257 65.3275L33.8071 65.3089C33.7694 65.2746 33.7332 65.2621 33.6975 65.2621C33.5069 65.2621 33.3188 65.3122 33.1325 65.4143C32.9599 65.5092 32.8004 65.638 32.6539 65.8012C32.7254 65.9587 32.7628 66.1154 32.7628 66.2704C32.7628 66.4457 32.7131 66.6088 32.6155 66.7582L32.6149 66.7594C32.518 66.9028 32.3877 67.0195 32.2263 67.1083L32.2246 67.1095C32.0607 67.1952 31.8806 67.2376 31.6861 67.2376C31.348 67.2376 31.0135 67.1281 30.6841 66.9157L30.683 66.9149C30.3592 66.6985 30.0605 66.4 29.7865 66.0225L29.7859 66.0217C29.5161 65.6397 29.2921 65.2048 29.1132 64.7186L29.0807 64.6297L29.3957 64.5292L29.4774 64.5029L29.508 64.5833C29.7163 65.128 29.9817 65.5658 30.3021 65.8997C30.6261 66.2325 30.9526 66.3891 31.2825 66.3891C31.4787 66.3891 31.6456 66.3302 31.7873 66.2135C31.9326 66.0931 31.9991 65.9563 31.9991 65.7996C31.9991 65.6522 31.9259 65.487 31.7592 65.3033C31.6428 65.3412 31.5145 65.3602 31.3753 65.3602C31.2179 65.3602 31.0893 65.3473 30.996 65.3162L30.9774 65.3102L30.963 65.2968C30.7596 65.1099 30.5922 64.8365 30.4569 64.4844L30.3867 64.3014L30.5716 64.3664C30.6935 64.4092 30.8882 64.4331 31.1634 64.4331C31.3426 64.4331 31.4953 64.3911 31.6246 64.3099C31.7519 64.2296 31.8006 64.1419 31.8006 64.0462C31.8006 63.9517 31.7733 63.8649 31.7173 63.7837C31.664 63.7062 31.599 63.6529 31.522 63.6202H28.8761V62.7258H31.3427L31.3697 62.7556L32.0113 63.4688C32.1625 63.6363 32.2786 63.8124 32.3581 63.9974C32.4405 64.1746 32.4847 64.3418 32.4847 64.4977C32.4847 64.6269 32.4453 64.7501 32.3713 64.8656C32.4521 64.8042 32.5358 64.7505 32.6231 64.7052L32.7019 64.6665C32.8861 64.5813 33.0727 64.5377 33.2609 64.5377C33.4543 64.5377 33.6514 64.6184 33.8505 64.7646C34.0497 64.9067 34.2139 65.0856 34.3433 65.3001C34.4777 65.5153 34.5492 65.7281 34.5492 65.9369C34.5492 66.1723 34.4707 66.3863 34.3172 66.5757C34.1643 66.7651 33.9696 66.8931 33.7354 66.9593L33.6789 66.9755L33.6413 66.9302L33.0814 66.2615L33.204 66.2179C33.4119 66.1436 33.5768 66.0362 33.7019 65.8969C33.8272 65.7531 33.8848 65.6078 33.8848 65.4592ZM34.8867 62.7258V63.6202H32.281L32.254 63.5899L31.476 62.7258H34.8867ZM32.3618 63.4389H34.7053V62.9071H31.8831L32.3618 63.4389ZM71.1327 62.5836V63.4256H70.6582L70.6315 63.3993L69.7977 62.5836H71.1327ZM70.7325 63.2442H70.9513V62.7649H70.2423L70.7325 63.2442ZM70.3303 49.8407C70.3303 49.6542 70.4062 49.4953 70.5516 49.3688L70.5532 49.3677C70.7014 49.2434 70.8746 49.1808 71.0697 49.1808C71.2821 49.1808 71.4816 49.276 71.6669 49.4496C71.8317 49.6002 71.9686 49.7899 72.0784 50.0165C72.1373 49.9654 72.187 49.9079 72.2274 49.8431L72.2278 49.8422C72.2896 49.7456 72.3195 49.6447 72.3195 49.538C72.3195 49.4072 72.2803 49.2579 72.1951 49.0888L72.1947 49.0879C72.1155 48.9264 72.0255 48.8111 71.9278 48.7353H69.9774V47.7689H71.7905L72.4459 48.5882C72.6607 48.8517 72.8271 49.1098 72.9438 49.3626L72.9845 49.4545C73.0746 49.6665 73.1218 49.863 73.1218 50.0424C73.1218 50.2735 73.0487 50.4822 72.9058 50.6657C72.7693 50.8466 72.59 50.988 72.3707 51.0897L72.3703 51.0895C72.1789 51.1805 71.9819 51.2308 71.7804 51.2402C72.1898 51.7097 72.5573 52.074 72.8832 52.334C73.247 52.6203 73.5244 52.7467 73.7223 52.7467C73.7998 52.7467 73.8709 52.727 73.9363 52.6878C74.0038 52.6474 74.053 52.5961 74.0874 52.5343L74.1386 52.4411L74.9067 53.0395L74.9842 53.1001L74.9176 53.1724C74.834 53.2628 74.7351 53.3347 74.6212 53.3876C74.5114 53.4453 74.3943 53.4752 74.2727 53.4752C73.984 53.4752 73.6371 53.342 73.2373 53.094C72.8392 52.8493 72.4059 52.494 71.9371 52.03C71.4981 51.6152 71.1214 51.2114 70.8084 50.819L70.808 50.8185C70.6529 50.6211 70.5342 50.4417 70.4543 50.2806C70.3747 50.1204 70.3303 49.9728 70.3303 49.8407ZM26.2488 50.6577C26.2488 50.5816 26.2849 50.519 26.3431 50.4735C26.4021 50.4274 26.4739 50.4078 26.5512 50.4078H26.9105V49.3131H26.0039V48.4075H29.1228L29.1493 48.4338L29.8771 49.1583L29.9038 49.1848V52.4322C29.9038 52.4766 29.9379 52.5525 30.0524 52.664L30.0971 52.7027C30.2036 52.7916 30.3251 52.8715 30.462 52.9422C30.6235 53.0189 30.7501 53.0524 30.8452 53.0528C30.9735 53.0528 31.0821 52.9943 31.174 52.8594L31.2223 52.7891L32.0642 53.2947L31.9916 53.3763C31.9091 53.4688 31.8133 53.5402 31.7047 53.5903C31.5995 53.6408 31.487 53.6658 31.3679 53.6658C31.0873 53.6658 30.7548 53.5637 30.3741 53.3702C29.997 53.1808 29.668 52.9567 29.3878 52.6979L29.3871 52.6975C29.247 52.5658 29.1385 52.4406 29.0645 52.3223C28.9908 52.204 28.9483 52.0869 28.9483 51.9734V51.28H27.8659V51.7013C27.8659 51.7707 27.843 51.8345 27.7932 51.8846C27.7434 51.9347 27.6797 51.9581 27.6099 51.9581C27.5394 51.9581 27.4613 51.9298 27.3808 51.8878C27.2983 51.8446 27.204 51.7812 27.0981 51.6997C26.8859 51.5366 26.6939 51.3551 26.5222 51.1554C26.4364 51.0556 26.3694 50.9655 26.3236 50.8856C26.2789 50.8075 26.2488 50.7299 26.2488 50.6577ZM29.1296 49.1317V50.589H27.6845V49.1317H29.1296ZM71.4226 49.8581C71.526 49.8581 71.6217 49.8984 71.7085 49.9687C71.8042 50.0378 71.8733 50.1323 71.9165 50.2483L71.9431 50.3195L71.8777 50.358C71.6451 50.4945 71.4081 50.5651 71.1686 50.5651C71.0874 50.5651 71.0188 50.5296 70.9663 50.4691L70.9643 50.4669L70.9623 50.4644C70.9166 50.4045 70.8944 50.3346 70.8944 50.2585C70.8944 50.14 70.9578 50.0435 71.0584 49.9694L71.06 49.9681C71.1658 49.8942 71.2877 49.8581 71.4226 49.8581ZM27.8659 50.4078H28.9483V49.3131H27.8659V50.4078ZM30.6449 48.4075V49.3131H30.1525L30.1259 49.2863L29.251 48.4075H30.6449ZM30.228 49.1317H30.4635V48.5887H29.6873L30.228 49.1317ZM73.5519 47.7689V48.7353H72.7338L71.9524 47.7689H73.5519ZM72.8202 48.5542H73.3706V47.9501H72.332L72.8202 48.5542ZM64.6874 32.5829L66.8587 34.3399L66.8882 34.3638L66.9928 35.4043L66.9964 35.4414L64.9745 37.9361C64.9471 37.9697 64.9261 38.0494 64.9458 38.2075L64.9547 38.2641C64.9786 38.396 65.0193 38.5304 65.0779 38.6672L65.1054 38.7235C65.1704 38.8496 65.2358 38.9355 65.3 38.9874C65.3989 39.0675 65.5265 39.0935 65.6969 39.0507L65.7769 39.0308L66.0693 39.8463L66.104 39.943L66.0034 39.9653C65.7624 40.0188 65.5407 39.9649 65.346 39.8074C65.1191 39.6236 64.9257 39.334 64.7609 38.9483V38.9479C64.6002 38.5654 64.4948 38.187 64.4459 37.8127C64.4217 37.6266 64.414 37.4689 64.4249 37.3413C64.4358 37.2159 64.4649 37.1076 64.5263 37.0323L64.5723 36.9748C64.4899 36.9701 64.4088 36.9578 64.3284 36.9365C64.1851 36.9004 64.0567 36.8368 63.9444 36.7458C63.7227 36.5667 63.5551 36.3284 63.4396 36.0347L63.4388 36.0331C63.3306 35.7407 63.2829 35.4468 63.2975 35.1521V35.1501C63.3185 34.8556 63.3988 34.613 63.5466 34.431C63.665 34.285 63.8232 34.1885 64.0171 34.1408C64.2081 34.0937 64.4084 34.095 64.6155 34.1428C64.8235 34.1908 65.0105 34.2814 65.1744 34.4142C65.3594 34.564 65.5035 34.7525 65.6061 34.9783L65.6436 35.0645C65.6961 35.1954 65.7309 35.3307 65.7498 35.4702L66.1771 34.9429L64.0518 33.2233L64.5594 32.5964L64.6167 32.5261L64.6874 32.5829ZM64.3066 33.1963L66.4323 34.9163L65.5859 35.9606L65.5851 35.7058C65.5847 35.4759 65.5366 35.2592 65.4417 35.0546L65.4413 35.0537C65.3493 34.8519 65.2225 34.6861 65.0601 34.5549C64.9176 34.4397 64.7561 34.3612 64.5747 34.3193C64.3922 34.2773 64.2214 34.2772 64.0603 34.3169C63.9016 34.356 63.7788 34.4323 63.6876 34.5449C63.5701 34.6897 63.4982 34.8928 63.4788 35.163C63.4655 35.431 63.5087 35.6998 63.6088 35.9701C63.7146 36.2378 63.8648 36.4482 64.0587 36.6049C64.1503 36.6791 64.2549 36.7311 64.3736 36.7609L64.3749 36.7613C64.4984 36.7941 64.6256 36.8036 64.7569 36.7898L64.9745 36.7671L64.6672 37.1464C64.6398 37.18 64.6151 37.2448 64.6054 37.3566C64.5961 37.4662 64.6022 37.6098 64.6256 37.7892C64.6725 38.1458 64.773 38.5084 64.9281 38.8773L64.9882 39.0113C65.1312 39.312 65.2895 39.5283 65.4603 39.6665C65.5843 39.7668 65.7163 39.8115 65.8609 39.803L65.6602 39.2429C65.4805 39.2709 65.3194 39.2361 65.1861 39.1283C65.0823 39.0445 64.9927 38.9131 64.9135 38.7439L64.9123 38.7413C64.8392 38.5709 64.7904 38.4015 64.7662 38.2334L64.7657 38.2316C64.7452 38.0652 64.7561 37.9175 64.8336 37.822L66.8086 35.3853L66.715 34.4569L64.6434 32.7807L64.3066 33.1963ZM34.7985 35.8557H34.8012L34.8041 35.856C34.978 35.8709 35.1264 35.8967 35.2477 35.9345C35.3683 35.972 35.4681 36.0232 35.5382 36.0933C35.6161 36.1712 35.6403 36.273 35.6219 36.3835L35.6217 36.3844C35.6032 36.489 35.5483 36.5827 35.4654 36.6656C35.4269 36.704 35.3095 36.8111 35.1169 36.9843L34.7819 37.2975C34.7106 37.3695 34.67 37.4487 34.6564 37.5364L34.6562 37.5388C34.6405 37.625 34.6588 37.6755 34.6929 37.7096C34.7028 37.7194 34.7219 37.7304 34.7638 37.7304C34.804 37.7304 34.8614 37.7238 34.9376 37.7096C35.0227 37.4571 35.1793 37.2195 35.4027 36.9962C35.5321 36.867 35.7159 36.7732 35.9465 36.7098L36.0481 36.6843C36.3263 36.6169 36.6018 36.5979 36.8741 36.628C37.1446 36.653 37.3575 36.7242 37.4914 36.858C37.5879 36.9544 37.6545 37.0699 37.6915 37.2026L37.7055 37.2606L37.7057 37.2617C37.7357 37.4171 37.7218 37.5743 37.6658 37.7315L37.6501 37.7757L37.605 37.7884L36.8425 38.0031L36.9304 37.8217C36.9968 37.6845 37.0233 37.5488 37.0125 37.4134C37.0017 37.278 36.9566 37.177 36.8821 37.1026C36.8697 37.0902 36.851 37.079 36.821 37.0723L36.8163 37.0714L36.8119 37.0699C36.8072 37.0683 36.8023 37.0672 36.7973 37.0659C36.8234 37.3085 36.8283 37.521 36.8106 37.7025C36.7907 37.9064 36.7409 38.0708 36.6423 38.1692C36.5872 38.2243 36.4989 38.2618 36.3955 38.29C36.2886 38.3191 36.1517 38.3418 35.9866 38.359L35.896 38.3686L35.8723 38.1323L35.8634 38.0451L35.9505 38.0334C36.0118 38.0253 36.0448 38.0075 36.0623 37.9901C36.0747 37.9776 36.0903 37.9527 36.1026 37.9058C36.1147 37.8594 36.122 37.7974 36.1232 37.718V37.7153L36.1234 37.7127C36.1302 37.6188 36.1294 37.4354 36.1196 37.1582V37.157L36.1183 37.1044C36.099 37.1153 36.077 37.1321 36.0521 37.157C35.9043 37.3047 35.7868 37.4901 35.7009 37.7151L35.7007 37.7158C35.6147 37.9366 35.5748 38.1492 35.5794 38.3542C35.584 38.5547 35.6351 38.6874 35.7169 38.7691C35.7974 38.8496 35.9254 38.9011 36.1163 38.9102C36.2832 38.9182 36.4569 38.8949 36.6377 38.8392L36.7156 38.8134C36.9263 38.7369 37.0938 38.6343 37.221 38.5072C37.391 38.3375 37.4863 38.1643 37.5164 37.9881L37.5282 37.9193L38.3048 37.8505L38.2687 37.977C38.2164 38.1613 38.0814 38.3553 37.8777 38.5587C37.6288 38.8075 37.3131 38.9982 36.9335 39.133C36.5566 39.2701 36.1887 39.3297 35.83 39.3095C35.474 39.2917 35.1906 39.1914 34.9947 38.9956C34.8887 38.8898 34.8285 38.7411 34.805 38.561L34.8047 38.5594C34.7885 38.4177 34.7954 38.2661 34.824 38.1053C34.6806 38.133 34.5434 38.1415 34.4129 38.1297L34.4102 38.1294C34.2381 38.1086 34.0957 38.0536 33.9962 37.9542C33.8815 37.8396 33.8518 37.6852 33.8877 37.5114C33.9209 37.3362 34.01 37.1789 34.1492 37.0398C34.2192 36.9698 34.345 36.8542 34.5247 36.6941C34.573 36.6507 34.6249 36.6035 34.6805 36.5527C34.7354 36.5027 34.788 36.4527 34.838 36.4028C34.8648 36.3759 34.8792 36.3486 34.8853 36.3203C34.8888 36.292 34.8819 36.2837 34.878 36.2798C34.8679 36.2697 34.8434 36.2545 34.7926 36.2418L34.7892 36.2409L34.7859 36.2397C34.7475 36.2269 34.7036 36.2189 34.6539 36.2163L33.2317 37.6375L33.1677 37.7016L32.6421 37.1765L32.7063 37.1126L33.9836 35.8365L34.7985 35.8557ZM36.856 36.8082C36.6047 36.7803 36.3494 36.7977 36.0895 36.8609L36.088 36.8611C35.8274 36.9197 35.6454 37.01 35.5309 37.1243C35.3085 37.3465 35.1649 37.5766 35.0947 37.814L35.0795 37.866L35.0642 37.8691L35.0303 38.0067C34.9815 38.2044 34.967 38.3809 34.9847 38.5375L34.9938 38.5933C35.0177 38.7183 35.0628 38.8071 35.1231 38.8673C35.2769 39.0209 35.5108 39.1123 35.8395 39.1286H35.8402C36.1713 39.1472 36.515 39.0927 36.8717 38.9629L36.8724 38.9627C37.2309 38.8354 37.5225 38.6576 37.7496 38.4307C37.8881 38.2922 37.9832 38.167 38.0414 38.0558L37.6805 38.0876C37.6316 38.2831 37.519 38.4657 37.3493 38.6353C37.1997 38.7846 37.008 38.9002 36.7769 38.9839L36.7763 38.9841C36.5481 39.0652 36.325 39.1016 36.1077 39.0912C35.8904 39.0808 35.7122 39.0206 35.5887 38.8972C35.4616 38.7702 35.4032 38.5848 35.3981 38.3584C35.3929 38.1265 35.4382 37.8901 35.5318 37.6499C35.6256 37.4044 35.756 37.1967 35.9239 37.029C36.0093 36.9437 36.1102 36.8899 36.2219 36.9091L36.2954 36.9219L36.3009 37.1517L36.3065 37.3433C36.3106 37.5174 36.3101 37.6448 36.3045 37.7237C36.3031 37.8104 36.2947 37.8869 36.2779 37.9514C36.261 38.016 36.2341 38.0748 36.1907 38.1181C36.1761 38.1326 36.16 38.1452 36.1429 38.1562C36.2231 38.1439 36.2913 38.1304 36.3476 38.115C36.4445 38.0887 36.4939 38.0613 36.5141 38.0412C36.5662 37.9892 36.6112 37.8792 36.6302 37.6851C36.6487 37.495 36.6409 37.2608 36.6049 36.981L36.593 36.8876L36.6866 36.8792C36.7505 36.8734 36.8119 36.8789 36.8693 36.898C36.9231 36.9114 36.9714 36.9357 37.0103 36.9745C37.1205 37.0846 37.1798 37.2286 37.1934 37.399C37.2022 37.5091 37.1905 37.6179 37.1602 37.7253L37.5089 37.6271C37.5424 37.5139 37.5484 37.4044 37.5279 37.2973L37.5168 37.2517C37.4879 37.1476 37.4368 37.0596 37.3632 36.9861C37.2736 36.8965 37.1119 36.832 36.8577 36.8084L36.856 36.8082ZM32.8985 37.1765L33.1675 37.4453L34.5802 36.034H34.6179C34.6961 36.034 34.7692 36.0444 34.8364 36.0659C34.902 36.0823 34.9629 36.1083 35.0062 36.1515C35.0605 36.2058 35.0748 36.2772 35.0647 36.3486L35.0638 36.3534C35.0502 36.4214 35.0162 36.4808 34.9661 36.5308C34.9141 36.5828 34.8598 36.6347 34.8029 36.6866C34.747 36.7376 34.6945 36.7852 34.6458 36.829L34.6453 36.8292C34.4656 36.9894 34.3436 37.102 34.2776 37.1679C34.1597 37.2856 34.091 37.4118 34.0657 37.5466L34.0655 37.5481C34.0382 37.6801 34.0644 37.7661 34.1246 37.8261C34.1854 37.8868 34.2833 37.9313 34.4314 37.9494C34.5785 37.9624 34.7405 37.946 34.9183 37.8976L34.9252 37.8956C34.8627 37.9058 34.8085 37.9118 34.7635 37.9118C34.6889 37.9118 34.618 37.8911 34.5647 37.8379C34.4779 37.7511 34.4548 37.635 34.4773 37.5085L34.4868 37.4607C34.5133 37.3505 34.5705 37.2524 34.6557 37.1672L34.6579 37.165L34.9931 36.852L34.9945 36.8509C35.1897 36.6754 35.3029 36.5717 35.3372 36.5375C35.3999 36.4748 35.4324 36.4131 35.443 36.3528C35.4534 36.2892 35.4388 36.2504 35.41 36.2216C35.3684 36.18 35.2991 36.1403 35.1937 36.1075C35.0899 36.0751 34.9567 36.0509 34.7923 36.0367L34.0566 36.0195L32.8985 37.1765ZM36.5575 33.3947L36.9547 33.7915L37.0189 33.8555L36.724 34.1501L36.6862 34.1499L35.8955 34.1463L35.8812 34.1461C35.8747 34.1532 35.8684 34.1604 35.8617 34.1671C35.8585 34.1704 35.8548 34.1731 35.8515 34.1762H36.5166L38.3033 35.9613C38.3212 35.9792 38.3741 36.0023 38.4979 36.0002C38.6149 35.9957 38.7364 35.9744 38.8625 35.9356C38.9894 35.8917 39.0729 35.843 39.1222 35.7938C39.1845 35.7316 39.214 35.6429 39.195 35.5104L39.1833 35.4293L39.964 35.2357L39.9761 35.3377C39.9876 35.4345 39.9761 35.5292 39.9418 35.6204C39.9102 35.7087 39.8591 35.7875 39.7899 35.8566C39.6296 36.0168 39.3844 36.1446 39.0647 36.2462C38.7488 36.348 38.4391 36.4032 38.1356 36.4107H38.135C37.8357 36.4156 37.6009 36.3676 37.4681 36.2351L36.0525 34.8208L35.6518 35.2214L35.6509 35.2203L35.0441 35.8268L34.0223 35.7978L34.3821 35.4381C34.2226 35.4516 34.0739 35.4481 33.9362 35.4264C33.7393 35.3953 33.5783 35.3263 33.4635 35.2116C33.3667 35.115 33.3071 34.9926 33.2822 34.8491C33.2524 34.7059 33.259 34.5617 33.3014 34.4175C33.3419 34.2694 33.4154 34.1413 33.5217 34.0351C33.66 33.8969 33.8153 33.8019 33.9875 33.7535L34.0487 33.7382C34.1883 33.706 34.3229 33.6939 34.452 33.7031L34.4538 33.7033C34.5916 33.7158 34.7529 33.7406 34.9371 33.7774L34.9378 33.7776C35.0644 33.8039 35.1526 33.8184 35.2052 33.823C35.2538 33.8247 35.2663 33.8139 35.267 33.8132C35.2732 33.807 35.2782 33.7982 35.2807 33.7827C35.2823 33.753 35.2816 33.7122 35.2772 33.659L35.2688 33.5577L35.3704 33.5611L36.0372 33.5816L36.0445 33.6615C36.0482 33.7012 36.0477 33.7407 36.0437 33.7798L36.4935 33.3306L36.5575 33.3947ZM64.1386 34.9544C64.3353 34.9137 64.54 34.9174 64.7524 34.9641C64.9656 35.0111 65.151 35.0967 65.306 35.2222C65.3997 35.298 65.4672 35.4032 65.512 35.5315C65.5596 35.6578 65.5806 35.7955 65.5762 35.9433L65.575 35.9737L65.556 35.9975L65.3392 36.2647L65.3117 36.2727C65.0545 36.346 64.792 36.3519 64.5251 36.2911C64.2602 36.2305 64.0239 36.1172 63.8184 35.9511C63.7009 35.856 63.6254 35.7356 63.5955 35.5921C63.5656 35.4477 63.5911 35.3155 63.6795 35.2063C63.7869 35.0736 63.9436 34.9919 64.1386 34.9544ZM35.5192 34.56L35.7882 34.8287L36.0527 34.5646L36.1167 34.6288L37.5964 36.1068C37.6725 36.1829 37.8384 36.234 38.1312 36.2294C38.3029 36.2251 38.4776 36.2046 38.6553 36.1677C38.6048 36.1748 38.5547 36.1794 38.505 36.1813L38.5032 36.1816C38.3709 36.184 38.2492 36.1636 38.1749 36.0894L36.4411 34.3574H35.7222L35.5192 34.56ZM64.7133 35.1411C64.5239 35.0992 64.3446 35.0967 64.1754 35.1318L64.1738 35.132C64.009 35.1636 63.8947 35.2287 63.8204 35.3203C63.7712 35.3811 63.7526 35.456 63.7736 35.5554C63.7942 35.6556 63.8459 35.7399 63.9327 35.8102C64.1156 35.9582 64.3264 36.0597 64.5655 36.1143C64.794 36.1665 65.0169 36.1628 65.2354 36.105L65.3953 35.9077C65.3957 35.7927 65.3779 35.6889 65.3424 35.5956L65.3412 35.5932C65.3052 35.4884 65.2544 35.4136 65.1918 35.3631C65.0609 35.2573 64.9022 35.1827 64.7133 35.1411ZM39.381 35.5669C39.385 35.7059 39.3451 35.8277 39.2506 35.9221C39.1901 35.9826 39.1071 36.0323 39.0064 36.0745C39.0073 36.0742 39.0084 36.0741 39.0093 36.0738C39.3162 35.9764 39.5304 35.8593 39.6615 35.7283C39.7135 35.6765 39.7495 35.6198 39.7714 35.5583L39.772 35.5569C39.7834 35.5264 39.7906 35.4955 39.7948 35.4643L39.381 35.5669ZM68.0584 35.3107L68.0015 35.3811L67.5504 35.9376L67.4935 36.0079L67.1369 35.7193L67.1075 35.6958L67.1038 35.6584L66.9746 34.4339L68.0584 35.3107ZM67.2803 35.6023L67.4664 35.7529L67.8036 35.3373L67.2007 34.85L67.2803 35.6023ZM34.4481 35.6284L34.971 35.6434L35.5227 35.0922L35.2537 34.8234L34.4481 35.6284ZM35.4616 33.7995L35.4614 33.803L35.461 33.8064C35.4536 33.8575 35.4324 33.9041 35.3952 33.9413C35.3422 33.9942 35.2674 34.007 35.1964 34.0041H35.1944L35.1924 34.0039C35.1283 33.9985 35.0302 33.9817 34.9015 33.955C34.7214 33.919 34.5668 33.8956 34.4374 33.8838C34.3138 33.8752 34.1803 33.8891 34.0365 33.9278C33.8978 33.9668 33.7691 34.0442 33.6499 34.1632C33.5667 34.2463 33.509 34.3465 33.4765 34.4653L33.4759 34.4671C33.4454 34.5697 33.4379 34.6704 33.4522 34.7699L33.4595 34.8126L33.4599 34.8142L33.4602 34.8157C33.4793 34.9281 33.5239 35.0159 33.5917 35.0835C33.6712 35.163 33.792 35.2203 33.9643 35.2474C34.1205 35.2721 34.2981 35.2708 34.4977 35.2426L34.5038 35.2032C34.4251 35.1989 34.3518 35.1882 34.2842 35.1696C34.1831 35.143 34.0969 35.1022 34.0354 35.0407C33.958 34.9634 33.9109 34.8679 33.8934 34.7577C33.8787 34.6645 33.8833 34.5713 33.907 34.479L33.9182 34.4397C33.949 34.3322 34.0026 34.239 34.0792 34.1625C34.1984 34.0435 34.3461 33.9823 34.5171 33.9796H34.5187C34.6728 33.9796 34.8699 34.0037 35.108 34.0503C35.2975 34.0863 35.4417 34.1044 35.5435 34.1068C35.6309 34.1066 35.6908 34.0815 35.7335 34.0388C35.7769 33.9955 35.8114 33.9414 35.8365 33.8747C35.8511 33.8358 35.8594 33.7966 35.863 33.7575L35.4623 33.7449C35.4624 33.7645 35.4627 33.7827 35.4616 33.7995ZM34.5195 34.1607C34.3944 34.1629 34.2922 34.2061 34.2074 34.2908C34.1535 34.3446 34.1148 34.4108 34.092 34.4914L34.0914 34.4943C34.0663 34.5736 34.0602 34.6516 34.0726 34.7294C34.0843 34.8037 34.1148 34.8637 34.1638 34.9126C34.1868 34.9356 34.2221 34.9578 34.2734 34.9767L34.3305 34.9946L34.3316 34.9949C34.4087 35.0163 34.5004 35.0266 34.6079 35.0243L34.7162 35.0221L34.7007 35.1198L35.3261 34.4952L35.3901 34.431L35.391 34.4319L35.5353 34.2877C35.4192 34.2846 35.2645 34.2646 35.0737 34.2284L35.0733 34.2282C34.8408 34.1827 34.6568 34.1608 34.5195 34.1607ZM35.3828 34.6962L35.6509 34.9641L35.6591 34.9559L35.391 34.688L35.3828 34.6962ZM36.1136 33.9661L36.6492 33.9685L36.7623 33.8555L36.4933 33.5867L36.1136 33.9661ZM35.4751 33.2775L34.6965 33.3343L34.7011 33.2321L34.7343 32.5374L34.8176 32.5343L35.5225 32.5091L35.4751 33.2775ZM47.8577 30.7764C47.8577 30.5744 47.8994 30.3828 47.983 30.2029L47.9837 30.2011C48.0711 30.0228 48.1856 29.8779 48.328 29.7693C48.4755 29.6559 48.6352 29.5957 48.8053 29.5957C48.9851 29.5957 49.1689 29.6675 49.355 29.7979C49.5057 29.8977 49.6413 30.0249 49.7622 30.1781C49.8128 30.0715 49.8762 29.977 49.953 29.8954L50.0031 29.8456C50.1406 29.7141 50.2937 29.6408 50.4607 29.6408C50.5805 29.6408 50.7139 29.6843 50.858 29.76C50.9562 29.8089 51.0555 29.8725 51.1557 29.95V29.19H47.4096V28.3057H51.3358L51.3624 28.3322L52.0699 29.0352L52.0965 29.0617V32.2149C52.0965 32.2564 52.1292 32.3297 52.2423 32.4383C52.3526 32.5396 52.4822 32.6294 52.6312 32.7077C52.7846 32.7818 52.9062 32.8143 52.9991 32.8143C53.1198 32.8143 53.2312 32.7564 53.3358 32.6181L53.3847 32.5531L54.2121 33.0479L54.1479 33.1291C54.0744 33.2216 53.9832 33.2925 53.8753 33.3414C53.7716 33.3906 53.6585 33.4149 53.5377 33.4149C53.2833 33.4148 52.9651 33.3149 52.5888 33.128C52.214 32.9439 51.8841 32.7221 51.6007 32.4621C51.32 32.2052 51.1557 31.9563 51.1557 31.718V30.5411C51.112 30.4949 51.0688 30.4603 51.026 30.436L51.0228 30.434L51.0196 30.4318C50.9719 30.3992 50.938 30.3898 50.9154 30.3898C50.7825 30.3898 50.668 30.4574 50.5716 30.6223C50.4799 30.7865 50.4281 31.057 50.4281 31.4473V31.5851L49.5457 31.2035V31.1441C49.5457 31.0241 49.5599 30.861 49.5873 30.6565C49.5444 30.592 49.4938 30.5382 49.4341 30.4953C49.367 30.4471 49.3094 30.4285 49.2598 30.4285C49.1646 30.4285 49.0702 30.4649 48.9753 30.5479C48.8786 30.6325 48.7996 30.7434 48.7393 30.8833C48.6793 31.0224 48.6492 31.1671 48.6492 31.3181C48.6492 31.4788 48.7134 31.6655 48.8544 31.8802L48.9105 31.9594C49.0439 32.1397 49.1991 32.2945 49.3763 32.4241C49.5849 32.5692 49.7617 32.6338 49.909 32.6338C49.9865 32.6338 50.0627 32.6173 50.1381 32.5836C50.2181 32.5455 50.283 32.497 50.3343 32.4387L50.3949 32.3697L51.0446 32.9581L50.9808 33.0253C50.9025 33.1084 50.8068 33.1712 50.696 33.2144C50.5899 33.2576 50.4787 33.2793 50.3633 33.2793C50.0062 33.2792 49.6315 33.1411 49.2412 32.8767C48.8554 32.6124 48.5291 32.2859 48.2631 31.8983C47.9968 31.5102 47.8577 31.1357 47.8577 30.7764ZM34.9074 32.7123L34.8871 33.1386L35.3035 33.1083L35.329 32.6971L34.9074 32.7123ZM52.8303 28.3057V29.19H52.3453L52.3186 29.1639L51.4472 28.3057H52.8303ZM52.4196 29.0089H52.649V28.4871H51.8898L52.4196 29.0089ZM31.9819 64.0462C31.9819 64.2211 31.885 64.36 31.7213 64.463C31.5595 64.5647 31.3723 64.6144 31.1634 64.6144C30.9806 64.6144 30.8237 64.6039 30.6945 64.5821C30.805 64.8276 30.9309 65.0158 31.0711 65.1494C31.1373 65.1676 31.237 65.1789 31.3753 65.1789C31.5203 65.1789 31.6451 65.1563 31.7514 65.1135L31.8081 65.0909L31.8506 65.1345C32.0615 65.3521 32.1805 65.5742 32.1805 65.7996C32.1805 66.0176 32.0837 66.2034 31.9028 66.3532C31.7269 66.4982 31.5185 66.5705 31.2825 66.5705C30.889 66.5705 30.5187 66.3819 30.1722 66.0261L30.1717 66.0257C29.847 65.6873 29.5803 65.2536 29.3698 64.7275L29.3173 64.744C29.4854 65.1809 29.6905 65.5718 29.9335 65.9163L30.0333 66.0487C30.2687 66.3492 30.5191 66.587 30.7839 66.7643C31.0893 66.9609 31.3894 67.0562 31.6861 67.0562C31.8526 67.0562 32.0029 67.0203 32.1386 66.9496C32.2771 66.8733 32.3851 66.776 32.4645 66.6581C32.5429 66.5373 32.5812 66.4089 32.5812 66.2704C32.5812 66.1299 32.544 65.9825 32.4654 65.827L32.4382 65.7733L32.4771 65.7277C32.6467 65.5282 32.8359 65.3703 33.0451 65.2556C33.2557 65.1397 33.4735 65.0808 33.6975 65.0808C33.7978 65.0808 33.8847 65.1252 33.9557 65.2011C34.0271 65.2726 34.0661 65.3598 34.0661 65.4592C34.0661 65.6594 33.9869 65.8456 33.8388 66.016L33.8379 66.0168C33.7157 66.1529 33.5635 66.2603 33.3836 66.3403L33.7411 66.7671C33.9145 66.7077 34.059 66.6068 34.1762 66.4618C34.305 66.3027 34.3677 66.1287 34.3677 65.9369C34.3677 65.7705 34.3111 65.5908 34.1897 65.3962L34.1888 65.3945C34.0715 65.2003 33.9234 65.0392 33.7442 64.9116L33.7431 64.9108C33.5629 64.7783 33.4027 64.719 33.2609 64.719C33.079 64.719 32.8948 64.767 32.7076 64.8656L32.707 64.866C32.5244 64.96 32.3547 65.0965 32.198 65.2766L32.1311 65.3534L31.8555 65.0521L31.9635 64.9984C32.0642 64.9487 32.1448 64.8785 32.2064 64.7872L32.2068 64.7864C32.2728 64.6907 32.3034 64.5946 32.3034 64.4977C32.3033 64.3749 32.2685 64.2336 32.1929 64.0717L32.1916 64.0688C32.121 63.9049 32.0165 63.745 31.8767 63.5903L31.2619 62.9071H29.0575V63.4389H31.5575L31.5734 63.4449C31.6931 63.4914 31.7911 63.5709 31.8668 63.6808C31.943 63.7914 31.9819 63.9142 31.9819 64.0462ZM68.3956 63.6501C68.3956 63.7684 68.3419 63.8734 68.2506 63.963C68.161 64.0503 68.0479 64.1173 67.9143 64.1653C67.781 64.213 67.6445 64.2372 67.506 64.2372C67.3724 64.2372 67.2524 64.2178 67.1482 64.1762L67.1398 64.1815C67.2165 64.4702 67.3348 64.7323 67.4943 64.9685C67.6655 65.2173 67.8642 65.4119 68.0915 65.5537C68.3181 65.6914 68.5519 65.7588 68.7942 65.7588C68.9262 65.7588 69.0575 65.7329 69.1875 65.6804L69.1883 65.68C69.3224 65.6275 69.4427 65.5528 69.5505 65.4551L69.7024 65.3174V65.8432C69.7024 65.903 69.7254 65.9773 69.7839 66.0685C69.8421 66.1594 69.9317 66.2615 70.0557 66.3754L70.1526 66.4582C70.3505 66.6209 70.573 66.7675 70.8201 66.8975L70.9457 66.9617C71.2906 67.1326 71.5756 67.2129 71.8038 67.2129C71.9383 67.2129 72.0566 67.1709 72.162 67.0845L71.7028 66.816C71.5995 66.9355 71.467 67.0005 71.3083 67.0005C71.1819 67.0005 71.0361 66.9581 70.8738 66.8826L70.8714 66.8814C70.7123 66.8018 70.5718 66.7086 70.4498 66.6024L70.4482 66.6011C70.3868 66.5454 70.3376 66.4901 70.3028 66.4356C70.2681 66.3815 70.2455 66.3225 70.2455 66.2615V63.3727L69.6297 62.7649H68.346L68.8136 63.2442H69.7024V64.6487L69.6846 64.6725C69.5243 64.893 69.3264 65.0683 69.091 65.1959C68.8556 65.3239 68.6076 65.3885 68.348 65.3885C68.1529 65.3885 67.9757 65.3348 67.8198 65.227C67.6655 65.1204 67.5541 64.9831 67.4895 64.8155L67.4418 64.6923H67.5739C67.9054 64.6923 68.1586 64.6297 68.3411 64.5134C68.5216 64.3947 68.6044 64.2457 68.6044 64.062C68.6044 63.7914 68.5204 63.5721 68.356 63.3965L67.7342 62.7649H66.872V63.2442H68.0136C68.1267 63.2442 68.2248 63.283 68.2947 63.3682C68.3629 63.4466 68.3956 63.5423 68.3956 63.6501ZM26.4301 50.6577C26.4301 50.683 26.442 50.7274 26.481 50.7956C26.519 50.8618 26.5779 50.9422 26.6597 51.0373C26.8232 51.2274 27.0061 51.4005 27.2086 51.5563C27.31 51.6343 27.3954 51.6908 27.4651 51.7271C27.5368 51.7647 27.5834 51.7768 27.6099 51.7768C27.6371 51.7768 27.6527 51.7687 27.6646 51.757C27.6766 51.7449 27.6845 51.7287 27.6845 51.7013V51.0988H29.1296V51.9734C29.1296 52.0417 29.1556 52.1253 29.2186 52.2266C29.2813 52.3272 29.3777 52.4398 29.5107 52.565C29.7773 52.8109 30.0922 53.0258 30.456 53.2087H30.4565C30.8256 53.3961 31.1282 53.4845 31.3679 53.4845C31.4607 53.4845 31.5465 53.4651 31.6266 53.4268L31.6281 53.4264C31.6809 53.4021 31.7303 53.371 31.7762 53.3331L31.2714 53.0298C31.1585 53.1619 31.0159 53.2337 30.8452 53.2337C30.7113 53.2337 30.556 53.1877 30.383 53.1053L30.3803 53.1041C30.211 53.0169 30.0611 52.9151 29.9313 52.7988L29.93 52.7976L29.9286 52.7964C29.8069 52.6785 29.7225 52.5557 29.7225 52.4322V49.26L29.0479 48.5887H26.1855V49.1317H27.0919V50.589H26.5512C26.505 50.589 26.4753 50.6002 26.4549 50.6161C26.4338 50.6326 26.4301 50.6454 26.4301 50.6577ZM71.0757 50.2585C71.0757 50.2965 71.0862 50.3265 71.1056 50.3525C71.127 50.3763 71.1468 50.3839 71.1686 50.3839C71.3479 50.3839 71.5292 50.3373 71.7137 50.2414C71.6847 50.1898 71.6475 50.1484 71.6023 50.1158L71.5999 50.114L71.5974 50.1121C71.5345 50.06 71.4767 50.0393 71.4226 50.0393C71.3229 50.0393 71.2385 50.0651 71.1662 50.1151L71.1424 50.134C71.0923 50.1777 71.0757 50.2192 71.0757 50.2585ZM72.5008 49.538C72.5008 49.6807 72.46 49.8147 72.3812 49.9386C72.3086 50.0557 72.212 50.1539 72.0937 50.2328L72.0029 50.2934L71.9597 50.193C71.851 49.9386 71.7121 49.7362 71.5445 49.5832L71.5437 49.5825C71.3814 49.4301 71.2239 49.3622 71.0697 49.3622C70.9174 49.3622 70.7858 49.4097 70.6707 49.5055L70.6327 49.5416C70.5504 49.6277 70.5116 49.7265 70.5116 49.8407C70.5116 49.9341 70.5435 50.053 70.6166 50.2001C70.6893 50.3463 70.7999 50.5148 70.9501 50.7062L71.0685 50.8511C71.3511 51.1908 71.6827 51.5404 72.063 51.8999L72.0647 51.9012C72.5274 52.3595 72.9498 52.7051 73.3326 52.9402C73.7227 53.182 74.0345 53.2943 74.2727 53.2943C74.3652 53.2943 74.454 53.2717 74.54 53.2257L74.5425 53.2244L74.5445 53.2232C74.6063 53.1946 74.662 53.1594 74.7121 53.1178L74.1867 52.7084C74.1435 52.7609 74.0914 52.8061 74.03 52.8428C73.9359 52.8994 73.8325 52.9281 73.7223 52.9281C73.459 52.9276 73.1396 52.7661 72.7705 52.4762L72.7697 52.4758C72.3966 52.1778 71.9762 51.753 71.5086 51.203L71.3471 51.0132L71.593 51.055C71.6132 51.0584 71.6516 51.061 71.7117 51.061C71.9092 51.061 72.103 51.0162 72.2936 50.9256L72.2944 50.9254C72.4891 50.8351 72.6437 50.7121 72.7612 50.5569L72.762 50.5555C72.8812 50.4033 72.9401 50.2332 72.9401 50.0424C72.9401 49.8727 72.8888 49.6724 72.7794 49.4396L72.779 49.439C72.6704 49.2024 72.5125 48.9567 72.3045 48.7019L72.3041 48.7013L71.7032 47.9501H70.1587V48.5542H71.9875L72.011 48.5708C72.1491 48.6684 72.2637 48.8164 72.357 49.0074L72.3901 49.0768C72.4624 49.2379 72.5008 49.392 72.5008 49.538ZM48.039 30.7764C48.039 31.0879 48.1597 31.4272 48.4128 31.7959C48.6661 32.1651 48.9763 32.4753 49.3435 32.7269C49.7147 32.9783 50.054 33.0981 50.3633 33.0981C50.4556 33.0981 50.5436 33.081 50.6278 33.0468L50.6292 33.0463C50.6854 33.0245 50.7353 32.9964 50.7797 32.9627L50.4049 32.6232C50.3589 32.6638 50.3077 32.6995 50.251 32.7296L50.2121 32.7491C50.1144 32.7927 50.0131 32.815 49.909 32.815C49.71 32.815 49.497 32.7289 49.2729 32.573L49.2711 32.5717C49.0504 32.4105 48.8613 32.2137 48.7041 31.9817L48.7035 31.9808C48.5507 31.7487 48.4679 31.527 48.4679 31.3181C48.4679 31.1424 48.5028 30.9733 48.5726 30.8116C48.6421 30.6504 48.7363 30.5161 48.856 30.4115C48.9774 30.3053 49.1128 30.2471 49.2598 30.2471C49.3574 30.2471 49.4513 30.2844 49.5399 30.348C49.6283 30.4114 49.7013 30.4917 49.7593 30.5877L49.7759 30.6152L49.7715 30.6468C49.7462 30.8298 49.7325 30.9756 49.7285 31.0852L50.2491 31.3102C50.2599 30.9762 50.3122 30.7138 50.4142 30.5322L50.4149 30.5307C50.5348 30.3257 50.7018 30.2086 50.9154 30.2086C50.9852 30.2086 51.0523 30.2361 51.1157 30.2783C51.1867 30.3188 51.253 30.3755 51.3148 30.446L51.337 30.4716V31.718C51.337 31.8754 51.4496 32.0781 51.723 32.3286C51.9932 32.5759 52.3081 32.7885 52.6691 32.9656C53.037 33.1484 53.3253 33.2335 53.5377 33.2335C53.6338 33.2335 53.7199 33.2146 53.7978 33.1777L53.799 33.1771C53.8487 33.1547 53.8931 33.1263 53.9331 33.0919L53.4283 32.7902C53.3088 32.922 53.1654 32.9954 52.9991 32.9955C52.8674 32.9955 52.7168 32.9507 52.5508 32.8705L52.548 32.8692C52.3861 32.7842 52.2427 32.6851 52.1196 32.5717L52.0755 32.5274C51.9794 32.4263 51.9152 32.3213 51.9152 32.2149V29.1372L51.261 28.4871H47.5912V29.0089H51.337V30.3488L51.1851 30.2115C51.0426 30.0823 50.9069 29.9866 50.7777 29.9224L50.7757 29.9213C50.6433 29.8515 50.5394 29.8222 50.4607 29.8222C50.3513 29.8222 50.2406 29.8689 50.1275 29.9774L50.1264 29.9786C50.0137 30.0828 49.9282 30.2195 49.8718 30.3918L49.8138 30.5685L49.7102 30.4141C49.5774 30.2163 49.4254 30.0618 49.2549 29.9489L49.253 29.9476C49.085 29.8296 48.9364 29.7771 48.8053 29.7771C48.6811 29.7771 48.5595 29.82 48.4387 29.9129L48.4382 29.9133C48.3216 30.0022 48.2243 30.1232 48.1475 30.2792L48.122 30.338C48.0668 30.4762 48.039 30.6221 48.039 30.7764Z"
+                          fill="var(--game-accent)"
+                        />
+                        <path
+                          fillRule="evenodd"
+                          clipRule="evenodd"
+                          d="M50.7338 83.901C49.1392 85.9964 47.087 87.0637 44.5038 87.5107C41.7494 87.9876 40.129 89.0666 38.3733 91.2452C38.7638 88.5998 37.3746 85.9936 35.5649 84.2531C33.5029 82.2708 32.5162 80.6176 32.1482 77.7231C29.9751 78.1641 28.6174 78.2497 26.626 77.2971C25.5222 76.7673 24.5295 76.143 23.5217 75.4468C21.4297 74.0003 18.9231 73.6434 16.4286 74.4175L17.5054 73.1467C18.2473 72.272 18.7069 71.235 18.8721 70.0947C19.0713 68.7173 18.879 67.5135 18.6918 66.3429C18.5461 65.431 18.4036 64.5394 18.4515 63.6006C18.5176 62.291 18.7519 61.0246 19.4623 59.9424L20.2732 58.7064C17.2125 57.4969 16.1582 55.2013 15.3307 52.2244C14.5843 49.5445 13.0134 47.5684 10.3477 46.4475C12.7656 46.464 14.9478 45.1316 16.3715 43.202L18.2548 40.6498C19.1574 39.4269 20.2778 38.4216 21.6925 37.8439C22.3018 37.595 22.9142 37.4857 23.587 37.3657C23.7334 37.3395 23.8826 37.3129 24.0354 37.2842C22.1971 34.6539 22.49 31.7085 23.3655 28.8276L23.8446 27.2492C24.2771 25.8237 24.4123 24.3368 24.0504 22.8768C23.9342 22.4083 23.7513 21.984 23.5621 21.5454C23.4775 21.3492 23.3916 21.1501 23.31 20.9427C25.6378 22.8558 28.1699 23.0854 30.9543 22.4882C34.1682 21.7995 36.9962 21.837 39.8136 23.6601C40.3259 23.9914 40.4961 23.5789 40.7811 22.8884C40.9722 22.4251 41.215 21.8367 41.6473 21.2638C42.1219 20.6366 42.6295 20.0485 43.2017 19.5098C43.9638 18.7926 44.8296 18.2703 45.7027 17.7436C47.7687 16.4974 49.8756 15.2264 50.7455 11.2903C51.1327 12.6122 51.5474 13.787 52.3389 14.8374C53.3081 16.1225 54.4408 16.795 55.6304 17.5015C56.3064 17.9029 57.0009 18.3152 57.6943 18.8571C59.7331 20.45 60.4648 22.1518 60.8618 23.0749C61.0201 23.4431 61.1255 23.6874 61.2389 23.7516C61.3136 23.7936 61.4792 23.7381 61.5798 23.6796C62.3216 23.2489 63.0363 22.8573 63.8536 22.5692C65.2892 22.0606 66.8075 21.9421 68.3291 22.1641L71.9347 22.6893C74.1831 23.0164 76.3815 22.3997 78.193 20.9547C78.1078 21.1939 78.0165 21.4211 77.9265 21.6444C77.7743 22.0233 77.6265 22.3906 77.5215 22.7853C77.0724 24.4823 77.2392 26.1928 77.7783 27.8373C78.5548 30.2095 79.1674 32.4632 78.5322 34.921C78.3206 35.7392 77.901 36.4278 77.4435 37.1784L77.3834 37.2767C77.3914 37.2791 77.4003 37.2819 77.41 37.2849C77.427 37.2902 77.4455 37.2964 77.4661 37.303C77.5602 37.3336 77.685 37.3743 77.7589 37.3832C78.9364 37.5393 80.2189 37.8814 81.2369 38.6151C82.003 39.1673 82.6398 39.8095 83.1882 40.5777L85.0352 43.1645C86.2802 44.908 88.7733 46.488 91.1102 46.455L89.9359 47.0297C88.6142 47.6764 87.6709 48.8242 86.9997 50.1281C86.522 51.0568 86.2987 51.8868 86.0807 52.6988C85.7342 53.9878 85.3998 55.232 84.0786 56.7543C83.2948 57.6572 82.3123 58.2395 81.1889 58.7782C82.4508 60.1391 82.9927 61.9954 82.9855 63.748C82.9822 64.5354 82.9535 65.2857 82.8154 66.0646C82.41 68.3498 82.2267 70.6362 83.571 72.6201C83.9437 73.1693 84.3754 73.6292 84.8519 74.1368L84.8551 74.1405C84.8826 74.17 84.91 74.199 84.9375 74.2285C85.0562 74.3319 84.954 74.3186 84.8369 74.2721C81.4352 73.5562 79.8406 74.107 77.158 76.0259C76.5079 76.4911 75.8485 76.8872 75.1382 77.2397C73.2217 78.1943 71.5773 78.242 69.4222 77.7574C69.1848 79.8161 68.3662 81.7051 66.9456 83.2057L65.1539 85.0991C63.6343 86.7063 62.9551 88.8025 63.0831 91.0877C60.9865 88.7666 59.5163 87.9743 56.4869 87.3815C53.9687 86.8892 52.4576 85.9742 50.7338 83.901ZM57.798 22.6352C56.6823 22.3337 55.6037 22.026 54.641 21.3688L54.6443 21.3704C52.8255 20.1295 51.8463 19.3297 50.7814 17.3536C50.6618 17.536 50.5585 17.7167 50.4576 17.8934C50.3268 18.1223 50.1998 18.3446 50.0456 18.5555C48.8621 20.1775 47.2447 21.3719 45.3599 22.0861C44.3832 22.4561 43.436 22.711 42.4248 22.983C42.3413 23.0055 42.2574 23.0281 42.173 23.0509C42.3078 22.5982 42.5142 22.301 42.7353 21.9826C42.7802 21.9179 42.8257 21.8524 42.8713 21.7845C43.8145 20.5931 44.9859 19.6898 46.3255 18.9651C48.2509 17.8578 49.7512 16.8435 50.8492 14.8209C51.5878 16.2283 52.6753 17.3071 54.0268 18.1114L56.421 19.5353C57.5711 20.218 58.959 21.7635 59.45 23.0824L57.798 22.6352ZM52.3837 21.0883L53.6242 21.9645C52.8796 21.9783 52.3522 21.9518 51.8459 21.9263C51.245 21.8962 50.6738 21.8675 49.8038 21.909L49.7424 21.9119L49.6387 21.9167C49.1164 21.9412 48.62 21.9644 48.0572 21.963C48.2137 21.8494 48.3603 21.7445 48.499 21.6452L48.4993 21.645C49.4206 20.9857 49.9918 20.5769 50.8117 19.5233C51.2636 20.086 51.7667 20.6516 52.3837 21.0883ZM42.1909 29.1528C42.1888 29.2811 42.1867 29.4065 42.179 29.5269H42.1775C40.2717 27.2116 37.4602 27.7458 35.1835 29.1097L35.1817 29.1108C34.0106 29.8113 32.6176 30.6445 31.2306 30.2876C34.3349 27.6513 37.8447 25.7457 41.6789 24.5198C44.5624 23.5985 47.557 23.1979 50.6178 23.1574C49.8134 24.3198 48.7271 24.5058 47.4682 24.7214C46.4261 24.8999 45.2656 25.0986 44.0488 25.8882C43.1522 26.4704 42.4328 27.3227 42.245 28.3865C42.1995 28.643 42.1951 28.9035 42.1909 29.1528ZM70.1898 30.2276C69.4432 30.4046 68.8637 30.4166 68.2269 30.1405C67.6297 29.8809 67.0817 29.5739 66.5438 29.2727C65.4931 28.6843 64.4828 28.1182 63.2273 27.9724C61.757 27.8013 60.3437 28.346 59.4036 29.5208C59.5252 26.58 57.1314 25.2236 54.4626 24.7629C54.2607 24.7261 54.0543 24.6948 53.8467 24.6631C52.6991 24.4885 51.5095 24.3073 50.7588 23.1739C58.0008 23.0239 64.8252 25.7457 70.1898 30.2276ZM26.9114 25.3361L27.1862 26.9611V26.9641C27.4415 28.4795 26.5299 31.665 26.0613 33.254C25.8067 34.1193 25.3614 34.879 24.9057 35.6565C24.7996 35.8374 24.693 36.0194 24.588 36.2039C23.6479 34.3238 23.7019 32.1617 24.3027 30.241L25.2158 27.3182C25.5988 26.0893 25.6603 24.8274 25.4696 23.495C27.5406 24.0772 28.5213 24.2422 30.735 23.8071C33.5525 23.2414 36.008 22.7568 38.6707 24.2513C38.4499 24.3698 38.2066 24.4853 37.9438 24.5828L36.1942 25.2295C35.3405 25.5449 34.4539 25.6969 33.5583 25.8504C33.3714 25.8825 33.1842 25.9146 32.9968 25.9482C32.1092 26.1073 31.2427 26.1628 30.337 26.1703C29.1431 26.1808 28.0422 25.9092 26.9114 25.3361ZM75.901 24.3623C75.7673 25.9918 76.1412 27.1501 76.715 28.6446C77.5982 30.9463 78.1268 33.9217 76.8681 36.1244C76.2902 35.3441 75.88 34.5894 75.5634 33.7266C75.4212 33.1961 75.269 32.6881 75.1208 32.1932C74.4452 29.9358 73.8512 27.9512 74.6605 25.3571C73.4922 25.9213 72.3611 26.1988 71.1073 26.1523C69.5857 26.0968 68.1187 25.9092 66.623 25.6827C65.9409 25.5221 65.3251 25.3301 64.7049 25.0435L62.9882 24.2527C64.3144 23.3765 66.5087 23.1049 67.9596 23.375L70.7677 23.8971C72.5235 24.2242 74.2595 24.2317 75.9611 23.6301L75.901 24.3623ZM57.0457 34.1017L56.3488 36.0763L56.3459 36.0748C52.4859 34.912 48.8576 34.927 45.0715 36.1304L44.2695 33.7791C43.813 32.4437 43.4015 31.1368 43.1507 29.7519C42.9104 27.3782 44.8147 26.4554 46.752 25.9137C49.5725 25.1245 51.9302 25.2595 54.7686 25.9062C56.8354 26.3774 58.9905 27.6768 58.3311 30.148C57.9866 31.4421 57.5461 32.6873 57.0966 33.9577L57.0457 34.1017ZM38.3794 40.3436C37.298 41.418 36.3909 42.5463 35.5739 43.9613L35.5724 43.9628L30.2364 40.6782C28.8893 39.85 28.4672 38.2265 28.9899 36.7966C29.2542 36.0719 29.6312 35.4537 30.1012 34.8475C30.9108 33.8032 31.7292 32.8114 32.7445 31.9531C34.1952 30.7257 36.6192 29.2207 38.501 29.0122C39.9773 28.8471 41.2539 29.5538 41.9402 30.8367C42.0135 30.9941 42.0898 31.1497 42.1662 31.3056C42.3447 31.6699 42.5236 32.0349 42.6656 32.4227L44.1704 36.522C41.9582 37.3832 40.0344 38.6721 38.3794 40.3436ZM70.7665 41.0293L67.901 42.7009L67.9022 42.7024L65.9381 43.8877C64.7981 41.9821 63.4163 40.3542 61.6936 39.0188C60.3195 37.9534 58.9126 37.0606 57.2529 36.4425L58.193 34.0912L59.0507 31.8736C59.1427 31.7114 59.2304 31.5481 59.3172 31.3856C59.4985 31.0477 59.6774 30.7137 59.8914 30.4016C60.5795 29.3978 61.7267 28.8831 62.9313 29.0017C63.5665 29.0632 64.1193 29.2658 64.7049 29.5074C66.5479 30.2696 68.2326 31.2974 69.6431 32.7303C70.6914 33.7956 71.5652 34.9795 72.2804 36.2864C72.7726 37.1867 72.8526 38.252 72.5009 39.1838C72.1843 40.0301 71.5204 40.5897 70.7665 41.0293ZM28.3336 35.7207C27.476 37.2722 27.6488 39.4494 28.8757 40.8253C26.2821 40.4412 24.57 42.3483 23.9062 44.5674L23.1748 47.0102C22.9735 47.6839 22.3864 48.7492 21.5814 48.9788C22.0379 44.9185 22.9135 42.1502 24.8058 38.5356C26.4082 35.4732 28.5243 32.7513 31.1585 30.4046C31.3682 31.7461 30.4597 32.8605 29.5727 33.9487C29.0936 34.5365 28.6207 35.1166 28.3336 35.7207ZM76.1142 65.0668C77.2376 62.696 77.6838 60.1871 75.1951 58.4091L75.1939 58.4075C76.8681 58.1257 77.7722 57.2555 78.4183 55.7892C78.8161 54.598 78.9227 53.3825 78.8851 52.1133C78.852 51.0074 78.9905 49.9376 79.9003 49.0823C78.5605 48.2761 78.3004 47.2161 78.0056 46.0142C77.8869 45.5295 77.7625 45.0219 77.559 44.4984C76.7558 42.1892 75.2944 40.5312 72.6228 40.8223C74.4428 38.7742 73.7894 36.1694 72.2109 34.2128L71.0742 32.8023C70.5428 32.1436 70.1987 31.2974 70.2783 30.3776C72.7654 32.5202 74.7178 35.0485 76.3036 37.8289C77.1011 39.2273 77.7197 40.5957 78.2919 42.0872C79.1452 44.3108 79.6617 46.5661 79.9455 48.9338C80.1543 50.6713 80.3045 52.2979 80.2428 54.0758C80.1301 57.3229 79.4937 60.4888 78.3024 63.5121C77.5877 65.3293 76.5471 67.478 75.3695 69.0819C74.7319 67.8462 75.3284 66.6506 75.8808 65.5425L75.8812 65.5421C75.9611 65.3818 76.0403 65.2231 76.1142 65.0668ZM50.7531 36.3569C59.8571 36.3569 67.2384 43.7302 67.2384 52.8277C67.2384 61.9231 59.8571 69.298 50.7531 69.298C41.6488 69.298 34.2673 61.9231 34.2673 52.8277C34.2673 43.7317 41.6488 36.3569 50.7531 36.3569ZM20.164 56.7733C20.1919 57.02 20.2202 57.2692 20.2522 57.5224L20.2537 57.524C18.7279 56.8654 17.8974 55.5312 17.2155 54.2002C16.9257 53.4427 16.6569 52.7 16.4661 51.894C16.0035 49.9391 14.9943 48.221 13.4264 46.9682C15.9145 46.1251 17.0934 44.4975 18.5408 42.4995L18.5417 42.4983C19.6665 40.9048 21.1263 38.9812 23.2124 38.6271C23.0321 39.1328 22.8384 39.5919 22.6251 40.0736C22.0421 41.3883 21.4022 42.6895 20.4869 43.7988C19.9649 44.4316 19.3968 45.0261 18.7789 45.5952C17.9034 46.4025 16.8791 46.8916 15.6942 47.3133C16.9752 48.2361 17.8268 49.3794 18.5026 50.7223C19.0658 52.0758 19.5914 53.4217 19.8888 54.8681C20.0201 55.5045 20.0911 56.1304 20.164 56.7733ZM88.0404 46.9021C86.411 47.9885 85.4919 50.0261 85.0562 51.8327H85.0546C84.6673 53.4455 84.0725 54.898 83.0287 56.1434C82.515 56.7555 81.9355 57.2611 81.1513 57.5809L81.3242 56.3699C81.7732 53.2177 82.8635 49.1258 85.8299 47.3268C84.5066 46.9082 83.4401 46.2945 82.4928 45.3837C80.0469 43.0318 79.681 42.1676 78.4874 39.3484C78.3933 39.1262 78.2944 38.8918 78.1886 38.6436C80.3223 39.1073 81.6113 40.4442 82.7508 42.1262L83.4163 43.109C84.0891 44.1023 84.7921 45.0161 85.7592 45.7453C86.4772 46.2854 87.2461 46.7086 88.0404 46.9021ZM35.1174 44.8075C33.4098 47.9105 32.7805 52.6488 33.5735 56.1151L33.572 56.1119L27.4085 57.4776C26.0193 57.7849 24.6376 56.8395 24.0714 55.6289C23.7951 55.0377 23.6659 54.4659 23.6088 53.8267C23.4091 51.5716 23.6328 49.3629 24.19 47.1722L24.1931 47.1603C24.6299 45.4461 25.2405 43.0498 26.8408 42.1247C27.6653 41.649 28.5273 41.6431 29.4374 41.9251C30.711 42.4428 31.9185 43.0429 33.1289 43.7107L35.1174 44.8075ZM77.9467 52.1824C77.9434 53.1862 77.9075 54.1089 77.6374 55.0886H77.6386C77.2226 56.5952 75.9522 57.572 74.4141 57.5208L72.2517 57.1141L67.9325 56.1539C68.6291 52.2603 68.1308 48.2841 66.4215 44.746C68.1817 43.7737 69.9237 42.8659 71.7352 42.0452C72.7007 41.607 73.7563 41.685 74.6726 42.1142C75.8727 42.8734 76.4958 44.5029 76.9073 45.8083C77.5606 47.882 77.9527 50.0021 77.9467 52.1824ZM81.2676 45.7955C81.9287 46.5129 82.4504 47.0793 83.598 47.6704C82.685 48.7492 82.0438 49.9481 81.4384 51.315C81.3952 50.9057 81.3577 50.5023 81.3209 50.1033C81.2071 48.8669 81.0964 47.6727 80.8242 46.476L80.4818 44.9711C80.7835 45.2699 81.0342 45.5421 81.2676 45.7955ZM20.1036 51.531L19.207 49.6165C18.914 48.9914 18.5196 48.4632 18.1269 47.9373C18.0587 47.8459 17.9905 47.7546 17.9229 47.6629C18.0884 47.534 18.2743 47.4216 18.4605 47.3089C18.7103 47.1578 18.961 47.0061 19.1649 46.8136L21.0482 45.0386C20.473 47.2322 20.1321 49.3404 20.1036 51.531ZM22.8204 54.9444C23.2364 56.7378 24.4573 58.0384 26.2686 58.4136C23.4151 60.7395 24.567 63.3215 25.8556 66.0376C26.2746 66.9227 26.7597 68.2133 26.0974 69.1316C23.3265 64.8911 21.6474 60.2937 21.3065 55.2433C21.1849 53.4398 21.2149 50.9038 21.5363 49.0928C22.5829 50.0079 22.5857 51.0493 22.5892 52.3382C22.5914 53.1095 22.5937 53.9696 22.8204 54.9444ZM36.1581 71.5141C35.0723 72.7699 33.2356 73.0898 31.8149 72.1129L31.8134 72.1113C30.7155 71.355 29.885 70.4444 29.056 69.4482C28.3216 68.5658 27.7434 67.6161 27.1667 66.6138C26.5329 65.5138 26.1064 64.3585 25.6829 63.1596C24.9875 61.1866 26.0508 59.0738 28.0813 58.5489L32.8406 57.3185L33.7672 57.0842C34.6728 60.8292 37.0112 64.3 39.9308 66.6122L37.7305 69.4946L36.1581 71.5141ZM75.0586 65.2303C73.9324 67.6698 72.414 69.8411 70.3744 71.6566H70.3772C69.637 72.314 68.7749 72.7069 67.8094 72.6892C67.1334 72.6754 66.4198 72.4461 65.8913 72.0318C65.5024 71.7273 65.2072 71.3404 64.9072 70.9471C64.8801 70.912 64.8535 70.8769 64.8264 70.8421L61.5931 66.6227L61.9941 66.2564C64.6883 63.7944 66.7655 60.7424 67.6923 57.1698L70.8836 57.9738L73.4773 58.6163C74.2401 58.8804 74.9758 59.2539 75.4281 59.9214C76.1037 60.9209 76.1804 62.0899 75.8246 63.1972C75.5961 63.9099 75.374 64.5475 75.0586 65.2303ZM21.1443 71.8278C22.9375 71.6284 24.4243 72.0843 26.0117 72.8782H26.0103C27.8694 73.8077 28.5914 74.4575 29.6209 75.3842C30.0568 75.7767 30.5478 76.2185 31.2036 76.7523C28.7766 77.4695 26.4202 76.0937 24.5129 74.7252C22.897 73.5323 21.2975 72.818 19.183 72.782C20.0915 71.0626 20.3513 69.1885 20.066 67.268C20.0247 66.9898 19.981 66.716 19.938 66.4462C19.5779 64.1869 19.2599 62.1925 20.6712 59.9485C21.1158 60.7872 21.9493 63.5662 21.9989 64.3359L22.1881 67.268C22.2767 68.6349 22.0169 69.9085 21.4177 71.124C21.3308 71.3005 21.2685 71.4765 21.1854 71.7119C21.1789 71.7301 21.1722 71.7491 21.1654 71.7685C21.1585 71.7879 21.1515 71.8076 21.1443 71.8278ZM70.3865 76.7463L71.4857 75.7783V75.7799C71.6827 75.6071 71.8697 75.4319 72.0551 75.2586C72.406 74.9299 72.7496 74.6085 73.1393 74.3214C74.1306 73.5893 75.1999 73.0324 76.3246 72.497C77.2767 72.0439 79.3225 71.6162 80.441 71.8246C80.013 70.929 79.6451 70.024 79.423 69.0549C79.1827 68.0001 79.3087 64.9408 79.6318 63.8469L80.611 60.5308C80.6559 60.3761 80.7608 60.2053 80.8557 60.0716C82.2372 62.2127 81.94 64.5176 81.5301 66.8989C81.1574 69.136 81.2054 70.6875 82.3228 72.7849C80.1886 72.7687 78.5758 73.5158 76.9089 74.7732C75.1563 76.1115 72.7024 77.4679 70.3865 76.7463ZM25.6148 71.5197C25.5253 71.4729 25.4338 71.4248 25.3375 71.376L25.3359 71.3776C24.5709 70.9903 23.7746 70.8086 22.9811 70.6277L22.9735 70.6257C23.1973 69.2588 23.3355 68.0122 23.3325 66.7083C24.2756 68.6305 25.2849 70.3349 26.5854 71.9522C26.2073 71.8303 25.9229 71.6813 25.6148 71.5197ZM78.621 70.662C77.8926 70.7803 77.2093 70.9588 76.5035 71.2649L74.8797 71.9688C76.1336 70.421 76.8911 69.0771 77.7852 67.4913L77.7856 67.4901C77.9313 67.2316 78.0807 66.9663 78.2366 66.6934C78.2063 68.0885 78.2576 69.3476 78.621 70.662ZM50.0951 76.3695C50.0351 78.0546 48.8321 79.4409 47.105 79.5988L47.1035 79.5972C46.5703 79.6465 46.0883 79.6513 45.5941 79.5972C43.2272 79.3404 41.012 78.6054 38.9771 77.3883C38.3283 76.9999 37.7215 76.6336 37.262 76.0457C36.3534 74.8827 36.3369 73.3583 37.2004 72.1565L40.7102 67.2708C40.9447 67.3536 41.1366 67.4905 41.332 67.6302C41.4344 67.7033 41.5378 67.7768 41.6488 67.8438C44.2425 69.4062 47.168 70.2732 50.2303 70.4444L50.2228 74.3202C50.2218 74.7991 50.1832 75.2643 50.1445 75.7303L50.1445 75.7307C50.1269 75.9431 50.1092 76.1555 50.0951 76.3695ZM64.8175 73.1588C65.2246 74.3561 64.7844 75.6717 63.7918 76.4656L63.7935 76.4672C61.2975 78.4641 58.3868 79.4248 55.2027 79.6376C54.3572 79.6933 53.5734 79.5071 52.8691 79.1049C51.8164 78.4419 51.3492 77.3225 51.3177 76.1054L51.1735 70.4294C52.9846 70.3362 54.6277 70.0676 56.2737 69.4962C57.8025 68.9648 59.2336 68.3316 60.5331 67.3653L60.7673 67.3039C60.8165 67.2902 60.9248 67.3956 60.9595 67.4432L63.8415 71.4466C64.2304 71.9869 64.6027 72.5256 64.8175 73.1588ZM31.2546 72.8887C32.5477 73.84 34.434 74.0423 35.7526 73.0373V73.0385C35.1564 75.4125 36.475 77.2115 38.4785 78.2691C38.5255 78.2941 38.574 78.3195 38.6239 78.3454C39.6344 78.8752 41.1867 79.6885 41.1352 80.9625C38.1105 79.9857 34.9341 78.2061 32.5763 76.2888C29.9766 74.1744 27.8891 71.9898 26.1424 69.1869C26.9009 69.1465 27.5782 69.4001 28.0918 69.9101L30.3806 72.1832C30.6259 72.4271 30.9139 72.6383 31.1906 72.8414C31.212 72.8572 31.2334 72.8729 31.2546 72.8887ZM50.4165 78.5331L50.735 77.8446L50.7378 77.8414C51.1432 79.279 52.5493 80.3834 54.0135 80.5486C55.1664 80.6786 56.0871 80.5332 56.9028 80.4048C58.1356 80.2102 59.1278 80.0539 60.3166 80.9427L60.267 80.9597C58.594 81.5298 56.9436 81.9272 55.1862 82.1735C54.9887 82.2014 54.7933 82.23 54.599 82.2591C53.8617 82.3686 53.1401 82.4756 52.3853 82.5067C48.3981 82.6714 45.0775 82.2587 41.2659 81.0134C42.5181 80.0402 43.4778 80.2001 44.6912 80.4024C45.4904 80.5357 46.3996 80.6871 47.575 80.5453C48.8351 80.3939 49.8879 79.678 50.4165 78.5331ZM60.3215 80.9411C60.3921 79.7276 61.5701 79.0516 62.7831 78.3559C63.5564 77.9121 64.3443 77.4602 64.8688 76.8557C65.7802 75.807 66.073 74.3787 65.7802 73.0566C66.3827 73.3809 66.9008 73.6284 67.5 73.6749C69.616 73.84 70.8686 72.6019 72.181 71.1854C72.2602 71.1002 72.3406 71.0117 72.4229 70.9209L72.4233 70.9205C73.1958 70.0692 74.1242 69.0464 75.3304 69.1643C72.6616 73.4782 68.871 76.7899 64.463 79.2144C63.1195 79.9525 61.7667 80.4488 60.3215 80.9411ZM44.1164 84.2846C46.0597 83.6737 47.2852 83.6244 49.4779 83.7609H49.4764C48.35 85.2057 46.4922 86.0206 44.6315 86.3283C42.5815 86.6659 40.7492 87.2389 39.303 88.7125C39.1438 86.6881 37.9738 84.9671 36.5231 83.5945C34.9552 82.1105 33.6726 80.7388 33.3377 78.3712L36.5051 80.3907C36.65 80.4832 36.7881 80.5958 36.926 80.7081C37.0125 80.7787 37.0989 80.849 37.1869 80.9144C38.1225 81.8222 38.8494 82.8725 39.4457 84.0355C39.8617 84.8504 39.9953 85.6964 40.1004 86.6869C41.2824 85.551 42.5875 84.7648 44.1164 84.2846ZM57.4451 86.4002C56.3245 86.2322 55.296 85.9589 54.234 85.5163V85.5179C54.1855 85.4892 54.1371 85.4605 54.0886 85.4323C53.3117 84.9748 52.5763 84.5423 52.049 83.7427C54.3753 83.6515 55.7782 83.6034 57.8853 84.4074C59.2069 84.9118 60.3421 85.6499 61.3274 86.6522C61.186 84.8803 63.6687 81.3586 64.744 80.6536L68.2221 78.3728C67.9083 80.4585 66.5131 82.1 65.0009 83.5239C63.5592 84.8819 62.4597 86.5654 62.1172 88.6313C60.8723 87.4715 59.2594 86.6716 57.4451 86.4002ZM39.2985 81.5835C40.943 82.2741 42.4523 82.7255 44.1659 83.1051C42.9299 83.5134 41.8546 83.9079 40.8378 84.5952C40.4879 83.4532 39.9127 82.5034 39.2985 81.5835ZM62.1629 81.6401C61.5333 82.6314 60.9946 83.4799 60.6558 84.5338C59.6079 83.8974 58.516 83.4924 57.2933 83.0781C59.0281 82.7393 60.59 82.2725 62.1835 81.6078L62.1629 81.6401ZM34.2213 26.7666L31.1232 27.1308L29.5711 27.1951L29.5692 27.1952C29.2496 27.2057 28.845 27.219 28.5033 27.1351C28.4898 27.9619 28.4102 28.7991 28.2104 29.6259L27.5947 32.1932C27.9684 31.8486 28.284 31.5262 28.6059 31.1973C28.9049 30.8918 30.3734 29.6553 30.735 29.3157L34.2213 26.7666ZM70.8848 27.2882C71.5939 27.3467 72.2755 27.3152 72.956 27.2161C72.9866 28.8024 73.2705 29.8922 73.5988 31.1522C73.6877 31.4928 73.7797 31.846 73.8706 32.2247H73.869C73.8367 32.1922 73.8048 32.1599 73.7725 32.1276C72.532 30.8811 71.3286 29.5845 69.9807 28.4549L69.8204 28.3205L68.069 27.0541L70.8848 27.2882Z"
+                          fill="var(--game-accent)"
+                        />
+                      </svg>
+                    </div>
+                    <h1 className="game-intro__title">{t("intro.title")}</h1>
+                    <p className="text-lg tracking-[0.14em] text-white">
+                      {t("intro.subtitle")}
+                    </p>
+                  </div>
+                ) : !isFinalResultCalculation ? (
+                  <div className="round-transition">
+                    <div className="round-transition__kicker">
+                      {currentRound === totalRoundsRef.current
+                        ? t("flow.finalRound")
+                        : t("flow.round", { round: currentRound })}
+                    </div>
+                    <h1 className="round-transition__title">
+                      {t("flow.great")}
+                    </h1>
+                    <p className="round-transition__message">
+                      {currentRound === totalRoundsRef.current
+                        ? t("flow.calculatingFinalResults")
+                        : t("flow.continueNextRound")}
+                    </p>
+                  </div>
+                ) : null}
+
+                {/* Status / button */}
+                {phase === "start" && (
+                  <div className="start-actions">
+                    {connError && (
+                      <div className="w-full max-w-[520px] mx-auto">
+                        <Alert
+                          variant="error"
+                          title="Connection Failed"
+                          description={connError}
+                          onClose={() => setConnError(null)}
+                        />
+                      </div>
+                    )}
+                    <button
+                      id="btn-start-game"
+                      onClick={beginPlay}
+                      className="start-button"
+                    >
+                      {t("flow.beginGame")}
+                    </button>
+                    <p className="start-note">
+                      {t("flow.connectsToLiveServer")}
+                    </p>
+                  </div>
+                )}
+
+                {(phase === "connecting" ||
+                  phase === "waiting_round" ||
+                  phase === "calculating_result") && (
+                  <div
+                    className={`loading-state ${
+                      showRoundTransitionState && !isFinalResultCalculation
+                        ? "loading-state--offset"
+                        : ""
+                    }`}
+                  >
+                    <div className="loading-spinner" />
+                    <p className="loading-text">
+                      {phase === "connecting"
+                        ? t("flow.connectingToServer")
+                        : showRoundTransitionState
+                          ? isFinalResultCalculation ||
+                            currentRound === totalRoundsRef.current
+                            ? t("flow.calculatingFinalResults")
+                            : t("flow.preparingNextRound")
+                          : t("flow.loadingLevel")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+          {/* ── WIN overlay ───────────────────────────────────────────────── */}
+          {status === "won" && phase !== "start" && phase !== "tutorial" && (
+            <div className="win-overlay">
+              <div className="win-card">
+                <div className="win-kicker">{t("hud.levelPlain")}</div>
+                <h2 className="win-title">{t("win.clear")}</h2>
+                <div className="win-actions">
+                  <button onClick={retry} className="ghost-button">
+                    {t("win.replay")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── GAME OVER overlay ─────────────────────────────────────────── */}
+          {status === "completed" && gameEndData && (
+            <div className="micro-result-overlay">
+              {isSuccessfulResult ? (
+                <GameSuccessScreen
+                  stage={MICRO_SCREEN_STAGE}
+                  score={resultScore}
+                  completedGames={resultCompletedGames}
+                  totalGames={resultTotalGames}
+                  onContinue={returnToLobby}
+                />
+              ) : (
+                <GameFailureScreen
+                  stage={MICRO_SCREEN_STAGE}
+                  score={resultScore}
+                  completedGames={resultCompletedGames}
+                  totalGames={resultTotalGames}
+                  onContinue={returnToLobby}
+                />
+              )}
+            </div>
+          )}
+
+          {renderLegacyOverlays && status === "completed" && gameEndData && (
+            <div
+              className="game-result-overlay"
+              style={
+                {
+                  "--result-accent": gameEndData.accentColor,
+                } as CSSProperties
+              }
+            >
+              <div className="game-result-card">
+                {/* Background glow blob */}
+                <div className="game-result-glow" />
+                {/* Inner border ring */}
+                <div className="game-result-ring" />
+                {/* Top accent line */}
+                <div className="game-result-accent-line" />
+
+                {/* Icon */}
+                <div className="game-result-icon">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="40"
+                    height="40"
+                    viewBox="0 0 13 15"
+                    fill="none"
+                  >
+                    <path
+                      d="M6.44767 5.78274V8.44147L8.10938 9.4385M6.44767 2.79166C3.32736 2.79166 0.797852 5.32117 0.797852 8.44147C0.797852 11.5618 3.32736 14.0913 6.44767 14.0913C9.56797 14.0913 12.0975 11.5618 12.0975 8.44147C12.0975 5.32117 9.56797 2.79166 6.44767 2.79166ZM6.44767 2.79166V0.797607M5.1183 0.797607H7.77703M11.9838 3.18518L10.9868 2.18815L11.4853 2.68667M0.911526 3.18518L1.90855 2.18815L1.41004 2.68667"
+                      stroke="#fff"
+                      strokeWidth="1.59524"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+
+                {/* Title */}
+                <div className="game-result-heading">
+                  <h2 className="game-result-title">{gameEndData.title}</h2>
+                  {/* Coloured divider under title */}
+                  <div className="game-result-divider" />
+                </div>
+
+                {/* Score */}
+                {gameEndData.score !== "--" ? (
+                  <div className="game-result-score">
+                    <div className="game-result-score-label">
+                      {t("legacyResult.finalScore")}
+                    </div>
+                    <div className="game-result-score-value">
+                      {gameEndData.score}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="game-result-score-pending">
+                    Score being calculated…
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {status === "gameover" && phase !== "start" && (
+            <div className="micro-result-overlay">
+              <GameFailureScreen
+                stage={MICRO_SCREEN_STAGE}
+                score={0}
+                completedGames={Math.min(completedRoundCount, roundDotTotal)}
+                totalGames={Math.max(roundDotTotal, 1)}
+                onContinue={phase === "tutorial" ? retry : returnToLobby}
+              />
+            </div>
+          )}
+
+          {renderLegacyOverlays &&
+            status === "gameover" &&
+            phase !== "start" && (
+              <div className="game-over-overlay">
+                <div className="game-over-card">
+                  <div className="game-over-kicker">
+                    {t("gameOver.blocked")}
+                  </div>
+                  <h2 className="game-over-title">
+                    {phase === "server_game" && timerSeconds === 0
+                      ? t("gameOver.timeUp")
+                      : t("gameOver.outOfLives")}
+                  </h2>
+                  <p className="game-over-copy">
+                    {phase === "server_game"
+                      ? t("gameOver.betterLuck")
+                      : t("gameOver.blockedArrowsReverse")}
+                  </p>
+                  {phase === "tutorial" ? (
+                    <button
+                      onClick={retry}
+                      className="gold-button gold-button--wide"
+                    >
+                      {t("gameOver.tryAgain")}
+                    </button>
+                  ) : (
+                    <div className="game-over-actions">
+                      <button onClick={retry} className="ghost-button">
+                        {t("gameOver.retry")}
+                      </button>
+                      <button
+                        onClick={() => {
+                          gameApiClient.reset();
+                          setPhase("start");
+                          setStatus("playing");
+                        }}
+                        className="gold-button"
+                      >
+                        {t("gameOver.mainMenu")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+        </div>
+
+        {/* ── Bottom HUD ───────────────────────────────────────────────────── */}
+        {(showDemoHud || showLiveHud) && (
+          <div className="arrow-game-controls flex-shrink-0 flex items-center justify-center gap-3">
+            {/* Hint — demo only */}
+            {showDemoHud && (
+              <button
+                onClick={hint}
+                aria-label={t("controls.hint")}
+                title={t("controls.hint")}
+                className="demo-control-button demo-hint-button"
+                disabled={hints <= 0}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                >
+                  <path
+                    d="M4.45477 12.4953C4.10331 11.7009 3.92196 10.8418 3.92236 9.97312C3.92236 6.63158 6.54831 3.92261 9.78789 3.92261C13.0275 3.92261 15.6534 6.63248 15.6534 9.97402C15.6537 10.8424 15.4723 11.7012 15.121 12.4953"
+                    stroke="currentColor"
+                    strokeWidth="1.52869"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M9.78804 0.764404V1.66679M18.8119 9.78829H17.9095M1.66655 9.78829H0.76416M16.1679 3.4066L15.5299 4.04459M4.04615 4.04549L3.40816 3.4075M12.0594 16.3811C12.9708 16.0861 13.3371 15.2513 13.44 14.4121C13.4707 14.1613 13.264 13.9528 13.0114 13.9528H6.60893C6.54723 13.9518 6.48602 13.964 6.42935 13.9884C6.37269 14.0128 6.32186 14.049 6.28023 14.0946C6.2386 14.1401 6.20712 14.194 6.18787 14.2526C6.16862 14.3113 6.16204 14.3733 6.16856 14.4347C6.26963 15.2721 6.5241 15.8848 7.48966 16.3811M12.0594 16.3811H7.48966M12.0594 16.3811C11.9502 18.1363 11.443 18.8311 9.79436 18.8113C8.03109 18.8438 7.62502 17.9847 7.48966 16.3811"
+                    stroke="currentColor"
+                    strokeWidth="1.52869"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span className="demo-hint-count">{hints}</span>
+              </button>
+            )}
+
+            {/* Zoom — shown for both demo and live game, hidden while calculating final results */}
+            <div
+              className="demo-zoom-control"
+              style={
+                isFinalResultCalculation ? { visibility: "hidden" } : undefined
+              }
+            >
+              <button
+                type="button"
+                aria-label={t("controls.zoomOut")}
+                className="demo-zoom-btn"
+                disabled={zoom <= 0}
+                onClick={() => {
+                  const v = Math.max(0, zoom - 10);
+                  setZoom(v);
+                  gameRef.current?.setZoom(v);
+                }}
+              >
+                <svg
+                  width="23"
+                  height="23"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  <line x1="8" y1="11" x2="14" y2="11" />
+                </svg>
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={zoom}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setZoom(v);
+                  gameRef.current?.setZoom(v);
+                }}
+                aria-label={t("controls.zoom")}
+                className="gold-range demo-zoom-range"
+                style={
+                  {
+                    "--range-progress": `${zoom}%`,
+                  } as CSSProperties
+                }
+              />
+              <button
+                type="button"
+                aria-label={t("controls.zoomIn")}
+                className="demo-zoom-btn"
+                disabled={zoom >= 100}
+                onClick={() => {
+                  const v = Math.min(100, zoom + 10);
+                  setZoom(v);
+                  gameRef.current?.setZoom(v);
+                }}
+              >
+                <svg
+                  width="23"
+                  height="23"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  <line x1="11" y1="8" x2="11" y2="14" />
+                  <line x1="8" y1="11" x2="14" y2="11" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Guides — demo only */}
+            {showDemoHud && (
+              <button
+                onClick={guides}
+                aria-label={t("controls.toggleGuides")}
+                className="demo-control-button"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <line x1="4" y1="9" x2="20" y2="9" />
+                  <line x1="4" y1="15" x2="20" y2="15" />
+                  <line x1="10" y1="3" x2="8" y2="21" />
+                  <line x1="16" y1="3" x2="14" y2="21" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showDemoCompleteModal && (
+        <GameClearModal
+          title={t('hud.demoCleared')}
+          accentColor={STAGE_THEME_COLORS[MICRO_SCREEN_STAGE].resultAccent}
+          eclipseColor={STAGE_THEME_COLORS[MICRO_SCREEN_STAGE].eclipse}
+          onConfirm={finishDemo}
+        />
+      )}
+    </main>
+  );
+}
+
+function AuthGateScreen({
+  gameThemeStyle,
+  error,
+}: {
+  gameThemeStyle: CSSProperties;
+  error: string | null;
+}) {
+  const { t } = useTranslation();
+  return (
+    <main
+      className="arrow-game-shell auth-gate-screen select-none"
+      style={gameThemeStyle}
+    >
+      {error ? (
+        <div className="auth-gate-card">
+          <p className="auth-gate-title">{t("auth.failedTitle")}</p>
+          <p className="auth-gate-copy">{error}</p>
+        </div>
+      ) : (
+        <div className="auth-gate-card">
+          <div className="loading-spinner" />
+          <p className="auth-gate-title">{t("auth.fetchingDevUserTitle")}</p>
+          <p className="auth-gate-copy">{t("auth.fetchingDevUserCopy")}</p>
+        </div>
+      )}
+    </main>
+  );
+}

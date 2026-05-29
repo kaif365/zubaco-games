@@ -1,0 +1,46 @@
+{
+  "name": "Easy1",
+  "gridRow": 4,
+  "gridCol": 4,
+  "nodes": [
+    {
+      "colorCode": "pink",
+      "points": [
+        {
+          "row": 3,
+          "col": 3
+        },
+        {
+          "row": 1,
+          "col": 0
+        }
+      ]
+    },
+    {
+      "colorCode": "cyan",
+      "points": [
+        {
+          "row": 0,
+          "col": 0
+        },
+        {
+          "row": 2,
+          "col": 2
+        }
+      ]
+    },
+    {
+      "colorCode": "amber",
+      "points": [
+        {
+          "row": 2,
+          "col": 3
+        },
+        {
+          "row": 1,
+          "col": 2
+        }
+      ]
+    }
+  ]
+}
