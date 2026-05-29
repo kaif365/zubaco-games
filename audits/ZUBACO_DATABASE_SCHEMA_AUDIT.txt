@@ -1,0 +1,408 @@
+================================================================================
+ZUBACO DATABASE SCHEMA — COMPREHENSIVE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior Database Architect / Data Modeling Review
+Component: Prisma Schema Files (Platform + Admin + 20 Game Backends)
+Files: zubaco-platform/prisma/schema.prisma (750+ lines, 35+ models)
+       admin-panel/backend/prisma/schema.prisma (600+ lines, 30+ models)
+       20× game backend schema.prisma files (each 50-200 lines)
+Database: PostgreSQL 16 (RDS ap-south-1)
+ORM: Prisma 7.x (Platform 7.8, Admin 7.3, Games mixed)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Zubaco platform uses a SINGLE PostgreSQL database shared across 22
+services (platform + admin + 20 game backends). Three separate Prisma
+schema files define overlapping views of the same database:
+
+- Platform Schema: 35+ models covering users, auth, games, tournaments,
+  wallet, social, notifications, achievements, energy, anti-cheat, KYC
+- Admin Schema: 30+ models — DUPLICATES most platform models + adds
+  admin-specific tables (Admin, AdminAccessToken, Game config, Stages)
+- Game Schemas: Each game has its own schema with game-specific tables
+  (levels, boards, sessions) — 20 separate schemas
+
+KEY FINDING: Two independent Prisma schemas (platform + admin) define
+OVERLAPPING models for the SAME database tables. This creates a serious
+risk of migration conflicts, schema drift, and data corruption.
+
+TOTAL ISSUES: 15 (3 Critical, 4 High, 5 Medium, 3 Low)
+
+DATABASE SCHEMA SCORE: 52/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. SCHEMA INVENTORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PLATFORM SCHEMA (35 models):
+  User, AuthProvider, RefreshToken, OtpVerification, UserDevice,
+  GameProgress, LevelResult, LevelConfig, GameSession, Season,
+  SeasonStage, StageGame, SeasonEntry, StageEntry, Cohort,
+  Leaderboard, LeaderboardEntry, Wallet, Transaction, Friendship,
+  Referral, Notification, Achievement, UserAchievement, UserEnergy,
+  CheatFlag, Challenge, KycDocument, BankDetail
+
+ADMIN SCHEMA (30 models — 20+ DUPLICATED from platform):
+  Admin, AdminAccessToken, Game, GameContent, Stage, Tournament,
+  GameStage, TournamentStage, SeasonLeaderboard, CheatFlag,
+  + DUPLICATED: User, AuthProvider, GameProgress, GameSession,
+    Season, SeasonStage, StageGame, SeasonEntry, StageEntry,
+    Wallet, Transaction, Notification
+
+GAME SCHEMAS (per-game, ~5-15 models each):
+  Arrows: Level, Board, Arrow, GameSessionBoard, UserStageDemoBoard,
+          StageLevelConfig, StageDemoLevelConfig
+  Similar pattern for all 20 games.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+CATEGORY: SCHEMA ARCHITECTURE — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-ARCH-01: Duplicate Model Definitions Across Schemas                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Data Integrity                                                     │
+│                                                                              │
+│ Platform and Admin schemas BOTH define these models for the SAME tables:    │
+│ - User (@@map("users"))                                                      │
+│ - GameSession (@@map("game_sessions"))                                       │
+│ - Season/SeasonStage/StageGame/SeasonEntry/StageEntry                       │
+│ - Wallet, Transaction, Notification                                          │
+│                                                                              │
+│ If EITHER schema runs `prisma migrate dev`, it generates SQL for ALL        │
+│ its models. Both schemas generating migrations = CONFLICT.                  │
+│                                                                              │
+│ WORSE: The admin schema has SLIGHTLY DIFFERENT field definitions:            │
+│ - Admin CheatFlag has: reference_id, flag_type Int, game_type Int           │
+│ - Platform CheatFlag has: user_id, flag_type CheatFlagType enum,            │
+│   severity CheatSeverity enum                                               │
+│ These are DIFFERENT columns for the same table name!                        │
+│                                                                              │
+│ FIX OPTIONS:                                                                 │
+│ A) Single shared schema (monorepo Prisma) — both apps import from one      │
+│ B) Admin uses read-only Prisma client (introspect, never migrate)          │
+│ C) Admin communicates via API, not direct DB access                         │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-ARCH-02: 22 Services Share One Database Instance                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Scalability                                                        │
+│                                                                              │
+│ All 22 services (platform + admin + 20 games) connect to the same          │
+│ PostgreSQL db.t3.medium instance.                                            │
+│                                                                              │
+│ Connection math:                                                             │
+│ - db.t3.medium max connections ≈ 85                                        │
+│ - Prisma default connection pool: 5 per service                             │
+│ - 22 services × 5 = 110 connections → EXCEEDS LIMIT                       │
+│                                                                              │
+│ At production scale with auto-scaling (3 platform tasks, 20 game tasks):   │
+│ - 23+ ECS tasks × 5 connections = 115+ connections                          │
+│                                                                              │
+│ ALSO: No connection pooling middleware (PgBouncer) configured.              │
+│                                                                              │
+│ FIX:                                                                         │
+│ 1. Upgrade to db.r6g.large (max ~200 connections) minimum                  │
+│ 2. Deploy PgBouncer as sidecar or RDS Proxy                                │
+│ 3. Reduce Prisma pool size per service (connection_limit=2)                │
+│ 4. Consider database-per-game for isolation                                 │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-ARCH-03: Admin GameType Enum Includes SUDOKU & SPOT_THE_DIFFERENCE  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Schema Drift                                                       │
+│                                                                              │
+│ Admin schema GameType enum has 22 values (includes SUDOKU,                  │
+│ SPOT_THE_DIFFERENCE). Platform schema GameType has 20 values (excludes     │
+│ them). These are the same PostgreSQL enum in the same database.            │
+│                                                                              │
+│ If platform migrates first, it creates GameType with 20 values.            │
+│ Admin expects 22 values → admin queries for SUDOKU will fail.             │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-ARCH-04: No Database Schema Separation for Games                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Isolation                                                          │
+│                                                                              │
+│ All 20 game backends create their tables in the public schema:              │
+│ - arrows: "levels", "boards", "arrows", "game_session_boards"              │
+│ - sliding-puzzle: "levels", "boards", "puzzles", "game_session_boards"     │
+│ - memory-card-matching: "levels", "boards", ...                             │
+│                                                                              │
+│ Multiple games use identical table names ("levels", "boards")!             │
+│ They'll COLLIDE in the same database unless each game uses a separate     │
+│ PostgreSQL schema (e.g., SET search_path TO arrows_game).                  │
+│                                                                              │
+│ FIX: Use Prisma schema property or PostgreSQL schemas per game:             │
+│   datasource db { schemas = ["arrows"] }                                    │
+│                                                                              │
+│ Priority Score: 8/10 (tables will collide on first deploy)                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: FINANCIAL DATA INTEGRITY — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-FIN-01: Wallet Balance Has No Database-Level Constraint             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Financial Integrity                                                │
+│ File: Platform schema — Wallet model                                         │
+│                                                                              │
+│ balance Decimal @default(0) @db.Decimal(12,2)                               │
+│                                                                              │
+│ No CHECK constraint to prevent negative balances. Combined with the        │
+│ race condition in the platform's wallet service (SELECT + UPDATE without   │
+│ locking), a user could overdraft their wallet.                              │
+│                                                                              │
+│ FIX: Add raw SQL migration:                                                  │
+│   ALTER TABLE wallets ADD CONSTRAINT balance_non_negative                   │
+│   CHECK (balance >= 0);                                                      │
+│   ALTER TABLE wallets ADD CONSTRAINT bonus_non_negative                     │
+│   CHECK (bonus_balance >= 0);                                               │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-FIN-02: Transaction Has No Foreign Key to Wallet                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Referential Integrity                                              │
+│ File: Platform schema — Transaction model                                    │
+│                                                                              │
+│ Transaction references user_id but NOT wallet_id. There's no guarantee    │
+│ that a transaction's balance_after matches the wallet's actual balance.   │
+│                                                                              │
+│ A wallet could be deleted while transactions remain orphaned.              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-FIN-03: No Audit Log Table for Financial Operations                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Compliance                                                         │
+│                                                                              │
+│ No immutable audit log for:                                                  │
+│ - Wallet balance changes (who, when, why, before/after)                     │
+│ - KYC approvals/rejections (reviewed_by + reviewed_at exist but no log)    │
+│ - Admin actions (ban, unban, wallet adjustments)                            │
+│ - Prize distributions                                                        │
+│                                                                              │
+│ For a real-money platform in India, RBI and MeitY guidelines require       │
+│ immutable financial audit trails.                                            │
+│                                                                              │
+│ FIX: Create an AuditLog model:                                               │
+│   model AuditLog {                                                           │
+│     id, actor_id, action, entity_type, entity_id,                           │
+│     old_value Json?, new_value Json?, ip_address, created_at               │
+│   }                                                                          │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: INDEXING & PERFORMANCE — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-PERF-01: Missing Composite Indexes on Hot Query Paths               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│                                                                              │
+│ Several high-frequency queries lack optimal indexes:                        │
+│                                                                              │
+│ A) LeaderboardEntry: @@index([leaderboard_id, score(sort: Desc)])           │
+│    GOOD — but no index on (leaderboard_id, user_id) for upserts            │
+│                                                                              │
+│ B) GameSession: @@index([user_id, game_type])                               │
+│    Missing: (user_id, game_type, started_at) for "recent games" queries    │
+│                                                                              │
+│ C) CheatFlag: @@index([reviewed, severity])                                 │
+│    Missing: (reviewed, severity, created_at) for "unreviewed" dashboard    │
+│                                                                              │
+│ D) StageEntry: @@index([season_stage_id, total_score])                      │
+│    Good for ranking. Missing: (season_entry_id) for user lookup            │
+│                                                                              │
+│ E) Transaction: @@index([user_id, created_at])                              │
+│    Missing: (user_id, type, created_at) for filtered history               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-PERF-02: No Soft Delete Index Optimization                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ Files: Admin schema (Game, Stage, GameContent, etc.)                         │
+│                                                                              │
+│ Many admin models have deleted_at (soft delete) but no partial index:      │
+│ - Game: deleted_at DateTime? — no WHERE deleted_at IS NULL index           │
+│ - Stage, Tournament, GameStage, etc.                                        │
+│                                                                              │
+│ Every query filtering WHERE deleted_at IS NULL does a full scan without    │
+│ a partial index.                                                             │
+│                                                                              │
+│ FIX: Add partial indexes via raw SQL:                                        │
+│   CREATE INDEX idx_games_active ON games(id) WHERE deleted_at IS NULL;     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-PERF-03: JSON Columns Without GIN Indexes                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ Files: Platform (GameSession.config, GameSession.metadata, Season.rules)     │
+│        Admin (Game.game_config, Game.game_content, GameContent.content)      │
+│                                                                              │
+│ Multiple Json/JsonB columns with no GIN index. If queries filter by JSON   │
+│ fields, they'll be slow at scale.                                          │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: DATA MODELING — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-MODEL-01: Admin Game Model is a "God Table"                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Normalization                                                      │
+│ File: Admin schema — Game model                                              │
+│                                                                              │
+│ The Game model has 30+ columns for ALL game types:                          │
+│ - cell_count, min_sequence (Sequence Recall)                                │
+│ - total_actual_rounds, total_demo_rounds (Block Fill)                       │
+│ - il_title, il_description (Infinity Loop)                                  │
+│ - preview_duration_seconds (Memory Card Matching)                           │
+│ - game_config Json (catch-all for everything else)                          │
+│                                                                              │
+│ Most columns are NULL for 19 of 20 game types. This is a classic           │
+│ "kitchen sink" anti-pattern.                                                │
+│                                                                              │
+│ FIX: Use a single game_config JsonB column for all game-specific params,   │
+│ with Zod validation per game type at the application layer.                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-MODEL-02: BankDetail account_number Not Encrypted                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Data Protection                                                    │
+│ File: Platform schema — BankDetail model                                     │
+│                                                                              │
+│ account_number String? — stored as plaintext in the database.               │
+│ upi_id String? — also plaintext.                                            │
+│                                                                              │
+│ Indian banking regulations require sensitive financial data to be           │
+│ encrypted at the application level (not just storage encryption).          │
+│                                                                              │
+│ FIX: Encrypt account_number and upi_id before storage. Use Prisma          │
+│ middleware or @encrypted extension.                                          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-MODEL-03: Challenge Model Missing Relations                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Referential Integrity                                              │
+│ File: Platform schema — Challenge model                                      │
+│                                                                              │
+│ Challenge has challenger_id and opponent_id but NO @relation to User.       │
+│ Also challenger_session_id and opponent_session_id have no @relation        │
+│ to GameSession.                                                              │
+│                                                                              │
+│ Prisma won't enforce FK constraints for these fields.                      │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DB-MODEL-04: Prisma Version Mismatch Across Services                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Compatibility                                                      │
+│                                                                              │
+│ Platform: @prisma/client ^7.8.0                                              │
+│ Admin:    @prisma/client ^7.3.0                                              │
+│ Games:    Mixed versions (7.3 - 7.8)                                         │
+│                                                                              │
+│ Different Prisma versions generate different client code and may            │
+│ handle migrations differently.                                              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. POSITIVE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ UUID primary keys everywhere (no sequential IDs exposed)
+✓ Proper @@map() table naming (snake_case in DB, camelCase in code)
+✓ created_at / updated_at on all models
+✓ Decimal(12,2) for financial fields (not Float)
+✓ @@unique constraints on logical pairs (user_id + season_id, etc.)
+✓ Proper cascade deletes on child records
+✓ Comprehensive enum usage for type safety
+✓ Soft delete (deleted_at) on admin models
+✓ @@index on foreign keys and common query patterns
+✓ RefreshToken has token_hash (not plaintext), expires_at indexed
+✓ OtpVerification has otp_hash, attempts counter, expires_at
+✓ CheatFlag model is well-designed with severity + review workflow
+✓ KycDocument has full approval workflow fields
+✓ Cohort model for tournament player grouping
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Model Design:                     65/100 (comprehensive, some anti-patterns)
+- Referential Integrity:            55/100 (good FKs, missing on Challenge)
+- Financial Safety:                 30/100 (no CHECK, no audit log, no encryption)
+- Index Strategy:                   50/100 (basics covered, composite missing)
+- Schema Architecture:              25/100 (duplicate schemas, table collisions)
+- Type Safety:                      75/100 (enums, @@unique, proper types)
+- Compliance:                       35/100 (no audit trail, plaintext bank data)
+
+═══════════════════════════════════════
+OVERALL DATABASE SCHEMA SCORE: 52/100
+═══════════════════════════════════════
+
+================================================================================
+END OF AUDIT — ZUBACO DATABASE SCHEMA
+================================================================================

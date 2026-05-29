@@ -1,0 +1,350 @@
+================================================================================
+        COLOUR SORT GAME - COMPLETE TEST CHECKLIST
+================================================================================
+URL: http://localhost:3005
+Date: 25 May 2026
+
+Instructions: Open the game in browser. Test each item below.
+Mark [PASS] or [FAIL] next to each. Add notes if something is broken.
+
+================================================================================
+A. FIRST LAUNCH & TUTORIAL
+================================================================================
+
+[ ] A1. First time opening shows Tutorial screen (not menu)
+[ ] A2. Tutorial shows 6 steps with progress dots at top
+[ ] A3. "Next" button advances to next step
+[ ] A4. Each step shows different icon and description
+[ ] A5. "Skip" button skips entire tutorial and goes to menu
+[ ] A6. Last step button says "Let's Play!" and goes to menu
+[ ] A7. After completing/skipping tutorial, refreshing page shows MENU (not tutorial again)
+
+================================================================================
+B. MAIN MENU
+================================================================================
+
+[ ] B1. Menu shows game icon (🧪) with rotation animation
+[ ] B2. Title "Colour Sort" is displayed
+[ ] B3. Subtitle text visible
+[ ] B4. "▶ Play" button visible and clickable → goes to Level Selector
+[ ] B5. "📅 Daily Challenge" button visible → goes to Daily Challenge screen
+[ ] B6. "🏆 Badges" button → goes to Achievements screen
+[ ] B7. "📊 Stats" button → goes to Stats screen
+[ ] B8. "⚙️ Settings" button → goes to Settings screen
+[ ] B9. Daily Challenge button shows ✓ if already completed today
+
+================================================================================
+C. LEVEL SELECTOR
+================================================================================
+
+[ ] C1. Shows "Select Level" title
+[ ] C2. 10 level cards displayed in 2-column grid
+[ ] C3. Level 1 is unlocked by default
+[ ] C4. Locked levels show lock icon and are greyed out/disabled
+[ ] C5. Locked levels cannot be tapped/clicked
+[ ] C6. Each level card shows: number, difficulty name, colors count, time limit
+[ ] C7. Current highest unlocked level has a pulsing dot indicator
+[ ] C8. "← Back to Menu" link goes back to menu
+[ ] C9. Clicking an unlocked level starts the game
+[ ] C10. After winning level 1, level 2 becomes unlocked (refresh and check)
+
+Level difficulty labels check:
+[ ] C11. Level 1 = "Beginner" (3 colors, 120s)
+[ ] C12. Level 2 = "Easy" (4 colors, 110s)
+[ ] C13. Level 3 = "Normal" (5 colors, 100s)
+[ ] C14. Level 4 = "Medium" (6 colors, 90s)
+[ ] C15. Level 5 = "Tricky" (7 colors, 80s)
+[ ] C16. Level 6 = "Hard" (8 colors, 75s)
+[ ] C17. Level 7 = "Tough" (9 colors, 70s)
+[ ] C18. Level 8 = "Expert" (10 colors, 65s)
+[ ] C19. Level 9 = "Master" (11 colors, 60s)
+[ ] C20. Level 10 = "Legend" (12 colors, 55s)
+
+================================================================================
+D. GAMEPLAY - CORE MECHANICS
+================================================================================
+
+[ ] D1. Game board shows correct number of tubes for selected level
+[ ] D2. Level 1: 5 tubes (3 with balls + 2 empty)
+[ ] D3. Each tube has exactly 4 ball slots
+[ ] D4. Balls are colourful circles (not plain text)
+[ ] D5. Empty slots show dashed circle outlines
+[ ] D6. Timer starts counting down immediately
+[ ] D7. Move counter starts at 0
+
+Tube Selection:
+[ ] D8. Tapping a tube with balls selects it (yellow glow + lifts up)
+[ ] D9. Tapping an empty tube does NOT select it
+[ ] D10. Tapping same selected tube deselects it (returns to normal)
+[ ] D11. Only one tube can be selected at a time
+
+Ball Movement:
+[ ] D12. Tap source tube → tap destination tube → ball moves
+[ ] D13. Ball can move to empty tube (always valid)
+[ ] D14. Ball can move to tube with same colour on top
+[ ] D15. Ball CANNOT move to tube with different colour on top
+[ ] D16. Ball CANNOT move to a full tube (4 balls already)
+[ ] D17. After valid move, source tube loses top ball, destination gains it
+
+Multi-Ball Move:
+[ ] D18. If source tube has multiple same-colour balls on top, ALL move together
+[ ] D19. Example: 3 red balls on top of source → all 3 move to destination
+[ ] D20. Multi-ball only moves as many as will fit in destination
+[ ] D21. Multi-ball only works if destination is empty OR same colour on top
+
+================================================================================
+E. GAMEPLAY - FEEDBACK & ANIMATIONS
+================================================================================
+
+Sound Effects (need sound ON in settings):
+[ ] E1. Tapping any tube plays a short "tap" sound
+[ ] E2. Valid move plays a "correct" rising tone
+[ ] E3. Invalid move plays a "incorrect" buzz sound
+[ ] E4. Completing a tube plays a "complete" victory jingle
+[ ] E5. Timer reaching ≤10s plays "countdown" beeps each second
+[ ] E6. Game starting plays a "start" sound
+
+Animations:
+[ ] E7. Selecting a tube: lifts up with yellow border + glow
+[ ] E8. Invalid move: tube SHAKES left-right
+[ ] E9. Ball placement: spring bounce animation (ball scales in)
+[ ] E10. Ball removal: ball scales out and fades
+[ ] E11. Tube press: slight scale down (whileTap)
+[ ] E12. Completing a tube: GREEN glow pulse animation
+[ ] E13. Completed tube shows green border permanently
+[ ] E14. Completed tube shows ✓ checkmark badge (top-right)
+[ ] E15. "SOLVED!" text appears with scale animation when puzzle solved
+[ ] E16. Confetti particles fall from top when puzzle is solved
+
+================================================================================
+F. GAMEPLAY - HEADER & CONTROLS
+================================================================================
+
+[ ] F1. Level badge shows "Lv.X" (e.g., "Lv.1")
+[ ] F2. Move counter updates with each move
+[ ] F3. Timer shows minutes:seconds format (or just seconds if <60s)
+[ ] F4. Timer turns RED when ≤10 seconds
+[ ] F5. Timer pulses/scales when ≤10 seconds
+[ ] F6. Undo button visible with icon
+[ ] F7. Undo button is DISABLED when no moves have been made
+[ ] F8. Clicking Undo reverses the last move
+[ ] F9. Can undo multiple times (all the way back to start)
+[ ] F10. Restart button visible with icon
+[ ] F11. Clicking Restart resets the puzzle to initial state
+[ ] F12. After restart, timer resets to full time
+
+Combo System:
+[ ] F13. Making 3+ valid moves in a row shows "Xx Combo!" badge
+[ ] F14. Combo counter increases with each consecutive valid move
+[ ] F15. Using Undo resets the combo counter
+[ ] F16. Combo badge has orange color and scales in
+
+================================================================================
+G. GAME OVER - WIN
+================================================================================
+
+[ ] G1. When all tubes are sorted, game ends automatically
+[ ] G2. Confetti animation appears
+[ ] G3. Result screen shows "Puzzle Solved!" with 🎉 icon
+[ ] G4. Large score number displayed (animated scale in)
+[ ] G5. "points" label below score
+[ ] G6. Stats grid shows: Sorted (X/X), Moves count, Best Streak
+[ ] G7. Bonus breakdown shows: Base Score, Efficiency Bonus, Time Bonus
+[ ] G8. Level info shown (e.g., "Level 1 · Normal Mode")
+[ ] G9. "Menu" button returns to main menu
+[ ] G10. "Next Level →" button appears (starts next level)
+[ ] G11. Next Level button NOT shown if already at level 10
+[ ] G12. After winning, the next level becomes unlocked
+
+================================================================================
+H. GAME OVER - LOSE (TIME UP)
+================================================================================
+
+[ ] H1. When timer reaches 0, game ends automatically
+[ ] H2. Result screen shows "Time's Up!" with ⏰ icon
+[ ] H3. Score still displays (partial score for tubes sorted)
+[ ] H4. "Retry" button appears (restarts same level)
+[ ] H5. "Menu" button returns to main menu
+[ ] H6. NO "Next Level" button when you lose
+[ ] H7. NO confetti when you lose
+
+================================================================================
+I. DAILY CHALLENGE
+================================================================================
+
+[ ] I1. Daily Challenge screen shows today's date
+[ ] I2. Shows day name (e.g., "Sunday's Challenge")
+[ ] I3. Shows level number for today
+[ ] I4. Shows "1.5x bonus" indicator
+[ ] I5. "Play Daily Challenge" button starts the game
+[ ] I6. Game plays at the daily difficulty level
+[ ] I7. After completing, daily screen shows "Completed today!" with ✓
+[ ] I8. Cannot replay daily after completing
+[ ] I9. "← Back" link returns to menu
+[ ] I10. Info text about difficulty scaling through the week
+
+================================================================================
+J. ACHIEVEMENTS
+================================================================================
+
+[ ] J1. Achievements screen shows title + close button
+[ ] J2. Shows "X/10 unlocked" counter
+[ ] J3. All 10 achievements listed with icons
+[ ] J4. Unlocked achievements are fully visible with ✓ mark
+[ ] J5. Locked achievements are greyed out/dimmed
+[ ] J6. Each achievement shows: icon, title, description
+[ ] J7. Close button returns to menu
+[ ] J8. After winning first game → "First Victory" 🏆 should unlock
+[ ] J9. Achievement unlock shows popup notification at top of screen
+[ ] J10. Popup shows "Achievement Unlocked!" + title + icon
+[ ] J11. Popup auto-dismisses after ~2.5 seconds
+
+Achievement unlock conditions to verify:
+[ ] J12. First Victory: Win 1 game
+[ ] J13. On Fire: Get 5 consecutive valid moves (combo)
+[ ] J14. High Scorer: Score over 1000 points
+[ ] J15. Speed Demon: Finish with >50% time remaining
+
+================================================================================
+K. STATS SCREEN
+================================================================================
+
+[ ] K1. Stats screen shows title + close button
+[ ] K2. Shows grid of stat cards: Games Played, Wins, Win Rate, etc.
+[ ] K3. Each stat has icon + value + label
+[ ] K4. Stats update after playing games
+[ ] K5. "Recent Scores" bar chart appears after 2+ games
+[ ] K6. Chart bars are proportional to scores
+[ ] K7. Chart shows up to 15 recent scores
+[ ] K8. Close button returns to menu
+
+Stats to verify:
+[ ] K9. Games Played increments after each game
+[ ] K10. Wins increments only after solving puzzle
+[ ] K11. Win Rate = Wins/Games × 100%
+[ ] K12. High Score shows best score ever
+[ ] K13. Highest Level shows max level reached
+[ ] K14. Longest Streak shows best combo ever
+[ ] K15. Avg Score calculates from recent games
+[ ] K16. Fastest Win shows quickest solve time (or "-" if never won)
+
+================================================================================
+L. SETTINGS
+================================================================================
+
+[ ] L1. Settings screen shows title + close button
+[ ] L2. Sound Effects toggle is present with icon and description
+[ ] L3. Toggle switch animates between on/off positions
+[ ] L4. Turning sound OFF → no game sounds play
+[ ] L5. Turning sound ON → sounds resume
+[ ] L6. Sound preference persists after page refresh
+[ ] L7. Theme section shows Dark/Light/System buttons
+[ ] L8. Selecting "Light" changes appearance
+[ ] L9. Selecting "Dark" reverts to dark mode
+[ ] L10. Selecting "System" follows OS preference
+[ ] L11. Theme preference persists after page refresh
+[ ] L12. "Background Music" shows "Soon" label (not functional yet)
+[ ] L13. "Done" button returns to menu
+
+================================================================================
+M. TIMER PAUSE ON TAB SWITCH
+================================================================================
+
+[ ] M1. Start a game, note the timer
+[ ] M2. Switch to another browser tab for 10 seconds
+[ ] M3. Switch back — timer should NOT have lost those 10 seconds
+[ ] M4. Timer continues from where it was when you left
+[ ] M5. Game state is preserved (balls in same position)
+
+================================================================================
+N. GAME STATE PERSISTENCE
+================================================================================
+
+[ ] N1. Start a game, make a few moves
+[ ] N2. Note the tube state and timer
+[ ] N3. Refresh the page (F5)
+[ ] N4. Expected: Returns to menu (session state in sessionStorage)
+    (Note: full mid-game resume requires server session — currently
+     saves to sessionStorage but doesn't auto-restore UI)
+
+================================================================================
+O. RESPONSIVE DESIGN
+================================================================================
+
+[ ] O1. Game looks good on desktop (1920x1080)
+[ ] O2. Game looks good at tablet width (768px)
+[ ] O3. Game looks good at mobile width (375px)
+[ ] O4. Tubes wrap properly and don't overflow
+[ ] O5. Buttons are large enough to tap on mobile
+[ ] O6. Text is readable at all sizes
+[ ] O7. No horizontal scroll at any width
+[ ] O8. Tubes are slightly larger on desktop (sm: breakpoint)
+
+================================================================================
+P. ERROR HANDLING
+================================================================================
+
+[ ] P1. If backend is down, error message appears ("Failed to start")
+[ ] P2. Error message is red with proper styling
+[ ] P3. Game doesn't crash on error — can try again
+[ ] P4. Offline banner appears when internet disconnects
+[ ] P5. ErrorBoundary catches and shows "Something went wrong" + Try Again
+
+================================================================================
+Q. CROSS-BROWSER (if possible)
+================================================================================
+
+[ ] Q1. Works in Chrome
+[ ] Q2. Works in Firefox
+[ ] Q3. Works in Edge
+[ ] Q4. Sound works in all browsers (may need first click to enable)
+
+================================================================================
+R. SCORING VERIFICATION
+================================================================================
+
+[ ] R1. Solving all tubes gives full base score (tubes × 100)
+[ ] R2. Fewer moves = higher efficiency bonus
+[ ] R3. More time remaining = higher time bonus
+[ ] R4. Score breakdown adds up correctly (base + efficiency + time = total)
+[ ] R5. Server score matches or is close to displayed score
+
+================================================================================
+S. EDGE CASES
+================================================================================
+
+[ ] S1. Rapidly clicking tubes doesn't break the game
+[ ] S2. Clicking same tube 10 times fast doesn't crash
+[ ] S3. Undoing all moves back to start doesn't break anything
+[ ] S4. Restarting multiple times in a row works fine
+[ ] S5. Winning at level 10 shows Menu button but NO "Next Level"
+[ ] S6. Opening Daily Challenge when already completed → shows completed state
+[ ] S7. Timer hitting 0 exactly at moment of solving → counts as win
+[ ] S8. Empty tubes at game start are not selectable
+
+================================================================================
+RESULTS SUMMARY
+================================================================================
+
+Total Tests: ___
+Passed: ___
+Failed: ___
+Blocked: ___
+
+Critical Bugs Found:
+1. ___
+2. ___
+3. ___
+
+Minor Issues Found:
+1. ___
+2. ___
+3. ___
+
+Notes:
+___
+
+================================================================================
+END OF TEST CHECKLIST
+================================================================================
+IN future try making unlimited levels 

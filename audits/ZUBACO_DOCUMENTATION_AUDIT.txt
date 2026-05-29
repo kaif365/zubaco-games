@@ -1,0 +1,328 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║         ZUBACO GAMING PLATFORM - DOCUMENTATION & ONBOARDING AUDIT                ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: README, API docs, architecture docs, developer guides, runbooks         ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DOCUMENTATION SCORE: 5/100 (CRITICAL - ZERO DEVELOPER DOCUMENTATION)
+
+This is a complex multi-service platform with 22 backends, 20 game frontends, 
+a mobile app, an admin panel, and Terraform infrastructure. A new developer 
+joining the team would have ZERO guidance on how to set up, understand, or 
+contribute to this codebase. There are no README files, no API documentation,
+no architecture diagrams, no deployment guides, and no operational runbooks.
+
+DOCUMENTATION INVENTORY:
+  README.md (root):               ❌ Does not exist
+  README.md (per project):        ❌ None in any subfolder
+  API Documentation:              ⚠️ Admin has Swagger (auto-generated)
+  Architecture Diagrams:          ❌ None
+  Database Schema Docs:           ❌ Only Prisma schema files
+  Deployment Guide:               ❌ Only CI YAML (no guide)
+  Local Development Setup:        ❌ No instructions
+  Contributing Guide:             ❌ None
+  Code Style Guide:               ❌ No ESLint config shared
+  ADRs (Architecture Decisions):  ❌ None
+  Operational Runbooks:           ❌ None
+  Onboarding Checklist:           ❌ None
+  Changelog:                      ❌ None
+  Game Rules Documentation:       ❌ None (critical for skill-game certification)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: WHAT EXISTS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 EXISTING DOCUMENTATION FILES                                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Files with ANY documentation value:                                            │
+│                                                                                 │
+│ 1. ZUBACO_AUDIT_REPORT.md                                                      │
+│    Content: Earlier audit (outdated by this comprehensive series)              │
+│    Audience: Internal team                                                     │
+│    Utility: Limited (superseded)                                               │
+│                                                                                 │
+│ 2. ZUBACO_COMPLETE_REQUIREMENTS.txt                                            │
+│    Content: Full product requirements document                                 │
+│    Audience: Product team                                                      │
+│    Utility: HIGH for understanding what was intended                           │
+│                                                                                 │
+│ 3. ZUBACO_GAPS_TRACKER.txt                                                     │
+│    Content: Implementation tracking with [DONE] markers                       │
+│    Audience: Developer                                                         │
+│    Utility: MEDIUM for knowing what's implemented                              │
+│                                                                                 │
+│ 4. ZUBACO_FUTURE_TODO.txt                                                      │
+│    Content: Technical debt items                                               │
+│    Audience: Developer                                                         │
+│    Utility: MEDIUM                                                             │
+│                                                                                 │
+│ 5. to-change.txt                                                               │
+│    Content: Visual/branding changes needed                                    │
+│    Audience: Frontend developer                                                │
+│    Utility: LOW (task-specific)                                                │
+│                                                                                 │
+│ 6. things to take care/ (folder)                                               │
+│    Content: PDF specs and scoring references                                  │
+│    Audience: Game developers                                                   │
+│    Utility: MEDIUM                                                             │
+│                                                                                 │
+│ 7. Admin Backend: Swagger (auto-generated from controllers)                   │
+│    Accessible at: /api-docs (if enabled in production)                        │
+│    Quality: Basic (no examples, no descriptions)                              │
+│                                                                                 │
+│ TOTAL DEVELOPER-USEFUL DOCUMENTATION: Effectively zero                         │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: WHAT MUST EXIST
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.1 ROOT README.md                                                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ A developer cloning this repo for the first time should find:                  │
+│                                                                                 │
+│ # Zubaco Gaming Platform                                                       │
+│ ## Architecture Overview (with diagram)                                        │
+│ ## Repository Structure                                                        │
+│   - /zubaco-platform - Main platform API                                      │
+│   - /zubaco-admin-panel-repo - Admin panel (BE + FE)                          │
+│   - /zubaco-mobile - React Native mobile app                                  │
+│   - /zubaco-games-repo - 20 game backends + frontends                         │
+│   - /infrastructure - Terraform IaC                                            │
+│   - /docker - Docker configurations                                           │
+│   - /.github/workflows - CI/CD pipelines                                      │
+│ ## Quick Start (local development)                                             │
+│ ## Tech Stack                                                                  │
+│ ## Environment Variables                                                       │
+│ ## Common Commands                                                             │
+│ ## Contributing                                                                │
+│ ## Team & Contacts                                                             │
+│                                                                                 │
+│ CURRENT: ❌ Does not exist                                                     │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.2 PER-PROJECT README                                                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Each project needs its own README:                                             │
+│                                                                                 │
+│ /zubaco-platform/README.md:                                                    │
+│   - Purpose                                                                    │
+│   - Local setup (prerequisites, install, run)                                 │
+│   - Environment variables (with descriptions)                                 │
+│   - Database setup (Prisma migrate)                                           │
+│   - API endpoint summary                                                      │
+│   - Testing (how to run tests)                                                │
+│   - Architecture (module structure)                                           │
+│                                                                                 │
+│ /zubaco-mobile/README.md:                                                      │
+│   - iOS/Android setup                                                         │
+│   - Dependencies (Xcode, Android Studio)                                      │
+│   - Running on simulator                                                      │
+│   - Building for release                                                      │
+│   - WebView game integration notes                                            │
+│                                                                                 │
+│ /zubaco-games-repo/README.md:                                                  │
+│   - How games are structured                                                  │
+│   - How to add a new game                                                     │
+│   - Shared conventions                                                        │
+│   - Testing games locally                                                     │
+│                                                                                 │
+│ CURRENT: ❌ None exist                                                         │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.3 API DOCUMENTATION                                                           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Platform Backend (67 endpoints):                                                │
+│   CURRENT: Zero documentation                                                  │
+│   NEEDED: OpenAPI/Swagger spec with:                                          │
+│   - Request/response schemas                                                  │
+│   - Authentication requirements per endpoint                                  │
+│   - Error response formats                                                    │
+│   - Example requests/responses                                                │
+│   - Rate limit information                                                    │
+│                                                                                 │
+│ Admin Backend (34 endpoints):                                                   │
+│   CURRENT: Auto-generated Swagger (basic)                                     │
+│   NEEDED: Add descriptions, examples, authentication docs                    │
+│                                                                                 │
+│ Game Backends (160 endpoints):                                                  │
+│   CURRENT: Zero documentation                                                  │
+│   NEEDED: At minimum a shared spec template                                  │
+│                                                                                 │
+│ MOBILE APP API CONTRACT:                                                        │
+│   CURRENT: Mobile devs must read backend source to understand API             │
+│   NEEDED: Generated TypeScript client from OpenAPI spec                       │
+│   Tool: @hey-api/openapi-ts or openapi-generator                             │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.4 ARCHITECTURE DOCUMENTATION                                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Missing documents:                                                              │
+│                                                                                 │
+│ 1. System Architecture Diagram                                                 │
+│    - Service interaction map                                                   │
+│    - Data flow between components                                             │
+│    - Network topology (VPC, subnets, security groups)                         │
+│    - External service dependencies                                            │
+│                                                                                 │
+│ 2. Data Model Documentation                                                    │
+│    - Entity relationship diagram                                              │
+│    - Key relationships explained                                              │
+│    - Data lifecycle (creation → archival)                                     │
+│                                                                                 │
+│ 3. Authentication Flow Diagram                                                  │
+│    - OTP flow                                                                  │
+│    - OAuth flow                                                               │
+│    - Token lifecycle                                                          │
+│    - Cross-service auth                                                       │
+│                                                                                 │
+│ 4. Tournament System Documentation                                             │
+│    - Season lifecycle                                                         │
+│    - Stage progression                                                        │
+│    - Elimination logic                                                        │
+│    - Prize distribution                                                       │
+│                                                                                 │
+│ 5. Payment Flow Documentation                                                  │
+│    - Deposit flow (with sequence diagram)                                     │
+│    - Withdrawal flow                                                          │
+│    - Entry fee flow                                                           │
+│    - Reconciliation process                                                   │
+│                                                                                 │
+│ 6. Architecture Decision Records (ADRs)                                        │
+│    - Why 20 separate game backends? (vs monolith)                             │
+│    - Why Prisma? (vs TypeORM, Drizzle)                                        │
+│    - Why NestJS? (vs Express, Fastify)                                        │
+│    - Why ECS Fargate? (vs Lambda, EKS)                                        │
+│    - Why React Native? (vs Flutter)                                           │
+│                                                                                 │
+│ CURRENT: ❌ None of these exist                                                │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.5 OPERATIONAL DOCUMENTATION                                                   │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Missing:                                                                        │
+│                                                                                 │
+│ ☐ Deployment Runbook                                                           │
+│   - How to deploy to staging/production                                       │
+│   - How to rollback a bad deployment                                          │
+│   - Pre-deployment checklist                                                  │
+│   - Post-deployment verification steps                                        │
+│                                                                                 │
+│ ☐ Database Migration Guide                                                     │
+│   - How to create a migration                                                 │
+│   - How to apply to production                                                │
+│   - How to rollback a migration                                               │
+│   - Data migration best practices                                             │
+│                                                                                 │
+│ ☐ Incident Response Playbook                                                   │
+│   - Severity levels (P1-P4)                                                   │
+│   - Who to contact                                                            │
+│   - Communication templates                                                   │
+│   - Post-mortem template                                                      │
+│                                                                                 │
+│ ☐ Monitoring Guide                                                             │
+│   - What dashboards to check                                                  │
+│   - How to interpret alerts                                                   │
+│   - Common issues and resolutions                                            │
+│                                                                                 │
+│ ☐ Secret Rotation Procedures                                                   │
+│   - How to rotate JWT secrets                                                 │
+│   - How to rotate database credentials                                       │
+│   - How to rotate API keys (Razorpay, SMS)                                   │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: NEW DEVELOPER ONBOARDING TIME
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ CURRENT STATE (no documentation):                                               │
+│                                                                                 │
+│ Day 1: Figure out repo structure (hours of exploring)                          │
+│ Day 2: Try to run locally (fail - no instructions, missing env vars)           │
+│ Day 3: Ask team members for setup help (if team exists)                        │
+│ Day 4: Understand service boundaries by reading code                           │
+│ Day 5: Still not sure how auth works                                           │
+│ Week 2: Start understanding tournament flow                                   │
+│ Week 3: First meaningful contribution possible                                │
+│                                                                                 │
+│ ESTIMATED ONBOARDING TIME: 2-3 weeks                                           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ TARGET STATE (with proper documentation):                                       │
+│                                                                                 │
+│ Day 1: Read README, understand architecture, set up local env                 │
+│ Day 2: Run all services locally, read API docs                                │
+│ Day 3: Understand auth + tournament flow from docs                            │
+│ Day 4: First PR (guided by contributing guide)                                │
+│ Week 2: Productive contributor                                                 │
+│                                                                                 │
+│ TARGET ONBOARDING TIME: 3-5 days                                               │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Component                         │ Score  │ Status
+──────────────────────────────────────────────────────
+Root README                       │ 0/100  │ Does not exist
+Project READMEs                   │ 0/100  │ None exist
+API Documentation                 │ 10/100 │ Admin Swagger only (basic)
+Architecture Docs                 │ 0/100  │ None
+Deployment Guide                  │ 5/100  │ CI YAML is only reference
+Database Docs                     │ 10/100 │ Prisma schema is self-documenting
+Operational Runbooks              │ 0/100  │ None
+Developer Onboarding              │ 0/100  │ No guide
+Code Style/Contributing           │ 0/100  │ No eslintrc shared
+ADRs                              │ 0/100  │ None
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 5/100  │ ZERO DEVELOPER GUIDANCE
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                END OF DOCUMENTATION & ONBOARDING AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

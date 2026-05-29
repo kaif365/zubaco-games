@@ -1,0 +1,319 @@
+SPEED TYPE ANSWER - TEST CHECKLIST
+=====================================
+Game: Speed Type Answer (Flash question → Type answer)
+Location: speed-type-answer/speed-type-frontend/
+Date: 2025
+
+================================================================================
+SECTION 1: MENU SCREEN (12 tests)
+================================================================================
+
+[ ] 1.01  Menu renders on app load with title "Speed Type" and keyboard emoji
+[ ] 1.02  Subtitle "Flash, memorize, type the answer!" is visible
+[ ] 1.03  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.04  Buttons animate in sequentially (staggered entrance)
+[ ] 1.05  Clicking "Play" navigates to game phase
+[ ] 1.06  Clicking "Levels" navigates to level selector
+[ ] 1.07  Clicking "Daily Challenge" navigates to daily challenge screen
+[ ] 1.08  Clicking "Achievements" navigates to achievements screen
+[ ] 1.09  Clicking "Statistics" navigates to stats screen
+[ ] 1.10  Clicking "Settings" navigates to settings screen
+[ ] 1.11  Each button has correct icon and gradient color (indigo theme)
+[ ] 1.12  Buttons have press animation (scale 0.97 on tap)
+
+================================================================================
+SECTION 2: LEVEL SELECTOR (14 tests)
+================================================================================
+
+[ ] 2.01  Level selector renders with "Select Level" title
+[ ] 2.02  10 level tiles displayed in 5-column grid
+[ ] 2.03  Level 1 is unlocked by default
+[ ] 2.04  Levels 2-10 are locked by default
+[ ] 2.05  Unlocked levels show level number and flash duration
+[ ] 2.06  Unlocked levels show star rating (0-3 stars)
+[ ] 2.07  Locked levels show 🔒 icon and are not clickable
+[ ] 2.08  Clicking unlocked level starts game
+[ ] 2.09  Back button returns to menu
+[ ] 2.10  Completing level with ≥1 star unlocks next
+[ ] 2.11  Star calculation: ≥95% = 3★, ≥70% = 2★, >0% = 1★
+[ ] 2.12  Level progress persists in localStorage
+[ ] 2.13  Flash/answer times decrease per level (5s/15s → 1s/4s)
+[ ] 2.14  Level tiles animate in with staggered delay
+
+================================================================================
+SECTION 3: DAILY CHALLENGE (13 tests)
+================================================================================
+
+[ ] 3.01  Daily challenge screen renders with title
+[ ] 3.02  "Test your trivia speed daily!" subtitle visible
+[ ] 3.03  Week calendar shows Sun-Sat with current day highlighted
+[ ] 3.04  Completed days show green checkmark
+[ ] 3.05  Incomplete days show gray circle
+[ ] 3.06  Current streak counter displays correctly
+[ ] 3.07  Best streak counter displays correctly
+[ ] 3.08  "Start Daily Challenge" button active if not completed today
+[ ] 3.09  Button disabled and shows "✓ Completed Today" after completion
+[ ] 3.10  Clicking start navigates to game phase
+[ ] 3.11  Completing daily updates streak correctly
+[ ] 3.12  Daily state persists in localStorage
+[ ] 3.13  Back button returns to menu
+
+================================================================================
+SECTION 4: ACHIEVEMENTS (12 tests)
+================================================================================
+
+[ ] 4.01  Achievements screen renders with title and unlock count
+[ ] 4.02  All 10 achievements listed with icon, title, description
+[ ] 4.03  Unlocked achievements show full opacity with checkmark
+[ ] 4.04  Locked achievements at 50% opacity
+[ ] 4.05  Achievement items animate in with stagger
+[ ] 4.06  "First Game" unlocks after first completed game
+[ ] 4.07  "Speed Demon" unlocks for <2s answer
+[ ] 4.08  "Perfectionist" unlocks for 100% accuracy
+[ ] 4.09  "Typing Master" unlocks at level 10
+[ ] 4.10  Achievement popup appears on unlock
+[ ] 4.11  Popup auto-dismisses after 4 seconds
+[ ] 4.12  Back button returns to menu
+
+================================================================================
+SECTION 5: STATISTICS (11 tests)
+================================================================================
+
+[ ] 5.01  Stats screen renders with "Statistics" title
+[ ] 5.02  10 stat cards displayed in 2-column grid
+[ ] 5.03  Games Played counter accurate
+[ ] 5.04  Questions Answered accumulates
+[ ] 5.05  Correct Answers accumulates
+[ ] 5.06  Accuracy percentage calculated correctly
+[ ] 5.07  High Score shows all-time best
+[ ] 5.08  Avg Response time displays correctly
+[ ] 5.09  Fastest Answer tracks best time
+[ ] 5.10  Stat cards animate in with stagger
+[ ] 5.11  Back button returns to menu
+
+================================================================================
+SECTION 6: SETTINGS (10 tests)
+================================================================================
+
+[ ] 6.01  Settings screen renders with title
+[ ] 6.02  Sound toggle with "Enable feedback sounds" subtitle
+[ ] 6.03  Toggling sound switch updates state
+[ ] 6.04  Volume slider visible with percentage
+[ ] 6.05  Volume slider disabled when sound off
+[ ] 6.06  Theme selector: dark/light/system buttons
+[ ] 6.07  Active theme button highlighted in indigo
+[ ] 6.08  All settings persist in localStorage
+[ ] 6.09  Toggle animations smooth (spring physics)
+[ ] 6.10  Back button returns to menu
+
+================================================================================
+SECTION 7: GAME FLOW - INSTRUCTION SCREEN (8 tests)
+================================================================================
+
+[ ] 7.01  Instruction screen shows when game starts (idle phase)
+[ ] 7.02  Game icon displayed (indigo play button)
+[ ] 7.03  Title from translation (game.title)
+[ ] 7.04  Instructions text from translation
+[ ] 7.05  Numbered steps shown
+[ ] 7.06  "Start" button visible (emerald green)
+[ ] 7.07  Button shows loading state when pressed
+[ ] 7.08  Clicking start triggers API call and game begins
+
+================================================================================
+SECTION 8: GAME FLOW - FLASH PHASE (10 tests)
+================================================================================
+
+[ ] 8.01  Question card appears with animation (scale + opacity)
+[ ] 8.02  Question text displayed in large white font
+[ ] 8.03  "Memorize this!" subtitle shown
+[ ] 8.04  Card styled with indigo background
+[ ] 8.05  Question visible for flashDurationMs (from config)
+[ ] 8.06  Question exits with scale-down animation
+[ ] 8.07  AnimatePresence handles enter/exit transitions
+[ ] 8.08  No interaction possible during flash
+[ ] 8.09  Question selected from seeded RNG bank
+[ ] 8.10  Different question each round
+
+================================================================================
+SECTION 9: GAME FLOW - TYPE PHASE (12 tests)
+================================================================================
+
+[ ] 9.01  Input field appears with slide-up animation
+[ ] 9.02  Input auto-focuses on mount
+[ ] 9.03  Placeholder "Type your answer..." shown
+[ ] 9.04  Green progress bar counts down
+[ ] 9.05  Time remaining displayed in seconds (0.1s precision)
+[ ] 9.06  Progress bar shrinks from 100% to 0%
+[ ] 9.07  Submit button visible
+[ ] 9.08  Enter key submits answer
+[ ] 9.09  Empty submit on timeout (auto-submit when time runs out)
+[ ] 9.10  Input accepts text and updates state
+[ ] 9.11  timeLimit from config.answerTimeMs
+[ ] 9.12  Border styled indigo-500
+
+================================================================================
+SECTION 10: SCORING & ANSWER VALIDATION (10 tests)
+================================================================================
+
+[ ] 10.01  Correct answer: case-insensitive comparison
+[ ] 10.02  Correct answer: trimmed whitespace
+[ ] 10.03  Correct answer awards pointsPerCorrect
+[ ] 10.04  Speed bonus calculated: speedRatio × speedBonusMax
+[ ] 10.05  Speed ratio = max(0, 1 - responseTimeMs / answerTimeMs)
+[ ] 10.06  Faster answers get higher bonus
+[ ] 10.07  Wrong answer: 0 points (no penalty)
+[ ] 10.08  Timeout (empty answer): treated as wrong
+[ ] 10.09  Score updates in real-time display
+[ ] 10.10  Question counter shows "Q X/total"
+
+================================================================================
+SECTION 11: GAME FLOW - RESULT TRANSITION (6 tests)
+================================================================================
+
+[ ] 11.01  "result" phase shows "Next question..." text
+[ ] 11.02  1500ms delay before next question
+[ ] 11.03  Transition uses AnimatePresence mode="wait"
+[ ] 11.04  Question index increments after answer
+[ ] 11.05  All questions exhausted → finished phase
+[ ] 11.06  No duplicate questions in same game
+
+================================================================================
+SECTION 12: RESULT SCREEN (10 tests)
+================================================================================
+
+[ ] 12.01  Result screen shows on "finished" phase
+[ ] 12.02  Success icon (green checkmark) displayed
+[ ] 12.03  "Well Done!" title shown
+[ ] 12.04  Final score displayed (large, bold)
+[ ] 12.05  Score uses result.finalScore from server (if available)
+[ ] 12.06  Stats grid shows relevant stats
+[ ] 12.07  "Play Again" button visible
+[ ] 12.08  Clicking replay returns to menu (onReturnToMenu)
+[ ] 12.09  Result screen animates in (scale + opacity)
+[ ] 12.10  Score label "SCORE" shown below number
+
+================================================================================
+SECTION 13: API INTEGRATION (10 tests)
+================================================================================
+
+[ ] 13.01  POST /game/start sends clientSeed
+[ ] 13.02  Response: gameSessionId, serverSeed, config received
+[ ] 13.03  Final seed computed: computeFinalSeed(serverSeed, clientSeed, 0)
+[ ] 13.04  Questions selected via seeded mulberry32 RNG
+[ ] 13.05  POST /game/submit sends gameSessionId, answers, clientScore
+[ ] 13.06  Response: finalScore, status, correctAnswers
+[ ] 13.07  Bearer token from localStorage attached to requests
+[ ] 13.08  Encryption interceptors applied to request/response
+[ ] 13.09  Error handling for API failures
+[ ] 13.10  Loading state shown during API calls
+
+================================================================================
+SECTION 14: QUESTION BANK (8 tests)
+================================================================================
+
+[ ] 14.01  30 questions available in bank
+[ ] 14.02  Questions are trivia (capitals, science, math, geography)
+[ ] 14.03  Answers are short (1-2 words or numbers)
+[ ] 14.04  Seeded selection produces deterministic order
+[ ] 14.05  No duplicate questions per game
+[ ] 14.06  Question count configurable (totalQuestions from config)
+[ ] 14.07  Questions selected without replacement
+[ ] 14.08  Bank covers varied difficulty
+
+================================================================================
+SECTION 15: PAUSE DIALOG (8 tests)
+================================================================================
+
+[ ] 15.01  Pause dialog renders with "Game Paused" title
+[ ] 15.02  Three buttons: Resume, Restart, Quit to Menu
+[ ] 15.03  Backdrop blur and dark overlay
+[ ] 15.04  Resume continues game
+[ ] 15.05  Restart starts fresh game
+[ ] 15.06  Quit returns to menu
+[ ] 15.07  Dialog animates in (spring scale)
+[ ] 15.08  Dialog animates out on dismiss
+
+================================================================================
+SECTION 16: CONFETTI (7 tests)
+================================================================================
+
+[ ] 16.01  Confetti triggers on high score or perfect game
+[ ] 16.02  60+ particles spawn with varied colors
+[ ] 16.03  Particles fall with gravity and drift
+[ ] 16.04  Particles rotate during fall
+[ ] 16.05  Confetti stops after duration (3s)
+[ ] 16.06  Doesn't block interactions (pointer-events-none)
+[ ] 16.07  Particles fade and clean up
+
+================================================================================
+SECTION 17: NAVIGATION & STATE MACHINE (10 tests)
+================================================================================
+
+[ ] 17.01  App starts at menu phase
+[ ] 17.02  All menu → screen transitions work
+[ ] 17.03  All "Back" buttons return to menu
+[ ] 17.04  Game end → returns to menu (not restart)
+[ ] 17.05  GamePage wraps GameBoard with appPhase
+[ ] 17.06  App.tsx renders GamePage (not GameBoard directly)
+[ ] 17.07  ErrorBoundary wraps entire app
+[ ] 17.08  ThemeProvider wraps app
+[ ] 17.09  QueryClientProvider wraps app
+[ ] 17.10  OfflineBanner visible at all phases
+
+================================================================================
+SECTION 18: OFFLINE & ERROR HANDLING (6 tests)
+================================================================================
+
+[ ] 18.01  OfflineBanner shows when connection lost
+[ ] 18.02  ErrorBoundary catches render errors
+[ ] 18.03  API errors handled gracefully
+[ ] 18.04  Loading states prevent double-clicks
+[ ] 18.05  Game fails gracefully if API unreachable
+[ ] 18.06  localStorage corruption handled
+
+================================================================================
+SECTION 19: RESPONSIVE & VISUAL (6 tests)
+================================================================================
+
+[ ] 19.01  Input field usable on mobile
+[ ] 19.02  Question text readable on small screens
+[ ] 19.03  Progress bar visible on all sizes
+[ ] 19.04  Menu buttons have adequate touch targets
+[ ] 19.05  Dark theme applied consistently
+[ ] 19.06  Animations smooth on mobile
+
+================================================================================
+SECTION 20: PERFORMANCE (5 tests)
+================================================================================
+
+[ ] 20.01  Timers cleaned up on unmount
+[ ] 20.02  No memory leaks from intervals
+[ ] 20.03  AnimatePresence prevents orphaned animations
+[ ] 20.04  Re-renders minimal during gameplay
+[ ] 20.05  Rapid typing doesn't cause lag
+
+================================================================================
+TOTAL TESTS: 188
+================================================================================
+SECTIONS BREAKDOWN:
+- Menu Screen: 12
+- Level Selector: 14
+- Daily Challenge: 13
+- Achievements: 12
+- Statistics: 11
+- Settings: 10
+- Instruction Screen: 8
+- Flash Phase: 10
+- Type Phase: 12
+- Scoring & Validation: 10
+- Result Transition: 6
+- Result Screen: 10
+- API Integration: 10
+- Question Bank: 8
+- Pause Dialog: 8
+- Confetti: 7
+- Navigation & State: 10
+- Offline & Error: 6
+- Responsive & Visual: 6
+- Performance: 5
+================================================================================

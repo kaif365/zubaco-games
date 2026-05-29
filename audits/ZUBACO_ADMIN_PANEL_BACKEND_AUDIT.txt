@@ -1,0 +1,725 @@
+================================================================================
+ZUBACO ADMIN PANEL BACKEND — COMPREHENSIVE SECURITY & ARCHITECTURE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior Platform Security / Architecture Review
+Component: Admin Panel Backend API (zubaco-admin-panel/backend/)
+Stack: NestJS 11 + Prisma 7.3 + PostgreSQL + Redis (ioredis) + Zod (v4) +
+       jsonwebtoken + AWS SQS (cheat flag consumer) + Swagger/OpenAPI
+Role: Admin-only backend for managing users, games, tournaments, seasons,
+      cheat flags, analytics, exports, banners, and prize distribution.
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Admin Panel Backend is a SEPARATE NestJS application from the platform
+backend. It has its OWN authentication system (email + password for admins),
+its OWN Prisma schema (which DUPLICATES the platform DB schema models +
+adds admin-specific models), and its OWN session management via Redis +
+DB fallback.
+
+ARCHITECTURE VERDICT:
+This is the BEST-ENGINEERED component of the entire Zubaco platform. It
+demonstrates significantly higher code quality than the platform backend:
+
+✓ Proper password hashing (scrypt with salt + timingSafeEqual — NOT bcrypt)
+✓ Session management via Redis with DB fallback (graceful degradation)
+✓ Zod validation (nestjs-zod) instead of class-validator — stricter schemas
+✓ Swagger/OpenAPI documentation out of the box
+✓ Global ApiExceptionFilter with i18n error messages
+✓ Global TransactionInterceptor with @Transactional() decorator
+✓ @RequireSession() decorator with tokenType + userType checks
+✓ SQS consumer for cheat flag events with proper message parsing
+✓ Environment validation: getEnvVar() throws on missing required vars
+✓ Proper TypeScript (strict path aliases, interfaces, no `any` abuse)
+✓ Logger middleware, language middleware, API response standardization
+
+HOWEVER — there are still significant issues:
+
+CRITICAL:
+1. CORS allows ALL origins (callback(null, true) for any origin)
+2. Access tokens stored RAW in database (not hashed)
+3. Admin seed credentials in .env.example (Admin@123456)
+
+HIGH:
+4. Wallet credit/debit operations have NO audit trail of WHO did it
+5. CSV export is vulnerable to formula injection (no escaping)
+6. Banner service uses in-memory array (lost on restart)
+7. Prize distribution has no transaction wrapper (partial failure possible)
+
+TOTAL ISSUES: 22 (3 Critical, 4 High, 10 Medium, 5 Low)
+
+RELEASE READINESS SCORE: 62/100
+
+This score is higher than the platform backend (38/100) because the admin
+panel has proper auth guards, better validation (Zod), environment checks,
+Swagger docs, and structured error handling. But CORS, token storage, and
+missing audit trails for financial operations are concerning.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: CORS allows ALL origins — any webpage can make admin API calls
+BLOCKER-2: Access tokens stored in plaintext in database
+BLOCKER-3: No audit trail for financial operations (wallet credit/debit)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+MODULE: AUTHENTICATION & SESSION (admin/, common/guards/) — 6 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-AUTH-01: CORS Allows ALL Origins                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Cross-Site Request Forgery / Session Hijacking                     │
+│ File: main.ts (lines 18-22)                                                  │
+│                                                                              │
+│ Code:                                                                        │
+│   origin: (origin, callback) => {                                            │
+│     // Allow requests from any origin in development                         │
+│     callback(null, true);                                                    │
+│   },                                                                         │
+│   credentials: true,                                                         │
+│                                                                              │
+│ The comment says "in development" but there's NO environment check. This     │
+│ code runs in ALL environments including production. Combined with            │
+│ credentials: true, any malicious website can:                                │
+│ 1. Make authenticated requests to the admin API                              │
+│ 2. Read responses (including user PII, financial data, analytics)            │
+│ 3. Perform admin actions (ban users, credit wallets, distribute prizes)      │
+│                                                                              │
+│ Since the admin panel uses Bearer tokens (not cookies), CORS doesn't         │
+│ directly enable CSRF. But it DOES allow any origin to call the API with      │
+│ stolen tokens, and exposedHeaders: ['Authorization'] leaks the token in      │
+│ response headers.                                                            │
+│                                                                              │
+│ FIX: Whitelist only the admin panel frontend origin:                         │
+│   const allowedOrigins = [config.adminFrontendUrl];                          │
+│   origin: (origin, callback) => {                                            │
+│     if (!origin || allowedOrigins.includes(origin)) callback(null, true);    │
+│     else callback(new Error('Not allowed by CORS'));                          │
+│   }                                                                          │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-AUTH-02: Access Tokens Stored in Plaintext in Database           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Token Security                                                     │
+│ Files: admin-auth.service.ts (login), session.guard.ts (getAdminFromDatabase)│
+│                                                                              │
+│ Login flow:                                                                  │
+│   const token = generateLoginToken(admin.id, USER_TYPES.ADMIN, sessionId);  │
+│   await this.prisma.adminAccessToken.create({                               │
+│     data: { access_token: token, ... }                                       │
+│   });                                                                        │
+│                                                                              │
+│ Lookup flow (session.guard.ts):                                              │
+│   const adminToken = await this.prisma.adminAccessToken.findFirst({         │
+│     where: { access_token: token, ... }                                      │
+│   });                                                                        │
+│                                                                              │
+│ The JWT is stored RAW in the database and looked up by exact match.          │
+│ A database breach exposes ALL active admin tokens. An attacker with DB       │
+│ read access can impersonate any admin immediately.                           │
+│                                                                              │
+│ FIX: Store SHA-256(token) in the database. On lookup, hash the incoming     │
+│ token and compare. This way DB compromise doesn't expose usable tokens.     │
+│                                                                              │
+│ NOTE: The platform backend's refresh token approach (bcrypt on every         │
+│ lookup) is the OPPOSITE extreme — too slow. SHA-256 is the right balance.   │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-AUTH-03: Seed Admin Credentials in .env.example                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Credential Management                                              │
+│ File: .env.example (lines 17-18)                                             │
+│                                                                              │
+│ ADMIN_SEED_EMAIL="admin@ZUBACO.com"                                         │
+│ ADMIN_SEED_PASSWORD="Admin@123456"                                          │
+│                                                                              │
+│ If the seed script is run in production with these defaults, the admin       │
+│ account has a known password. The .env.example WILL be committed to git.    │
+│                                                                              │
+│ FIX: Remove password from .env.example. Require it to be set explicitly.    │
+│ Add a minimum password complexity check in the seed script. Force password  │
+│ change on first login.                                                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-AUTH-04: Token Expiry is 7 Days (Too Long for Admin)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Session Management                                                 │
+│ File: common/constants.ts (TOKEN_EXPIRY.LOGIN)                               │
+│                                                                              │
+│ TOKEN_EXPIRY.LOGIN = 7 * 24 * 60 * 60  // 7 days                           │
+│                                                                              │
+│ Admin sessions should be shorter than user sessions, not the same.           │
+│ A stolen admin token is valid for 7 days. Best practice for admin panels:   │
+│ 1-4 hours with optional "remember me" extending to 24h.                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-AUTH-05: No Rate Limiting on Login                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Brute Force Protection                                             │
+│ File: admin-auth.controller.ts (login)                                       │
+│                                                                              │
+│ No rate limiting on POST /admin/auth/login. No account lockout after        │
+│ failed attempts. An attacker can brute-force admin credentials without      │
+│ throttling (only limited by server capacity).                                │
+│                                                                              │
+│ POSITIVE: scrypt password hashing is slow (~100ms) which naturally slows    │
+│ brute force, but doesn't prevent parallel attempts.                          │
+│                                                                              │
+│ FIX: Add per-IP and per-email rate limiting. Lock account after 5 failed    │
+│ attempts for 15 minutes. Send alert on suspicious login attempts.           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-AUTH-06: No Multi-Admin Role Granularity                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Authorization Granularity                                          │
+│ File: Admin schema, all controllers                                          │
+│                                                                              │
+│ The Admin model has only: id, email, password, timestamps. No role field.   │
+│ All admins have IDENTICAL permissions. A customer support admin can          │
+│ distribute prizes, modify game configs, and credit wallets.                  │
+│                                                                              │
+│ For a platform handling real money, role separation is essential:            │
+│ - SUPER_ADMIN: full access                                                   │
+│ - GAME_ADMIN: game config, stages, tournaments                              │
+│ - SUPPORT: user management, ban/unban                                        │
+│ - FINANCE: wallet, prizes, KYC                                              │
+│ - VIEWER: analytics, exports only                                            │
+│                                                                              │
+│ Priority Score: 3/10 (acceptable for early stage, needed at scale)           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: USER MANAGEMENT (users/) — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-USER-01: Wallet Credit/Debit Has No Audit Trail                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Financial Security / Audit                                         │
+│ Files: users.service.ts (creditWallet, debitWallet)                          │
+│                                                                              │
+│ creditWallet creates a transaction with:                                     │
+│   description: `Admin credit: ${reason}`                                     │
+│                                                                              │
+│ BUT: Which admin performed the credit? There's no admin_id in the           │
+│ transaction record. The controller doesn't pass the admin's identity.       │
+│ Neither creditWallet nor debitWallet record WHO authorized the operation.   │
+│                                                                              │
+│ For a financial system, every wallet modification MUST record:              │
+│ - Who authorized it (admin ID)                                               │
+│ - When (timestamp — exists)                                                  │
+│ - Why (reason — exists)                                                      │
+│ - Approval chain (for amounts above threshold)                               │
+│                                                                              │
+│ FIX: Add admin_id parameter to credit/debit. Store in transaction.metadata. │
+│ For amounts above ₹10,000, require two-admin approval.                      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-USER-02: debitWallet Race Condition (Read-Then-Write)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Financial Security                                                 │
+│ File: users.service.ts (debitWallet)                                         │
+│                                                                              │
+│ Code:                                                                        │
+│   const wallet = await this.prisma.wallet.findUnique(...);  // READ         │
+│   if (Number(wallet.balance) < amount) throw ...;            // CHECK        │
+│   const updated = await this.prisma.wallet.update({          // WRITE        │
+│     data: { balance: { decrement: amount } }                                 │
+│   });                                                                        │
+│                                                                              │
+│ The good news: it uses { decrement: amount } which is atomic.               │
+│ The bad news: the balance check happens BEFORE the atomic update.            │
+│ Concurrent debit operations could both pass the check and both succeed,     │
+│ potentially driving the balance negative.                                    │
+│                                                                              │
+│ The `decrement` in Prisma translates to: UPDATE SET balance = balance - X   │
+│ PostgreSQL allows this to go negative unless there's a CHECK constraint.    │
+│                                                                              │
+│ FIX: Add CHECK(balance >= 0) constraint on wallet table, OR use            │
+│ $transaction with FOR UPDATE row lock.                                       │
+│                                                                              │
+│ NOTE: creditWallet uses { increment: amount } and doesn't need a balance   │
+│ check, so it's correct.                                                      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-USER-03: updateUser Allows Setting is_verified Without Proof     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Business Logic                                                     │
+│ File: users.service.ts (updateUser)                                          │
+│                                                                              │
+│ Allowed fields: ['display_name', 'username', 'is_verified']                 │
+│                                                                              │
+│ An admin can set is_verified = true for any user. This might bypass          │
+│ KYC requirements. If is_verified gates withdrawal access, an admin could    │
+│ enable withdrawals without KYC.                                              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-USER-04: updateUser Body is Unvalidated (`any`)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Input Validation                                                   │
+│ File: users.controller.ts (updateUser)                                       │
+│                                                                              │
+│ @Patch(':userId')                                                            │
+│ async updateUser(@Param('userId') userId: string, @Body() body: any)        │
+│                                                                              │
+│ No Zod DTO validation. The service whitelist approach (allowed keys only)    │
+│ prevents arbitrary DB updates, but the input isn't type-checked.            │
+│                                                                              │
+│ Priority Score: 2/10 (whitelist approach is reasonable defense-in-depth)     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: EXPORTS (exports/) — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-EXPORT-01: CSV Export Vulnerable to Formula Injection            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Injection / XSS                                                    │
+│ File: exports.service.ts (all export methods)                                │
+│                                                                              │
+│ Pattern:                                                                     │
+│   const rows = users.map(u => [u.id, u.username, u.display_name, ...].join(','));│
+│                                                                              │
+│ If a user's display_name is `=HYPERLINK("http://evil.com","Click")` or      │
+│ `=CMD(...)`, when an admin opens the CSV in Excel, the formula executes.    │
+│ This is a well-known CSV injection attack.                                   │
+│                                                                              │
+│ Fields at risk: username, display_name, email, ban_reason                    │
+│                                                                              │
+│ FIX: Escape cell values that start with =, +, -, @, \t, \r by prefixing    │
+│ with a single quote: `'=FORMULA` or wrapping in quotes with doubled quotes. │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-EXPORT-02: Full Table Scans on Export (No Pagination/Streaming)  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance / DoS                                                  │
+│ File: exports.service.ts (exportUsersCsv, exportTransactionsCsv)             │
+│                                                                              │
+│ exportUsersCsv: findMany with NO limit — loads ALL users into memory.       │
+│ exportTransactionsCsv: findMany with NO limit — loads ALL transactions.     │
+│                                                                              │
+│ With 100K users or 1M transactions, this will:                               │
+│ 1. Consume excessive memory (potential OOM crash)                            │
+│ 2. Lock the event loop during JSON serialization                             │
+│ 3. Potentially time out                                                      │
+│                                                                              │
+│ FIX: Use Prisma cursor-based pagination with streaming response, or         │
+│ generate exports asynchronously (create export job, process in background,  │
+│ notify admin when ready for download).                                       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: SEASONS & TOURNAMENTS (seasons/, tournaments/) — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-SEASON-01: triggerElimination Status Check Gap                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Data Integrity                                                     │
+│ File: seasons.service.ts (triggerElimination)                                │
+│                                                                              │
+│ Checks stage status === 'CLOSED' before running elimination. But doesn't    │
+│ check if elimination was already run. Running elimination twice on the       │
+│ same stage would re-assign ranks and could double-eliminate players.         │
+│                                                                              │
+│ FIX: Add a flag (eliminated_at timestamp) on SeasonStage. Check it before   │
+│ running. Or check if any entries already have rank assigned.                 │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-SEASON-02: updateSeason/updateStage Accept Arbitrary Dates       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Input Validation                                                   │
+│ File: seasons.service.ts (updateSeason, updateStage)                         │
+│                                                                              │
+│ Uses allowed-key whitelist (good) but doesn't validate date ranges:          │
+│ - end_date could be before start_date                                        │
+│ - close_date could be before open_date                                       │
+│ - Dates could be in the past for UPCOMING seasons                            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-SEASON-03: deleteSeason is Hard Delete (No Soft Delete)          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Data Integrity                                                     │
+│ File: seasons.service.ts (deleteSeason)                                      │
+│                                                                              │
+│ Uses prisma.season.delete() (hard delete) instead of soft delete.            │
+│ Only UPCOMING seasons can be deleted (good), but the data is permanently    │
+│ lost. For audit trail purposes, soft delete is preferred.                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: GAMES (games/) — 1 issue
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-GAME-01: Game Config Push via SQS Has No Retry/Confirmation      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Reliability                                                        │
+│ File: games.service.ts (publishGameEvent), aws/sqs.service.ts                │
+│                                                                              │
+│ When a game config is updated, an SQS message is sent to the game-specific  │
+│ queue. But:                                                                  │
+│ 1. If SQS send fails, the error is only logged (no retry, no DLQ handling)  │
+│ 2. No confirmation that the game backend received and applied the config    │
+│ 3. Game backends and admin panel could have divergent configs                │
+│                                                                              │
+│ FIX: Add SQS retry with exponential backoff. Store config_version in DB.    │
+│ Game backends should acknowledge config receipt.                             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: PRIZES (prizes/) — 1 issue
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-PRIZE-01: Prize Distribution is Not Transactional                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Financial Security                                                 │
+│ File: prizes.service.ts (distribute)                                         │
+│                                                                              │
+│ Code:                                                                        │
+│   for (const dist of distributions) {                                        │
+│     const wallet = await this.prisma.wallet.update({ data: { ... } });      │
+│     const transaction = await this.prisma.transaction.create({ data: ... }); │
+│     results.push({ ... });                                                   │
+│   }                                                                          │
+│                                                                              │
+│ If prize distribution fails midway (e.g., user 3 of 10 has no wallet),     │
+│ users 1-2 are credited but 3-10 are not. No rollback. Partial distribution.│
+│                                                                              │
+│ POSITIVE: Individual wallet.update + transaction.create pairs should be     │
+│ wrapped together, AND the entire distribution should be in one $transaction.│
+│                                                                              │
+│ FIX: Wrap entire distribution in $transaction. Use the @Transactional()     │
+│ decorator that already exists in the codebase!                               │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: BANNERS (banners/) — 1 issue
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-BANNER-01: In-Memory Storage (Data Lost on Restart)              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Data Persistence                                                   │
+│ File: banners.service.ts                                                     │
+│                                                                              │
+│ The entire banner service uses:                                              │
+│   private banners: Banner[] = [];                                            │
+│                                                                              │
+│ The TODO comment says: "use Prisma when banner model is added to schema"    │
+│ All banner data is lost on server restart.                                   │
+│                                                                              │
+│ FIX: Add Banner model to Prisma schema. Or use Redis for temporary storage. │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: CHEAT FLAGS (cheat-flags/) — 1 issue
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-CHEAT-01: SQS Polling Blocks in Main Thread                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│ File: aws/sqs.service.ts (pollLoop, poll)                                    │
+│                                                                              │
+│ SQS long-polling (WaitTimeSeconds: 20) runs in the main event loop via      │
+│ async/await. This is actually fine for Node.js (awaiting I/O doesn't block  │
+│ the event loop), but the while(this.running) loop means this service is     │
+│ perpetually polling. If the admin panel has 3 replicas, all 3 poll the      │
+│ same queue (SQS handles this correctly via visibility timeout).             │
+│                                                                              │
+│ POSITIVE: The implementation correctly uses long polling, proper message    │
+│ deletion after processing, and graceful shutdown.                            │
+│                                                                              │
+│ Priority Score: 1/10 (informational only)                                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: ANALYTICS (analytics/) — 1 issue
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-ANALYTICS-01: getUserGrowth Loads All Users for Time Period      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: analytics.service.ts (getUserGrowth)                                   │
+│                                                                              │
+│ Code:                                                                        │
+│   const users = await this.prisma.user.findMany({                           │
+│     where: { created_at: { gte: startDate } },                              │
+│     select: { created_at: true },                                            │
+│     orderBy: { created_at: 'asc' },                                         │
+│   });                                                                        │
+│                                                                              │
+│ Loads ALL user records for the date range just to count per day.             │
+│ Should use Prisma groupBy or raw SQL DATE_TRUNC to count on DB side.        │
+│                                                                              │
+│ FIX: Use raw SQL:                                                            │
+│   SELECT DATE_TRUNC('day', created_at) AS day, COUNT(*) AS signups          │
+│   FROM users WHERE created_at >= $1 GROUP BY 1 ORDER BY 1                   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: INFRASTRUCTURE (main.ts, config, middleware) — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-INFRA-01: No Helmet Security Headers                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security Headers                                                   │
+│ File: main.ts                                                                │
+│                                                                              │
+│ Same as platform backend — no helmet middleware. Missing security headers.   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ADMIN-INFRA-02: Swagger Exposed in Production                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Information Disclosure                                             │
+│ File: main.ts (Swagger setup)                                                │
+│                                                                              │
+│ No environment check — Swagger UI is available in all environments.          │
+│ In production, this exposes the full API schema to anyone who finds the URL.│
+│                                                                              │
+│ FIX: Only enable Swagger in development/staging:                             │
+│   if (config.server.env !== 'production') { SwaggerModule.setup(...); }     │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. DATABASE SCHEMA ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The admin backend has its OWN Prisma schema that DUPLICATES most platform
+models. This is an architectural choice (admin panel reads from the same
+PostgreSQL database but manages its own migrations).
+
+UNIQUE TO ADMIN:
+✓ Admin model (id, email, password — separate from User)
+✓ AdminAccessToken (session management)
+✓ Game model (detailed config columns per game type)
+✓ GameContent (i18n content per game per stage)
+✓ Stage, GameStage (admin-managed game stages)
+✓ Tournament, TournamentStage (admin-created tournaments)
+✓ CheatFlag (SQS-sourced, with reference_id dedup via upsert)
+✓ SeasonLeaderboard (denormalized for exports)
+
+DUPLICATED FROM PLATFORM:
+- User, AuthProvider, GameProgress, GameSession
+- Season, SeasonStage, StageGame, SeasonEntry, StageEntry
+- Wallet, Transaction
+- Notification
+
+CONCERN:
+Two Prisma schemas managing the same tables in the same database. If they
+diverge (different migrations), data corruption is possible. The admin
+schema should ideally be READ-ONLY for platform models and WRITE-ONLY for
+admin-specific models.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. POSITIVE OBSERVATIONS — WHAT THE ADMIN PANEL DOES RIGHT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECURITY:
+✓ scrypt password hashing with timingSafeEqual (constant-time comparison)
+✓ Session management via Redis with DB token fallback (graceful degradation)
+✓ @RequireSession decorator enforces tokenType + userType on all admin routes
+✓ SessionGuard checks admin.deleted_at (deactivated admins can't access)
+✓ SessionGuard verifies Redis session AND DB token match (defense in depth)
+✓ JWT verification with proper error handling (expired vs. invalid tokens)
+✓ getEnvVar() throws on missing required environment variables
+✓ Login endpoint is the ONLY public route (all others require session)
+
+ARCHITECTURE:
+✓ Zod validation (nestjs-zod) — stricter than class-validator
+✓ Global ApiExceptionFilter with i18n error messages
+✓ Global ApiResponseInterceptor for standardized response format
+✓ Global TransactionInterceptor with @Transactional() decorator
+✓ LanguageMiddleware for i18n support
+✓ LoggerMiddleware for request logging
+✓ Swagger/OpenAPI documentation with Bearer auth
+✓ Path aliases (@common, @config) — clean imports
+✓ Separate module per domain (12 modules, well-organized)
+
+DATA:
+✓ SQS consumer for cheat flags with proper SNS envelope unwrapping
+✓ Cheat flag dedup via reference_id upsert (idempotent processing)
+✓ Season management with full stage lifecycle (LOCKED → OPEN → CLOSED)
+✓ Elimination logic correctly handles percentage-based elimination
+✓ Only UPCOMING seasons can be deleted (prevents active data loss)
+✓ Wallet credit uses atomic { increment } (no race condition)
+✓ Game config updates published to game backends via SQS per game
+✓ Analytics: DAU, MAU, retention, revenue, game popularity metrics
+
+CODE QUALITY:
+✓ Proper TypeScript (interfaces, type guards, no `any` in services mostly)
+✓ ESLint + Prettier configured
+✓ Test infrastructure setup (Jest + e2e)
+✓ Build uses tsc + tsc-alias for clean output
+✓ Production uses Bun runtime (performance optimized)
+✓ Docker multi-stage build
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     82/100 (best in platform)
+- Authentication Security:          55/100 (good design, token storage flaw)
+- Authorization:                    70/100 (session guard works, lacks granularity)
+- Financial Security:               35/100 (no audit trail, race conditions)
+- Data Privacy:                     60/100 (admin-only, but exports need escaping)
+- Input Validation:                 65/100 (Zod pipeline, some `any` bodies)
+- Performance:                      55/100 (full-table exports, analytics queries)
+- Database Design:                  70/100 (dual schema concern, good models)
+- Production Readiness:             50/100 (CORS, no helmet, Swagger in prod)
+- API Documentation:                80/100 (Swagger with Bearer auth)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 62/100
+═══════════════════════════════════════
+
+The admin panel is the MOST production-ready component of the platform.
+Fix CORS, token storage, and audit trails for financial operations and
+it could reach 80/100.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. PRIORITY ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL FIXES (2-3 hours)
+  □ Fix CORS — whitelist admin frontend origin only
+  □ Hash access tokens (SHA-256) before storing in DB
+  □ Add admin_id to all financial operations (credit, debit, prize)
+  □ Wrap prize distribution in @Transactional()
+
+PHASE 2: SECURITY HARDENING (1-2 hours)
+  □ Add rate limiting on login (per-IP + per-email)
+  □ Reduce token expiry to 4 hours (from 7 days)
+  □ Remove seed password from .env.example
+  □ Add helmet middleware
+  □ Disable Swagger in production
+  □ Add CSV formula injection escaping in exports
+
+PHASE 3: FINANCIAL SAFEGUARDS (2 hours)
+  □ Add idempotency check for elimination (prevent double-elimination)
+  □ Add CHECK(balance >= 0) constraint on wallet table
+  □ Add two-admin approval for wallet operations above threshold
+  □ Add audit log model (admin_id, action, target, metadata, timestamp)
+
+PHASE 4: SCALABILITY (1-2 hours)
+  □ Implement streaming CSV exports (cursor-based)
+  □ Replace in-memory analytics with DB aggregations
+  □ Add Banner model to Prisma schema
+  □ Add admin role granularity (SUPER_ADMIN, GAME_ADMIN, etc.)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. COMPARISON WITH PLATFORM BACKEND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Feature                    | Platform Backend  | Admin Panel Backend
+─────────────────────────────────────────────────────────────────────────
+Password Hashing          | bcrypt            | scrypt + timingSafeEqual ✓
+Validation                | class-validator   | Zod (nestjs-zod) ✓
+Error Handling            | NestJS defaults   | Custom filter + i18n ✓
+API Documentation         | None              | Swagger/OpenAPI ✓
+Environment Validation    | Fallback strings  | Throws on missing ✓
+Auth Guard Approach       | JwtAuthGuard only | Session + token type + user type ✓
+Token Lookup              | O(N) bcrypt scan  | Direct DB/Redis lookup ✓
+Logging                   | console.log       | NestJS Logger + middleware ✓
+Response Format           | Inconsistent      | Standardized interceptor ✓
+Transaction Support       | Manual $transaction| @Transactional() decorator ✓
+CORS                      | Origin whitelist  | Open to ALL ✗ (worse!)
+i18n                      | None              | LanguageMiddleware ✓
+Build                     | tsc               | tsc + tsc-alias ✓
+Runtime                   | Node.js           | Bun ✓ (faster)
+
+The admin panel is clearly written by a more experienced developer or at
+a later stage of the project. The platform backend should adopt these
+patterns: Zod validation, environment validation, Swagger, standardized
+responses, and the @Transactional() decorator approach.
+
+================================================================================
+END OF AUDIT — ZUBACO ADMIN PANEL BACKEND
+================================================================================

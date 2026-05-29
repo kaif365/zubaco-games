@@ -1,0 +1,582 @@
+================================================================================
+ZUBACO CROSS-PLATFORM INTEGRATION — COMPREHENSIVE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior Architect / Cross-Platform Integration Review
+Component: Holistic review of all Zubaco components working together
+Scope: Platform Backend ↔ Admin Backend ↔ Admin Frontend ↔ Mobile App ↔
+       20 Game Backends ↔ 20 Game Frontends ↔ Infrastructure ↔ CI/CD ↔ Docker
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This audit examines how ALL Zubaco components integrate with each other.
+While individual components may work in isolation, the system as a whole
+has significant integration gaps that would prevent production operation.
+
+KEY FINDING: The Zubaco platform is a COLLECTION OF SCAFFOLDS, not an
+integrated system. Each component was built somewhat independently, and
+the "glue" between them is incomplete or broken.
+
+TOTAL CROSS-CUTTING ISSUES: 18 (4 Critical, 5 High, 6 Medium, 3 Low)
+
+INTEGRATION SCORE: 35/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. COMPONENT SCORE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────┬───────────┬──────────────────────────────────┐
+│ Component                   │ Score     │ Status                           │
+├─────────────────────────────┼───────────┼──────────────────────────────────┤
+│ Platform Backend            │ 38/100    │ Core logic present, many bugs    │
+│ Admin Panel Backend         │ 62/100    │ Best backend, well-structured    │
+│ Admin Panel Frontend        │ 68/100    │ Clean UI, dummy credentials      │
+│ Mobile App                  │ 28/100    │ Scaffold only, ~30% complete     │
+│ 20 Game Backends (avg)      │ 60/100    │ Repetitive issues across all     │
+│ 20 Game Frontends (avg)     │ 60/100    │ Functional but inconsistent      │
+│ Infrastructure (Terraform)  │ 72/100    │ Best component, missing IAM      │
+│ CI/CD Pipelines             │ 58/100    │ Deploys don't update images      │
+│ Docker Configuration        │ 55/100    │ Broken admin frontend Dockerfile │
+├─────────────────────────────┼───────────┼──────────────────────────────────┤
+│ PLATFORM AVERAGE            │ 55/100    │                                  │
+│ CROSS-PLATFORM INTEGRATION  │ 35/100    │                                  │
+└─────────────────────────────┴───────────┴──────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. CROSS-CUTTING ISSUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+CATEGORY: AUTH FLOW — END TO END
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-AUTH-01: Token Refresh Broken Across Entire Stack                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Affected: Mobile App ↔ Platform Backend                                     │
+│                                                                              │
+│ Chain of failure:                                                            │
+│ 1. Platform issues access tokens with 15-minute expiry                      │
+│ 2. Mobile app stores both access + refresh tokens                           │
+│ 3. Mobile app NEVER calls refresh endpoint                                  │
+│ 4. After 15 minutes, all API calls return 401                               │
+│ 5. Mobile has no 401 interceptor → user sees cryptic errors                │
+│ 6. User must manually logout and re-login                                   │
+│                                                                              │
+│ The refresh_token endpoint EXISTS on the platform backend but has its       │
+│ own bugs (O(N) bcrypt scan of ALL user refresh tokens — PLATFORM-AUTH-03). │
+│ Even if the mobile app called it, it would be slow.                        │
+│                                                                              │
+│ IMPACT: App is UNUSABLE for sessions longer than 15 minutes.               │
+│                                                                              │
+│ FIX CHAIN:                                                                   │
+│ 1. Platform: Fix refresh token to use hashed lookup, not bcrypt scan       │
+│ 2. Mobile: Add 401 interceptor → call refresh → retry original request    │
+│ 3. Mobile: Add token expiry prediction (decode JWT, refresh before expiry) │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-AUTH-02: Google/Apple OAuth Not Verified End-to-End              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Broken Feature                                                     │
+│ Affected: Mobile ↔ Platform Backend                                         │
+│                                                                              │
+│ 1. Mobile: Google Sign-In button has empty onPress handler                  │
+│ 2. Mobile: No Apple Sign-In UI at all                                       │
+│ 3. Platform: google-login endpoint receives token but never verifies it    │
+│    with Google's API (PLATFORM-AUTH-05)                                     │
+│ 4. Platform: apple-login endpoint same — no Apple verification             │
+│                                                                              │
+│ RESULT: Social login is completely non-functional. Even if mobile           │
+│ implemented Google SDK, the backend would accept ANY string as a valid     │
+│ Google token.                                                                │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: GAME FLOW — END TO END
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-GAME-01: Score Trust Chain is Completely Broken                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ Affected: Mobile → Game Frontend → Game Backend → Platform Backend          │
+│                                                                              │
+│ The score flow:                                                              │
+│ 1. Mobile opens WebView with game URL + JWT token                           │
+│ 2. Game frontend runs game logic IN THE BROWSER (client-side)              │
+│ 3. Game frontend calls game backend with score + time                       │
+│ 4. Game backend stores score, calls platform's /anti-cheat/submit-score    │
+│ 5. Platform records score for tournaments/leaderboards                      │
+│                                                                              │
+│ Problems in the chain:                                                       │
+│ A. Game logic runs client-side → scores are trivially fakeable             │
+│ B. Game backends accept client-submitted scores without validation          │
+│    (GAME audits found this in ALL 20 games)                                │
+│ C. Platform anti-cheat endpoints have NO role-based access control          │
+│    (PLATFORM-ANTICHEAT-01) — any authenticated user can call admin         │
+│    anti-cheat endpoints                                                      │
+│ D. Tournament scores go through same unvalidated path                       │
+│ E. Mobile WebView injects JWT into window.__ZUBACO__ — game frontend      │
+│    (or XSS in game) can extract token for other API calls                  │
+│                                                                              │
+│ For a REAL MONEY tournament platform, this is an existential threat.       │
+│ Anyone with basic JavaScript knowledge can:                                 │
+│ 1. Open browser DevTools                                                     │
+│ 2. POST fake scores to game backend                                         │
+│ 3. Win tournaments                                                           │
+│ 4. Withdraw real money                                                       │
+│                                                                              │
+│ FIX (requires architectural change):                                         │
+│ 1. Move critical game logic to backend (server-authoritative)              │
+│ 2. At minimum: replay validation, statistical anomaly detection            │
+│ 3. Rate-limit score submissions per session                                 │
+│ 4. Use game-session-scoped tokens (not user JWT) for game backends         │
+│                                                                              │
+│ Priority Score: 10/10 (existential risk for real-money platform)            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-GAME-02: Game Backend ECS Services Don't Exist                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Deployment Gap                                                     │
+│ Affected: Terraform ↔ CI/CD ↔ Game Backends                                │
+│                                                                              │
+│ 1. Terraform creates ECR repos for 20 games (TF infrastructure.tf)         │
+│ 2. CI/CD builds Docker images and pushes to ECR (games-ci.yml)             │
+│ 3. Terraform has NO ECS task definitions or services for games              │
+│ 4. CI/CD has NO ecs update-service for game backends                        │
+│ 5. No ALB listener rules to route to game backends                          │
+│                                                                              │
+│ RESULT: Game backend images exist in ECR but are never deployed.            │
+│ Game frontends are deployed to S3/CloudFront but their API calls           │
+│ would go nowhere.                                                            │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: MONEY FLOW — END TO END
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-MONEY-01: Wallet/Payment Flow Not Connected                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Broken Feature                                                     │
+│ Affected: Mobile ↔ Platform Backend                                         │
+│                                                                              │
+│ Platform Backend: Has wallet endpoints (deposit, withdraw, balance)         │
+│ Platform Backend: Has Razorpay integration (webhook + order creation)       │
+│ Mobile App: WalletScreen is 100% PLACEHOLDER DATA                          │
+│ Mobile App: No Razorpay SDK integration                                     │
+│ Mobile App: No KYC document upload UI                                       │
+│ Admin Frontend: Has wallet management UI (but uses dummy data too)         │
+│                                                                              │
+│ The ENTIRE money flow — from deposit to withdrawal — cannot be             │
+│ completed through any client application.                                   │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-MONEY-02: Wallet Race Conditions Compound Across Clients         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Financial Integrity                                                │
+│ Affected: Platform Backend (wallet service)                                  │
+│                                                                              │
+│ Platform uses SELECT + UPDATE pattern for wallet operations without         │
+│ transactions or row-level locking (PLATFORM-WALLET-01).                     │
+│                                                                              │
+│ If/when multiple clients exist (mobile + potential web client), parallel    │
+│ requests from the same user can cause:                                      │
+│ - Double deposits                                                            │
+│ - Overdraft withdrawals                                                      │
+│ - Tournament entry with insufficient balance                                 │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: RUNTIME INCONSISTENCIES
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-RUNTIME-01: Three Different Node.js Versions                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Environment Consistency                                            │
+│                                                                              │
+│ Local development: Node.js v24.16.0                                          │
+│ CI/CD pipeline:    Node.js 22                                                │
+│ Docker images:     Node.js 20-alpine                                         │
+│ Admin backend:     Bun (latest, not Node.js at all)                         │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-RUNTIME-02: React Version Mismatch                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dependency Consistency                                             │
+│                                                                              │
+│ Game Frontends:    React 19                                                  │
+│ Admin Frontend:    React 19                                                  │
+│ Mobile App:        React 18.3                                                │
+│                                                                              │
+│ Shared components or code migration between platforms may break.           │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-RUNTIME-03: Database Shared Across All Services                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Architecture                                                       │
+│ Affected: Platform + Admin + 20 Games → 1 RDS instance                     │
+│                                                                              │
+│ 22 services share one db.t3.medium (max ~85 connections).                  │
+│ Each NestJS app creates a Prisma connection pool (default 5 connections).   │
+│ 22 × 5 = 110 connections → EXCEEDS db.t3.medium limit.                    │
+│                                                                              │
+│ Additionally: All 20 game backends have their own Prisma schema but ALL    │
+│ point to the same database. No schema isolation (different databases or    │
+│ schemas per game).                                                           │
+│                                                                              │
+│ A single game with a bad query can lock the ENTIRE platform.               │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: CONFIGURATION DRIFT
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-CONFIG-01: CORS Configuration Contradicts Across Components      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security Inconsistency                                             │
+│                                                                              │
+│ Platform Backend: CORS origin = '*' (allows all)                            │
+│ Admin Backend: CORS origin = '*' (allows all)                               │
+│ Game Backends: Most use '*', some restrict to game domain                   │
+│ Terraform WAF: Has rules but no CORS restriction                            │
+│                                                                              │
+│ For a financial app, CORS should be locked to specific origins:            │
+│ - game.zubaco.com (game frontends)                                          │
+│ - admin.zubaco.com (admin panel)                                            │
+│ - Mobile app (no CORS needed, native HTTP)                                  │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-CONFIG-02: JWT Secrets Inconsistent Across Environments          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│                                                                              │
+│ docker-compose: Hardcoded weak secrets                                       │
+│ Platform code: Fallback default secrets in source                           │
+│ Terraform: aws_secretsmanager_secret "jwt_secrets" created but EMPTY       │
+│ Admin backend: Separate JWT secret (not shared with platform)               │
+│                                                                              │
+│ Platform and admin have DIFFERENT JWT secrets. A user authenticated with   │
+│ the platform JWT cannot access admin endpoints, and vice versa.            │
+│ This is actually correct (separate auth domains), but it's not documented │
+│ and could confuse developers.                                               │
+│                                                                              │
+│ The REAL risk: If Secrets Manager is empty in production, platform falls   │
+│ back to hardcoded defaults → anyone can forge JWTs.                       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: MISSING INTEGRATION POINTS
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-MISSING-01: Push Notifications Not Connected                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Incomplete Feature                                                 │
+│                                                                              │
+│ Terraform: Creates SNS topic "push-notifications"                            │
+│ Terraform: Creates SQS queue "notifications" with DLQ                       │
+│ Platform: Has notification endpoints                                         │
+│ Mobile: Has react-native-push-notification dependency                       │
+│ Mobile: NotificationsScreen exists but minimal                               │
+│                                                                              │
+│ Missing: No FCM/APNs configuration, no device token registration            │
+│ endpoint, no push notification sending logic.                               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-MISSING-02: Analytics Pipeline Disconnected                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Incomplete Feature                                                 │
+│                                                                              │
+│ Terraform: Creates SQS queue "analytics"                                     │
+│ Mobile: Firebase Analytics service (tracks events, screens)                  │
+│ Platform: No analytics event publishing to SQS                               │
+│ Admin: No analytics dashboard                                                │
+│                                                                              │
+│ Mobile tracks events to Firebase directly. Backend has no server-side       │
+│ analytics. The SQS analytics queue exists but nothing publishes to it.     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-MISSING-03: No Monitoring/Alerting Integration                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Operations                                                         │
+│                                                                              │
+│ Terraform: CloudWatch alarms for CPU, memory, 5xx, latency                  │
+│ Mobile: Sentry crash reporting (init function never called)                  │
+│ Platform: No structured logging (uses console.log)                          │
+│ Admin: No error tracking integration                                         │
+│                                                                              │
+│ No end-to-end monitoring: If a user experiences a problem, there's no     │
+│ way to trace it from mobile → game → platform → database.                 │
+│                                                                              │
+│ FIX: Implement distributed tracing (AWS X-Ray or OpenTelemetry).           │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-MISSING-04: No Admin ↔ Platform API Gateway                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Architecture                                                       │
+│                                                                              │
+│ Admin backend and platform backend are SEPARATE services that share a      │
+│ database directly (both have Prisma schemas for the same tables).          │
+│                                                                              │
+│ No inter-service communication (no HTTP calls, no message queue).          │
+│ Admin modifies data directly in the shared DB. Platform reads/writes       │
+│ the same tables.                                                             │
+│                                                                              │
+│ Risk: Concurrent writes from admin + platform can conflict.                │
+│ No event-driven updates (admin approves KYC → platform doesn't know       │
+│ until next DB read).                                                         │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE XPLAT-MISSING-05: No Rate Limiting Consistency                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│                                                                              │
+│ Platform: ThrottlerModule (100 req / 60s)                                    │
+│ Admin: No rate limiting                                                      │
+│ Games: No rate limiting                                                      │
+│ WAF: 2000 req / 5 min per IP                                                │
+│                                                                              │
+│ No consistent rate limiting policy. A DDoS on game endpoints bypasses      │
+│ platform throttling entirely.                                               │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. CRITICAL PATH ANALYSIS: "Can a User Play a Tournament Today?"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Let's trace the complete user journey and identify where it breaks:
+
+STEP 1: User downloads app, opens it
+  ✓ App.tsx loads, navigation works
+  ✓ Onboarding flow renders
+
+STEP 2: User logs in with phone OTP
+  ✓ LoginScreen sends OTP (if platform backend is running)
+  ✓ OtpScreen verifies OTP
+  ✓ Tokens stored in AsyncStorage
+  ⚠ Tokens expire in 15 min, no refresh mechanism
+
+STEP 3: User adds money to wallet
+  ✗ WalletScreen shows HARDCODED data (₹150 balance)
+  ✗ "Add Money" button does nothing
+  ✗ No Razorpay SDK integration
+  ✗ BLOCKED — cannot deposit money
+
+STEP 4: User registers for tournament
+  ⚠ Tournament registration endpoint exists on platform
+  ⚠ Mobile has TournamentScreen (unknown completeness)
+  ✗ Cannot pay entry fee (wallet broken)
+  ✗ BLOCKED — cannot register
+
+STEP 5: User plays a game
+  ⚠ Mobile opens WebView with game URL
+  ✗ Game backends not deployed (no ECS services in Terraform)
+  ✗ Game frontend API calls would fail (no backend)
+  ✗ BLOCKED — game cannot communicate with backend
+
+STEP 6: Score submitted
+  ✗ Even if game worked, scores are client-trusted
+  ✗ No server-side validation
+  ✗ Trivially cheatable
+
+STEP 7: Tournament results
+  ⚠ Platform has tournament scoring logic
+  ✗ Based on fake-able scores
+
+STEP 8: User wins, withdraws money
+  ✗ No KYC UI in mobile app
+  ✗ No withdraw flow in mobile app
+  ✗ BLOCKED — cannot withdraw
+
+VERDICT: A user CANNOT complete a single real-money tournament today.
+The critical path is broken at steps 3, 5, and 8.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. AGGREGATE ISSUE COUNT ACROSS ALL AUDITS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌───────────────────────────────┬──────────┬──────┬────────┬─────┬─────────┐
+│ Audit Report                  │ Critical │ High │ Medium │ Low │ Total   │
+├───────────────────────────────┼──────────┼──────┼────────┼─────┼─────────┤
+│ Platform Backend              │    6     │   8  │   18   │  15 │   47    │
+│ Admin Panel Backend           │    3     │   4  │   10   │   5 │   22    │
+│ Admin Panel Frontend          │    2     │   3  │    7   │   4 │   16    │
+│ Mobile App                    │    3     │   5  │    7   │   4 │   19    │
+│ 20 Game Backends (unique)     │   ~4     │  ~6  │  ~10   │  ~5 │  ~25    │
+│ 20 Game Frontends (unique)    │   ~2     │  ~4  │   ~8   │  ~4 │  ~18    │
+│ Infrastructure (Terraform)    │    2     │   3  │    5   │   4 │   14    │
+│ CI/CD Pipelines               │    1     │   4  │    4   │   3 │   12    │
+│ Docker Configuration          │    2     │   3  │    5   │   3 │   13    │
+│ Cross-Platform Integration    │    4     │   5  │    6   │   3 │   18    │
+├───────────────────────────────┼──────────┼──────┼────────┼─────┼─────────┤
+│ TOTAL (unique issues)         │   29     │  45  │   80   │  50 │  204    │
+└───────────────────────────────┴──────────┴──────┴────────┴─────┴─────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. TOP 10 MUST-FIX ISSUES (Across Entire Platform)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ 1. SERVER-AUTHORITATIVE GAME LOGIC — Scores are client-trusted. Any user
+    can win any tournament. Existential threat for real-money platform.
+
+ 2. TOKEN REFRESH — Users forced to re-login every 15 minutes.
+
+ 3. GAME BACKEND DEPLOYMENT — ECR images exist but no ECS services.
+    Game backends literally cannot run.
+
+ 4. WALLET IMPLEMENTATION — Mobile wallet is 100% placeholder.
+    Users cannot deposit or withdraw money.
+
+ 5. GOOGLE/APPLE OAUTH — Empty stubs on mobile, unverified on backend.
+
+ 6. CORS LOCKDOWN — All backends allow origin '*'. Any website can make
+    authenticated API calls.
+
+ 7. JWT SECRET MANAGEMENT — Fallback defaults in code, empty in Secrets
+    Manager. Production could use guessable secrets.
+
+ 8. ADMIN HARDCODED CREDENTIALS — admin@ZUBACO.com / Admin@123 in
+    frontend source code.
+
+ 9. DATABASE CONNECTION EXHAUSTION — 22 services × 5 connections = 110,
+    exceeds db.t3.medium limit (~85).
+
+10. CI/CD DEPLOYMENT — force-new-deployment doesn't update image tag.
+    Pushes code but doesn't deploy it.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. RECOMMENDED IMPLEMENTATION ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WEEK 1-2: MAKE IT DEPLOYABLE
+  □ Fix Terraform (IAM roles, admin TG, game ECS services)
+  □ Fix CI/CD (task definition update, not force-new-deployment)
+  □ Fix Docker (admin frontend, non-root users, .dockerignore)
+  □ Fix JWT secrets (remove defaults, populate Secrets Manager)
+  □ Fix CORS on all backends
+  □ Remove hardcoded admin credentials
+
+WEEK 3-4: MAKE IT FUNCTIONAL
+  □ Implement mobile token refresh (401 interceptor)
+  □ Connect mobile wallet to platform API
+  □ Integrate Razorpay mobile SDK
+  □ Build KYC document upload in mobile
+  □ Implement Google Sign-In end-to-end
+  □ Fix database connection pooling (PgBouncer or larger instance)
+
+WEEK 5-8: MAKE IT SECURE
+  □ Server-authoritative game logic (at least for tournaments)
+  □ Replay validation system
+  □ Statistical anomaly detection for scores
+  □ Certificate pinning on mobile
+  □ Encrypted token storage on mobile
+  □ Wallet transaction locking (SELECT FOR UPDATE)
+  □ Proper audit trail for financial operations
+
+WEEK 9-12: MAKE IT PRODUCTION-READY
+  □ Distributed tracing (OpenTelemetry/X-Ray)
+  □ Structured logging across all services
+  □ Push notification pipeline
+  □ Rate limiting on all services
+  □ Load testing (identify bottlenecks)
+  □ Security penetration testing
+  □ RBI compliance review for real-money gaming
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. FINAL VERDICT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Zubaco platform is at PROTOTYPE/SCAFFOLD stage. The architecture is
+sound (NestJS + React + React Native + Terraform + GitHub Actions), and
+the infrastructure design is excellent. However:
+
+- ~204 issues identified across all components
+- 29 Critical issues that block basic functionality
+- The critical user path (deposit → play → win → withdraw) is BROKEN
+- No test suite runs in CI (zero automated testing)
+- Score trust model is fundamentally broken for real-money gaming
+
+ESTIMATED EFFORT TO PRODUCTION: 8-12 weeks with a team of 3-4 developers.
+
+The codebase is a GOOD STARTING POINT — it's not throwaway code. But it
+needs significant work before any real user or real money touches it.
+
+═══════════════════════════════════════
+OVERALL PLATFORM READINESS: 35/100
+═══════════════════════════════════════
+
+Breakdown:
+- Can deploy:      NO (Terraform has missing resources)
+- Can register:    YES (phone OTP works)
+- Can deposit:     NO (mobile wallet is placeholder)
+- Can play game:   NO (game backends not deployed)
+- Can compete:     NO (scores are fakeable)
+- Can withdraw:    NO (no KYC, no withdraw UI)
+- Is secure:       NO (CORS *, JWT defaults, client-trusted scores)
+- Is monitored:    PARTIAL (CloudWatch infra only, no app-level)
+
+================================================================================
+END OF AUDIT — ZUBACO CROSS-PLATFORM INTEGRATION
+================================================================================

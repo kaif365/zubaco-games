@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # ─── PostgreSQL ───
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zubaco_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ───
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Zubaco Platform API ───
+  platform:
+    build:
+      context: ./zubaco-platform
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/zubaco_platform
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_ACCESS_SECRET: zubaco-access-secret-change-in-production-min-32
+      JWT_REFRESH_SECRET: zubaco-refresh-secret-change-in-production-min-32
+      NODE_ENV: production
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Admin Panel Backend ───
+  admin-backend:
+    build:
+      context: ./zubaco-admin-panel-repo/zubaco-admin-panel/backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/zubaco_platform
+      REDIS_HOST: redis
+      PORT: 3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Admin Panel Frontend ───
+  admin-frontend:
+    build:
+      context: ./zubaco-admin-panel-repo/zubaco-admin-panel/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3002:80"
+    depends_on:
+      - admin-backend
+
+volumes:
+  postgres_data:

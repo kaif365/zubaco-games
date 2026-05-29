@@ -1,0 +1,1006 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #16: SEQUENCE RECALL (Simon Says / Memory Sequence)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Memory sequence — tiles flash in a pattern, player replays from
+          memory. Sequence length increases each round. Timer-survival mode
+          with time bonus for completing without errors.
+Stack: NestJS 11 + Prisma 7 + Restate (durable execution) + Redis + BullMQ +
+       Zod + SNS (backend), React 19 + Vite 6 + Framer Motion + TanStack Query
+       + react-i18next + Web Audio (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Sequence Recall is the FLAGSHIP game of the ZUBACO platform. It is
+DRAMATICALLY more sophisticated than every other game — implementing a full
+Restate-based durable execution workflow, server-authoritative per-move
+validation, a 4-detector anti-cheat system, proper audio with multiple sound
+packs, internationalization, session recovery on page refresh, tutorial/demo
+mode, configurable wrong-move handling strategies, time bonus system, and
+AES-256-GCM payload encryption.
+
+The architecture is production-grade. The Restate Virtual Object ensures
+exactly-once semantics even under retries. Each tile tap is validated server-
+side in real-time. The anti-cheat system detects: (1) click-too-fast bots,
+(2) uniform timing (low coefficient of variation), (3) impossible round
+solve times, and (4) invalid end state (move count mismatch). Cheat flags
+are published to SNS for cross-service processing.
+
+The frontend has proper phase management (8 phases), audio feedback per
+tile, wrong-tile visual cue, sequence dots progress indicator, session timer
+with warning/critical states, and a robust session persistence + recovery
+system.
+
+Main issues: .env committed, serverSeed unnecessarily sent to client, HMAC
+fallback secret, and the GameShell component is overly complex (~800+ lines).
+
+TOTAL ISSUES: 26 (2 Critical, 4 High, 11 Medium, 9 Low)
+
+RELEASE READINESS SCORE: 78/100 ← HIGHEST IN PLATFORM
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: .env committed with JWT_SECRET + ENCRYPTION_KEY
+           JWT_SECRET=dev-jwt-secret-min-32-chars-here
+           ENCRYPTION_KEY=0123456789abcdef...
+
+BLOCKER-2: serverSeed sent to client in buildStartGameResponse. While the
+           frontend doesn't use it for production gameplay (sequences come
+           from API), an attacker can implement the SHA-256 hash chain
+           (visible in backend source) to predict all future round sequences.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (14 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env Committed with Production-Critical Secrets                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env                                                                   │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL=postgresql://zubaco:zubaco_dev_2024@localhost:5432/zubaco     │
+│   JWT_SECRET=dev-jwt-secret-min-32-chars-here                                │
+│   ENCRYPTION_KEY=0123456789abcdef0123456789abcdef...                          │
+│                                                                              │
+│ Note: At least this game's JWT_SECRET is 32 chars (min length satisfied).    │
+│ But it's still committed in plaintext.                                       │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: serverSeed Sent to Client in Start/Status Responses              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (buildStartGameResponse, line ~470)           │
+│                                                                              │
+│ Code:                                                                        │
+│   return {                                                                   │
+│     sessionId: session.sessionId,                                            │
+│     serverSeed: session.serverSeed,  // ← LEAKED                            │
+│     config: session.config,                                                  │
+│     ...                                                                      │
+│     sequence, // current round only                                          │
+│   };                                                                         │
+│                                                                              │
+│ Description: Server generates sequence via SHA-256 hash chain:               │
+│   currentHash = sha256(seed) → tile = parseInt(hash[0:8], 16) % cellCount  │
+│   currentHash = sha256(currentHash) → next tile...                          │
+│                                                                              │
+│ An attacker can reproduce generateSequence(seed, maxSequence, cellCount)     │
+│ and know every future round's tiles. This means memorizing nothing.          │
+│                                                                              │
+│ MITIGATED BY: Server validates each move in real-time, so the player still   │
+│ must submit correct tiles — but pre-knowledge eliminates the memory           │
+│ challenge entirely.                                                           │
+│                                                                              │
+│ Fix: Remove serverSeed from all client-facing responses. The frontend does   │
+│ NOT use it in production mode (sequences come from API). Only needed for     │
+│ session resumption — but server already returns `sequence` array directly.   │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: HMAC Guard Fallback Secret                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts (line 18)                              │
+│                                                                              │
+│ Code:                                                                        │
+│   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';                │
+│                                                                              │
+│ Description: HMAC guard protects admin endpoints. If HMAC_SECRET is not      │
+│ set, any attacker who knows the fallback can forge valid requests.           │
+│                                                                              │
+│ MITIGATED BY: env.validation.ts marks HMAC_SECRET as required (would fail    │
+│ in production). But in development, the fallback is used.                    │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 63-71)                                               │
+│                                                                              │
+│ Description: SwaggerModule.setup('api/docs', ...) is unconditional.          │
+│ Reveals all endpoints, DTOs, and auth schemes in production.                 │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: CORS Defaults to '*' When CORS_ORIGINS Not Set                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 42-43)                                               │
+│                                                                              │
+│ Code:                                                                        │
+│   const allowedOrigins = process.env.CORS_ORIGINS                            │
+│     ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())                │
+│     : ['*'];                                                                 │
+│   app.enableCors({                                                           │
+│     origin: allowedOrigins.includes('*') ? true : allowedOrigins,            │
+│   });                                                                        │
+│                                                                              │
+│ Description: Unlike Game #15 which THROWS on missing CORS in production,     │
+│ this game defaults to '*' (any origin). Combined with credentials: true,     │
+│ this is a misconfiguration.                                                  │
+│                                                                              │
+│ Fix: Throw in production if CORS_ORIGINS is missing or contains '*'.         │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: env.validation Only Warns in Development (Doesn't Fail)          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/config/env.validation.ts (line 35-38)                              │
+│                                                                              │
+│ Code:                                                                        │
+│   if (process.env.NODE_ENV === 'production') {                               │
+│     errors.push(...)                                                         │
+│   } else {                                                                   │
+│     warnings.push(...)  // ← just logs, doesn't fail!                       │
+│   }                                                                          │
+│                                                                              │
+│ Description: In dev, missing required vars (JWT_SECRET, HMAC_SECRET,         │
+│ ADMIN_API_KEYS) produce a warning but the app starts anyway — running        │
+│ with empty/undefined secrets.                                                │
+│                                                                              │
+│ Priority Score: 4/10 (only affects dev, not prod)                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Dead Engine Modules (6 Files)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts, boosterEngine.ts,               │
+│        comboEngine.ts, dailyChallenge.ts, leaderboard.ts, scoreHistory.ts    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: cachedSequence Optional (Backward-Compat Fallback)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/game/game-session.restate.ts (multiple lines)                      │
+│                                                                              │
+│ Code:                                                                        │
+│   const nextSequence = newSession.cachedSequence                             │
+│     ? newSession.cachedSequence.slice(0, nextSeqLength)                      │
+│     : gameService.generateSequence(serverSeed, nextSeqLength, cellCount);    │
+│                                                                              │
+│ Description: Every validateMove/nextSequence checks if cachedSequence        │
+│ exists and falls back to regenerating. Since all NEW sessions get it set,    │
+│ the fallback only exists for old sessions created before the feature.        │
+│ This adds branching complexity throughout the codebase.                      │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Anti-Cheat analyzeAndPersist is Fire-and-Forget                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Observability                                                      │
+│ File: src/game/game-anti-cheat.service.ts (line 85)                          │
+│                                                                              │
+│ Code:                                                                        │
+│   analyzeAndPersist(session, inputs): void {                                 │
+│     void this.runAsync(session, inputs);                                     │
+│   }                                                                          │
+│                                                                              │
+│ Description: Anti-cheat runs in background. If it fails silently             │
+│ (DB error, SNS down), cheaters are not flagged. The try/catch logs the       │
+│ error but there's no retry mechanism or dead-letter queue.                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: No Rate Limiting on validateMove Endpoint                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: DoS                                                                │
+│ File: game.controller.ts                                                     │
+│                                                                              │
+│ Description: validateMove is called per-tap. A bot could spam thousands      │
+│ of validate requests per second. The anti-cheat detects patterns AFTER       │
+│ finalization, but doesn't rate-limit in real-time.                           │
+│                                                                              │
+│ MITIGATED BY: Restate serializes all requests per Virtual Object key         │
+│ (one at a time). This naturally throttles per-session. But many sessions     │
+│ from one IP can still overwhelm.                                             │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Sequence Sent for Current Round in Start Response                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic / Design                                                │
+│ File: src/game/game.service.ts (buildStartGameResponse)                      │
+│                                                                              │
+│ Code:                                                                        │
+│   sequence: session.cachedSequence.slice(0, seqLength),                      │
+│                                                                              │
+│ Description: The entire current-round sequence is sent to the client in      │
+│ the start response. This is NECESSARY for sequence playback — the            │
+│ frontend must know which tiles to flash. NOT a vulnerability (player         │
+│ sees the sequence visually anyway). This is correct behavior.                │
+│                                                                              │
+│ NOTE: This is NOT an issue — documenting for clarity.                        │
+│                                                                              │
+│ Priority Score: 0/10 (informational)                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Restate Operational Complexity                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Operations                                                         │
+│ File: Multiple                                                               │
+│                                                                              │
+│ Description: Restate adds a separate runtime dependency. If Restate goes     │
+│ down, the entire game is unavailable. The DB fallback                        │
+│ (expireOpenSessionWithoutRestateState) handles the case where Restate        │
+│ state is lost, but active games would still be interrupted.                  │
+│                                                                              │
+│ MITIGATED BY: Restate is designed for exactly this — durable execution       │
+│ with recovery. The architecture is correct but ops team must monitor.        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: Retro Sound Pack Uses Same Files as Piano                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Content                                                            │
+│ File: frontend src/audio/soundRegistry.ts                                    │
+│                                                                              │
+│ Description: tileGreenRetro has path '/audio/sfx/type2/sound1.mp3' —        │
+│ identical to tileGreen. The "retro" pack has no unique sounds yet.           │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: config Import Path Alias '@config' Not Resolvable at Audit       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Build Config                                                       │
+│ File: tsconfig.json path aliases                                             │
+│                                                                              │
+│ Description: All backend files import from '@config' but the                 │
+│ src/config/ folder only contains env.validation.ts. The config object        │
+│ likely lives elsewhere or is re-exported.                                    │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (12 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: VITE_PAYLOAD_AES_SECRET in Client Bundle                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL (counted in B-01)                                         │
+│ Category: Security                                                           │
+│ File: src/app/config/appConfig.ts (line 38)                                  │
+│                                                                              │
+│ Code:                                                                        │
+│   encryption: {                                                              │
+│     enabled: import.meta.env.VITE_ENCRYPTION_ENABLED === 'true',             │
+│     key: import.meta.env.VITE_PAYLOAD_AES_SECRET,                            │
+│   },                                                                         │
+│                                                                              │
+│ Note: Unlike other games with always-hardcoded keys, this game uses          │
+│ .env.example with VITE_ENCRYPTION_ENABLED=false by default. The key is       │
+│ empty in .env.example. Less severe than other games — only exposed when      │
+│ encryption is explicitly enabled AND the key is set.                         │
+│                                                                              │
+│ Priority Score: 5/10 (conditional exposure)                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Dev Auth Workaround Still Present                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security / Code Quality                                            │
+│ File: src/services/httpClient.ts (lines 5-6, 55-60)                          │
+│                                                                              │
+│ Code:                                                                        │
+│   import { fetchDevSession } from '@/services/authService';                  │
+│   // TODO(temp): 401 dev-session refresh — remove when real auth in place    │
+│                                                                              │
+│ Description: On 401, the client calls fetchDevSession() to auto-create a     │
+│ new dev session. In production, this would allow any user to bypass           │
+│ authentication by triggering a 401 and getting a fresh token.                │
+│                                                                              │
+│ MUST be removed before production release.                                   │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: GameShell Component Exceeds 800+ Lines                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Maintainability                                                    │
+│ File: src/features/sequence-recall/components/SequenceRecallGameShell.tsx     │
+│                                                                              │
+│ Description: Single component with 800+ lines, 30+ useState calls,          │
+│ 15+ useRef instances, multiple useCallback/useEffect blocks. This creates    │
+│ high risk of stale closures and makes the code difficult to modify.          │
+│                                                                              │
+│ Refactor: Extract sub-hooks (useSessionRecovery, useRoundTransition,         │
+│ useDemoMode, useSocketSession) to decompose the monolith.                    │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Stale Closure Risk in Auto-Advance Timer                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bug Risk                                                           │
+│ File: SequenceRecallGameShell.tsx (round-success/failure useEffect)           │
+│                                                                              │
+│ Description: The auto-advance setTimeout fires after ROUND_TRANSITION_DELAY  │
+│ (1000ms). During that time, many state values could change. The code uses    │
+│ refs (socketSessionRef, currentActualRoundRef, etc.) to mitigate, which      │
+│ is correct — but the pattern is fragile. One forgotten ref = stale bug.      │
+│                                                                              │
+│ MITIGATED: Refs are used consistently. Guard check (livePhase !== phase)     │
+│ prevents action if phase changed externally.                                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: No Offline/Network Error Handling UI                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: SequenceRecallGameShell.tsx                                            │
+│                                                                              │
+│ Description: If network drops during a validate call, the pending            │
+│ finalization payload is persisted for recovery. But there's no user-facing   │
+│ "Connection lost" overlay. Player might tap tiles with no response.          │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Practice Mode Sequence Uses Math.random (Not Seeded)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/features/sequence-recall/engine/random.ts                          │
+│                                                                              │
+│ Code:                                                                        │
+│   export function randomTileId(boxCount = 4, rng: Rng = Math.random)         │
+│                                                                              │
+│ Description: Practice/demo mode generates sequences with Math.random.        │
+│ This means the practice game is non-reproducible and cannot be validated.    │
+│ Acceptable for practice — but if practice mode ever connects to scoring,     │
+│ this would be exploitable.                                                   │
+│                                                                              │
+│ Priority Score: 2/10 (fine for practice)                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: No Haptic Feedback on Tile Tap                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GameBoardFrame.tsx                                                     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Accessibility (Screen Reader / ARIA)                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: Multiple components                                                    │
+│                                                                              │
+│ Description: Tiles have image labels but no ARIA roles, no live region       │
+│ for sequence playback, no keyboard controls.                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: generateDemoSequence Imported from utils/sequence                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Organization                                                  │
+│ File: SequenceRecallGameShell.tsx (line ~65)                                 │
+│                                                                              │
+│ Description: Demo sequence generation logic exists in both                   │
+│ features/sequence-recall/engine/sequence.ts AND utils/sequence.ts.           │
+│ Duplication creates maintenance risk.                                        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: Source Maps Likely Shipped                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: storage.setSecure for Session Persistence                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: SequenceRecallGameShell.tsx (persistActiveSession)                      │
+│                                                                              │
+│ Description: Session data stored with storage.setSecure (likely encrypted    │
+│ localStorage). If the encryption key is the VITE key, and that key is        │
+│ exposed, the "secure" storage is effectively plaintext.                      │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: Multiple Timer/Ref Cleanup Complexity                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Bug Risk                                                           │
+│ File: SequenceRecallGameShell.tsx                                            │
+│                                                                              │
+│ Description: wrongCueTimerRef, levelCompleteBurstTimerRef,                   │
+│ startDelayTimerRef — all need proper cleanup on unmount. If any timer        │
+│ fires after unmount, could cause React state updates on unmounted component. │
+│                                                                              │
+│ MITIGATED: React 18+ no longer throws on unmounted setState.                 │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND Performance:
+
+1. Restate Virtual Object: Serializes requests per session key — eliminates
+   race conditions but limits throughput to sequential processing per player.
+   This is INTENTIONAL and correct for game state consistency.
+
+2. SHA-256 Hash Chain: O(n) for generating sequence of length n. Cached in
+   Restate state (cachedSequence) so computed only ONCE per session. Excellent.
+
+3. Anti-Cheat: Runs asynchronously after finalization. Does NOT block the
+   response to the player. Zero latency impact on gameplay.
+
+4. Database: One write at session creation, one at finalization. During
+   gameplay, ALL state lives in Restate's in-memory store. Minimal DB load.
+
+5. SNS Publishing: Async, fire-and-forget. No gameplay latency impact.
+
+FRONTEND Performance:
+
+1. Sequence Playback: async/await with setTimeout delays. Clean, cancelable.
+2. Framer Motion: Leaf tile animations are simple scale/opacity. Lightweight.
+3. TanStack Query: Proper cache management, no unnecessary re-fetches.
+4. Audio: Preloaded sounds (preload: true in registry). No loading delay.
+5. Re-renders: The 30+ useState calls could cause frequent re-renders.
+   MITIGATED: Most are booleans/numbers that only change on user interaction.
+
+VERDICT: Performance is EXCELLENT. Restate + cached sequence + async anti-cheat
+means near-zero latency per move validation. The only concern is the large
+component tree re-render on each state change.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+EXCELLENT UX Decisions:
+✓ Audio per tile (piano + retro packs) — Simon Says NEEDS distinct sounds
+✓ Sequence dots progress indicator — shows how many tiles left to tap
+✓ Wrong tile visual cue (wrongCueActive + wrongTileId) — clear feedback
+✓ Level complete burst animation — celebration moment
+✓ Session timer with warning/critical states (color changes)
+✓ Demo/tutorial mode — learn before playing for real
+✓ i18n — all text is translatable (multi-language ready)
+✓ Session recovery — refresh doesn't lose progress
+✓ Beautiful leaf tile assets (idle/active/wrong states)
+✓ Tile labels with icons (N, P, L, H) for accessibility
+✓ BOARD_MODE transitions: playback → input → round transitions
+✓ Instructions lobby screen before game start
+✓ Wrong move handling options (configurable per stage)
+✓ Time bonus display (rewards speed)
+✓ Replay round after wrong move (PLAY_AGAIN mode)
+✓ Game clear modal on completion
+
+UX IMPROVEMENTS NEEDED:
+
+1. No Haptic Feedback
+   - Tile taps should vibrate on mobile
+   - IMPACT: Reduces tactile satisfaction
+
+2. No "Speed-Up" Indicator
+   - If flashDelay decreases at higher levels, no visual cue
+   - IMPACT: Minor (speed change is gradual)
+
+3. No Score Animation
+   - Score updates happen instantly (no +10 particle)
+   - IMPACT: Reduces dopamine hit
+
+4. No Personal Best Comparison
+   - At game over, no comparison to previous best
+   - IMPACT: Reduces motivation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features ALREADY IMPLEMENTED (unusual for this platform):
+✓ Audio (piano + retro sound packs!)
+✓ Tutorial/demo mode
+✓ Session recovery
+✓ Time bonus
+✓ Wrong move handling (4 modes)
+✓ i18n
+✓ Streak tracking
+✓ Sequence dots
+✓ Timer bar
+✓ Level system
+
+Still Missing:
+1.  [ ] Haptic feedback
+2.  [ ] Score animation (+N particle)
+3.  [ ] Personal best display at game-over
+4.  [ ] Share results button
+5.  [ ] Distinct retro sound files (currently identical to piano)
+6.  [ ] Keyboard controls (a11y)
+7.  [ ] Offline mode / graceful network degradation UI
+8.  [ ] Speed-up visual cue
+9.  [ ] Combo multiplier display
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add haptic on tile tap (navigator.vibrate)
+2. Score change: animate number counter (already have useAnimatedNumber hook!)
+3. Personal best comparison at game-over overlay
+4. Share button: "I remembered a 12-tile sequence!"
+5. Distinct retro sounds (8-bit synth tones)
+6. Add "+10" floating text on correct round completion
+7. Streak celebration at milestones (5, 10, 15 rounds)
+8. Background music (low volume, builds tension)
+9. Speed increase indicator when flashDelay decreases
+10. Confetti on session complete
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Extract SequenceRecallGameShell into sub-hooks (~800 lines → 5 files)
+2. Remove fetchDevSession / TODO(temp) auth workaround
+3. Add network status indicator
+4. Create distinct retro sound files
+5. Add haptic feedback
+6. Add score animation (useAnimatedNumber exists!)
+7. Memoize heavy computations in GameShell
+
+Backend:
+1. Remove serverSeed from client-facing responses
+2. Remove .env + HMAC fallback
+3. Gate Swagger behind NODE_ENV
+4. Fix CORS to throw on missing in production
+5. Remove dead engine modules
+6. Add retry/dead-letter for anti-cheat persistence
+7. Remove cachedSequence fallback after migration period
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Anti-Cheat
+- serverSeed sent → SHA-256 chain reproducible → all rounds known in advance
+- MITIGATED: Server validates each move in real-time (can't skip tiles)
+- MITIGATED: 4-detector anti-cheat system catches bots
+- MITIGATED: Even with sequence knowledge, player must still submit tiles
+  one-by-one at human speed (click-too-fast detection)
+- Anti-cheat score: 75/100 (BEST IN PLATFORM!)
+
+Attack Surface 2: Secrets
+- .env committed (JWT + ENCRYPTION_KEY + DB credentials)
+- HMAC fallback ('dev-hmac-secret')
+- MITIGATED: env.validation.ts enforces required vars in production
+- Severity: CRITICAL
+
+Attack Surface 3: Authentication
+- Dev session auto-refresh on 401 (TODO(temp) workaround)
+- Token in localStorage (XSS risk if site is compromised)
+- Severity: HIGH (must remove dev workaround)
+
+Attack Surface 4: DoS
+- Restate serializes per-session (natural throttle)
+- No global rate limiter
+- Severity: MEDIUM
+
+Attack Surface 5: Data Integrity
+- Restate durable execution ensures consistency
+- P2002 handling prevents duplicate sessions
+- Fire-and-forget anti-cheat could miss flags
+- Severity: LOW
+
+OVERALL SECURITY POSTURE:
+BEST IN PLATFORM. Server-authoritative per-move validation, durable execution,
+4-detector anti-cheat with SNS publishing, encrypted payloads, HMAC-guarded
+admin. Only weakness: seed exposure and standard .env issues.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Positive" - 7.5/10
+
+POSITIVE:
+"Classic Simon Says with beautiful leaf tiles. The sounds are satisfying."
+"Love the different wrong-move modes — PLAY_AGAIN is much more forgiving!"
+"Timer adds real tension. The bonus for perfect rounds is a nice touch."
+"Tutorial mode helped my mom understand the game — great onboarding."
+"Recovered my progress after my phone died mid-game!"
+"The sequence dots showing my progress are really helpful."
+
+NEGATIVE:
+"Retro sound mode sounds identical to piano? False advertising."
+"No vibration on tap — feels less satisfying than Simon on my old toy."
+"Wish it told me my best score at the end. Did I beat my record?"
+"No way to share my 15-round streak with friends!"
+"Got disconnected once and the game just... stopped. No error message."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "Retro sounds are the same as piano!" — Placeholder content
+2. "No vibration!" — Missing haptic
+3. "What's my best score?" — No comparison at game-over
+4. "Lost connection, game froze!" — No network status indicator
+5. "Can't share my score!" — No share button
+6. "12 tiles is too hard for the time limit!" — Possible balance issue
+
+NOTE: Complaints are MINOR. This game has the fewest legitimate complaints
+of any game in the platform because it's the most complete.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Simon Says is a universally recognized and beloved mechanic
+✓ Audio-visual sequence creates multi-sensory memory challenge
+✓ Progressive difficulty (one more tile each round) is perfectly paced
+✓ Immediate feedback: correct tile = satisfying sound, wrong = clear error
+✓ "Just one more round" — always feels one step from your best
+✓ Timer adds urgency without being overwhelming
+✓ Time bonus rewards both memory AND speed
+✓ Wrong-move modes (PLAY_AGAIN) reduce frustration for casual players
+✓ Demo mode lowers entry barrier for new players
+✓ Beautiful leaf tiles with idle/active/wrong states
+✓ Distinct sounds per tile creates musical pattern memory
+
+Flow State Enablers:
+✓ Simple rules (remember and repeat)
+✓ Immediate feedback per tap
+✓ Clear progression (sequence length = difficulty)
+✓ Multi-sensory (visual + audio)
+✓ No complex decision-making during recall
+✓ Timer creates "zone" without panic
+✓ Wrong-move forgiveness (configurable)
+
+WHY THIS GAME WORKS:
+Simon Says is the gold standard of memory games. The addition of timer-survival
+mode, time bonus, and configurable wrong-move handling elevates it beyond the
+original. Audio per tile creates musical pattern recognition (dual-encoding:
+spatial + auditory memory), which dramatically improves retention and enjoyment.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. NO SHARE BUTTON
+   - "I just remembered a 15-tile sequence!" is AMAZING share content
+   - This is the #1 virality blocker
+
+2. NO LEADERBOARD
+   - The dead leaderboard.ts engine exists but isn't wired
+   - Competitive element missing
+
+3. RETRO PACK IS PLACEHOLDER
+   - Sound packs = personalization = engagement = sharing
+   - Having a fake second pack hurts trust
+
+4. NO SOCIAL CHALLENGE
+   - "Beat my 12-round score" link would drive re-engagement
+
+5. NO STREAK CELEBRATION
+   - 10 rounds without error should be a MOMENT
+
+NOTE: This game has the FEWEST virality blockers in the platform.
+The core loop is strong — just needs sharing and social features.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     85/100 (Restate, proper DDD, clean separation)
+- Security:                         45/100 (.env, seed exposure, HMAC fallback)
+- Performance:                      90/100 (cached sequence, async anti-cheat)
+- Game Logic & Correctness:         90/100 (server-authoritative, 4 wrong-modes)
+- UX & Polish:                      75/100 (audio! but missing haptic, share)
+- Anti-Cheat:                       80/100 (4 detectors, SNS, per-move validation)
+- Accessibility:                    35/100 (no ARIA, no keyboard, but has i18n)
+- Retention & Engagement:           75/100 (demo, timer, bonus, but no leaderboard)
+- Error Handling:                   70/100 (session recovery, but no network UI)
+- Production Readiness:             70/100 (env validation, but dev workarounds)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 78/100 ← HIGHEST IN PLATFORM
+═══════════════════════════════════════
+
+VERDICT: FLAGSHIP GAME — PRODUCTION-GRADE ARCHITECTURE
+This is the only game in the platform with server-authoritative per-move
+validation, durable execution (Restate), proper anti-cheat (4 detectors),
+audio, i18n, and session recovery. The architecture is what ALL other games
+should aspire to. Main blockers are standard security hygiene (.env, seed)
+and the dev auth workaround.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: SECURITY FIXES (0.5 day)
+  □ Remove .env from repo + add to .gitignore
+  □ Remove serverSeed from buildStartGameResponse
+  □ Remove HMAC fallback secret
+  □ Gate Swagger behind NODE_ENV
+  □ Fix CORS to throw on missing in production
+  □ Remove fetchDevSession / TODO(temp) workaround
+
+PHASE 2: CONTENT (0.5 day)
+  □ Create distinct retro sound files (8-bit synth tones)
+  □ Add share button on game-over overlay
+  □ Add personal best comparison at game-over
+  □ Activate useAnimatedNumber for score display
+
+PHASE 3: POLISH (0.5 day)
+  □ Add haptic feedback on tile tap
+  □ Add "+N" floating score text on round completion
+  □ Add streak celebration milestones (5, 10, 15)
+  □ Add network status indicator (offline overlay)
+  □ Add confetti on session complete
+
+PHASE 4: CODE QUALITY (1 day)
+  □ Refactor GameShell into sub-hooks
+  □ Remove dead engine modules
+  □ Wire leaderboard engine
+  □ Add keyboard controls (a11y)
+  □ Clean up cachedSequence fallback
+
+PHASE 5: GROWTH (0.5 day)
+  □ Add social challenge link
+  □ Add leaderboard display
+  □ Add more sound packs (nature, electronic, classical)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Remove serverSeed from responses
+    Effort: 10 min | Impact: Eliminates sequence pre-computation attack
+    ROI: ∞ (security, one-line removal)
+
+#2  Remove .env + HMAC fallback + fetchDevSession
+    Effort: 30 min | Impact: Prevents auth bypass in production
+    ROI: ∞ (security)
+
+#3  Add share button on game-over ("I recalled 15 tiles!")
+    Effort: 1 hour | Impact: Primary virality driver
+    ROI: 10x
+
+#4  Create distinct retro sound files
+    Effort: 2 hours | Impact: Sound packs become real personalization
+    ROI: 7x
+
+#5  Add haptic feedback
+    Effort: 30 min | Impact: Physical satisfaction on mobile
+    ROI: 6x
+
+#6  Activate useAnimatedNumber for score + personal best display
+    Effort: 30 min | Impact: Dopamine on score change
+    ROI: 6x (hook ALREADY EXISTS, just needs wiring!)
+
+#7  Gate Swagger + fix CORS for production
+    Effort: 15 min | Impact: Prevents endpoint discovery
+    ROI: ∞ (security)
+
+#8  Add network status indicator (offline overlay)
+    Effort: 1 hour | Impact: Prevents silent game freezes
+    ROI: 5x
+
+#9  Wire leaderboard (engine exists, just needs UI + API call)
+    Effort: 2-3 hours | Impact: Competitive element = retention
+    ROI: 5x
+
+#10 Refactor GameShell into sub-hooks
+    Effort: 3-4 hours | Impact: Reduces stale closure bugs, easier to maintain
+    ROI: 4x (long-term maintainability)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS (What Other Games Should Copy)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND — GOLD STANDARD:
+✓ RESTATE VIRTUAL OBJECT: Durable execution — exactly-once semantics even
+  under retries, crashes, and restarts. Game state is never lost.
+✓ SERVER-AUTHORITATIVE: Every single tile tap is validated server-side via
+  validateMove handler. Client CANNOT manipulate score.
+✓ ANTI-CHEAT (4 DETECTORS):
+  - Click-too-fast (inter-tap interval below threshold)
+  - Uniform timing (coefficient of variation too low = bot)
+  - Impossible solve time (per-round completion faster than possible)
+  - Invalid end state (successfulMoves count mismatch)
+✓ SNS CHEAT FLAG PUBLISHING: Cross-service cheater flagging
+✓ SHA-256 HASH CHAIN: Deterministic but unpredictable sequence generation
+✓ CACHED SEQUENCE: Full sequence pre-computed once and stored in Restate state
+✓ P2002 IDEMPOTENT CREATION: Handles Restate retry after DB write
+✓ TIME BONUS SYSTEM: bonusTimeRatio × seconds remaining (rewards speed)
+✓ WRONG MOVE HANDLING: 4 configurable modes (game-end, play-again, prev, next)
+✓ SESSION EXPIRY: Durable timer via Restate — exact millisecond expiry
+✓ DB FALLBACK: If Restate state is lost, DB row is expired gracefully
+✓ ENVIRONMENT VALIDATION: Required vars enforced at startup
+✓ ZOD VALIDATION: DTOs validated with Zod (not class-validator)
+✓ ENCRYPTION INTERCEPTOR: Server-side AES-256-GCM payload encryption
+✓ API VERSIONING: /api/v1/ prefix
+✓ REDIS WS ADAPTER: Horizontal WebSocket scaling
+✓ GAME CONFIG FROM DB: Stages configurable by admin (not hardcoded!)
+✓ calculateFinalScore: successfulMoves × scorePerClick + timeBonus
+
+FRONTEND — MOST COMPLETE IN PLATFORM:
+✓ AUDIO SYSTEM: Full AudioManager with preloading, multiple sound packs,
+  per-tile distinct tones, allowOverlap for rapid sequences
+✓ i18n: All user-facing text through react-i18next (multi-language ready)
+✓ SESSION RECOVERY: Persists active session + pending finalization to
+  localStorage, recovers on page refresh
+✓ DEMO/TUTORIAL MODE: Frontend-only practice mode + API-driven demo rounds
+✓ TIME SYNC: Polls server for authoritative time (prevents clock manipulation)
+✓ WRONG TILE FEEDBACK: wrongTileId state → visual cue on incorrect tile
+✓ LEVEL COMPLETE BURST: Celebration animation on round success
+✓ SEQUENCE DOTS: Progress indicator showing tiles remaining
+✓ SESSION TIMER BAR: With warning + critical states (visual urgency)
+✓ 8-PHASE STATE MACHINE: Loading, Ready, Tutorial, ShowingSequence,
+  AwaitingInput, RoundSuccess, RoundFailure, GameOver, SessionComplete
+✓ TANSTACK QUERY: Proper cache management for game state
+✓ FRAMER MOTION: Smooth animations on tiles and transitions
+✓ LEAF TILE ASSETS: Beautiful idle/active/wrong visual states
+✓ BOARD MODES: Playback (show sequence), Input (await taps), Idle
+✓ CONFIGURABLE BOX COUNT: 2-6 tiles (admin-configurable difficulty)
+✓ PROPER REPLAY: State reset, no window.location.reload()
+✓ CONFIRM DIALOG: "End game?" confirmation prevents accidental quit
+✓ AUTH GATE: Requires authentication before playing
+✓ GAME CLEAR MODAL: Success overlay on session complete
+✓ PARENT RESIZE NOTIFIER: Embedded iframe support
+
+GAME DESIGN:
+✓ Simon Says = proven mechanic (40+ years of market validation)
+✓ Audio-visual dual encoding (improves memory and enjoyment)
+✓ Progressive difficulty (one tile per round)
+✓ Timer-survival mode (urgency without panic)
+✓ Time bonus (rewards both memory AND speed)
+✓ Wrong-move forgiveness (PLAY_AGAIN mode for casual players)
+✓ Demo mode (lowers entry barrier)
+✓ Stage-based configuration (admin can tune per demographic)
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1  (Arrows):             58/100
+  Game #2  (Block Fill):         62/100
+  Game #3  (Colour Sorting):     61/100
+  Game #4  (Flash Spot):         56/100
+  Game #5  (Infinity Loop):      59/100
+  Game #6  (Live Route Builder): 48/100 ← LOWEST
+  Game #7  (Logic Reflector):    72/100
+  Game #8  (Maze Navigation):    58/100
+  Game #9  (Memory Card Match):  68/100
+  Game #10 (Memory Groups):      45/100
+  Game #11 (Number Grid Sprint): 62/100
+  Game #12 (Object Placement):   60/100
+  Game #13 (Pattern Survival):   52/100
+  Game #14 (Rapid Category Sort):66/100
+  Game #15 (Reflex Endurance):   62/100
+  Game #16 (Sequence Recall):    78/100 ← NEW HIGHEST
+
+WHY THIS GAME IS THE HIGHEST:
+- ONLY game with Restate durable execution
+- ONLY game with per-move server validation
+- ONLY game with proper audio system
+- ONLY game with i18n
+- ONLY game with session recovery on refresh
+- ONLY game with 4-detector anti-cheat
+- ONLY game with configurable wrong-move modes
+- ONLY game with demo/tutorial mode
+- ONLY game with time sync polling
+- ONLY game with AES-256-GCM payload encryption
+
+ARCHITECTURE GAP FROM OTHER GAMES:
+All other games: startGame → play locally → submitGame (batch validate)
+Sequence Recall: startGame → validateMove (per tap) → nextSequence → ... → endGame
+
+This means Sequence Recall has ZERO client-side scoring. The server IS the
+game state machine. This is the architecture that eliminates cheating.
+
+================================================================================
+END OF AUDIT — GAME #16: SEQUENCE RECALL
+================================================================================

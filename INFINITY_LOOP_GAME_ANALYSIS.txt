@@ -1,0 +1,455 @@
+================================================================================
+INFINITY LOOP — FULL GAME ANALYSIS
+================================================================================
+Date: 2025-01-XX
+Status: Complete analysis with online research + codebase deep-dive
+
+================================================================================
+1. GAME CONCEPT & GENRE
+================================================================================
+
+Genre: Relaxation Puzzle / Tile Rotation / Loop Connection
+Core Mechanic: Tap tiles on a grid to rotate them 90°. Goal is to orient all
+tiles so their connection lines form closed loops with no open ends.
+
+Key Characteristics:
+- No timer pressure (relaxation-focused)
+- Single-tap interaction (rotate tile clockwise)
+- Infinite procedural levels
+- Minimalist aesthetic with calming visuals
+- Closed-circuit connectivity validation
+
+Tile Types (7 types used):
+- EMPTY: No connections (blank space)
+- CAP: One connection (dead end in a direction)
+- STRAIGHT: Two opposite connections (horizontal or vertical pipe)
+- ELBOW: Two adjacent connections (90° corner)
+- TEE: Three connections (T-junction)
+- CURVED_V: Like elbow but with curved rendering
+- CROSS: Four connections (always correct regardless of rotation)
+
+Win Condition: Every tile's connections must match perfectly with adjacent
+tiles - no open ends, no mismatches between neighbors.
+
+================================================================================
+2. ONLINE RESEARCH — SIMILAR GAMES
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────────
+A) "Infinity Loop: Relaxing Puzzle" by Infinity Games, Lda (Portugal)
+   - 50M+ downloads, 4.6★, 813K reviews
+   - THE original that defined this sub-genre
+   - Features:
+     • Infinite procedurally generated levels
+     • No timer, no score, no pressure
+     • Dark Mode (disconnect ALL pieces instead of connecting)
+     • Lightbulb hint button (reveals one correct tile)
+     • Minimalist flat design, dark background
+     • Zen/ambient background music
+     • Google Play Games leaderboard integration
+     • Available on: Android, iOS, Windows (via Google Play Games), Wear OS
+   - Player Feedback:
+     • Too easy/monotonous after ~100 levels (patterns repeat)
+     • Hint button reportedly unreliable
+     • Ads too frequent (free version)
+     • Users want progressive difficulty scaling
+     • Users want level numbers/progress tracking
+     • "Relaxing but lacks depth" after extended play
+
+─────────────────────────────────────────────────────────────────────────────────
+B) "Infinity Loop: HEX" by Infinity Games, Lda
+   - 1M+ downloads, 4.3★, 117K reviews
+   - Hexagonal grid variant of the same concept
+   - Features:
+     • Hex-based grid (6 directions instead of 4)
+     • Same relaxation focus, no timer
+     • Faint hex grid lines for visual clarity
+     • More complex shapes due to 6-way connections
+     • Anxiety relief / stress reduction branding
+     • Wear OS support
+   - Player Feedback:
+     • More challenging than square grid version
+     • Users request faint outlines to avoid misclicks
+     • Abstract shapes make it harder to visualize solution
+     • Good for anxiety management
+
+─────────────────────────────────────────────────────────────────────────────────
+C) "Energy: Anti-Stress Loops" by Infinity Games, Lda
+   - 4.5★ rating
+   - Energy-themed: connect energy flow through loops
+   - Glowing neon aesthetic
+   - Same tap-to-rotate mechanic
+   - More visual feedback (energy flowing through connected paths)
+
+─────────────────────────────────────────────────────────────────────────────────
+D) "Linea: Anti-Stress Lights" by Infinity Games, Lda
+   - 4.4★ rating
+   - Light-based variant: connect light pathways
+   - Glow effects when connections are made
+   - Color-coded difficulty
+
+─────────────────────────────────────────────────────────────────────────────────
+E) "quadline" by Ivan Kovalov
+   - 4.5★ rating
+   - Similar mechanic but with scoring and time challenges
+   - Adds competitive element to relaxation formula
+
+─────────────────────────────────────────────────────────────────────────────────
+F) Key features from ALL top competitors combined:
+   1. Tap-to-rotate (clockwise, 90° increments)
+   2. Closed-loop validation (no open ends)
+   3. Procedural level generation with difficulty scaling
+   4. Dark Mode / Reverse Mode (disconnect instead of connect)
+   5. Hint system (reveal correct orientation of one tile)
+   6. Ambient/zen background music
+   7. Satisfying connection sound effects
+   8. Glow/pulse animation when tiles connect correctly
+   9. Progressive difficulty (grid size increases, more complex tiles)
+   10. No timer for base game (relaxation focus)
+   11. Optional timed challenges for competitive players
+   12. Level progression tracking with numbers
+   13. Daily challenges (unique puzzle each day)
+   14. Achievements/badges system
+   15. Statistics tracking (total puzzles solved, moves, time)
+   16. Undo functionality
+   17. Color themes / palette cycling
+
+================================================================================
+3. CURRENT CODEBASE ARCHITECTURE
+================================================================================
+
+Framework: Next.js (App Router) + TypeScript + Tailwind CSS + Framer Motion
+State: Zustand store + React Context (GameContext)
+Real-time: Socket.IO (WebSocket) for multiplayer/leaderboard
+Audio: Howler.js (use-audio.ts = background, use-audio-effects.ts = SFX)
+Rendering: Phaser.js (phaser-game-grid.tsx) + DOM fallback (game-grid.tsx)
+i18n: react-i18next (multi-language support)
+Backend: NestJS 11 + Prisma + Bun + Restate SDK
+
+─────────────────────────────────────────────────────────────────────────────────
+3.1 Frontend Directory Structure:
+─────────────────────────────────────────────────────────────────────────────────
+
+src/
+├── app/
+│   ├── page.tsx          → Tutorial/Instructions entry (GAME_PLAY_SURFACE.TUTORIAL)
+│   ├── game/page.tsx     → Live game entry (GAME_PLAY_SURFACE.LIVE)
+│   ├── demo/             → Demo mode
+│   ├── result/           → Result page
+│   └── layout.tsx        → Root layout (providers: I18n, Query, User, Socket)
+├── audio/                → Howler.js AudioManager + AudioProvider (migrated)
+│   ├── AudioManager.ts
+│   ├── AudioProvider.tsx
+│   ├── soundRegistry.ts  → 6 sounds: tileRotate, tileConnect, puzzleSolve, levelComplete, hint, uiClick
+│   ├── types.ts
+│   ├── useAudio.ts
+│   └── index.ts
+├── components/           → ATOMIC DESIGN pattern
+│   ├── atoms/            → Button, Switch, Typography, etc.
+│   ├── molecules/        → card, game-header-logo, tile-card
+│   ├── organisms/        → game-header, game-grid, settings-drawer, win-overlay, game-clear-modal
+│   ├── custom/           → game-play-area, game-hint-banner, mobile-game-stats-chip
+│   └── templates/        → game-template
+├── config/
+│   └── game-config.ts    → DEFAULT_GAME_CONFIG (grid sizes, palettes, audio URLs)
+├── constants/            → game-section, loop-scene, socket, status, etc.
+├── context/
+│   ├── game-context.tsx  → GameProvider (wraps useGameState + useAudio + useGameConfig)
+│   └── user-context.tsx  → UserProvider
+├── features/
+│   └── infinity-loop/
+│       └── save-progress/ → saveProgressOutbox.ts, saveProgressTypes.ts (already created)
+├── hooks/
+│   ├── use-audio.ts          → Background music (Howl, html5 mode)
+│   ├── use-audio-effects.ts  → SFX: playTap, playSuccess
+│   ├── use-game-state.ts     → Core game logic (grid, rotate, win check, hints)
+│   ├── use-game-config.ts    → Config loading
+│   ├── use-game-socket.ts    → WebSocket management
+│   ├── use-hint-controller.ts → Hint reveal logic
+│   ├── use-network-status.ts
+│   ├── use-stage-complete-summary.ts
+│   └── use-tilt-detection.ts
+├── lib/game/logic/
+│   ├── engine.ts         → isRotationEquivalent, isCellConnectedCorrect, checkWinCondition
+│   ├── generator.ts      → Re-exports from generator-legacy
+│   ├── generator-legacy.ts → generateSolvableGrid, shuffleGrid
+│   ├── levels.ts         → HANDCRAFTED_LEVELS from mock data
+│   ├── levels-legacy.ts  → Maps mock tile keys to LevelDefinition
+│   └── puzzle-builder.ts → buildGridFromPuzzlePayload
+├── section/
+│   ├── game/game-section.tsx       → MAIN ORCHESTRATOR (phases, socket, timer, hints)
+│   ├── instructions/               → Instructions/tutorial carousel
+│   └── results/game-result-screen.tsx → Stage completion screen
+├── store/game/           → Zustand store
+├── theme/                → Color palettes per stage
+└── types/                → TypeScript interfaces (tile, socket, config, etc.)
+
+─────────────────────────────────────────────────────────────────────────────────
+3.2 Backend Directory Structure:
+─────────────────────────────────────────────────────────────────────────────────
+
+Infinity-Loop-backend/src/
+├── game/
+│   ├── engine/
+│   │   ├── puzzle.engine.ts      → Puzzle generation (bitmask tile model, seeded)
+│   │   ├── achievementEngine.ts  → 10 achievements (FIRST_WIN to NO_MISTAKES)
+│   │   ├── boosterEngine.ts      → 5 boosters (TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO)
+│   │   ├── comboEngine.ts        → Streak tracking with multiplier (max 4x)
+│   │   ├── dailyChallenge.ts     → Date-seeded daily puzzle with bonus multiplier
+│   │   ├── leaderboard.ts        → In-memory ranked leaderboard
+│   │   ├── scoreHistory.ts       → Score tracking
+│   │   └── shapes.config.ts      → Bitmask definitions for all tile shapes
+│   ├── game.service.ts
+│   ├── game.controller.ts
+│   ├── game.gateway.ts (WebSocket)
+│   └── game.module.ts
+├── restate/              → Restate SDK integration
+├── redis/                → Redis caching
+├── ws/                   → WebSocket infrastructure
+└── ...                   → admin, audit, auth, config, health, etc.
+
+─────────────────────────────────────────────────────────────────────────────────
+3.3 Game Flow (Current):
+─────────────────────────────────────────────────────────────────────────────────
+
+1. page.tsx (Tutorial) → GameProvider(TUTORIAL) → GameSection(instructions)
+   → Shows InstructionsScreen (CMS carousel with stage overlays)
+   → User clicks "Play Now"
+   → Runs 2 tutorial rounds (TUTORIAL_LEVEL_COUNT = 2)
+
+2. game/page.tsx (Live) → GameProvider(LIVE) → GameSection(live)
+   → Connects WebSocket → Server sends board
+   → User rotates tiles (tap = +90°)
+   → Server validates rotations
+   → Board solved → WinOverlay → Next board
+   → Stage complete → GameClearModal → Redirect to result page
+
+3. result/ → GameResultScreen (success/failure variant with stage overlay)
+
+─────────────────────────────────────────────────────────────────────────────────
+3.4 Key Observations:
+─────────────────────────────────────────────────────────────────────────────────
+
+EXISTING FEATURES:
+✅ Core tile rotation mechanic (tap to rotate 90°)
+✅ Grid rendering (both Phaser and DOM)
+✅ Win condition checking (all connections match)
+✅ Hint system (reveals one correct tile)
+✅ Sound effects (tap, success via Howler.js)
+✅ Background music (ambient track)
+✅ Settings drawer (sound toggle, volume slider)
+✅ Night sky background aesthetic
+✅ Color palette cycling per level
+✅ Tutorial/Instructions carousel
+✅ WebSocket real-time communication
+✅ Mobile landscape overlay
+✅ Save progress outbox (localStorage + backend sync)
+✅ Audio system (Howler.js AudioManager + Provider - migrated)
+✅ Backend engines: achievements, combos, daily challenge, boosters, leaderboard
+✅ i18n multi-language support
+✅ Phaser renderer for smooth tile animations
+
+MISSING FEATURES (vs Gold Standard + competitor analysis):
+❌ Menu Screen (Play/Levels/Daily/Achievements/Stats/Settings)
+❌ Level Selector (numbered levels with star ratings, progressive unlock)
+❌ Achievements UI (frontend component displaying 10 backend achievements)
+❌ Stats Screen (total games, moves, time, streaks)
+❌ Daily Challenge UI (frontend component, calendar view, bonus display)
+❌ Combo display in HUD (streak counter, multiplier badge)
+❌ Confetti/celebration animation on level complete
+❌ Pause Dialog (resume/restart/exit)
+❌ Star rating system (1-3 stars based on moves/time efficiency)
+❌ Undo button (backend booster exists but no frontend)
+❌ Dark Mode / Reverse Mode (disconnect mode from original game)
+❌ Timer display in HUD (for timed challenge variant)
+❌ Score display in HUD
+❌ Level badge in header
+
+================================================================================
+4. IMPLEMENTATION PLAN
+================================================================================
+
+Following Gold Standard Architecture:
+Tutorial → Menu → Playing (with HUD) → Result
+
+New Components Needed (in src/features/infinity-loop/components/):
+
+1. Tutorial.tsx
+   - 5-step guided walkthrough
+   - Step 1: "Welcome to Infinity Loop"
+   - Step 2: "Tap tiles to rotate them"
+   - Step 3: "Connect all lines to form closed loops"
+   - Step 4: "No open ends allowed"
+   - Step 5: "Complete the puzzle with fewer moves for more stars"
+
+2. MenuScreen.tsx
+   - 6 buttons: Play, Levels, Daily Challenge, Achievements, Stats, Settings
+   - Animated logo + tagline
+   - Gradient background with brand colors
+
+3. LevelSelector.tsx
+   - 10+ levels with progressive unlock
+   - Star ratings (1-3) per level
+   - Grid sizes: 4x4 → 5x5 → 6x6 → 7x7 → 8x8
+   - Level configs with increasing complexity (more tile types)
+   - localStorage persistence (highest level, stars per level)
+
+4. Settings.tsx
+   - Sound toggle
+   - Volume slider
+   - Theme selector (color palette)
+   - Dark Mode toggle
+
+5. StatsScreen.tsx
+   - Total puzzles solved
+   - Total moves made
+   - Average moves per puzzle
+   - Best streak
+   - Time played
+   - Perfect games (minimum moves)
+
+6. Achievements.tsx
+   - Display all 10 backend achievements
+   - Badge grid with locked/unlocked states
+   - AchievementPopup component for in-game unlocks
+   - Icons: 🏆🔥⚡💎⏱️🎯⭐👑📈✨
+
+7. DailyChallenge.tsx
+   - Today's puzzle (based on date seed from backend)
+   - Day-of-week difficulty scaling
+   - Bonus multiplier display (1.5x-2.4x)
+   - Calendar showing completed days
+   - localStorage tracking
+
+8. Confetti.tsx
+   - 60-piece particle animation on level complete
+   - Uses brand accent colors
+
+9. PauseDialog.tsx
+   - Resume / Restart / Exit buttons
+   - Blurred backdrop
+   - Current progress display (moves, time)
+
+10. GamePage.tsx (REWRITE as orchestrator)
+    - Manages game phases: tutorial → menu → playing → result
+    - Level configuration (grid size, tile types, time limit)
+    - Combo tracking integration
+    - Audio calls (tileRotate, tileConnect, puzzleSolve, levelComplete)
+    - Star calculation based on move efficiency
+    - Achievement checking after each level
+
+11. GameHeader.tsx (ENHANCE)
+    - Level badge (e.g., "Level 5")
+    - Moves counter
+    - Combo/streak display
+    - Timer (for timed mode)
+    - Mute button
+    - Pause button
+    - Undo button
+
+================================================================================
+5. LEVEL CONFIGURATION
+================================================================================
+
+Level 1:  4x4 grid, STRAIGHT + ELBOW only, no time limit
+Level 2:  4x4 grid, STRAIGHT + ELBOW + CAP, no time limit
+Level 3:  5x5 grid, STRAIGHT + ELBOW + CAP, no time limit
+Level 4:  5x5 grid, all tiles except CROSS, no time limit
+Level 5:  5x5 grid, all tiles, 180s time limit
+Level 6:  6x6 grid, all tiles, 180s time limit
+Level 7:  6x6 grid, all tiles, 150s time limit
+Level 8:  7x7 grid, all tiles, 150s time limit
+Level 9:  7x7 grid, all tiles, 120s time limit
+Level 10: 8x8 grid, all tiles, 120s time limit
+
+Star Rating:
+- 3 stars: Completed in ≤ optimal moves + 2
+- 2 stars: Completed in ≤ optimal moves × 1.5
+- 1 star: Completed (any number of moves)
+
+Where optimal moves = number of non-EMPTY, non-CROSS tiles (minimum possible rotations).
+
+================================================================================
+6. DARK MODE / REVERSE MODE (UNIQUE FEATURE)
+================================================================================
+
+From the original Infinity Loop app:
+- Normal Mode: All tiles scrambled → rotate to CONNECT all (form closed loops)
+- Dark Mode: All tiles connected → rotate to DISCONNECT all (break all connections)
+
+Implementation:
+- In Dark Mode, win condition inverts: no tile should connect to any neighbor
+- Same tiles, same grid, reversed goal
+- Dark Mode uses inverted color scheme (bright tiles on dark = connected = BAD)
+- Can be offered as alternate levels or unlockable mode after Level 5
+
+================================================================================
+7. AUDIO INTEGRATION
+================================================================================
+
+Sound Registry (already defined in src/audio/soundRegistry.ts):
+- tileRotate: Played on each tap/rotation
+- tileConnect: Played when a rotation creates a valid connection
+- puzzleSolve: Played when last tile connects (board solved)
+- levelComplete: Played on level complete with stars
+- hint: Played when hint is activated
+- uiClick: Played on menu/button interactions
+
+Additional audio calls needed in GamePage orchestrator:
+- combo sounds at milestones (3x, 5x, 10x streak)
+- achievement unlock sound
+- daily challenge completion sound
+
+================================================================================
+8. PERSISTENCE (localStorage)
+================================================================================
+
+Keys:
+- infinity-loop-highest-level: number (1-10)
+- infinity-loop-level-stars-{n}: number (0-3)
+- infinity-loop-stats: JSON (GameStats object)
+- infinity-loop-achievements: JSON (AchievementProgress[])
+- infinity-loop-daily-{YYYY-MM-DD}: boolean
+- infinity-loop-settings: JSON (sound, volume, theme, darkMode)
+- infinity-loop-tutorial-seen: boolean
+
+================================================================================
+9. BACKEND INTEGRATION POINTS
+================================================================================
+
+Already implemented in Infinity-Loop-backend/src/game/engine/:
+- puzzle.engine.ts → Board generation (seeded, difficulty-scaled)
+- achievementEngine.ts → 10 achievements with XP rewards
+- boosterEngine.ts → TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+- comboEngine.ts → Streak multiplier (3-combo steps, max 4x)
+- dailyChallenge.ts → Date-seeded daily with bonus multiplier
+- leaderboard.ts → Ranked score submission
+- scoreHistory.ts → Historical score tracking
+
+Frontend needs to:
+1. Display achievement progress from backend responses
+2. Show combo state in HUD (streak count + multiplier)
+3. Use daily challenge seed for deterministic puzzle
+4. Submit scores to leaderboard
+5. Activate boosters (undo, hint, skip) through WebSocket
+
+================================================================================
+10. COMPARISON: CURRENT STATE vs GOLD STANDARD
+================================================================================
+
+Gold Standard Screens:        Current State:
+─────────────────────         ──────────────
+Tutorial                      ✅ InstructionsScreen (carousel, but CMS-driven)
+Menu                          ❌ No menu (goes straight to tutorial → game)
+Level Selector                ❌ No level selector (infinite progression)
+Playing (with full HUD)       ⚠️  Partial (header exists but lacks combo/timer/pause)
+Pause Dialog                  ❌ No pause
+Result (score + stars)        ⚠️  GameResultScreen exists but no star rating
+Settings                      ✅ SettingsDrawer (sound + volume)
+Stats                         ❌ No stats screen
+Achievements                  ❌ No achievements UI (backend exists)
+Daily Challenge               ❌ No daily challenge UI (backend exists)
+
+================================================================================
+END OF ANALYSIS
+================================================================================

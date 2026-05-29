@@ -1,0 +1,542 @@
+================================================================================
+ZUBACO MOBILE APP — COMPREHENSIVE SECURITY & ARCHITECTURE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior Mobile / Security / Architecture Review
+Component: React Native Mobile App (zubaco-mobile/)
+Stack: React Native 0.76 + React 18 + React Navigation 7 + TanStack React
+       Query 5 + Zustand 5 + WebView 13 + AsyncStorage + Firebase Analytics +
+       Sentry + react-native-biometrics + react-native-device-info +
+       react-native-push-notification
+Role: Primary mobile client app (Android + iOS) — the user's gateway to all
+      Zubaco features: phone OTP login, Google OAuth, game play (via WebView),
+      tournaments, leaderboards, wallet, social/referral, notifications.
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Zubaco Mobile App is a React Native application that serves as the
+primary USER-FACING client. It handles:
+- Authentication (Phone OTP + Google Sign-In)
+- Game loading via WebView (injects token + sessionId into game frontends)
+- Tournament participation, leaderboards, wallet/payments
+- Social features (friends, referrals, challenges)
+- Push notifications, biometric auth, offline detection
+- Analytics (Firebase) and crash reporting (Sentry)
+
+ARCHITECTURE VERDICT:
+The mobile app is in an EARLY/SCAFFOLDING stage. Many screens have
+TODO comments and placeholder data. The core architecture is sound:
+- Proper context-based auth with AsyncStorage for token persistence
+- TanStack React Query for server state
+- WebView-based game integration with message passing
+- Offline detection with connectivity banner
+- Biometric authentication utility (not yet integrated into auth flow)
+
+However, the app has SIGNIFICANT security concerns for a financial app:
+
+CRITICAL FINDINGS:
+
+1. JWT TOKEN INJECTED INTO WEBVIEW AS PLAIN STRING — visible in WebView
+   JavaScript context, extractable by the game frontend.
+
+2. NO TOKEN REFRESH MECHANISM — expired tokens require full re-login.
+
+3. PRODUCTION API URL HARDCODED — 'https://api.zubaco.com/api/v1' in source.
+
+4. WEBVIEW originWhitelist: ['*'] — allows ANY origin in WebView.
+
+5. MOST SCREENS ARE PLACEHOLDER — WalletScreen uses hardcoded data, no
+   actual Razorpay integration, no KYC flow, no real transaction display.
+
+TOTAL ISSUES: 19 (3 Critical, 5 High, 7 Medium, 4 Low)
+
+RELEASE READINESS SCORE: 28/100
+
+This is the LOWEST score of all components. The mobile app is incomplete:
+wallet uses placeholder data, many screens lack API integration, no token
+refresh, no certificate pinning, and the WebView security model is weak.
+This is clearly a prototype/scaffold, not production-ready code.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: No token refresh — users must re-login every 15 minutes
+BLOCKER-2: JWT injected as plaintext into WebView JavaScript context
+BLOCKER-3: WebView originWhitelist allows ANY origin
+BLOCKER-4: Wallet screen uses placeholder data (not connected to API)
+BLOCKER-5: Google Sign-In handler is empty stub
+BLOCKER-6: No Razorpay SDK integration (payments impossible)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+MODULE: AUTHENTICATION — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-AUTH-01: No Token Refresh Mechanism                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Session Management                                                 │
+│ Files: contexts/AuthContext.tsx, services/api.ts                              │
+│                                                                              │
+│ The API client has a refreshTokens() method defined, but it is NEVER CALLED │
+│ anywhere. The AuthContext stores both accessToken and refreshToken in        │
+│ AsyncStorage, but:                                                           │
+│ - loadStoredAuth only reads accessToken, never refreshes                     │
+│ - The API client's request() method has no 401 → refresh → retry logic      │
+│ - Access tokens expire in 15 minutes (platform config)                       │
+│                                                                              │
+│ RESULT: Users must manually re-login every 15 minutes. For a mobile         │
+│ gaming app, this is UNUSABLE.                                                │
+│                                                                              │
+│ FIX: Add interceptor in request() that catches 401, calls refreshTokens(),  │
+│ updates AsyncStorage, retries the original request. If refresh fails,       │
+│ redirect to login.                                                           │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-AUTH-02: Google Sign-In is Empty Stub                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Incomplete Feature                                                 │
+│ File: screens/auth/LoginScreen.tsx (line 57)                                 │
+│                                                                              │
+│ Code:                                                                        │
+│   <TouchableOpacity onPress={() => { /* Google Sign-In */ }}>               │
+│                                                                              │
+│ The Google Sign-In button does nothing. @react-native-google-signin is      │
+│ in dependencies but not imported or used.                                    │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-AUTH-03: Biometric Auth Not Integrated into Login Flow             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Incomplete Feature                                                 │
+│ File: services/biometric.ts                                                  │
+│                                                                              │
+│ Biometric utility functions exist (isBiometricAvailable, authenticate).     │
+│ But they're never called from the auth flow. No "Login with Fingerprint"   │
+│ option. No biometric confirmation for wallet operations.                     │
+│                                                                              │
+│ For a financial app, biometric confirmation on withdrawals is essential.    │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-AUTH-04: Tokens Stored in AsyncStorage (Unencrypted)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Token Security                                                     │
+│ File: contexts/AuthContext.tsx                                                │
+│                                                                              │
+│ JWT tokens stored in AsyncStorage which is:                                  │
+│ - iOS: unencrypted NSUserDefaults (readable with device access)              │
+│ - Android: unencrypted SharedPreferences (readable on rooted device)         │
+│                                                                              │
+│ FIX: Use react-native-keychain or react-native-encrypted-storage for         │
+│ secure token storage. Both use Keychain (iOS) and EncryptedSharedPreferences│
+│ (Android).                                                                   │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: WEBVIEW / GAME INTEGRATION — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-WV-01: JWT Token Injected as Plaintext in WebView JavaScript       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Token Exposure                                                     │
+│ File: screens/game/GameScreen.tsx (injectedJavaScript, lines 24-31)          │
+│                                                                              │
+│ Code:                                                                        │
+│   const injectedJavaScript = `                                               │
+│     window.__ZUBACO__ = {                                                    │
+│       token: "${token}",                                                     │
+│       gameSessionId: "${sessionId}",                                         │
+│       platform: "mobile"                                                     │
+│     };                                                                       │
+│   `;                                                                         │
+│                                                                              │
+│ The platform JWT is injected as a literal string into the WebView's          │
+│ JavaScript context. The game frontend (and any script it loads, including    │
+│ analytics, CDN scripts, or XSS payloads) can read window.__ZUBACO__.token. │
+│                                                                              │
+│ RISK: If ANY game frontend has an XSS vulnerability, the attacker gets      │
+│ the user's JWT and can access their wallet, profile, tournaments, etc.      │
+│                                                                              │
+│ ALSO: String interpolation of `token` into JavaScript string is vulnerable  │
+│ to injection if the token contains `"` or backtick characters.              │
+│                                                                              │
+│ FIX: Use postMessage to send the token AFTER page load, or use short-lived  │
+│ game-specific tokens that can only access game-session endpoints.           │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-WV-02: WebView originWhitelist Allows ALL Origins                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: screens/game/GameScreen.tsx (line 89)                                  │
+│                                                                              │
+│ Code: originWhitelist={['*']}                                                │
+│                                                                              │
+│ While onShouldStartLoadWithRequest does filter domains (good!), the         │
+│ originWhitelist={['*']} allows the WebView to communicate with any origin   │
+│ for postMessage and other web APIs.                                          │
+│                                                                              │
+│ NOTE: onShouldStartLoadWithRequest checks for 'game.zubaco.com',            │
+│ 'localhost', '127.0.0.1'. The hostname check uses .includes() which         │
+│ means 'evil-game.zubaco.com.attacker.com' would pass!                       │
+│                                                                              │
+│ FIX:                                                                         │
+│ 1. Set originWhitelist to specific protocols: ['https://*']                  │
+│ 2. Use exact hostname match in onShouldStartLoadWithRequest:                │
+│    url.hostname === 'game.zubaco.com' (not .includes())                     │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-WV-03: WebView Message Handling Has No Origin Validation           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: screens/game/GameScreen.tsx (handleMessage)                            │
+│                                                                              │
+│ The onMessage handler parses JSON from any WebView message and acts on      │
+│ data.type. No check that the message originated from the expected game      │
+│ domain. A malicious iframe or redirected page could send GAME_COMPLETED     │
+│ or GAME_EXIT messages.                                                       │
+│                                                                              │
+│ FIX: Include a secret nonce in the injected JS and validate it in messages. │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-WV-04: Game URL Passed as Navigation Param (Unvalidated)           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Input Validation                                                   │
+│ File: navigation/RootNavigator.tsx (Game screen params)                      │
+│                                                                              │
+│ Game: { gameUrl: string; sessionId: string; token: string }                  │
+│                                                                              │
+│ The gameUrl is passed through navigation and loaded in WebView. If any      │
+│ screen can navigate to Game with an arbitrary URL, the user could be        │
+│ redirected to a phishing page that has their JWT token.                      │
+│                                                                              │
+│ FIX: Validate gameUrl against allowed game domains before loading.           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: API CLIENT — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-API-01: Production API URL Hardcoded in Source                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Configuration                                                      │
+│ File: services/api.ts (line 1-3)                                             │
+│                                                                              │
+│ Code:                                                                        │
+│   const BASE_URL = __DEV__                                                   │
+│     ? 'http://localhost:3000/api/v1'                                         │
+│     : 'https://api.zubaco.com/api/v1';                                      │
+│                                                                              │
+│ Production API URL is hardcoded. Should use a build-time config (env vars,  │
+│ react-native-config) for flexibility between staging and production.        │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-API-02: No Certificate Pinning                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Network Security                                                   │
+│ File: services/api.ts                                                        │
+│                                                                              │
+│ No SSL certificate pinning. On public WiFi or corporate networks with       │
+│ proxy certificates, a MITM attacker can intercept ALL API traffic            │
+│ including JWT tokens, OTP codes, wallet operations, and user data.          │
+│                                                                              │
+│ For a financial app handling real money, certificate pinning is ESSENTIAL.  │
+│                                                                              │
+│ FIX: Use react-native-ssl-pinning or TrustKit for certificate pinning.     │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-API-03: No Request/Response Timeout                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Reliability                                                        │
+│ File: services/api.ts (request method)                                       │
+│                                                                              │
+│ No timeout on fetch calls. A slow backend could hang the UI indefinitely.   │
+│                                                                              │
+│ FIX: Use AbortController with setTimeout or a library like ky/axios.        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: SCREENS (Completeness) — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-SCREEN-01: WalletScreen Uses Placeholder Data                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Incomplete Feature                                                 │
+│ File: screens/main/WalletScreen.tsx                                          │
+│                                                                              │
+│ - Balance: hardcoded const realBalance = 150; bonusBalance = 45;            │
+│ - Transactions: PLACEHOLDER_TRANSACTIONS constant array                      │
+│ - Add Money button: no onPress handler                                       │
+│ - Withdraw button: no onPress handler                                        │
+│ - KYC: hardcoded kycVerified = false                                        │
+│ - No Razorpay SDK integration                                               │
+│ - No API calls for wallet data                                               │
+│                                                                              │
+│ This screen is purely visual — ZERO functionality.                           │
+│                                                                              │
+│ Priority Score: 8/10 (blocks core monetization)                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-SCREEN-02: Missing KYC Flow                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Missing Feature                                                    │
+│ File: N/A (no KYC screen exists)                                             │
+│                                                                              │
+│ The platform backend has full KYC (document upload, admin approval, bank    │
+│ detail management). The mobile app has ZERO KYC UI. Users cannot:           │
+│ - Upload identity documents                                                  │
+│ - Add bank details                                                           │
+│ - Complete KYC verification                                                  │
+│ - Request withdrawals (requires KYC)                                         │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-SCREEN-03: Phone Number Not Country-Validated                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Input Validation                                                   │
+│ File: screens/auth/LoginScreen.tsx                                           │
+│                                                                              │
+│ Hardcodes "+91" prefix (India). Only checks phone.length < 10.              │
+│ No validation for:                                                           │
+│ - Digits only (allows letters)                                               │
+│ - Valid Indian mobile number format (starts with 6-9)                        │
+│ - Country selector for non-Indian users                                      │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-SCREEN-04: Deep Link to Referral Accepts Arbitrary Code            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Input Validation                                                   │
+│ File: App.tsx (linking config)                                               │
+│                                                                              │
+│ Deep link: zubaco://referral/:code — code is passed to API without          │
+│ client-side validation. Combined with the broken referral system in the     │
+│ platform backend (SOCIAL-01), this could enable automated referral abuse.   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: INFRASTRUCTURE — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-INFRA-01: No Root/Jailbreak Detection                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: App Security                                                       │
+│ Files: N/A                                                                   │
+│                                                                              │
+│ No check for rooted (Android) or jailbroken (iOS) devices. On such devices │
+│ an attacker can:                                                             │
+│ - Read AsyncStorage tokens directly                                          │
+│ - Intercept API calls without proxy setup                                    │
+│ - Modify app behavior at runtime (Frida)                                     │
+│ - Submit fake scores to tournaments                                          │
+│                                                                              │
+│ react-native-device-info is a dependency but not used for root detection.   │
+│                                                                              │
+│ FIX: Use jail-monkey or react-native-device-info's isEmulator()/           │
+│ isRooted() checks. Warn users or block financial operations on rooted      │
+│ devices.                                                                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-INFRA-02: Sentry DSN From Environment (May Be Empty)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Monitoring                                                         │
+│ File: services/crashReporting.ts                                             │
+│                                                                              │
+│ const SENTRY_DSN = process.env.SENTRY_DSN || '';                             │
+│ Sentry.init({ dsn: SENTRY_DSN, enabled: !!SENTRY_DSN });                   │
+│                                                                              │
+│ If SENTRY_DSN is not set, crash reporting is silently disabled.             │
+│ The init function is defined but NEVER CALLED in the app.                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-INFRA-03: OfflineContext Uses NetInfo But @react-native-community  │
+│ /netinfo Not in package.json                                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Dependency                                                 │
+│ File: contexts/OfflineContext.tsx, package.json                               │
+│                                                                              │
+│ OfflineContext imports: import NetInfo from '@react-native-community/netinfo'│
+│ But @react-native-community/netinfo is NOT listed in package.json deps.     │
+│ This code will crash at runtime.                                             │
+│                                                                              │
+│ Similarly, analytics.ts imports @react-native-firebase/analytics and         │
+│ crashReporting.ts imports @sentry/react-native — neither in package.json.   │
+│                                                                              │
+│ Priority Score: 5/10 (will crash on import)                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE MOB-INFRA-04: React 18 Used (React 19 Available, RN 0.76 Compatible)  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dependency Management                                              │
+│ File: package.json                                                           │
+│                                                                              │
+│ "react": "18.3.1" — all other components use React 19. This creates a       │
+│ version mismatch across the monorepo.                                        │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. POSITIVE OBSERVATIONS — WHAT THE MOBILE APP DOES RIGHT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ARCHITECTURE:
+✓ Clean folder structure (contexts, screens, services, navigation, components)
+✓ AuthContext with full lifecycle (login, logout, loadStoredAuth, refreshUser)
+✓ TanStack React Query for data fetching (retry, staleTime configured)
+✓ Zustand in dependencies (state management for complex UI)
+✓ TypeScript throughout with proper param types
+✓ Deep linking configured (zubaco:// scheme + https://zubaco.com universal links)
+
+WEBVIEW GAME INTEGRATION:
+✓ Proper message passing protocol (GAME_COMPLETED, GAME_ERROR, GAME_EXIT)
+✓ Leave game confirmation dialog
+✓ Hardware back button handling
+✓ onShouldStartLoadWithRequest domain filtering (needs improvement)
+✓ gestureEnabled: false on Game screen (prevents accidental swipe-back)
+
+SECURITY (partial):
+✓ Biometric utility functions ready for integration
+✓ react-native-device-info available for device checks
+✓ Sentry crash reporting utility (needs initialization)
+✓ Secure flag on cookies set for HTTPS environments (web parity code)
+✓ Logout clears all stored tokens
+
+UI/UX:
+✓ Consistent dark theme (#0F0F1A background)
+✓ Offline connectivity banner (OfflineContext)
+✓ Loading state management on auth operations
+✓ Error display for failed operations
+✓ Tab-based navigation (Home, Tournament, Leaderboard, Wallet, Profile)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Structure:         60/100 (clean structure, incomplete impl)
+- Authentication:                   25/100 (no refresh, unencrypted storage)
+- WebView Security:                 20/100 (token injection, open whitelist)
+- Feature Completeness:             15/100 (wallet, KYC, Google, all stubs)
+- Network Security:                 10/100 (no cert pinning, no timeout)
+- Token Management:                 20/100 (no refresh, AsyncStorage, plaintext)
+- Device Security:                  15/100 (no root detect, no tamper detect)
+- UI/UX:                            50/100 (consistent theme, placeholder data)
+- Monitoring:                       20/100 (deps missing, init not called)
+- API Integration:                  45/100 (most endpoints defined, few used)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 28/100
+═══════════════════════════════════════
+
+The mobile app is in EARLY DEVELOPMENT stage. The architecture is sound
+but implementation is ~30% complete. Major flows (wallet, KYC, Google auth,
+token refresh) are unimplemented stubs.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. PRIORITY ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL (must-have before any testing)
+  □ Implement token refresh (401 → refresh → retry)
+  □ Fix WebView security (exact hostname match, scope-limited token)
+  □ Add missing dependencies (netinfo, firebase, sentry)
+  □ Use encrypted storage for tokens (react-native-keychain)
+
+PHASE 2: FEATURE COMPLETION (must-have for launch)
+  □ Implement Google Sign-In flow
+  □ Connect WalletScreen to API (real balances, transactions)
+  □ Integrate Razorpay mobile SDK for deposits
+  □ Build KYC document upload flow
+  □ Build bank details management screen
+  □ Implement biometric auth for withdrawals
+
+PHASE 3: SECURITY HARDENING
+  □ Add SSL certificate pinning
+  □ Add root/jailbreak detection
+  □ Use build-time config for API URLs (react-native-config)
+  □ Initialize Sentry crash reporting in App.tsx
+  □ Add request timeouts
+
+PHASE 4: PRODUCTION POLISH
+  □ Add proper error boundaries
+  □ Add pull-to-refresh on list screens
+  □ Add skeleton loading states
+  □ Add app version check (force update for security patches)
+  □ Add session timeout warning (before 15m expiry)
+
+================================================================================
+END OF AUDIT — ZUBACO MOBILE APP
+================================================================================

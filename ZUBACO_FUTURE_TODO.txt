@@ -1,0 +1,392 @@
+================================================================================
+ZUBACO - FUTURE TODO / TECHNICAL DEBT
+================================================================================
+Created: May 23, 2026
+Purpose: Items to address in future sprints. Not blocking launch.
+
+================================================================================
+
+1. [ ] GAME FOLDER NAMING INCONSISTENCY
+   Priority: Low
+   Impact: Developer experience only (no runtime impact)
+   Details:
+     5 games have mismatched parent/subfolder names:
+     - rapid-category-sort/rapid-sort-backend/  (should be rapid-category-sort-backend)
+     - live-route-builder/live-route-backend/   (should be live-route-builder-backend)
+     - number-grid-sprint/number-grid-backend/  (should be number-grid-sprint-backend)
+     - speed-type-answer/speed-type-backend/    (should be speed-type-answer-backend)
+     - Infinity-loop/Infinity-Loop-backend/     (capital I mismatch)
+   Action needed:
+     - Rename folders
+     - Update all CI/CD workflow paths (.github/workflows/)
+     - Update Docker build contexts (docker-compose.yml, Dockerfiles)
+     - Update Terraform ECR repository names
+     - Update any import paths referencing these folders
+
+2. [ ] FRONTEND ARCHITECTURE DIVERGENCE (3 older games)
+   Priority: Low
+   Impact: Developer onboarding confusion, inconsistent patterns
+   Details:
+     3 older games use different folder structures than the standard:
+     - Infinity-loop: uses src/lib/game/ instead of src/features/
+     - maze-navigation: uses src/pages/, src/components/ (no features/ folder)
+     - memory-card-matching: uses src/game/, src/screens/ (flat layout)
+     Standard pattern: src/features/<game-name>/components/, hooks/, etc.
+   Action needed:
+     - Refactor each game's frontend to match the features/ convention
+     - Move components into features/<game>/components/
+     - Update all imports
+     - Verify each game still builds + runs after refactor
+
+3. [ ] RESTATE DURABLE EXECUTION FOR NEWER 12 GAMES
+   Priority: Medium
+   Impact: Orphaned sessions if client disconnects without submitting
+   Details:
+     Only ~7 of 20 game backends have Restate durable execution workflows.
+     The newer 12 games rely on client-side timers for session expiry.
+     If a player's app crashes mid-game, the session stays IN_PROGRESS forever.
+   Current workaround:
+     - Client-side timers force-submit on timeout
+     - Backend can run periodic cron to mark stale sessions as TIMED_OUT
+   Action needed:
+     - Add session-restate.service.ts to each of the 12 newer game backends
+     - Implement durable workflow: startSession -> wait(timeLimit) -> expireIfNotSubmitted
+     - Wire into each game's session start flow
+   Games needing Restate:
+     - colour-sorting, flash-spot, live-route-builder, memory-groups
+     - number-grid-sprint, object-placement-memory, pattern-survival
+     - rapid-category-sort, reflex-endurance, speed-type-answer
+     - true-false-blitz, word-unscramble
+
+4. [ ] ADD CRON JOB FOR ORPHANED SESSION CLEANUP
+   Priority: Medium (quick win alternative to item 3)
+   Impact: Prevents DB bloat from abandoned sessions
+   Details:
+     Add a scheduled task that runs every 30 minutes:
+     - Find GameSessions where outcome IS NULL and started_at < NOW() - 1 hour
+     - Set outcome = 'TIMED_OUT', completed_at = NOW()
+   Location: c:\game\zubaco-platform\src\common\tasks\ (create scheduled task)
+   NestJS: Use @nestjs/schedule with @Cron decorator
+
+5. [ ] STANDARDIZE ENV VARIABLE NAMING
+   Priority: Low
+   Impact: Clarity for DevOps
+   Details:
+     Some services use VITE_SOCKET_URL, others use VITE_API_URL, etc.
+     Create a unified .env.example for each service documenting all required vars.
+
+================================================================================
+NOTES
+================================================================================
+- Items 1-2 are cosmetic/DX improvements. Safe to defer indefinitely.
+- Item 3 is the most impactful but also most effort. Item 4 is a quick workaround.
+- Items 6-12 are CI/CD and infrastructure items to address before first deploy.
+- None of these block local development.
+================================================================================
+
+6. [ ] GAMES CI: CONDITIONAL MATRIX EXECUTION
+   Priority: Medium
+   Impact: CI runs all 20 games on every push even if only one changed
+   Details:
+     The games repo ci.yml (zubaco-games-repo/zubaco-games/.github/workflows/ci.yml)
+     uses dorny/paths-filter to detect changed games, but the backend/frontend jobs
+     run ALL matrix entries unconditionally because there's no per-entry `if` condition.
+   Action needed:
+     - Use the `changes` output (JSON array of changed filter names) to build a
+       dynamic matrix via fromJson() instead of the static `include` list
+     - OR add individual job outputs per filter name and use
+       `if: needs.changes.outputs[matrix.game] == 'true'` (requires declaring each
+       output in the changes job)
+   File: zubaco-games-repo/zubaco-games/.github/workflows/ci.yml
+
+7. [ ] DEPLOY.YML: IMPLEMENT ECS DEPLOYMENT STEP
+   Priority: High (required for production)
+   Impact: Games can't auto-deploy to production
+   Details:
+     The deploy step in zubaco-games-repo/.github/workflows/deploy.yml is a placeholder:
+       echo "Triggering ECS service update..."
+     No actual deployment happens after Docker images are pushed to ECR.
+   Action needed:
+     - Add `aws ecs update-service` calls per game service
+     - OR use a shared deployment script/action
+     - Consider ArgoCD or Flux for GitOps-based K8s deployment
+   File: zubaco-games-repo/zubaco-games/.github/workflows/deploy.yml
+
+8. [ ] ADD .dockerignore FILES TO ALL SERVICES
+   Priority: Low
+   Impact: Slower Docker builds (copies node_modules unnecessarily)
+   Details:
+     No .dockerignore files exist in any service directory. Docker COPY commands
+     copy node_modules, .git, coverage/, dist/ etc into build context.
+   Action needed:
+     Create .dockerignore in each service root with:
+       node_modules
+       .git
+       dist
+       coverage
+       .env*
+       *.log
+
+9. [ ] DOCKER-COMPOSE: USE .env FILE FOR SECRETS
+   Priority: Low
+   Impact: Security hygiene
+   Details:
+     docker-compose.yml has hardcoded JWT secrets (acceptable for dev):
+       JWT_ACCESS_SECRET: zubaco-access-secret-change-in-production-min-32
+       JWT_REFRESH_SECRET: zubaco-refresh-secret-change-in-production-min-32
+   Action needed:
+     - Create .env.example with placeholder values
+     - Create .env (gitignored) with actual dev secrets
+     - Reference in docker-compose: ${JWT_ACCESS_SECRET}
+
+10. [ ] PLATFORM DOCKER: ADD NON-ROOT USER
+    Priority: Medium
+    Impact: Security best practice for containers
+    Details:
+      The platform Dockerfile and docker/Dockerfile.game-backend run as root.
+      The games repo's docker/backend.Dockerfile already uses a non-root user.
+    Action needed:
+      - Add USER node (or create custom user) in production Dockerfiles
+      - Ensure file permissions are correct for the app directory
+
+11. [ ] ADMIN PANEL: ADD npm run test TO CI
+    Priority: Medium
+    Impact: No automated test execution in CI
+    Details:
+      admin-ci.yml only runs type-check and build, never runs tests.
+      Same for platform-ci.yml (only type-checks, doesn't run npm test).
+    Action needed:
+      - Add `npm run test -- --passWithNoTests` step after type-check
+      - Ensure test framework (Jest) is configured in both admin backend and frontend
+    Files:
+      - .github/workflows/admin-ci.yml
+      - .github/workflows/platform-ci.yml
+
+12. [ ] MOBILE APP: INSTALL DEPS & VERIFY COMPILATION
+    Priority: High (before mobile release)
+    Impact: Can't verify mobile app compiles without React Native env
+    Details:
+      c:\game\zubaco-mobile\ has 20 tsx screens + 4 ts services.
+      Structure is verified correct but no node_modules installed.
+      Requires React Native CLI or Expo environment to fully validate.
+    Action needed:
+      - Set up React Native dev environment (Android Studio/Xcode)
+      - Run npm install in zubaco-mobile/
+      - Run npx tsc --noEmit to verify TypeScript
+      - Run npx react-native run-android / run-ios to verify builds
+
+================================================================================
+MANUAL DEPLOYMENT STEPS (Required before going live)
+================================================================================
+These are things YOU must do manually — they require AWS console access,
+domain registrar access, or secrets that can't be automated without credentials.
+
+13. [ ] SET UP AWS ACCOUNT & IAM
+    Priority: CRITICAL (must be first)
+    Impact: Nothing else works without this
+    Steps:
+      - Create AWS account (or use existing)
+      - Create IAM user for CI/CD with programmatic access
+      - Attach policies: ECS, ECR, S3, CloudFront, RDS, ElastiCache, SQS, SNS
+      - Save Access Key ID + Secret Access Key (you'll need them for step 15)
+      - Create IAM role for ECS task execution (ecsTaskExecutionRole)
+
+14. [ ] APPLY TERRAFORM INFRASTRUCTURE
+    Priority: CRITICAL
+    Impact: Creates all AWS resources (DB, cache, containers, CDN, etc.)
+    Steps:
+      - Install Terraform CLI: https://terraform.io/downloads
+      - cd c:\game\infrastructure\terraform\
+      - Create terraform.tfvars with your values:
+          aws_region          = "ap-south-1"
+          environment         = "production"
+          db_username         = "<choose-username>"
+          db_password         = "<strong-password>"
+          domain_name         = "yourdomain.com"
+      - Run: terraform init
+      - Run: terraform plan (review what will be created)
+      - Run: terraform apply (type "yes" to confirm)
+      - Save the outputs (RDS endpoint, Redis endpoint, ECR URLs, etc.)
+
+15. [ ] SET GITHUB SECRETS FOR CI/CD
+    Priority: CRITICAL
+    Impact: CI/CD pipelines can't deploy without these
+    Steps:
+      Go to GitHub → Repository → Settings → Secrets and variables → Actions
+      Add these secrets:
+        AWS_ACCESS_KEY_ID        = (from step 13)
+        AWS_SECRET_ACCESS_KEY    = (from step 13)
+        AWS_DEPLOY_ROLE_ARN      = (from step 13, for games deploy.yml)
+        ADMIN_CF_DISTRIBUTION_ID = (from terraform output)
+        CF_DISTRIBUTION_ID       = (from terraform output, for game frontends)
+      Add these variables (Settings → Variables):
+        ECR_REGISTRY             = <account-id>.dkr.ecr.ap-south-1.amazonaws.com
+
+16. [ ] RUN DATABASE MIGRATIONS
+    Priority: CRITICAL
+    Impact: App won't start without tables in the database
+    Steps:
+      - Get RDS endpoint from terraform output
+      - Set DATABASE_URL: postgresql://<user>:<pass>@<rds-endpoint>:5432/zubaco_platform
+      - For platform:
+          cd c:\game\zubaco-platform\
+          set DATABASE_URL=postgresql://...
+          npx prisma migrate deploy
+      - For admin backend:
+          cd c:\game\zubaco-admin-panel-repo\zubaco-admin-panel\backend\
+          set DATABASE_URL=postgresql://...
+          npx prisma migrate deploy
+      - For each game backend (20 games):
+          cd c:\game\zubaco-games-repo\zubaco-games\<game>\<game>-backend\
+          set DATABASE_URL=postgresql://...
+          npx prisma migrate deploy
+      NOTE: If no migrations exist yet, run `npx prisma migrate dev --name init`
+            locally first to generate them, then commit.
+
+17. [ ] CONFIGURE PRODUCTION ENVIRONMENT VARIABLES
+    Priority: CRITICAL
+    Impact: Services crash on startup without these
+    Steps:
+      Set these in AWS ECS Task Definitions (or AWS Parameter Store/Secrets Manager):
+
+      Platform API:
+        DATABASE_URL=postgresql://<user>:<pass>@<rds-endpoint>:5432/zubaco_platform
+        REDIS_HOST=<elasticache-endpoint>
+        REDIS_PORT=6379
+        JWT_ACCESS_SECRET=<generate-64-char-random-string>
+        JWT_REFRESH_SECRET=<generate-64-char-random-string>
+        ENCRYPTION_KEY=<generate-64-hex-char-string>
+        SMS_PROVIDER=msg91  (or twilio)
+        MSG91_AUTH_KEY=<your-msg91-key>
+        MSG91_TEMPLATE_ID=<your-template-id>
+        AWS_REGION=ap-south-1
+        AWS_S3_BUCKET=<from-terraform-output>
+        SQS_CHEAT_FLAG_QUEUE_URL=<from-terraform-output>
+        NODE_ENV=production
+        PORT=3000
+
+      Admin Backend:
+        DATABASE_URL=postgresql://<user>:<pass>@<rds-endpoint>:5432/zubaco_platform
+        REDIS_HOST=<elasticache-endpoint>
+        JWT_SECRET=<generate-64-char-random-string>
+        SQS_CHEAT_FLAG_QUEUE_URL=<from-terraform-output>
+        NODE_ENV=production
+        PORT=3001
+
+      Each Game Backend (×20):
+        DATABASE_URL=postgresql://<user>:<pass>@<rds-endpoint>:5432/<game>_db
+        REDIS_HOST=<elasticache-endpoint>
+        JWT_SECRET=<same-as-platform-access-secret>
+        HMAC_SECRET=<generate-64-char-random-string>
+        ENCRYPTION_KEY=<same-as-platform>
+        NODE_ENV=production
+        PORT=3000
+
+      Admin Frontend (build-time env in next.config.ts):
+        API_BASE_URL=https://admin-api.yourdomain.com
+
+      Game Frontends (build-time VITE_ vars):
+        VITE_API_URL=https://<game>-api.yourdomain.com
+        VITE_SOCKET_URL=wss://<game>-api.yourdomain.com
+
+18. [ ] DOMAIN & DNS SETUP
+    Priority: HIGH
+    Impact: Users can't reach your app without a domain
+    Steps:
+      - Buy/own a domain (e.g., zubaco.com)
+      - In your domain registrar (or Route 53), create these records:
+          api.zubaco.com        → CNAME → ALB DNS name (from terraform output)
+          admin.zubaco.com      → CNAME → CloudFront distribution (admin frontend)
+          admin-api.zubaco.com  → CNAME → ALB DNS name
+          *.games.zubaco.com    → CNAME → CloudFront distribution (game frontends)
+      - OR transfer domain to Route 53 (terraform already has Route 53 config)
+
+19. [ ] SSL CERTIFICATES (ACM)
+    Priority: HIGH
+    Impact: HTTPS won't work without certs; browsers will block HTTP
+    Steps:
+      - Go to AWS Certificate Manager (ACM)
+      - Request a public certificate for:
+          *.zubaco.com
+          zubaco.com
+      - Validate via DNS (add the CNAME record ACM gives you)
+      - Wait for validation (usually 5-30 minutes)
+      - Attach certificate to:
+          - ALB listener (HTTPS:443)
+          - CloudFront distributions
+      NOTE: If using terraform, it may have already created the cert.
+            Check terraform output for certificate_arn.
+
+20. [ ] FIRST DEPLOYMENT (Push to trigger CI/CD)
+    Priority: HIGH
+    Impact: Gets the app running on AWS
+    Steps:
+      - Ensure all above steps (13-19) are done
+      - Push code to `main` branch:
+          git add .
+          git commit -m "Production deployment"
+          git push origin main
+      - Monitor GitHub Actions for build success
+      - Check ECS services are running:
+          aws ecs list-services --cluster zubaco-production
+          aws ecs describe-services --cluster zubaco-production --services platform-api
+      - Check CloudFront distributions are deployed
+      - Verify health: curl https://api.zubaco.com/health
+
+21. [ ] POST-DEPLOYMENT VERIFICATION
+    Priority: HIGH
+    Impact: Ensures everything actually works end-to-end
+    Steps:
+      - Test platform API health endpoint
+      - Test user registration (phone OTP flow)
+      - Test user login
+      - Test one game frontend loads in browser
+      - Test one game session (start → play → submit score)
+      - Test admin panel login
+      - Test admin panel can see users list
+      - Test wallet credit/debit
+      - Check CloudWatch logs for any errors
+      - Check RDS connections are stable
+
+22. [ ] MOBILE APP: BUILD & PUBLISH
+    Priority: HIGH (after web is verified)
+    Impact: Users can't download the app
+    Steps:
+      - Set up React Native dev environment
+      - cd c:\game\zubaco-mobile\
+      - npm install
+      - Update API_BASE_URL in environment config to production URL
+      - Android:
+          cd android && ./gradlew assembleRelease
+          Upload APK/AAB to Google Play Console
+      - iOS:
+          cd ios && pod install
+          Open .xcworkspace in Xcode
+          Archive → Upload to App Store Connect
+      - Both require developer accounts ($25 Google, $99/yr Apple)
+
+23. [ ] SET UP MONITORING & ALERTS
+    Priority: MEDIUM (after launch)
+    Impact: You won't know if something breaks
+    Steps:
+      - CloudWatch Alarms (terraform may have already set some):
+          - CPU > 80% on ECS tasks
+          - Memory > 80% on ECS tasks
+          - RDS connections > 80% of max
+          - 5xx error rate > 1%
+          - ALB unhealthy target count > 0
+      - Set up SNS topic with your email for notifications
+      - Consider: Sentry for error tracking, Datadog/Grafana for dashboards
+
+24. [ ] SEED INITIAL DATA
+    Priority: MEDIUM
+    Impact: Admin panel needs at least one admin user; games need configs
+    Steps:
+      - Create first admin user:
+          cd c:\game\zubaco-admin-panel-repo\zubaco-admin-panel\backend\
+          npx prisma db seed (uses prisma/seed.ts)
+      - OR manually insert into admins table:
+          INSERT INTO admins (id, email, password, created_at, updated_at)
+          VALUES (uuid, 'admin@zubaco.com', '<bcrypt-hashed-password>', now(), now());
+      - Configure games in admin panel (set time_limit, enable_demo, etc.)
+      - Create first season if launching with tournaments

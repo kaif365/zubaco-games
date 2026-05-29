@@ -1,0 +1,572 @@
+============================================================
+ZUBACO GAMES — GOLD STANDARD ARCHITECTURE
+============================================================
+Created: 2026-05-25
+Based on: Block Fill (most mature game in the platform)
+Applies to: ALL 20 games in the platform
+
+This document defines the MANDATORY architecture every game
+frontend must follow. No exceptions.
+
+============================================================
+PROJECT VALUE: ₹1 CRORE+ PRODUCTION PRODUCT
+============================================================
+This is NOT a hobby project. Every game must be:
+- Production-grade (no hacks, no shortcuts)
+- Scalable (supports 100K+ concurrent users)
+- Maintainable (any developer can pick up any game)
+- Consistent (user experience identical across all games)
+- Secure (no client-side exploits, encrypted payloads)
+- Offline-capable (works without internet, syncs later)
+- Internationalized (translation-ready from day 1)
+- Tested (unit + integration tests)
+- Accessible (screen readers, keyboard navigation)
+
+============================================================
+TECH STACK (MANDATORY FOR ALL GAMES)
+============================================================
+
+Frontend:
+  - React 19+ (functional components only, no classes)
+  - TypeScript 5.7+ (strict mode, no `any` types)
+  - Vite 8+ (build tool)
+  - TailwindCSS 4+ (styling)
+  - Framer Motion (animations)
+  - Howler.js (audio — through AudioManager)
+  - React Query / TanStack Query (server state)
+  - react-i18next (internationalization)
+  - shadcn/ui (UI component library)
+  - Phaser 4 (optional — for complex game boards)
+  - Vitest + Testing Library (testing)
+  - embla-carousel-react (if carousels needed)
+
+Backend:
+  - NestJS 11 (framework)
+  - Prisma (database ORM)
+  - Bun (runtime)
+  - Restate SDK (state machine / workflows)
+  - Redis (caching + sessions)
+  - WebSocket (real-time communication)
+
+Shared:
+  - Docker + k8s (deployment)
+  - GitHub Actions (CI/CD)
+  - ESLint + Prettier (code quality)
+  - Husky + lint-staged (pre-commit hooks)
+
+============================================================
+FOLDER STRUCTURE (EVERY GAME FRONTEND)
+============================================================
+
+{game-name}-frontend/
+├── .env.example              → Environment variable template
+├── .gitignore
+├── index.html                → SPA entry point
+├── package.json
+├── tailwind.config.ts
+├── tsconfig.json
+├── tsconfig.app.json
+├── vite.config.ts
+├── vitest.config.ts
+├── public/
+│   ├── audio/                → Sound files (.wav, .mp3)
+│   │   └── {game}/          → Game-specific sounds
+│   └── images/              → Static images
+│
+└── src/
+    ├── main.tsx              → App bootstrap (providers, security)
+    ├── index.css             → Global styles + Tailwind imports
+    ├── env.d.ts              → Vite env type declarations
+    │
+    ├── app/                  → Application shell
+    │   ├── App.tsx           → Root component + routing
+    │   ├── routes.ts         → Route constants + resolver
+    │   ├── useAppRoute.ts    → Hash-based SPA routing hook
+    │   ├── authSession.ts    → Auth token storage
+    │   ├── queryClient.ts    → React Query client config
+    │   ├── api/              → API layer
+    │   │   ├── apiClient.ts  → Axios/fetch wrapper with retry/auth
+    │   │   ├── authApi.ts    → Auth endpoints
+    │   │   ├── gameApi.ts    → Game-specific endpoints
+    │   │   └── gameConfig.query.ts → React Query options
+    │   ├── config/
+    │   │   └── env.ts        → Typed env vars (appEnv object)
+    │   └── providers/
+    │       ├── AppProviders.tsx      → Provider composition
+    │       ├── AppBootstrapGate.tsx  → Auth gate + theme init
+    │       └── ApiErrorProvider.tsx  → Global error handling
+    │
+    ├── audio/                → Audio system (COPY FROM BLOCK FILL)
+    │   ├── AudioManager.ts   → Howler.js manager class
+    │   ├── AudioProvider.tsx  → React context provider
+    │   ├── soundRegistry.ts  → Sound definitions (per game)
+    │   ├── useAudio.ts       → Hook (play/stop/mute/volume)
+    │   ├── types.ts          → Audio type definitions
+    │   └── index.ts          → Public exports
+    │
+    ├── components/           → Shared UI components
+    │   ├── ui/               → shadcn/ui components
+    │   │   ├── button.tsx
+    │   │   ├── card.tsx
+    │   │   ├── dialog.tsx
+    │   │   ├── input.tsx
+    │   │   └── loader.tsx
+    │   ├── shared/           → App-level shared components
+    │   │   ├── AuthGateScreen.tsx
+    │   │   ├── OfflineStatusModal.tsx
+    │   │   └── GameClearModal.tsx
+    │   └── TiltToPortraitOverlay.tsx
+    │
+    ├── features/             → Game-specific feature module
+    │   └── {game-name}/      → ALL game logic lives here
+    │       ├── types.ts      → Game type definitions
+    │       ├── api/          → Game API calls
+    │       ├── audio/        → Game-specific audio handlers
+    │       │   └── gameAudioHandlers.ts
+    │       ├── components/   → Game UI screens
+    │       │   ├── GameShell.tsx        → Top-level orchestrator
+    │       │   ├── HomeScreen.tsx       → Main menu
+    │       │   ├── GameScreen.tsx       → Active gameplay
+    │       │   ├── GameBoard.tsx        → Board renderer
+    │       │   ├── GameTimer.tsx        → Countdown timer
+    │       │   ├── WinDialog.tsx        → Level complete
+    │       │   ├── PauseDialog.tsx      → Pause overlay
+    │       │   ├── LevelSelectScreen.tsx→ Level picker
+    │       │   ├── SettingsScreen.tsx   → Preferences
+    │       │   ├── StatsScreen.tsx      → Statistics
+    │       │   ├── Confetti.tsx         → Win celebration
+    │       │   └── InstructionsScreen.tsx → Tutorial
+    │       ├── config/       → Game configuration
+    │       │   ├── branding.ts          → Title, labels
+    │       │   ├── gameConfig.ts        → Difficulty, packs
+    │       │   └── saveProgressConfig.ts
+    │       ├── constants/    → Magic numbers
+    │       │   └── timing.ts
+    │       ├── data/         → Level data
+    │       │   ├── levels/   → JSON level files by difficulty
+    │       │   └── mockLevels.ts → Level loader
+    │       ├── engine/       → Core game logic (PURE FUNCTIONS)
+    │       │   ├── gameEngine.ts    → Move validation, win check
+    │       │   ├── scoreEngine.ts   → Score calculation
+    │       │   └── levelGenerator.ts → Puzzle generation
+    │       ├── hooks/        → Game state management
+    │       │   ├── useGame.ts       → Main game state hook
+    │       │   ├── useGameInit.ts   → Config loading
+    │       │   └── useSessionTimeSync.ts
+    │       ├── save-progress/ → Offline save system
+    │       │   ├── saveProgressOutbox.ts
+    │       │   ├── buildSaveProgressPayload.ts
+    │       │   └── useSaveGameProgress.ts
+    │       ├── sessionStorage/ → Session persistence
+    │       │   └── activeSessionStorage.ts
+    │       └── utils/        → Game-specific helpers
+    │           ├── levelGenerator.ts
+    │           └── scoring.ts
+    │
+    ├── hooks/                → App-level hooks
+    │   ├── useApiError.ts
+    │   ├── useAuthGate.ts
+    │   ├── useCompactLandscape.ts
+    │   ├── useDemoLevels.ts
+    │   └── useNetworkStatus.ts
+    │
+    ├── lib/                  → Utilities
+    │   ├── utils.ts          → cn() helper (tailwind-merge)
+    │   ├── i18n/             → i18n setup
+    │   │   └── index.ts
+    │   └── api/
+    │       └── getApiErrorMessage.ts
+    │
+    ├── locales/              → Translation files
+    │   ├── en.json
+    │   └── hi.json           → Hindi (add more as needed)
+    │
+    ├── services/             → External service integrations
+    │
+    ├── styles/               → Additional style files
+    │
+    ├── test/                 → Test setup
+    │   └── setup.ts
+    │
+    ├── types/                → Global type declarations
+    │
+    └── utils/                → App utilities
+        ├── security.ts       → disableDevTools, disableCopyAndSelection
+        ├── secureStorage.ts  → Encrypted localStorage
+        ├── applyDocumentStageTheme.ts
+        ├── gameThemeStyle.ts
+        └── resolveUserStageNumber.ts
+
+============================================================
+AUDIO SYSTEM (MANDATORY PATTERN)
+============================================================
+
+Every game MUST use this exact pattern:
+
+1. AudioManager.ts (class):
+   - constructor(registry) → initializes with sound definitions
+   - play(key, options) → plays a sound with volume/loop/fade
+   - stop(key) → stops a specific sound
+   - stopAll() → stops everything
+   - setMuted(bool) / toggleMuted() → mute control
+   - setMasterVolume(0-1) → master volume
+   - setCategoryVolume(category, 0-1) → per-category
+   - preloadAll() / preloadSounds(keys) → eager loading
+   - unlock() → iOS audio context unlock on user gesture
+
+2. soundRegistry.ts (per game):
+   - Defines ALL sounds for this game
+   - Each entry: { path, category, preload, defaultVolume, sceneTags }
+   - Categories: 'sfx' | 'music' | 'ui' | 'voice'
+
+3. AudioProvider.tsx:
+   - React context that wraps the app
+   - Exposes: play, stop, muted, toggleMuted, volume, etc.
+   - Auto-unlocks audio on first user interaction
+
+4. useAudio.ts:
+   - Hook to access audio context value
+   - useSound(key) for single-sound components
+
+5. gameAudioHandlers.ts (per game):
+   - Maps game events → sound triggers
+   - e.g., onPathComplete → play('pathRelease')
+
+Sound categories per game (minimum):
+  - move/action → sfx when player makes a move
+  - success → sfx on correct action
+  - error → sfx on wrong action
+  - combo → sfx on consecutive correct actions
+  - win → celebration sound on level complete
+  - lose → game over sound
+  - hint → hint used sound
+  - ui_click → button press sound
+  - timer_warning → low time warning
+
+============================================================
+SAVE PROGRESS SYSTEM (OUTBOX PATTERN)
+============================================================
+
+Every game MUST implement offline-first save:
+
+1. Player makes progress → saved to localStorage immediately
+2. Queued in "outbox" for server sync
+3. When online → outbox is flushed to backend API
+4. On restore → check outbox, resume from last state
+5. Conflict resolution: server wins (latest timestamp)
+
+Files:
+  - saveProgressOutbox.ts → queue management
+  - buildSaveProgressPayload.ts → format data for API
+  - useSaveGameProgress.ts → hook that manages the cycle
+
+============================================================
+GAME ENGINE PATTERN (PURE FUNCTIONS)
+============================================================
+
+Game logic MUST be pure functions (no side effects):
+
+  // Good — pure function
+  function canMove(board, from, to): boolean { ... }
+  function applyMove(board, move): Board { ... }
+  function isWon(board): boolean { ... }
+  function calculateScore(time, moves, difficulty): number { ... }
+
+  // Bad — impure, has side effects
+  function makeMove() { updateState(); playSound(); saveToStorage(); }
+
+Benefits:
+  - Testable (unit test every function)
+  - Reusable (backend can use same logic for validation)
+  - Debuggable (deterministic, reproducible)
+
+============================================================
+SCORING SYSTEM (CONSISTENT ACROSS ALL GAMES)
+============================================================
+
+Every game uses the SAME scoring formula structure:
+
+  baseScore = POINTS_PER_ACTION × actionsCompleted
+  timeBonus = max(0, (timeLimit - timeTaken) × TIME_BONUS_MULTIPLIER)
+  comboBonus = comboMultiplier × baseScore  (combo resets on error)
+  penaltyDeduction = wrongMoves × PENALTY_PER_ERROR
+  
+  finalScore = baseScore + timeBonus + comboBonus - penaltyDeduction
+
+Star rating (1-3 stars):
+  ★     = level completed
+  ★★    = completed under par moves/time
+  ★★★   = perfect (no errors + fast time + full coverage)
+
+============================================================
+UI/UX CONSISTENCY (ALL GAMES MUST MATCH)
+============================================================
+
+1. GAME HUD (top of screen during gameplay):
+   ┌─────────────────────────────────────────────┐
+   │  ⏱ 1:23  │  ★ 1250  │  ❤❤❤❤❤  │  🔥x3  │
+   │  Timer     Score       Lives       Combo    │
+   ├─────────────────────────────────────────────┤
+   │  [Undo] [Hint(3)] [Restart] [Mute] [Pause] │
+   └─────────────────────────────────────────────┘
+
+2. MENU FLOW (same for every game):
+   App Start → Instructions/Tutorial → Main Menu
+   Main Menu → [Play] [Daily] [Settings] [Stats] [Levels]
+   Play → Level Select → Gameplay → Win/Lose → Next Level or Menu
+
+3. COLOR PALETTE (dark theme):
+   - Background: slate-950 (#020617)
+   - Surface: white/5 to white/12 (glass-morphism)
+   - Primary: cyan-300 (#67e8f9) — buttons, accents
+   - Success: emerald-400
+   - Error: red-400
+   - Warning: amber-400
+   - Text: white, slate-300 (secondary)
+   - Borders: white/8 to white/12
+
+4. TYPOGRAPHY:
+   - Font: 'Outfit' (primary), system fallback
+   - Headings: text-3xl+ font-semibold tracking-[-0.03em]
+   - Labels: text-xs uppercase tracking-[0.22em+]
+   - Body: text-sm text-slate-300
+
+5. BORDER RADIUS:
+   - Cards: rounded-[2rem]
+   - Buttons: rounded-full
+   - Inputs: rounded-[1.2rem]
+   - Small elements: rounded-[1.35rem]
+
+6. ANIMATIONS:
+   - Page transitions: Framer Motion (fade + slide-up)
+   - Win celebration: Confetti (60 pieces, game colors)
+   - Button hover: scale + glow
+   - Error: shake animation
+   - Timer warning: pulse red at ≤30s
+
+============================================================
+SECURITY REQUIREMENTS (PRODUCTION)
+============================================================
+
+1. Client-side:
+   - disableDevTools() in production
+   - disableCopyAndSelection() in production
+   - Encrypted localStorage (AES-256) for sensitive data
+   - No game state manipulation possible from console
+   - Payload encryption for API calls
+
+2. Server-side:
+   - Validate ALL moves server-side (never trust client)
+   - Rate limiting on all endpoints
+   - Idempotency keys for mutations
+   - Circuit breaker for external services
+   - JWT auth with short expiry + refresh tokens
+
+3. Anti-cheat:
+   - Move sequence stored + replayed for validation
+   - Time tracked server-side (not client clock)
+   - Statistical anomaly detection
+   - Device fingerprinting for multi-accounting
+
+============================================================
+TESTING REQUIREMENTS
+============================================================
+
+Every game MUST have:
+
+1. Unit tests (Vitest):
+   - Game engine: 100% coverage (all pure functions)
+   - Score calculation: edge cases
+   - Level generator: solvability validation
+
+2. Component tests (Testing Library):
+   - Each screen renders without crash
+   - Button interactions trigger correct callbacks
+   - Form validation works
+
+3. Integration tests:
+   - Full game flow: start → play → win → next level
+   - Save/restore from interruption
+   - Offline → online sync
+
+Minimum coverage target: 80% for engine, 60% for components.
+
+============================================================
+INTERNATIONALIZATION (i18n)
+============================================================
+
+Every user-visible string MUST go through i18n:
+
+  // Bad
+  <h2>Level Complete!</h2>
+
+  // Good
+  <h2>{t('game.levelComplete')}</h2>
+
+Minimum languages:
+  - English (en) — default
+  - Hindi (hi)
+  - Add more as needed
+
+Translation file structure:
+  locales/
+  ├── en.json → { "game": { "levelComplete": "Level Complete!" } }
+  └── hi.json → { "game": { "levelComplete": "लेवल पूरा!" } }
+
+============================================================
+ENVIRONMENT CONFIGURATION
+============================================================
+
+Every game uses the same .env pattern:
+
+  VITE_API_BASE_URL=          → Backend API URL
+  VITE_USER_SERVICE_BASE_URL= → User service URL
+  VITE_GAME_SERVICE_BASE_URL= → Game service URL
+  VITE_USER_STAGE_ID=         → Current stage (empty = dev mode)
+  VITE_USER_STAGE_NUMBER=1    → Stage number
+  VITE_GAME_PAYLOAD_ENCRYPTION_ENABLED=false
+  VITE_GAME_PAYLOAD_ENCRYPTION_KEY=
+  VITE_CLIENT_SECURITY=false  → true in production
+  VITE_CLOUDFRONT_URL=        → CDN for assets
+  VITE_SOCKET_URL=            → WebSocket URL
+
+When VITE_USER_STAGE_ID is empty:
+  → Auth gate is BYPASSED (local dev without backend)
+  → Game runs in standalone mode with local level data
+
+============================================================
+BACKEND ARCHITECTURE (PER GAME)
+============================================================
+
+{game-name}-backend/
+├── src/
+│   ├── main.ts
+│   ├── app.module.ts
+│   ├── game/
+│   │   ├── engine/           → Game logic (mirrors frontend)
+│   │   │   ├── achievementEngine.ts
+│   │   │   ├── boosterEngine.ts
+│   │   │   ├── comboEngine.ts
+│   │   │   ├── dailyChallenge.ts
+│   │   │   ├── leaderboard.ts
+│   │   │   ├── scoreHistory.ts
+│   │   │   └── puzzleGenerator.ts  ← generates levels
+│   │   ├── dto/              → Request/Response DTOs
+│   │   ├── utils/
+│   │   ├── game.controller.ts
+│   │   ├── game.service.ts
+│   │   ├── game.gateway.ts   → WebSocket
+│   │   ├── game.module.ts
+│   │   └── game-session-restate.service.ts
+│   ├── admin/                → Admin panel
+│   ├── user/                 → User management
+│   ├── redis/                → Cache layer
+│   ├── ws/                   → WebSocket infrastructure
+│   ├── circuit-breaker/      → External service resilience
+│   ├── crypto/               → Payload encryption
+│   ├── feature-flags/        → Feature toggles
+│   ├── idempotency/          → Duplicate request protection
+│   └── config/               → App configuration
+├── prisma/
+│   └── schema.prisma         → Database schema
+├── test/                     → E2E tests
+└── Dockerfile
+
+============================================================
+GAME LIFECYCLE (EVERY GAME FOLLOWS THIS)
+============================================================
+
+1. App boots → initSecureStorage → render providers
+2. AuthGate checks session → creates dev session if needed
+3. Game config fetched from backend (or defaults in dev)
+4. User sees Instructions/Tutorial (first time only)
+5. Main Menu renders → user picks Play/Daily/Settings etc.
+6. Level loads → timer starts → game begins
+7. Player interacts → engine validates → state updates
+8. Move saved to outbox → synced to backend when possible
+9. Win condition met → score calculated → confetti → dialog
+10. Progress saved → next level unlocked → repeat
+
+============================================================
+GAMES TO MIGRATE (priority order)
+============================================================
+
+Phase 1 — Already partially done:
+  1. ✅ Block Fill (GOLD STANDARD — reference implementation)
+  2. 🔄 Arrows (needs full rebuild to this architecture)
+  3. 🔄 Colour-Sorting (needs full rebuild)
+
+Phase 2 — Next batch:
+  4. Sliding Puzzle
+  5. Memory Card Matching
+  6. Infinity Loop
+  7. Maze Navigation
+
+Phase 3 — Remaining:
+  8. Flash Spot
+  9. Live Route Builder
+  10. Logic Reflector
+  11. Memory Groups
+  12. Number Grid Sprint
+  13. Object Placement Memory
+  14. Pattern Survival
+  15. Rapid Category Sort
+  16. Reflex Endurance
+  17. Sequence Recall
+  18. Speed Type Answer
+  19. True False Blitz
+  20. Word Unscramble
+
+============================================================
+MIGRATION STEPS (PER GAME)
+============================================================
+
+For each game, follow these EXACT steps:
+
+Step 1: Scaffold
+  - Copy Block Fill's folder structure
+  - Copy: audio/, components/ui/, components/shared/, hooks/,
+    lib/, utils/, app/config/, app/providers/
+  - Update package.json dependencies to match
+
+Step 2: Configure
+  - Update branding.ts (game title, labels)
+  - Update soundRegistry.ts (game-specific sounds)
+  - Update .env.example
+  - Update tailwind.config.ts (game-specific theme extensions)
+
+Step 3: Engine
+  - Create features/{game}/engine/ with pure game logic
+  - Create features/{game}/types.ts
+  - Write unit tests for engine
+
+Step 4: UI
+  - Create features/{game}/components/ screens
+  - Follow the exact same screen names and props
+  - Use shadcn/ui for all interactive elements
+
+Step 5: Hooks
+  - Create features/{game}/hooks/useGame.ts (main game hook)
+  - Include: undo, hints, timer, score, lives, combos
+
+Step 6: Data
+  - Create features/{game}/data/levels/ (JSON files)
+  - Create level generator if applicable
+
+Step 7: Integration
+  - Wire up save-progress outbox
+  - Connect to backend API
+  - Add i18n translations
+
+Step 8: Testing
+  - Unit tests for engine
+  - Component tests for screens
+  - Integration test for full flow
+
+Step 9: Polish
+  - Add all sounds
+  - Add animations (Framer Motion)
+  - Mobile optimization
+  - Performance testing
+
+============================================================

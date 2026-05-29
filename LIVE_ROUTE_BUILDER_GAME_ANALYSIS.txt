@@ -1,0 +1,388 @@
+================================================================================
+LIVE ROUTE BUILDER — FULL GAME ANALYSIS
+================================================================================
+Date: 2026-05-25
+Status: Complete analysis with online research + codebase deep-dive
+
+================================================================================
+1. GAME CONCEPT & GENRE
+================================================================================
+
+Genre: Real-Time Path Building / Node Connection / Graph Puzzle
+Core Mechanic: Nodes appear progressively on a canvas over time. Player clicks
+two nodes to connect them with an edge. Goal is to build the most efficient
+route (shortest total path length) connecting as many nodes as possible before
+the timer runs out.
+
+Key Characteristics:
+- Real-time pressure: nodes appear at intervals (every 2 seconds)
+- Time-limited gameplay (60 seconds default)
+- Strategic decision-making: which nodes to connect for efficiency
+- Path efficiency scoring (optimal vs actual distance ratio)
+- Click-two-nodes interaction (select first → select second → edge drawn)
+- SVG-based canvas rendering with animated node appearance
+- Seeded random generation (deterministic puzzles from server seed)
+
+Game Mechanics:
+- Nodes spawn at regular intervals (nodeIntervalMs = 2000ms)
+- Player connects any two visible nodes by clicking them sequentially
+- Score = path efficiency % + (nodes connected × 10)
+- Path efficiency = (greedy nearest-neighbor optimal) / (actual path length) × 100
+- Game ends when timer expires OR player submits early
+- Backend validates edges & timing to prevent cheating
+
+Unique Twist vs Static Puzzles:
+- Unlike Flow Free or Connect Dots (static puzzles), this is LIVE/REAL-TIME
+- Nodes appear over time — you must decide connections dynamically
+- Similar to "Trail Making Test" (neuropsych assessment) but gamified
+- Closest analogs: Mini Motorways (draw routes in real-time), Trail Making apps
+
+================================================================================
+2. ONLINE RESEARCH — SIMILAR GAMES
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────────
+A) "Flow Free" by Big Duck Games LLC
+   - 100M+ downloads, 4.5★, 1.55M reviews
+   - THE gold standard for path/connection puzzles
+   - Features:
+     • 2,500+ free puzzles
+     • Free Play and Time Trial modes
+     • Connect matching colors with pipes
+     • Paths can't cross or overlap
+     • Must cover entire board
+     • Clean, colorful graphics + fun sound effects
+     • Multiple variants: Shapes, Warps, Hexes, Bridges
+   - Key Takeaway: Simple rules + massive content + time trial variant
+
+─────────────────────────────────────────────────────────────────────────────────
+B) "Connect Dots: Smart Puzzle" by One Way Street
+   - 100K+ downloads, 4.5★, 506 reviews
+   - Features:
+     • Hundreds of challenging levels
+     • Diverse environments with unique obstacles
+     • Intuitive controls and smooth gameplay
+     • Unlockable power-ups and hints
+     • Engaging visuals and sound effects
+     • Suitable for all ages
+   - Key Takeaway: Progressive difficulty + power-ups for assistance
+
+─────────────────────────────────────────────────────────────────────────────────
+C) "Connect Path Puzzle" by Visuo Labs
+   - Features:
+     • Connect path from START to END
+     • Avoid blocked routes and obstacles
+     • Logic and strategy based
+     • Complete with fewer moves for better scores
+     • Brain-training challenges
+     • Offline play supported
+     • Glassmorphic UI + slide-to-connect gestures
+     • Visual feedback and smooth animations
+   - Key Takeaway: Obstacle avoidance + gesture-based connection
+
+─────────────────────────────────────────────────────────────────────────────────
+D) "Mini Motorways" by Dinosaur Polo Club (Steam/Apple Arcade)
+   - Premium strategy puzzle, widely acclaimed
+   - Features:
+     • Real-time road drawing under time pressure
+     • Dynamic demand (destinations appear over time)
+     • Efficiency scoring (traffic flow optimization)
+     • Minimalist aesthetic
+     • Endless mode with increasing complexity
+     • Various city maps with different challenges
+   - Key Takeaway: CLOSEST to Live Route Builder concept — real-time + efficiency
+
+─────────────────────────────────────────────────────────────────────────────────
+E) "Trail Making Test" (Neuropsych / Brain Training apps)
+   - Classic cognitive assessment adapted to games
+   - Features:
+     • Connect numbered circles in order (1→2→3...)
+     • Speed and accuracy measured
+     • Used in Peak, Lumosity, CogniFit brain training
+     • Variant B: alternate letters/numbers (1→A→2→B...)
+   - Key Takeaway: The clinical inspiration for Live Route Builder
+
+─────────────────────────────────────────────────────────────────────────────────
+F) Key features from ALL competitors combined:
+   1. Real-time node appearance (dynamic, not static puzzles)
+   2. Timer-based challenge (creates urgency)
+   3. Path efficiency scoring (optimal vs actual)
+   4. Progressive difficulty (more nodes, shorter timer, faster spawns)
+   5. Multiple connection modes (sequential vs free-form)
+   6. Obstacles/blockers on higher levels
+   7. Combo scoring for consecutive efficient connections
+   8. Undo last connection
+   9. Hint: shows next best connection
+   10. Daily challenges with leaderboard
+   11. Star rating based on efficiency percentage
+   12. Power-ups (time freeze, auto-connect, reveal optimal)
+   13. Statistics tracking (average efficiency, best score, games played)
+   14. Achievements system
+   15. Visual trail/path animation (glow when connected)
+   16. Sound feedback on connect/disconnect
+
+================================================================================
+3. CURRENT CODEBASE ARCHITECTURE
+================================================================================
+
+Framework: React 19 + Vite + TypeScript + TailwindCSS + Framer Motion
+State: Custom hooks (useRouteGame + useGameSession)
+Backend: NestJS + API calls (httpClient)
+Audio: Howler.js AudioManager (already migrated to @/audio/)
+i18n: react-i18next
+Save Progress: Outbox pattern (already created)
+
+─────────────────────────────────────────────────────────────────────────────────
+3.1 Frontend Directory Structure:
+─────────────────────────────────────────────────────────────────────────────────
+
+src/
+├── App.tsx              → Root (ErrorBoundary → ThemeProvider → GamePage)
+├── main.tsx             → Bootstrap (React.StrictMode)
+├── globals.css
+├── vite-env.d.ts
+├── audio/               → Howler.js (migrated)
+│   ├── AudioManager.ts
+│   ├── AudioProvider.tsx
+│   ├── soundRegistry.ts → 6 sounds: routePlace, routeConnect, routeError,
+│   │                       levelComplete, gameOver, uiClick
+│   ├── types.ts
+│   ├── useAudio.ts
+│   └── index.ts
+├── components/
+│   ├── ErrorBoundary.tsx
+│   ├── InstructionScreen.tsx  → Generic instruction component (i18n)
+│   ├── OfflineBanner.tsx
+│   └── ResultScreen.tsx       → Generic result with score/stats/replay
+├── features/route/
+│   ├── components/
+│   │   ├── GamePage.tsx       → Current orchestrator (idle→playing→ended)
+│   │   ├── GameHeader.tsx     → Score + Nodes counter + Timer
+│   │   ├── GameOverScreen.tsx → Simple score + Play Again
+│   │   └── RouteCanvas.tsx    → SVG canvas with nodes + edges
+│   ├── engine/
+│   │   ├── nodeGenerator.ts   → generateNodes, calculateOptimalPath, calculateActualPath
+│   │   ├── random.ts          → mulberry32 PRNG
+│   │   └── scorer.ts          → calculateScore(efficiency, nodesConnected)
+│   ├── hooks/
+│   │   ├── useRouteGame.ts    → Game state (nodes, edges, timer, score)
+│   │   └── useGameSession.ts  → API calls (start/submit via httpClient)
+│   └── save-progress/
+│       ├── saveProgressOutbox.ts
+│       └── saveProgressTypes.ts
+├── hooks/
+│   ├── useAudio.ts
+│   ├── useSocket.ts
+│   └── useTheme.tsx
+├── services/
+│   └── httpClient.ts (implied)
+├── i18n/
+│   └── (translation setup)
+└── types/
+    └── game.ts → NodePoint, Edge, GameState, GameConfig, StartGameResponse, SubmitResponse
+
+─────────────────────────────────────────────────────────────────────────────────
+3.2 Backend Directory Structure:
+─────────────────────────────────────────────────────────────────────────────────
+
+live-route-backend/src/
+├── game/
+│   ├── engine/
+│   │   ├── nodeGenerator.ts    → Server-side node generation
+│   │   ├── random.ts           → Same mulberry32 PRNG
+│   │   ├── levelConfig.ts      → 10 levels (5→16 nodes, 60s→35s timer)
+│   │   ├── achievementEngine.ts → 10 achievements
+│   │   ├── boosterEngine.ts    → TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+│   │   ├── comboEngine.ts      → Streak multiplier (max 4x)
+│   │   ├── dailyChallenge.ts   → Date-seeded daily
+│   │   ├── leaderboard.ts      → Ranked scores
+│   │   ├── scoreHistory.ts     → Historical tracking
+│   │   └── timingAnalyzer.ts   → Anti-cheat (suspicious input timing)
+│   ├── game.controller.ts
+│   ├── game.service.ts
+│   └── game.module.ts
+└── (common infra: redis, restate, audit, etc.)
+
+─────────────────────────────────────────────────────────────────────────────────
+3.3 Game Flow (Current):
+─────────────────────────────────────────────────────────────────────────────────
+
+1. App loads → InstructionScreen shown (idle state)
+2. User clicks Start → API call to /game/start (gets seed + config)
+3. Nodes begin appearing every 2s on SVG canvas
+4. Player clicks node A → selected (highlighted amber)
+5. Player clicks node B → edge drawn (blue line A→B)
+6. Score updates in real-time (efficiency + node count)
+7. Timer counts down from 60s
+8. Timer hits 0 OR player clicks "Submit Early" → ended
+9. GameOverScreen shows final score + Play Again
+
+─────────────────────────────────────────────────────────────────────────────────
+3.4 Backend Level Configs (from levelConfig.ts):
+─────────────────────────────────────────────────────────────────────────────────
+
+Level 1:  60s, 5 nodes,  6 edges possible, ×1.0 multiplier
+Level 2:  55s, 6 nodes,  8 edges, ×1.2
+Level 3:  52s, 7 nodes, 10 edges, ×1.4
+Level 4:  50s, 8 nodes, 12 edges, ×1.6
+Level 5:  47s, 9 nodes, 14 edges, ×1.8
+Level 6:  44s, 10 nodes, 16 edges, ×2.0
+Level 7:  42s, 11 nodes, 18 edges, ×2.3
+Level 8:  40s, 12 nodes, 20 edges, ×2.6
+Level 9:  37s, 14 nodes, 24 edges, ×3.0
+Level 10: 35s, 16 nodes, 28 edges, ×3.5
+
+─────────────────────────────────────────────────────────────────────────────────
+3.5 Key Observations:
+─────────────────────────────────────────────────────────────────────────────────
+
+EXISTING FEATURES:
+✅ Core game mechanic (click-to-connect nodes)
+✅ Real-time node spawning at intervals
+✅ SVG canvas rendering with animated nodes (spring animation)
+✅ Path efficiency calculation (greedy nearest-neighbor optimal)
+✅ Timer with countdown
+✅ Score calculation (efficiency + node bonus)
+✅ GameHeader (score, nodes, timer)
+✅ InstructionScreen (with i18n)
+✅ ResultScreen (generic, with stats)
+✅ API integration (start game, submit game)
+✅ Audio system migrated (6 sounds in registry)
+✅ Save progress outbox
+✅ ThemeProvider (dark theme)
+✅ ErrorBoundary
+✅ OfflineBanner
+✅ Backend: levels, achievements, combos, daily, boosters, leaderboard, anti-cheat
+
+MISSING FEATURES (vs Gold Standard):
+❌ Tutorial (step-by-step guided walkthrough, not just static instructions)
+❌ Menu Screen (Play/Levels/Daily/Achievements/Stats/Settings)
+❌ Level Selector (10 levels from backend config, progressive unlock, stars)
+❌ Settings Screen (sound toggle, volume, theme)
+❌ Stats Screen (total games, efficiency avg, best score, streaks)
+❌ Achievements UI (10 badges matching backend)
+❌ Daily Challenge UI (calendar, bonus multiplier)
+❌ Combo display in HUD (streak counter, multiplier)
+❌ Confetti celebration on level complete
+❌ Pause Dialog (resume/restart/exit)
+❌ Star rating system (based on path efficiency %)
+❌ Undo last connection button
+❌ Level badge in header
+❌ Mute button in HUD
+❌ Pause button in HUD
+
+================================================================================
+4. IMPLEMENTATION PLAN
+================================================================================
+
+Following Gold Standard: Tutorial → Menu → Playing (with HUD) → Result
+
+New Components (in src/features/route/components/):
+
+1. Tutorial.tsx — 5-step guided walkthrough
+2. MenuScreen.tsx — 6 buttons (Play/Levels/Daily/Achievements/Stats/Settings)
+3. LevelSelector.tsx — 10 levels, progressive unlock, stars
+4. Settings.tsx — Sound, volume, theme
+5. StatsScreen.tsx — Statistics with localStorage persistence
+6. Achievements.tsx — 10 badges + AchievementPopup
+7. DailyChallenge.tsx — Calendar, day-of-week difficulty
+8. Confetti.tsx — 60-piece celebration
+9. PauseDialog.tsx — Resume/Restart/Exit
+10. GamePage.tsx — REWRITE as full phase orchestrator
+11. GameHeader.tsx — ENHANCE (level badge, combo, mute, pause, undo)
+
+================================================================================
+5. LEVEL CONFIGURATION (FRONTEND)
+================================================================================
+
+Level 1:  5 nodes,  60s timer, ×1.0 — "Starter"
+Level 2:  6 nodes,  55s timer, ×1.2 — "Easy"
+Level 3:  7 nodes,  52s timer, ×1.4 — "Simple"
+Level 4:  8 nodes,  50s timer, ×1.6 — "Moderate"
+Level 5:  9 nodes,  47s timer, ×1.8 — "Intermediate"
+Level 6:  10 nodes, 44s timer, ×2.0 — "Challenging"
+Level 7:  11 nodes, 42s timer, ×2.3 — "Hard"
+Level 8:  12 nodes, 40s timer, ×2.6 — "Expert"
+Level 9:  14 nodes, 37s timer, ×3.0 — "Master"
+Level 10: 16 nodes, 35s timer, ×3.5 — "Grandmaster"
+
+Star Rating (based on path efficiency %):
+- 3 stars: efficiency ≥ 90%
+- 2 stars: efficiency ≥ 70%
+- 1 star: game completed (any efficiency)
+
+================================================================================
+6. SCORING FORMULA
+================================================================================
+
+baseScore = pathEfficiency + (nodesConnected × 10)
+comboBonus = streak × bonusPerLevel × comboMultiplier
+timeBonus = (timeRemaining / totalTime) × 50
+levelMultiplier = from level config (1.0 to 3.5)
+
+finalScore = (baseScore + comboBonus + timeBonus) × levelMultiplier
+
+================================================================================
+7. AUDIO INTEGRATION
+================================================================================
+
+Sound Registry (already defined):
+- routePlace: Played when first node selected
+- routeConnect: Played when edge successfully created
+- routeError: Played on invalid connection attempt
+- levelComplete: Played on level complete with good efficiency
+- gameOver: Played when timer expires
+- uiClick: Played on menu/button interactions
+
+Additional triggers needed:
+- Combo milestone sounds (3x, 5x, 10x streak)
+- Achievement unlock sound
+- Star rating reveal sound
+
+================================================================================
+8. PERSISTENCE (localStorage)
+================================================================================
+
+Keys:
+- live-route-highest-level: number (1-10)
+- live-route-level-stars-{n}: number (0-3)
+- live-route-stats: JSON (GameStats)
+- live-route-achievements: JSON (AchievementProgress[])
+- live-route-daily-{YYYY-MM-DD}: boolean
+- live-route-settings: JSON (sound, volume, theme)
+- live-route-tutorial-seen: boolean
+
+================================================================================
+9. BACKEND INTEGRATION POINTS
+================================================================================
+
+Already in live-route-backend/src/game/engine/:
+- levelConfig.ts → 10 levels with nodeCount, timer, multiplier
+- achievementEngine.ts → 10 achievements
+- boosterEngine.ts → TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+- comboEngine.ts → Streak tracking with multiplier
+- dailyChallenge.ts → Date-seeded daily
+- leaderboard.ts → Ranked scores
+- timingAnalyzer.ts → Anti-cheat input timing analysis
+
+================================================================================
+10. COMPARISON: CURRENT STATE vs GOLD STANDARD
+================================================================================
+
+Gold Standard Screens:        Current State:
+─────────────────────         ──────────────
+Tutorial (guided)             ⚠️ InstructionScreen exists but static (not step-by-step)
+Menu                          ❌ No menu (goes straight to instructions → game)
+Level Selector                ❌ No level selector (single hardcoded config)
+Playing (with full HUD)       ⚠️ GameHeader exists but lacks combo/mute/pause/undo
+Pause Dialog                  ❌ No pause
+Result (score + stars)        ⚠️ ResultScreen + GameOverScreen exist but no stars
+Settings                      ❌ No settings screen
+Stats                         ❌ No stats screen
+Achievements                  ❌ No achievements UI (backend exists)
+Daily Challenge               ❌ No daily challenge UI (backend exists)
+Confetti                      ❌ No celebration animation
+
+================================================================================
+END OF ANALYSIS
+================================================================================

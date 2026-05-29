@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZUBACO Games - Dev Launcher</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 2rem;
+    }
+    .banner {
+      background: #ff6b35;
+      color: #fff;
+      text-align: center;
+      padding: 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    header h1 {
+      font-size: 2.5rem;
+      background: linear-gradient(90deg, #e94560, #f5a623);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+    header p {
+      color: #aaa;
+      font-size: 1rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1.5rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 1.5rem;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: #e94560;
+      background: rgba(233,69,96,0.1);
+      box-shadow: 0 8px 32px rgba(233,69,96,0.2);
+    }
+    .card .icon {
+      font-size: 2.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .card h3 {
+      font-size: 1.1rem;
+      margin-bottom: 0.4rem;
+    }
+    .card p {
+      font-size: 0.8rem;
+      color: #888;
+    }
+    .card .port {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      background: rgba(255,255,255,0.1);
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      font-size: 0.7rem;
+      color: #aaa;
+    }
+    .status {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      background: #555;
+    }
+    .status.online { background: #4caf50; }
+    .status.offline { background: #f44336; }
+    .footer {
+      text-align: center;
+      margin-top: 3rem;
+      color: #555;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">⚠️ TEMPORARY DEV LAUNCHER — This will be replaced by the production web app</div>
+  <header>
+    <h1>ZUBACO Games</h1>
+    <p>Development Launcher — Click any game to play</p>
+  </header>
+  <div class="grid" id="games-grid"></div>
+  <div class="footer">
+    <p>Dev mode • Games open in new tabs with auto-generated auth tokens</p>
+  </div>
+
+  <script>
+    const GAMES = [
+      { slug: 'colour-sorting', name: 'Colour Sorting', icon: '🎨', port: 3005, desc: 'Sort colours into correct tubes', backendPort: 3006 },
+      { slug: 'arrows', name: 'Arrows', icon: '➡️', port: 3101, desc: 'Follow arrow directions quickly', backendPort: 3102 },
+      { slug: 'block-fill', name: 'Block Fill', icon: '🧱', port: 3103, desc: 'Fill the grid with blocks', backendPort: 3104 },
+      { slug: 'flash-spot', name: 'Flash Spot', icon: '⚡', port: 3105, desc: 'Spot the flashing elements', backendPort: 3106 },
+      { slug: 'Infinity-loop', name: 'Infinity Loop', icon: '♾️', port: 3107, desc: 'Connect all loops', backendPort: 3108 },
+      { slug: 'live-route-builder', name: 'Live Route Builder', icon: '🛤️', port: 3109, desc: 'Build routes in real-time', backendPort: 3110 },
+      { slug: 'logic-reflector', name: 'Logic Reflector', icon: '🪞', port: 3111, desc: 'Reflect logic patterns', backendPort: 3112 },
+      { slug: 'maze-navigation', name: 'Maze Navigation', icon: '🏁', port: 3113, desc: 'Navigate through mazes', backendPort: 3114 },
+      { slug: 'memory-card-matching', name: 'Memory Card Matching', icon: '🃏', port: 3115, desc: 'Match pairs of cards', backendPort: 3116 },
+      { slug: 'memory-groups', name: 'Memory Groups', icon: '🧠', port: 3117, desc: 'Remember and group items', backendPort: 3118 },
+      { slug: 'number-grid-sprint', name: 'Number Grid Sprint', icon: '🔢', port: 3119, desc: 'Find numbers in sequence', backendPort: 3120 },
+      { slug: 'object-placement-memory', name: 'Object Placement Memory', icon: '📦', port: 3121, desc: 'Remember object positions', backendPort: 3122 },
+      { slug: 'pattern-survival', name: 'Pattern Survival', icon: '🔶', port: 3123, desc: 'Survive by matching patterns', backendPort: 3124 },
+      { slug: 'rapid-category-sort', name: 'Rapid Category Sort', icon: '📂', port: 3125, desc: 'Sort items into categories', backendPort: 3126 },
+      { slug: 'reflex-endurance', name: 'Reflex Endurance', icon: '🎯', port: 3127, desc: 'Test your reflexes', backendPort: 3128 },
+      { slug: 'sequence-recall', name: 'Sequence Recall', icon: '🔁', port: 3129, desc: 'Recall sequences in order', backendPort: 3130 },
+      { slug: 'sliding-puzzle', name: 'Sliding Puzzle', icon: '🧩', port: 3131, desc: 'Slide tiles to solve', backendPort: 3132 },
+      { slug: 'speed-type-answer', name: 'Speed Type Answer', icon: '⌨️', port: 3133, desc: 'Type answers quickly', backendPort: 3134 },
+      { slug: 'true-false-blitz', name: 'True False Blitz', icon: '✅', port: 3135, desc: 'Quick true/false decisions', backendPort: 3136 },
+      { slug: 'word-unscramble', name: 'Word Unscramble', icon: '🔤', port: 3011, desc: 'Unscramble the words', backendPort: 3012 },
+    ];
+
+    // Simple JWT generation (HS256) for dev use only
+    function base64url(str) {
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // Map of game slugs to their JWT secrets
+    const JWT_SECRETS = {
+      'colour-sorting': 'dev-secret-colour-sorting',
+      'word-unscramble': 'zubaco-word-unscramble-jwt-secret-2025',
+    };
+
+    async function generateDevToken(gameSlug) {
+      const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+      const now = Math.floor(Date.now() / 1000);
+      const payload = base64url(JSON.stringify({
+        sub: 'dev-user-001',
+        sessionId: 'dev-session-' + Date.now(),
+        iat: now,
+        exp: now + 86400 * 7
+      }));
+      const data = header + '.' + payload;
+      const secret = JWT_SECRETS[gameSlug] || 'dev-secret-' + gameSlug;
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+      const sig = await crypto.subtle.sign('HMAC', key, enc.encode(data));
+      const signature = base64url(String.fromCharCode(...new Uint8Array(sig)));
+      return data + '.' + signature;
+    }
+
+    async function checkHealth(port) {
+      try {
+        const res = await fetch(`http://localhost:${port}/api/v1/health`, { signal: AbortSignal.timeout(2000) });
+        return res.ok;
+      } catch { return false; }
+    }
+
+    async function render() {
+      const grid = document.getElementById('games-grid');
+      for (const game of GAMES) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <span class="port">:${game.port}</span>
+          <div class="icon">${game.icon}</div>
+          <h3><span class="status" id="status-${game.slug}"></span>${game.name}</h3>
+          <p>${game.desc}</p>
+        `;
+        card.onclick = async () => {
+          const token = await generateDevToken(game.slug);
+          window.open(`http://localhost:${game.port}/?token=${token}`, '_blank');
+        };
+        grid.appendChild(card);
+      }
+
+      // Check which backends are online
+      for (const game of GAMES) {
+        checkHealth(game.backendPort).then(online => {
+          const dot = document.getElementById(`status-${game.slug}`);
+          if (dot) dot.classList.add(online ? 'online' : 'offline');
+        });
+      }
+    }
+
+    render();
+  </script>
+</body>
+</html>

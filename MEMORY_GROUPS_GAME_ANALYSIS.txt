@@ -1,0 +1,180 @@
+========================================================================
+MEMORY GROUPS – GAME ANALYSIS
+========================================================================
+Date: 2025-05-25
+Game: Memory Groups
+Location: C:\game\zubaco-games-repo\zubaco-games\memory-groups\memory-groups-frontend\
+
+========================================================================
+1. TECH STACK
+========================================================================
+- React 19 + Vite + TypeScript
+- TailwindCSS 3.4
+- Framer Motion (framer-motion ^12.0.0)
+- i18next for internationalization
+- Custom HTTP client (axios-based) for API calls
+
+========================================================================
+2. ARCHITECTURE
+========================================================================
+State Management:
+- Custom hooks (useMemoryGroups, useGameSession) — useState + useCallback
+- NO Zustand, NO React Query, NO Redux
+- Phase state machine inside useMemoryGroups hook
+
+Screen Flow (Phase-based in GamePage.tsx):
+- idle → Shows InstructionScreen (with "Start" button)
+- memorize → Shows words face-up for showDurationMs (5 seconds default)
+- play → Player selects words to form groups, countdown timer
+- ended → Shows ResultScreen with score
+
+App Structure:
+- App.tsx → ErrorBoundary → ThemeProvider → OfflineBanner → GamePage
+- Single component (GamePage) handles all phases inline
+- No React Router, no separate page components
+
+========================================================================
+3. GAME MECHANICS
+========================================================================
+Phases:
+- idle → Waiting to start, shows instructions
+- memorize → Words displayed face-up for memorization (5s default)
+- play → Timer counts down, player groups words by category
+- ended → Game over, shows score & submits to API
+
+Core Gameplay:
+- 9 words displayed in 3×3 grid (3 groups × 3 words each)
+- Words belong to semantic categories (Fruits, Colors, Planets, etc.)
+- Player memorizes word groupings during memorize phase
+- After memorize, words shuffle; player selects 3 at a time
+- "Lock Group" button submits a group of 3 selected words
+- 3 groups total to submit within time limit (60s default)
+- Scoring: points per correct group + partial credit + time bonus
+
+Word Sets (8 predefined):
+- Fruits/Colors/Planets, Animals/Tools/Sports, Instruments/Countries/Elements
+- Vehicles/Foods/Weather, Clothes/Trees/Dances, Gems/Seas/Metals
+- Birds/Flowers/Languages, Drinks/Shapes/Emotions
+
+Scoring:
+- pointsPerGroup: 50 (full correct group)
+- pointsPerPartialWord: 10 (word in wrong group but correct category)
+- timeBonusMultiplier: 3 (seconds_remaining × 3)
+
+Config:
+- showDurationMs: 5000 (memorize time)
+- timeLimitMs: 60000 (play time)
+- groupSize: 3
+- totalGroups: 3
+
+========================================================================
+4. EXISTING COMPONENTS
+========================================================================
+Components:
+- InstructionScreen.tsx → How to play + Start button (uses i18n)
+- ResultScreen.tsx → Score display + replay button
+- GamePage.tsx → All game phases inline (memorize, play, ended)
+- WordCard.tsx → Single word chip (selected/used/disabled states)
+- ErrorBoundary.tsx → Error boundary wrapper
+- OfflineBanner.tsx → Offline status indicator
+
+Hooks:
+- useMemoryGroups.ts → Game state machine (phase, words, selection, timer)
+- useGameSession.ts → API calls (start, submit)
+- useAudio.ts → Sound control
+- useSocket.ts → WebSocket connection
+- useTheme.tsx → Theme provider
+
+Engine:
+- wordBank.ts → 8 word sets + seeded selection/shuffle
+- scorer.ts → Score calculation (correct groups + partial + time bonus)
+- random.ts → Mulberry32 PRNG for deterministic seeds
+
+Audio (7 sounds):
+- itemSelect, groupMatch, groupMismatch, combo, levelComplete, gameOver, uiClick
+
+========================================================================
+5. BACKEND ENGINE
+========================================================================
+- achievementEngine.ts → 10 achievements (standard pattern)
+- boosterEngine.ts → 5 boosters: TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+- comboEngine.ts → Streak multiplier (max 4×, milestone every 3)
+- dailyChallenge.ts → Date-seeded daily with bonus multiplier
+- leaderboard.ts → Top 100 ranked scores
+- scoreHistory.ts → Historical score tracking
+- levelConfig.ts → 10 levels with scaling difficulty:
+  - Level 1: 3 groups × 3 items, 90s, 1.0× multiplier
+  - Level 5: 4 groups × 5 items, 70s, 1.8× multiplier
+  - Level 10: 6 groups × 6 items, 45s, 3.5× multiplier
+
+========================================================================
+6. WHAT'S MISSING (Gold Standard gaps)
+========================================================================
+Current flow: idle (instructions) → memorize → play → ended (result)
+No menu, no levels, no daily, no achievements, no stats, no settings, no pause.
+
+MISSING features for Gold Standard:
+1. MenuScreen — Main menu with 6 options
+2. LevelSelector — 10 levels with stars, unlock progression
+3. Settings — Sound toggle, volume, theme
+4. StatsScreen — 10 game statistics
+5. Achievements — 10 badges with unlock popup
+6. DailyChallenge — Calendar, date-seeded puzzle, streak
+7. PauseDialog — Pause during gameplay
+8. Confetti — Win celebration particles
+
+Integration plan:
+- GamePage.tsx has inline phase machine — add 'menu' phase as initial
+- Add new phase values: 'menu' | 'levels' | 'daily' | 'achievements' | 'stats' | 'settings'
+- When 'menu' is shown, render MenuScreen
+- "Play" → transitions to existing 'idle' (instructions)
+- Back buttons return to 'menu'
+
+========================================================================
+7. SIMILAR GAMES (Internet Research)
+========================================================================
+Popular word grouping/memory games:
+
+1. "Connections" (NYT - Millions daily players)
+   - 16 words, find 4 groups of 4
+   - Color-coded difficulty per group
+   - Daily puzzle mode
+   - Streak tracking
+
+2. "Word Categorize" (Google Play)
+   - Multiple word categories
+   - Timed challenges
+   - Progressive difficulty
+   - Daily rewards
+
+3. "Memory Word Association" (iOS)
+   - Memorize-then-recall mechanic (identical to this game)
+   - Increasing group sizes
+   - Star rating per level
+   - Achievement badges
+
+4. "Groupie" (Web game)
+   - Drag words into groups
+   - Hint system (reveal one word)
+   - Speed bonus scoring
+   - Leaderboards
+
+Features to incorporate:
+- Star rating: 3★ = all groups correct, 2★ = 2/3 correct, 1★ = 1/3 correct
+- Color-coded categories on reveal
+- Streak tracking for consecutive perfect rounds
+- Hint booster: reveal which category a word belongs to
+
+========================================================================
+8. GOLD STANDARD ARCHITECTURE COMPLIANCE
+========================================================================
+Required: Menu → [Play/Levels/Daily/Achievements/Stats/Settings]
+         → Play → Instructions → Gameplay (HUD + Pause) → Result + Confetti
+
+Star Rating:
+- 3★ = All groups perfectly correct
+- 2★ = 2 out of 3 groups correct
+- 1★ = 1 or fewer correct (but finished)
+
+Components to create in: src/features/groups/components/
+========================================================================

@@ -1,0 +1,121 @@
+name: Game Services - CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'zubaco-games-repo/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'zubaco-games-repo/**'
+
+env:
+  AWS_REGION: ap-south-1
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      games: ${{ steps.changes.outputs.games }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed games
+        id: changes
+        run: |
+          BEFORE="${{ github.event.before }}"
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE" ]; then
+            BEFORE="${{ github.sha }}~1"
+          fi
+          GAMES=$(git diff --name-only "$BEFORE" ${{ github.sha }} | \
+            grep "^zubaco-games-repo/zubaco-games/" | \
+            cut -d'/' -f3 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+          if [ "$GAMES" = "null" ] || [ -z "$GAMES" ]; then
+            GAMES="[]"
+          fi
+          echo "games=$GAMES" >> $GITHUB_OUTPUT
+
+  build-game:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.games != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        game: ${{ fromJson(needs.detect-changes.outputs.games) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Backend
+        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        run: |
+          BACKEND=$(ls -d *-backend 2>/dev/null || echo "")
+          if [ -n "$BACKEND" ]; then
+            cd $BACKEND
+            npm ci --legacy-peer-deps
+            npx prisma generate 2>/dev/null || true
+            npx tsc --noEmit
+          fi
+
+      - name: Build Frontend
+        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        run: |
+          FRONTEND=$(ls -d *-frontend 2>/dev/null || echo "")
+          if [ -n "$FRONTEND" ]; then
+            cd $FRONTEND
+            npm ci --legacy-peer-deps
+            npm run build
+          fi
+
+  deploy-games:
+    needs: [detect-changes, build-game]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      matrix:
+        game: ${{ fromJson(needs.detect-changes.outputs.games) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Deploy Backend
+        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        run: |
+          BACKEND=$(ls -d *-backend 2>/dev/null || echo "")
+          if [ -n "$BACKEND" ]; then
+            cd $BACKEND
+            REPO_NAME="zubaco-${{ matrix.game }}-backend"
+            docker build -t ${{ steps.login-ecr.outputs.registry }}/$REPO_NAME:${{ github.sha }} -f ../../docker/backend.Dockerfile .
+            docker push ${{ steps.login-ecr.outputs.registry }}/$REPO_NAME:${{ github.sha }}
+          fi
+
+      - name: Build & Deploy Frontend to S3/CloudFront
+        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        run: |
+          FRONTEND=$(ls -d *-frontend 2>/dev/null || echo "")
+          if [ -n "$FRONTEND" ]; then
+            cd $FRONTEND
+            npm ci --legacy-peer-deps
+            npm run build
+            aws s3 sync dist/ s3://zubaco-games-cdn/${{ matrix.game }}/ --delete
+            aws cloudfront create-invalidation --distribution-id ${{ secrets.CF_DISTRIBUTION_ID }} --paths "/${{ matrix.game }}/*"
+          fi

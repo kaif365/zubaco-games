@@ -1,0 +1,328 @@
+WORD UNSCRAMBLE - TEST CHECKLIST
+===================================
+Game: Word Unscramble (Tap letters to spell the word)
+Location: word-unscramble/word-unscramble-frontend/
+Date: 2025
+
+================================================================================
+SECTION 1: MENU SCREEN (12 tests)
+================================================================================
+
+[ ] 1.01  Menu renders on app load with title "🔤 Word Unscramble"
+[ ] 1.02  Subtitle "Unscramble the letters — beat the clock!" visible
+[ ] 1.03  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.04  Buttons animate in sequentially (staggered x-axis entrance)
+[ ] 1.05  Clicking "Play" navigates to game phase
+[ ] 1.06  Clicking "Levels" navigates to level selector
+[ ] 1.07  Clicking "Daily Challenge" navigates to daily challenge screen
+[ ] 1.08  Clicking "Achievements" navigates to achievements screen
+[ ] 1.09  Clicking "Statistics" navigates to stats screen
+[ ] 1.10  Clicking "Settings" navigates to settings screen
+[ ] 1.11  Each button has correct gradient color
+[ ] 1.12  Buttons have press animation (scale 0.97 on tap)
+
+================================================================================
+SECTION 2: LEVEL SELECTOR (14 tests)
+================================================================================
+
+[ ] 2.01  Level selector renders with "Select Level" title
+[ ] 2.02  10 level tiles displayed in 5-column grid
+[ ] 2.03  Level 1 is unlocked by default
+[ ] 2.04  Levels 2-10 are locked by default
+[ ] 2.05  Unlocked levels show level number and star rating
+[ ] 2.06  Locked levels show 🔒 icon
+[ ] 2.07  Locked levels are not clickable (disabled)
+[ ] 2.08  Clicking unlocked level starts game
+[ ] 2.09  Back button returns to menu
+[ ] 2.10  Stars: all solved = 3★, ≥70% = 2★, >0% = 1★
+[ ] 2.11  Level progress persists in localStorage (wordscramble_levels)
+[ ] 2.12  Higher levels have longer words & less time per word
+[ ] 2.13  Level tiles animate in with staggered delay
+[ ] 2.14  Description text "Higher levels = longer words & less time per word"
+
+================================================================================
+SECTION 3: DAILY CHALLENGE (13 tests)
+================================================================================
+
+[ ] 3.01  Daily challenge screen renders with "Daily Challenge" title
+[ ] 3.02  "Unscramble words every day!" subtitle visible
+[ ] 3.03  Week calendar shows Sun-Sat with current day highlighted (indigo ring)
+[ ] 3.04  Completed days show green circle with "✓"
+[ ] 3.05  Incomplete days show gray circle with "·"
+[ ] 3.06  Current day shows "▶" marker
+[ ] 3.07  Current streak counter displays correctly (orange)
+[ ] 3.08  Best streak counter displays correctly (yellow)
+[ ] 3.09  "Start Daily Challenge" button active if not completed today
+[ ] 3.10  Button disabled and shows "✓ Completed Today" after completion
+[ ] 3.11  Clicking start navigates to game phase
+[ ] 3.12  Daily state persists in localStorage (wordscramble_daily)
+[ ] 3.13  Back button returns to menu
+
+================================================================================
+SECTION 4: ACHIEVEMENTS (12 tests)
+================================================================================
+
+[ ] 4.01  Achievements screen renders with title and unlock count (X/10)
+[ ] 4.02  All 10 achievements listed with icon, title, description
+[ ] 4.03  Unlocked achievements show full opacity with "✓"
+[ ] 4.04  Locked achievements at 50% opacity
+[ ] 4.05  Achievement items animate in with stagger
+[ ] 4.06  "First Game" unlocks after first completed game
+[ ] 4.07  "Speed Solver" unlocks for solving word in <2s
+[ ] 4.08  "Perfectionist" unlocks for solving all 15 words
+[ ] 4.09  "Word King" unlocks at Level 10
+[ ] 4.10  "Long Word Pro" unlocks for solving 8-letter word
+[ ] 4.11  "High Roller" unlocks for 200+ score
+[ ] 4.12  Back button returns to menu
+
+================================================================================
+SECTION 5: STATISTICS (11 tests)
+================================================================================
+
+[ ] 5.01  Stats screen renders with "Statistics" title
+[ ] 5.02  10 stat cards displayed in 2-column grid
+[ ] 5.03  Games Played counter accurate
+[ ] 5.04  High Score shows all-time best
+[ ] 5.05  Words Solved accumulates
+[ ] 5.06  Words Attempted accumulates
+[ ] 5.07  Best Time Bonus tracks highest bonus
+[ ] 5.08  Avg Solve Time displayed
+[ ] 5.09  Longest Word Solved tracks letter count
+[ ] 5.10  Stat cards animate in with stagger
+[ ] 5.11  Back button returns to menu
+
+================================================================================
+SECTION 6: SETTINGS (10 tests)
+================================================================================
+
+[ ] 6.01  Settings screen renders with "Settings" title
+[ ] 6.02  Sound toggle with "Enable feedback sounds" subtitle
+[ ] 6.03  Toggling sound switch updates visual state (indigo vs gray)
+[ ] 6.04  Volume slider visible with percentage display
+[ ] 6.05  Volume slider disabled when sound off (opacity 40%)
+[ ] 6.06  Theme selector: dark/light/system buttons
+[ ] 6.07  Active theme button highlighted in indigo
+[ ] 6.08  All settings persist in localStorage (wordscramble_settings)
+[ ] 6.09  Toggle animations smooth (spring physics)
+[ ] 6.10  Back button returns to menu
+
+================================================================================
+SECTION 7: INSTRUCTION SCREEN (8 tests)
+================================================================================
+
+[ ] 7.01  Instruction screen shows when game starts (idle phase)
+[ ] 7.02  Game icon displayed (indigo play button)
+[ ] 7.03  Title from translation (game.title)
+[ ] 7.04  Instructions text from translation
+[ ] 7.05  Numbered steps shown
+[ ] 7.06  "Start" button visible (emerald green)
+[ ] 7.07  Button shows loading state when pressed
+[ ] 7.08  Clicking start triggers API call (POST /game/start)
+
+================================================================================
+SECTION 8: PLAYING - LETTER TILES (10 tests)
+================================================================================
+
+[ ] 8.01  Scrambled letters displayed as individual tiles
+[ ] 8.02  Tiles are indigo (bg-indigo-600) when available
+[ ] 8.03  Tiles shrink + fade (scale 0.8, opacity 0.3) when selected
+[ ] 8.04  whileTap scale animation (0.9) on press
+[ ] 8.05  Clicking a tile adds letter to built word
+[ ] 8.06  Selected tiles disabled (cannot double-select)
+[ ] 8.07  Tiles flex-wrap centered with gap-3
+[ ] 8.08  Tiles responsive (w-14/h-14 md:w-16/h-16)
+[ ] 8.09  Letter displayed in bold 2xl font
+[ ] 8.10  Each tile keyed by currentIndex+idx for proper re-render
+
+================================================================================
+SECTION 9: PLAYING - WORD DISPLAY (10 tests)
+================================================================================
+
+[ ] 9.01  Target slots shown for word length (empty boxes)
+[ ] 9.02  Empty slots: gray border, bg-gray-800/50
+[ ] 9.03  Filled slots: green border, bg-green-900/20, green text
+[ ] 9.04  Scale animation on letter placement ([1.1, 1])
+[ ] 9.05  Backspace button appears when ≥1 letter selected (red)
+[ ] 9.06  Backspace removes last letter
+[ ] 9.07  Slots responsive (w-11/h-14 md:w-13/h-16)
+[ ] 9.08  Letters display in order they were selected
+[ ] 9.09  All slots empty on new word
+[ ] 9.10  Word auto-checks when all slots filled
+
+================================================================================
+SECTION 10: PLAYING - GAME HEADER (10 tests)
+================================================================================
+
+[ ] 10.01  Global timer shows seconds remaining (from timeLimitMs = 90s)
+[ ] 10.02  Timer turns red and pulses at ≤10 seconds
+[ ] 10.03  Word counter shows "X / total" (e.g., "3 / 15")
+[ ] 10.04  Per-word progress bar (blue) shrinks over wordTimeMs
+[ ] 10.05  Solved counter (green) shows number of correct words
+[ ] 10.06  Timer decrements in real-time (100ms interval)
+[ ] 10.07  Game ends when global timer reaches 0
+[ ] 10.08  Header elements: left (word counter), center (timer), right (solved)
+[ ] 10.09  "Word" label above counter
+[ ] 10.10  "Solved" label above solved count
+
+================================================================================
+SECTION 11: WORD SOLVING LOGIC (12 tests)
+================================================================================
+
+[ ] 11.01  Selecting all tiles in correct order = word solved
+[ ] 11.02  Correct word auto-advances immediately to next word
+[ ] 11.03  Wrong order (all tiles used, wrong word) resets selection
+[ ] 11.04  Per-word timer (wordTimeMs = 6000ms) auto-advances on expiry
+[ ] 11.05  Unanswered word on timeout counts as unsolved (solved: false)
+[ ] 11.06  answeredRef tracks whether current word already submitted
+[ ] 11.07  Keyboard: letter keys select first matching unselected tile
+[ ] 11.08  Keyboard: Backspace removes last selected letter
+[ ] 11.09  Game ends when all words attempted OR global timer expires
+[ ] 11.10  Per-word timer resets on advance
+[ ] 11.11  Word scramble ensures scrambled ≠ original (up to 10 attempts)
+[ ] 11.12  Word selection from seeded PRNG (mulberry32)
+
+================================================================================
+SECTION 12: SCORING LOGIC (8 tests)
+================================================================================
+
+[ ] 12.01  Solved word: +pointsPerWord (15)
+[ ] 12.02  Unsolved word: 0 points (no penalty)
+[ ] 12.03  Time bonus: seconds saved × timeBonusPerSecond (1)
+[ ] 12.04  Seconds saved = floor((wordTimeMs - timeSpentMs) / 1000)
+[ ] 12.05  Only solved words earn time bonus
+[ ] 12.06  Final = wordsSolved × 15 + timeBonus
+[ ] 12.07  ScoreResult: { wordsSolved, wordsTotal, timeBonus, finalScore }
+[ ] 12.08  Faster solving = higher time bonus
+
+================================================================================
+SECTION 13: RESULT SCREEN (10 tests)
+================================================================================
+
+[ ] 13.01  Result screen shows on "finished" phase
+[ ] 13.02  Success icon (green checkmark) displayed
+[ ] 13.03  "Well Done!" title shown
+[ ] 13.04  Final score displayed (large 4xl font)
+[ ] 13.05  "SCORE" label below number
+[ ] 13.06  "Play Again" button visible
+[ ] 13.07  Clicking replay returns to menu (onReturnToMenu)
+[ ] 13.08  Result screen animates in (scale + opacity)
+[ ] 13.09  Confetti triggers if perfect game or score ≥180
+[ ] 13.10  Score submitted to API (POST /game/submit)
+
+================================================================================
+SECTION 14: API INTEGRATION (10 tests)
+================================================================================
+
+[ ] 14.01  POST /game/start sends { stageId }
+[ ] 14.02  Response: gameSessionId, endTime, serverTime, config, seed received
+[ ] 14.03  Config updates game parameters (totalWords, wordTimeMs, timeLimitMs, etc.)
+[ ] 14.04  Seed used for PRNG word selection and scrambling
+[ ] 14.05  POST /game/submit sends { gameSessionId, answers, clientScore }
+[ ] 14.06  Response: finalScore, status, wordsSolved, wordsTotal, timeBonus
+[ ] 14.07  Bearer token from URL param or sessionStorage attached
+[ ] 14.08  Encryption interceptors applied (AES) when enabled
+[ ] 14.09  Error handling for API failures
+[ ] 14.10  Loading state shown during API calls
+
+================================================================================
+SECTION 15: WORD BANK & PRNG (8 tests)
+================================================================================
+
+[ ] 15.01  108 words available in bank (4-8 letter words)
+[ ] 15.02  Words organized by length: 30×4, 30×5, 30×6, 24×7, 18×8
+[ ] 15.03  Common English words, easy to recognize
+[ ] 15.04  Seeded mulberry32 PRNG produces deterministic order
+[ ] 15.05  seededShuffle Fisher-Yates shuffle with PRNG
+[ ] 15.06  scrambleWord guarantees scrambled ≠ original
+[ ] 15.07  Word count configurable (config.totalWords)
+[ ] 15.08  No duplicate words per game
+
+================================================================================
+SECTION 16: PAUSE DIALOG (8 tests)
+================================================================================
+
+[ ] 16.01  Pause dialog renders with "Game Paused" title
+[ ] 16.02  Three buttons: Resume, Restart, Quit to Menu
+[ ] 16.03  Backdrop blur and dark overlay (bg-black/60)
+[ ] 16.04  Resume continues game
+[ ] 16.05  Restart starts fresh game
+[ ] 16.06  Quit returns to menu (setAppPhase('menu'))
+[ ] 16.07  Dialog animates in (spring scale from 0.8)
+[ ] 16.08  Clicking backdrop resumes game
+
+================================================================================
+SECTION 17: CONFETTI (7 tests)
+================================================================================
+
+[ ] 17.01  Confetti triggers on perfect game or score ≥180
+[ ] 17.02  65 particles spawn with varied colors (8 color palette)
+[ ] 17.03  Particles fall with gravity from top
+[ ] 17.04  Particles rotate during fall (360°)
+[ ] 17.05  Confetti stops after duration (3s default)
+[ ] 17.06  Doesn't block interactions (pointer-events-none)
+[ ] 17.07  Particles have varied drift and scale
+
+================================================================================
+SECTION 18: NAVIGATION & STATE MACHINE (10 tests)
+================================================================================
+
+[ ] 18.01  App starts at 'menu' phase
+[ ] 18.02  All menu → screen transitions work correctly
+[ ] 18.03  All "Back" buttons return to 'menu' phase
+[ ] 18.04  Game end → returns to menu (not window.location.reload)
+[ ] 18.05  AppPhase type: 'menu' | 'levels' | 'daily' | 'achievements' | 'stats' | 'settings' | 'game'
+[ ] 18.06  App.tsx renders GamePage from features/unscramble/components/
+[ ] 18.07  ErrorBoundary wraps entire app
+[ ] 18.08  ThemeProvider wraps app
+[ ] 18.09  OfflineBanner visible at all phases
+[ ] 18.10  No router used (single-page phase switching)
+
+================================================================================
+SECTION 19: OFFLINE & ERROR HANDLING (6 tests)
+================================================================================
+
+[ ] 19.01  OfflineBanner shows when connection lost
+[ ] 19.02  ErrorBoundary catches render errors
+[ ] 19.03  API errors handled gracefully
+[ ] 19.04  Loading states prevent double-clicks
+[ ] 19.05  Game fails gracefully if API unreachable
+[ ] 19.06  localStorage corruption handled (try/catch in all load functions)
+
+================================================================================
+SECTION 20: RESPONSIVE & PERFORMANCE (8 tests)
+================================================================================
+
+[ ] 20.01  Letter tiles usable on mobile (w-14/h-14 touch targets)
+[ ] 20.02  Word display readable on small screens
+[ ] 20.03  Timer visible on all sizes
+[ ] 20.04  Timers cleaned up on unmount (clearTimers)
+[ ] 20.05  Per-word timeout cleaned up on unmount
+[ ] 20.06  Keyboard listener removed on phase change
+[ ] 20.07  AnimatePresence prevents orphaned animations
+[ ] 20.08  Rapid taps don't cause state corruption
+
+================================================================================
+TOTAL TESTS: 197
+================================================================================
+SECTIONS BREAKDOWN:
+- Menu Screen: 12
+- Level Selector: 14
+- Daily Challenge: 13
+- Achievements: 12
+- Statistics: 11
+- Settings: 10
+- Instruction Screen: 8
+- Letter Tiles: 10
+- Word Display: 10
+- Game Header: 10
+- Word Solving Logic: 12
+- Scoring Logic: 8
+- Result Screen: 10
+- API Integration: 10
+- Word Bank & PRNG: 8
+- Pause Dialog: 8
+- Confetti: 7
+- Navigation & State: 10
+- Offline & Error: 6
+- Responsive & Performance: 8
+================================================================================

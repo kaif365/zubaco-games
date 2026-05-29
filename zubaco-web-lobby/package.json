@@ -1,0 +1,9 @@
+{
+  "name": "zubaco-web-lobby",
+  "version": "0.0.1-dev",
+  "private": true,
+  "description": "TEMPORARY dev launcher for testing all 20 games in browser",
+  "scripts": {
+    "dev": "npx serve . -p 3009 -s"
+  }
+}

@@ -1,0 +1,992 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #18: SPEED TYPE ANSWER (Quiz Typing Game)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Trivia/quiz game — question "flashes" briefly, player memorizes it,
+          then types the answer within a time limit. Points awarded for correct
+          answers with a speed bonus proportional to remaining time.
+Stack: NestJS 11 + Prisma 7 + BullMQ + Zod + Encryption Interceptor (backend),
+       React 19 + Vite 6 + Framer Motion + i18n + TanStack Query (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Speed Type Answer is a simple quiz game where players see a trivia question
+briefly ("flash" phase), then must type the exact answer within a time limit.
+Scoring awards 20 points per correct answer plus a speed bonus (up to 10)
+proportional to how quickly the answer was submitted.
+
+FUNDAMENTAL DESIGN FLAW: The question bank is HARDCODED (only 30 questions!)
+and DUPLICATED identically in both the frontend and backend source code.
+This means:
+  1. Players see the same questions repeatedly after just a few sessions
+  2. ALL 30 answers are literally embedded in the client JavaScript bundle
+  3. Any player can open DevTools → Sources → read every answer
+  4. The game has zero long-term replay value
+
+The architecture is extremely simple compared to Games #16-17 (Sequence Recall,
+Sliding Puzzle). No Restate, no move batching, no session recovery, no offline
+handling, no sound system. Just two API endpoints: start → submit.
+
+The anti-cheat uses a clever seed-based verification: server and client
+independently derive the same question set from seeds, then server re-scores
+at submission time and flags divergent scores. However, since the question
+bank is in the client bundle, this is security theater.
+
+TOTAL ISSUES: 28 (2 Critical, 5 High, 12 Medium, 9 Low)
+
+RELEASE READINESS SCORE: 42/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Question bank hardcoded (30 questions) AND exposed in client bundle
+           File: speed-type-frontend/src/features/typing/engine/questionBank.ts
+           File: speed-type-backend/src/game/engine/questionBank.ts
+           IDENTICAL content in both files.
+           ANY player can view-source → see all answers.
+           Game is trivially defeated. Zero replay value.
+
+BLOCKER-2: Fallback secrets in THREE locations:
+           - session.guard.ts: process.env['JWT_SECRET'] || 'dev-secret'
+           - game.gateway.ts: process.env.JWT_SECRET || 'dev-secret'
+           - app.config.ts: process.env.JWT_SECRET || 'dev-secret-speed-type'
+           These allow authentication bypass if env var is missing.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (14 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: Hardcoded Question Bank (30 Questions Only!)                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Game Design / Content                                              │
+│ File: src/game/engine/questionBank.ts                                        │
+│                                                                              │
+│ Only 30 trivia questions hardcoded in an array. At 10 questions per          │
+│ session, a player exhausts unique content in 3 plays. At 16 questions        │
+│ per session (level 10), 2 plays = repetition.                                │
+│                                                                              │
+│ Fix: Move questions to the database. Allow admin to add/edit. Target         │
+│ 500+ questions minimum for reasonable replay value.                          │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: GAME-BREAKING                                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Three Fallback Secrets                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: src/common/guards/session.guard.ts (line 12),                         │
+│        src/ws/game.gateway.ts (line 37),                                     │
+│        src/common/config/app.config.ts (line 3)                              │
+│                                                                              │
+│ Code:                                                                        │
+│   jwt.verify(token, process.env['JWT_SECRET'] || 'dev-secret')              │
+│   process.env.JWT_SECRET || 'dev-secret'                                    │
+│   process.env.JWT_SECRET || 'dev-secret-speed-type'                          │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: .env Committed (DATABASE_URL)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: .env                                                                   │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/speed_type       │
+│                                                                              │
+│ Note: Only DATABASE_URL, no JWT_SECRET in .env (slightly better).            │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Swagger Exposed Unconditionally                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 50-56)                                               │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: serverSeed Sent to Client in startGame Response                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 41)                                     │
+│                                                                              │
+│ The startGame response includes `serverSeed` in plain text:                  │
+│   return { gameSessionId, serverSeed, config, ... }                          │
+│                                                                              │
+│ Combined with the deterministic question selection algorithm (also            │
+│ in the client), a player can:                                                │
+│   1. Call /game/start → get serverSeed                                       │
+│   2. Run selectQuestions(computeFinalSeed(serverSeed, clientSeed, 0), n)     │
+│   3. See all questions + correct answers BEFORE any flash!                   │
+│                                                                              │
+│ This is INTENTIONAL for the verification model (client needs to              │
+│ derive same questions as server), but fundamentally flawed because           │
+│ the question bank is in the client.                                          │
+│                                                                              │
+│ Fix: Don't send questions to client at all. Server should send one           │
+│ question at a time, client types answer, server validates per-question.      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: No Fuzzy Answer Matching                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Design / UX                                                   │
+│ File: src/game/game.service.ts (line 64)                                     │
+│                                                                              │
+│ Code:                                                                        │
+│   ans.userAnswer.trim().toLowerCase() === q.answer.toLowerCase()             │
+│                                                                              │
+│ EXACT match only! Examples that would fail:                                  │
+│   - "Carbon Dioxide" vs "carbon dioxide" — works (lowercased)               │
+│   - "carbon dioxyde" → WRONG (typo)                                         │
+│   - "CO2" for "carbon dioxide" → WRONG (alternative notation)               │
+│   - "Thomas Edison" for "edison" → WRONG (first name included)              │
+│   - "the pacific" for "pacific" → WRONG (article)                           │
+│   - "blue whale" works ← but "a blue whale" → WRONG                        │
+│                                                                              │
+│ For a TYPING game, requiring exact letter-perfect answers is extremely       │
+│ punishing and frustrating. Need Levenshtein distance tolerance.             │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: VERY HIGH frustration                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Dead Engine Modules (6 Files)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts, boosterEngine.ts,               │
+│        comboEngine.ts, dailyChallenge.ts, leaderboard.ts, scoreHistory.ts    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: maxWordLength in LevelConfig Never Used                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code / Incomplete Feature                                     │
+│ File: src/game/engine/levelConfig.ts                                         │
+│                                                                              │
+│ The LevelParams interface has `maxWordLength` (6-14 per level) but the       │
+│ selectQuestions function never filters by answer length. All 30 questions    │
+│ are eligible regardless of level.                                            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Session Expiry Race Condition                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic                                                              │
+│ File: src/game/game.service.ts (line 48-51)                                  │
+│                                                                              │
+│ Code:                                                                        │
+│   const maxGameTime = this.config.totalQuestions *                            │
+│     (this.config.flashDurationMs + this.config.answerTimeMs);                │
+│   if (Date.now() > session.createdAt.getTime() + maxGameTime + 5000)        │
+│                                                                              │
+│ Uses hardcoded this.config instead of the session's stored config.           │
+│ If a level override was used (dto.level), the actual totalQuestions may      │
+│ differ from the default (10). Uses wrong config for expiry calculation.      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Score Multiplier Not Applied                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic                                                              │
+│ File: src/game/game.service.ts (line 37, 57-71)                              │
+│                                                                              │
+│ startGame returns `scoreMultiplier` from levelConfig (1.0 to 3.5), but      │
+│ submitGame scoring NEVER applies it. The multiplier is calculated and        │
+│ returned to the client but the server score ignores it.                      │
+│                                                                              │
+│ Either: (a) apply it: serverScore *= multiplier, or                          │
+│         (b) remove it from the response to avoid confusion.                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: CORS Falls Back to `true` in Non-Production                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 37-40)                                               │
+│                                                                              │
+│ Code:                                                                        │
+│   origin: corsOrigins.length > 0 ? corsOrigins : true                        │
+│                                                                              │
+│ Note: This game DOES throw in production if CORS_ORIGINS missing.           │
+│ Better than most games! But `true` in staging/dev still risky.              │
+│                                                                              │
+│ Priority Score: 3/10 (mitigated by production check)                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: No Anti-Replay Protection                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (submitGame)                                  │
+│                                                                              │
+│ While the session is marked 'verified'/'flagged' after submission,           │
+│ there's no nonce or request ID to prevent the same valid submission          │
+│ from being replayed within the short window before status update.            │
+│                                                                              │
+│ MITIGATED: updateMany with WHERE status='active' prevents double-submit.     │
+│                                                                              │
+│ Priority Score: 2/10 (well mitigated)                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: nonce Always 0 (Unused)                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/game/game.service.ts (line 55)                                     │
+│                                                                              │
+│ Code:                                                                        │
+│   computeFinalSeed(session.serverSeed, session.clientSeed, session.nonce)   │
+│                                                                              │
+│ The nonce is never set (defaults to 0 or NULL in DB). It's part of           │
+│ the seed computation but always the same value.                              │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: prisma.config.ts Has Hardcoded DATABASE_URL Fallback             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: prisma.config.ts (line 5)                                              │
+│                                                                              │
+│ Code:                                                                        │
+│   datasource: { url: process.env.DATABASE_URL ||                             │
+│     'postgresql://postgres:postgres@localhost:5432/speed_type_answer' }       │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (14 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Complete Question Bank + Answers in Client Bundle                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL (GAME-BREAKING)                                           │
+│ Category: Anti-Cheat / Design                                                │
+│ File: src/features/typing/engine/questionBank.ts                             │
+│                                                                              │
+│ ALL 30 questions with correct answers are in the production JavaScript       │
+│ bundle. A player can:                                                        │
+│   1. Open DevTools → Sources → search "Capital of France"                   │
+│   2. Find the entire QUESTIONS array with all answers                        │
+│   3. Memorize 30 answers → perfect score every time                          │
+│                                                                              │
+│ This is not a "could exploit" issue — it's a "why would anyone NOT           │
+│ exploit" issue. The game is fundamentally broken.                            │
+│                                                                              │
+│ Fix: Remove question bank from frontend entirely. Server sends one           │
+│ question text at a time. Client never sees answers.                          │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: GAME-BREAKING                                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: VITE_ENCRYPTION_KEY in Client Bundle                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 4)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || '';          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Auth Token in localStorage                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 11)                                   │
+│                                                                              │
+│ Code:                                                                        │
+│   const t = localStorage.getItem('token');                                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: No Sound Effects                                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: All components                                                         │
+│                                                                              │
+│ Description: No audio feedback whatsoever. No tick for typing, no            │
+│ "correct!" sound, no "wrong" buzzer, no countdown beep. A typing game       │
+│ without audio feedback feels lifeless.                                       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: No Session Recovery / Persistence                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: useTypingGame.ts                                                       │
+│                                                                              │
+│ Description: If the page refreshes mid-game, all progress is lost.           │
+│ No localStorage persistence, no session resume. The session just             │
+│ expires on the server side.                                                  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Typing-Based Game on Mobile = Terrible UX                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Platform                                                      │
+│ File: AnswerInput.tsx                                                        │
+│                                                                              │
+│ Description: This is a mobile-first platform (React Native app).             │
+│ Typing "carbon dioxide" on a phone keyboard within 5 seconds is             │
+│ nearly impossible. The on-screen keyboard covers half the screen.            │
+│ Auto-correct might change the answer. Swipe typing doesn't help              │
+│ with scientific terms.                                                        │
+│                                                                              │
+│ Fix: Consider multiple choice (MCQ) as alternative mode for mobile,          │
+│ OR much longer time limits for mobile, OR shorter single-word answers.       │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: VERY HIGH on mobile                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: 5-Second Auto-Submit on Timeout (Empty String)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: useTypingGame.ts (line 57)                                             │
+│                                                                              │
+│ Code:                                                                        │
+│   answerTimerRef.current = setTimeout(                                       │
+│     () => submitAnswer('', idx, cfg), cfg.answerTimeMs);                     │
+│                                                                              │
+│ After 5 seconds, auto-submits empty string = auto-fail. Player gets          │
+│ no warning that time is running out except the progress bar. No "3, 2,       │
+│ 1" countdown, no audio beep, no screen flash.                               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Correct/Wrong Feedback Between Questions                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GameBoard.tsx (line 29)                                                │
+│                                                                              │
+│ Code:                                                                        │
+│   {phase === 'result' && <div>Next question...</div>}                        │
+│                                                                              │
+│ After answering, player sees "Next question..." for 1.5 seconds.             │
+│ No indication if their answer was correct or wrong! No correct answer        │
+│ shown. No green/red visual. Players can't learn from mistakes.              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: HIGH (no learning loop)                                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: No Timer Display During Flash Phase                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: QuestionFlash.tsx                                                      │
+│                                                                              │
+│ Description: During the 3-second flash phase where the question is           │
+│ shown, there's no countdown indicator. Player doesn't know how much          │
+│ time they have to read/memorize the question.                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: finishGame Never Called Automatically                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic                                                              │
+│ File: useTypingGame.ts (line 80-86)                                          │
+│                                                                              │
+│ Description: The `finishGame()` function submits answers to server, but      │
+│ it's never called automatically after all questions are answered! The        │
+│ phase transitions to 'finished' when showQuestion(nextIdx) runs out of       │
+│ questions, but the ResultScreen shows local score without submitting.         │
+│                                                                              │
+│ The only way to submit is if ResultScreen calls finishGame, but looking      │
+│ at the GameBoard component, it passes `onReplay={startGame}` — NOT           │
+│ finishGame! The server submission may never happen.                           │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: CRITICAL — scores may not be recorded!                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: No Haptic Feedback                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: AnswerInput.tsx                                                        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: No Share Results                                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: No Keyboard Dismiss Handling on Mobile                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: AnswerInput.tsx                                                        │
+│                                                                              │
+│ Description: On mobile, the soft keyboard stays up between questions.        │
+│ During the flash phase (where player just reads), the keyboard blocks        │
+│ the question text.                                                           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: No autoComplete="off" on Input (But it's Set!)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW (Actually OK!)                                                 │
+│ Category: UX                                                                 │
+│ File: AnswerInput.tsx                                                        │
+│                                                                              │
+│ autoComplete="off" IS set. Good. But autocorrect/spellcheck are NOT          │
+│ disabled: missing spellCheck={false}, autoCorrect="off".                    │
+│ Mobile keyboards may "fix" correct answers into wrong ones.                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND Performance:
+1. Two endpoints only (start + submit). Minimal server load.
+2. No WebSocket streaming (pure HTTP request/response).
+3. Question selection: O(n) Fisher-Yates from 30-item array. Trivial.
+4. Score verification: O(n) loop over answers. Trivial.
+5. Single DB read + single DB write per game session. Excellent.
+
+FRONTEND Performance:
+1. Framer Motion animations are lightweight (scale + opacity).
+2. No heavy rendering (just text + input field).
+3. Timer uses setInterval(100ms) for progress bar — smooth.
+4. No image loading, no canvas, no WebGL. Minimal bundle.
+
+VERDICT: EXCELLENT performance — but only because the game is extremely
+simple. There's nothing to be slow about. A text input and timer is
+about as lightweight as a web game can be.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Auto-focus on input field (inputRef.current?.focus())
+✓ Progress bar for answer timer (visual countdown)
+✓ Question counter (Q 1/10, Q 2/10...)
+✓ Score display during play
+✓ Framer Motion transitions between phases
+✓ Clean, minimal UI (not overwhelming)
+✓ i18n (English + Hindi)
+✓ Theme support (dark/light/system)
+✓ Offline banner
+
+CRITICAL UX FAILURES:
+
+1. Typing on Mobile = Frustrating
+   - Multi-word answers ("carbon dioxide") + 5s timer + phone keyboard
+   - Auto-correct fights the player
+   - Keyboard covers question during flash
+
+2. No Correct/Wrong Feedback
+   - "Next question..." tells player nothing
+   - Can't learn from mistakes
+   - No dopamine hit for correct answers
+
+3. No Sound
+   - Silent game feels dead
+   - No urgency from countdown beeps
+   - No reward sounds
+
+4. Exact Match Only
+   - "Thomas Edison" for "edison" = WRONG
+   - Players don't know the expected format
+   - "Is it 'Pacific' or 'Pacific Ocean' or 'the Pacific'?"
+
+5. Flash Phase Anxiety
+   - Question appears for 3 seconds, then DISAPPEARS
+   - Player types blind — can't re-read the question!
+   - "Wait, what was the question again?" = instant frustration
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPLEMENTED:
+✓ i18n (English + Hindi)
+✓ Offline banner
+✓ Theme (dark/light/system)
+✓ Framer Motion animations
+✓ Timer with progress bar
+✓ Zod validation
+✓ Encryption interceptor
+✓ Score divergence detection
+✓ Level system (1-10)
+✓ Error boundary
+✓ Event publishing (game completed, cheat flagged)
+
+MISSING (Critical/High):
+1. [!!!] Database-driven question bank (currently hardcoded 30!)
+2. [!!!] Server-side question delivery (one at a time, NOT client-derived)
+3. [!!] Fuzzy answer matching (Levenshtein distance ≤ 2)
+4. [!!] Correct/wrong feedback after each answer
+5. [!!] Auto-submit to server on game end (finishGame never called!)
+6. [!] Sound effects (correct, wrong, countdown, type)
+
+MISSING (Medium):
+7. [ ] Session recovery on page refresh
+8. [ ] Question visible during typing (not just flash phase)
+9. [ ] MCQ mode for mobile
+10. [ ] Countdown beep in last 3 seconds
+11. [ ] Haptic feedback
+12. [ ] Share results
+13. [ ] Personal best comparison
+14. [ ] Score multiplier actually applied on server
+15. [ ] Categories/topics for questions
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Move questions to database (500+ minimum, categorized)
+2. Show correct answer after player responds (green/red feedback)
+3. Keep question visible during typing phase (remove "memorize" concept
+   OR make it optional/high-difficulty)
+4. Add sound effects (ding for correct, buzz for wrong, ticking countdown)
+5. Implement fuzzy matching (accept "Thomas Edison" for "edison")
+6. Add MCQ option for mobile (4 choices, tap to answer)
+7. Auto-submit results to server when game finishes
+8. Add countdown beep in last 2 seconds of answer timer
+9. Add streak indicator (3 correct in a row = "On Fire!")
+10. Show a hint for the expected answer format ("One word", "Number", etc.)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Architecture Redesign (Required):
+1. Move questions to PostgreSQL with admin CRUD
+2. Change API model: server sends one question at a time
+   - POST /game/start → returns { sessionId, firstQuestion: { text } }
+   - POST /game/answer → returns { correct, correctAnswer, nextQuestion }
+   - Server validates each answer in real-time
+3. Remove question bank from frontend entirely
+4. Remove seed-based question derivation (no longer needed)
+5. Implement Levenshtein fuzzy matching (distance ≤ 2 = accept)
+
+Backend Fixes:
+6. Remove fallback secrets (throw on missing)
+7. Gate Swagger behind NODE_ENV
+8. Fix session expiry to use stored config
+9. Apply score multiplier or remove it
+10. Remove dead engine modules
+
+Frontend Fixes:
+11. Auto-call finishGame() when phase === 'finished'
+12. Show correct/wrong after each answer
+13. Add sound system (4 cues: correct, wrong, countdown, submit)
+14. Add spellCheck={false} autoCorrect="off" to input
+15. Add MCQ mode toggle for mobile users
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Question Bank in Client Bundle
+- ALL 30 questions + answers are in the production JS bundle
+- Zero effort to extract (DevTools → Sources → Ctrl+F "answer")
+- Anti-cheat score: 5/100 (WORST IN PLATFORM!)
+- The seed-based verification is useless when answers are in the client
+
+Attack Surface 2: Automated Perfect Scores
+- Bot script:
+    const start = await post('/game/start', { clientSeed: 'x' });
+    const seed = computeFinalSeed(start.serverSeed, 'x', 0);
+    const questions = selectQuestions(seed, 10);
+    const answers = questions.map((q, i) => ({
+      questionId: i, userAnswer: q.answer, timestamp: Date.now(),
+      responseTimeMs: 100 // instant
+    }));
+    await post('/game/submit', { gameSessionId: start.id, answers, clientScore: 300 });
+- Result: Perfect score, zero divergence, NOT flagged. Undetectable!
+
+Attack Surface 3: Secrets
+- Three fallback secrets in production code
+- .env committed with DATABASE_URL
+- Severity: CRITICAL
+
+Attack Surface 4: Timing Manipulation
+- responseTimeMs is self-reported by client
+- Client can claim 1ms response time → maximum speed bonus
+- Server only checks: responseTimeMs / answerTimeMs for bonus ratio
+- No server-side timing validation beyond session expiry
+
+OVERALL SECURITY POSTURE:
+This game has the WORST anti-cheat in the entire platform. The question
+bank in the client bundle + deterministic seed + server trust of response
+times = trivially exploitable for perfect scores. Complete redesign needed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Negative" - 3/10
+
+POSITIVE:
+"The concept is interesting — flash a question, then type the answer."
+"Clean UI, easy to understand."
+"Level system with increasing difficulty is good in theory."
+
+NEGATIVE:
+"Played 3 times and already saw repeated questions. Only 30?!"
+"I typed 'Thomas Edison' and it said WRONG. The answer was 'edison'. HOW?!"
+"Can't see the question while I'm typing!! I forgot what it asked!"
+"5 seconds to type 'carbon dioxide' on my phone keyboard? LOL."
+"No sound at all. Feels like I'm filling out a form, not playing a game."
+"Says 'Next question...' but doesn't tell me if I was right or wrong!"
+"Game finished but I don't think my score was saved. No confirmation."
+"Found all the answers in the source code. Game over."
+"The timer goes from green to... nothing. No beeping, no warning."
+"My autocorrect changed 'nacl' to 'nail'. Lost a point for nothing."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "Same questions every time!" — Only 30 questions total
+2. "My answer was right but it said wrong!" — Exact match, no fuzzy
+3. "Can't type fast enough on my phone!" — Typing game on mobile
+4. "I forgot the question!" — Flash disappears, typing is blind
+5. "Was I right or wrong?" — No per-question feedback
+6. "No sound at all" — Silent = boring
+7. "Autocorrect ruined my answer!" — spellCheck not disabled
+8. "I answered everything but nothing happened" — finishGame not called
+9. "Only 5 seconds to type?!" — Multi-word answers impossible on mobile
+10. "I found all the answers in the source code" — Cheating is trivial
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN (In Theory)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Concept (Good):
+✓ Flash + recall + type = dual cognitive challenge (memory + speed)
+✓ Speed bonus rewards quick thinking
+✓ Simple mechanic (read, remember, type)
+✓ Trivia = universal appeal
+✓ Short sessions (5-16 questions, 1-2 minutes)
+
+Why It COULD Be Fun (If Fixed):
+- The pressure of remembering + typing fast creates flow state
+- Trivia questions trigger "I know this!" satisfaction
+- Speed bonus creates competition with self
+- Categories would add variety and player choice
+- Streaks would add excitement ("5 in a row!")
+
+Why It ISN'T Fun Currently:
+- 30 questions = no variety = boring by session 3
+- No feedback = no dopamine reward for correct answers
+- Blind typing (question disappears) = frustration, not challenge
+- Mobile typing = physically impossible at required speed
+- No sound = no excitement
+- Exact match = unfair failures
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. ONLY 30 QUESTIONS
+   - "I've seen all of these" → stop playing → never share
+   - No novelty = no reason to recommend
+
+2. NO FEEDBACK
+   - "Was I right?" = no screenshot-worthy moment
+   - No "8/10 correct!" shareable result
+
+3. NO SOUND / NO EXCITEMENT
+   - Viral games have satisfying sounds (Wordle's flip!)
+   - Silent typing = filling out a form
+
+4. EXACT MATCH FRUSTRATION
+   - "I KNEW it was Edison but it didn't accept my answer!"
+   - Frustration → rage → uninstall → tell friends NOT to play
+
+5. MOBILE KEYBOARD NIGHTMARE
+   - "Literally impossible to type 'carbon dioxide' in 5 seconds"
+   - Mobile users = 80% of audience = 80% frustrated
+
+6. NO SHARE
+   - No shareable card, no screenshot moment
+   - Can't show off scores
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     50/100 (simple but functional)
+- Security:                         20/100 (answers in bundle, fallback secrets)
+- Performance:                      90/100 (nothing to be slow about)
+- Game Logic & Correctness:         35/100 (finishGame bug, expiry bug, no fuzzy)
+- UX & Polish:                      25/100 (no sound, no feedback, mobile broken)
+- Anti-Cheat:                        5/100 (WORST IN PLATFORM — trivially cheatable)
+- Accessibility:                    40/100 (has i18n but no keyboard shortcuts)
+- Retention & Engagement:           15/100 (30 questions = dead after 3 plays)
+- Error Handling:                   50/100 (error boundary, but no recovery)
+- Production Readiness:             35/100 (dev secrets, Swagger, dead code)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 42/100
+═══════════════════════════════════════
+
+VERDICT: FUNDAMENTALLY BROKEN — NEEDS REDESIGN
+The game concept is sound (flash + recall + type), but the implementation
+has fatal flaws. A hardcoded 30-question bank in the client bundle makes
+the game both trivially cheatable and content-exhausted in 3 sessions.
+The typing mechanic on mobile without fuzzy matching is cruel. Scores may
+not even be submitted to the server (finishGame bug). No sound, no feedback,
+no session recovery. This game needs an architecture redesign before it can
+ship.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: ARCHITECTURE REDESIGN (2-3 days)
+  □ Move questions to PostgreSQL with admin CRUD
+  □ Redesign API: server sends one question at a time
+    - POST /game/start → { sessionId, question: { text, format } }
+    - POST /game/answer → { correct, answer, nextQuestion? }
+  □ Remove question bank from frontend entirely
+  □ Remove seed-based client derivation
+  □ Add 500+ questions in categories (science, history, geography, math)
+  □ Implement Levenshtein fuzzy matching (distance ≤ 2 = accept)
+  □ Accept common alternative answers ("Thomas Edison" = "Edison")
+  □ Server validates per-question in real-time
+
+PHASE 2: CRITICAL FIXES (0.5 day)
+  □ Remove fallback secrets (throw on missing)
+  □ Remove .env from repo
+  □ Gate Swagger behind NODE_ENV
+  □ Fix finishGame auto-call when phase === 'finished'
+  □ Fix session expiry to use stored config (not default)
+  □ Apply score multiplier OR remove it from response
+
+PHASE 3: UX OVERHAUL (1-2 days)
+  □ Show correct/wrong after each answer (green/red + correct answer)
+  □ Add sound effects (correct ding, wrong buzz, countdown tick)
+  □ Keep question visible during typing (or show it dimmed)
+  □ Add spellCheck={false} autoCorrect="off" to input
+  □ Add countdown beep in last 2 seconds
+  □ Add streak indicator
+  □ Add haptic feedback
+
+PHASE 4: MOBILE FIX (1 day)
+  □ Add MCQ alternative mode for mobile
+  □ Increase answer time on mobile (8s vs 5s desktop)
+  □ Ensure keyboard doesn't cover question
+  □ Add "hint" showing expected format ("___ (city name)")
+
+PHASE 5: POLISH (0.5 day)
+  □ Add session recovery
+  □ Add share button
+  □ Add personal best comparison
+  □ Add question categories
+  □ Remove dead engine modules
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Move questions to DB + remove from frontend (500+ questions)
+    Effort: 2 days | Impact: GAME-BREAKING fix — no game without content
+    ROI: ∞ (literally impossible to ship without this)
+
+#2  Change to server-sends-question model (one at a time)
+    Effort: 1 day | Impact: Eliminates ALL cheating vectors
+    ROI: ∞ (security + anti-cheat)
+
+#3  Implement fuzzy answer matching (Levenshtein ≤ 2)
+    Effort: 2 hours | Impact: Eliminates "I was right but it said wrong!"
+    ROI: 10x
+
+#4  Show correct/wrong feedback after each answer
+    Effort: 1 hour | Impact: Creates learning loop + dopamine hit
+    ROI: 8x
+
+#5  Auto-call finishGame() when all questions answered
+    Effort: 15 min | Impact: Scores actually get recorded!
+    ROI: ∞ (scores literally not saved without this)
+
+#6  Remove fallback secrets + .env
+    Effort: 30 min | Impact: Prevents auth bypass
+    ROI: ∞ (security)
+
+#7  Add sound effects (correct, wrong, countdown)
+    Effort: 2 hours | Impact: Game feels alive instead of dead
+    ROI: 6x
+
+#8  Keep question visible during typing (or show hint)
+    Effort: 30 min | Impact: Eliminates "what was the question?" frustration
+    ROI: 5x
+
+#9  Add MCQ mode for mobile
+    Effort: 4 hours | Impact: Makes game playable on 80% of devices
+    ROI: 8x
+
+#10 Add spellCheck={false} autoCorrect="off" to input
+    Effort: 5 min | Impact: Prevents autocorrect ruining correct answers
+    ROI: 5x (5 minutes!)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Despite the critical issues, some things ARE done well:
+
+BACKEND:
+✓ PRODUCTION CORS CHECK: Throws if CORS_ORIGINS missing in production
+  (BETTER than most games which default to '*')
+✓ validateEnvironment() called at startup
+✓ Zod schema validation for all DTOs
+✓ Score divergence detection (flags client vs server mismatch)
+✓ Event publishing (game completed + cheat flagged via EventService)
+✓ Encryption interceptor for API payloads
+✓ Session guard prevents unauthorized access
+✓ Level system (10 levels with configurable difficulty)
+✓ Simple, readable code (easy to understand and modify)
+✓ Speed bonus calculation (rewards fast thinking)
+
+FRONTEND:
+✓ i18n (English + Hindi)
+✓ Theme support (dark/light/system with proper media query listener)
+✓ Offline banner (useSyncExternalStore for navigator.onLine)
+✓ Error boundary
+✓ Framer Motion animations (smooth phase transitions)
+✓ Auto-focus on input field
+✓ Timer progress bar (visual countdown)
+✓ Clean component structure (GameBoard → QuestionFlash/AnswerInput)
+✓ TanStack Query client ready (even if not heavily used yet)
+✓ autoComplete="off" on input (good!)
+
+GAME DESIGN CONCEPT:
+✓ Dual cognitive challenge (memory + speed) — clever mechanic
+✓ Speed bonus (faster answer = more points) — fair reward system
+✓ Compact sessions (1-2 minutes) — perfect for mobile
+✓ Universal appeal (trivia questions) — everyone can play
+✓ Level progression (5 questions easy → 16 questions hard)
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1  (Arrows):             58/100
+  Game #2  (Block Fill):         62/100
+  Game #3  (Colour Sorting):     61/100
+  Game #4  (Flash Spot):         56/100
+  Game #5  (Infinity Loop):      59/100
+  Game #6  (Live Route Builder): 48/100
+  Game #7  (Logic Reflector):    72/100
+  Game #8  (Maze Navigation):    58/100
+  Game #9  (Memory Card Match):  68/100
+  Game #10 (Memory Groups):      45/100
+  Game #11 (Number Grid Sprint): 62/100
+  Game #12 (Object Placement):   60/100
+  Game #13 (Pattern Survival):   52/100
+  Game #14 (Rapid Category Sort):66/100
+  Game #15 (Reflex Endurance):   62/100
+  Game #16 (Sequence Recall):    78/100 ← HIGHEST
+  Game #17 (Sliding Puzzle):     76/100
+  Game #18 (Speed Type Answer):  42/100 ← 3RD LOWEST
+
+RANKING:
+  WORST:  #10 Memory Groups (45/100) → #6 Live Route Builder (48/100)
+          → #18 Speed Type Answer (42/100) ← NEW LOWEST!
+  BEST:   #16 Sequence Recall (78/100) → #17 Sliding Puzzle (76/100)
+
+WHY SO LOW:
+The game concept is fine but the implementation has a FATAL FLAW:
+30 hardcoded questions in the client bundle = no anti-cheat + no replay value.
+Combined with finishGame not being called (scores potentially never saved),
+no sound, no feedback, and terrible mobile UX for a typing game, this is
+the LOWEST-scoring game in the platform.
+
+================================================================================
+END OF AUDIT — GAME #18: SPEED TYPE ANSWER
+================================================================================

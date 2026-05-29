@@ -1,0 +1,264 @@
+================================================================================
+INFINITY LOOP — TEST CHECKLIST
+================================================================================
+Total test cases: 95+
+Covers: Tutorial, Menu, Levels, Settings, Stats, Achievements, Daily Challenge,
+        Game Play, Pause, Results, Audio, Persistence, Edge Cases
+
+================================================================================
+1. TUTORIAL (5 steps)
+================================================================================
+
+[ ] TC-T01: Tutorial shows on first visit (no localStorage flag)
+[ ] TC-T02: Step 1 shows "Welcome to Infinity Loop" with ♾️ icon
+[ ] TC-T03: "Next" button advances to step 2
+[ ] TC-T04: Progress dots update correctly (filled = visited)
+[ ] TC-T05: "Skip" button jumps directly to menu
+[ ] TC-T06: Final step shows "Start Playing" instead of "Next"
+[ ] TC-T07: Completing tutorial sets localStorage "infinity-loop-tutorial-seen"
+[ ] TC-T08: Returning user skips tutorial (goes straight to menu)
+[ ] TC-T09: Step transitions have smooth slide animation
+
+================================================================================
+2. MENU SCREEN
+================================================================================
+
+[ ] TC-M01: Logo "♾️" and title "Infinity Loop" displayed
+[ ] TC-M02: Tagline "Relaxing loop puzzle" shown
+[ ] TC-M03: All 6 buttons visible (Play, Levels, Daily, Achievements, Stats, Settings)
+[ ] TC-M04: Buttons animate in with stagger delay
+[ ] TC-M05: "Play" navigates to playing phase (current highest level)
+[ ] TC-M06: "Levels" opens LevelSelector
+[ ] TC-M07: "Daily Challenge" opens DailyChallenge screen
+[ ] TC-M08: "Achievements" opens Achievements screen
+[ ] TC-M09: "Statistics" opens StatsScreen
+[ ] TC-M10: "Settings" opens Settings screen
+[ ] TC-M11: Each button has correct gradient color
+
+================================================================================
+3. LEVEL SELECTOR
+================================================================================
+
+[ ] TC-L01: Shows grid of 10 levels
+[ ] TC-L02: Level 1 always unlocked on fresh start
+[ ] TC-L03: Locked levels show 🔒 icon and are disabled
+[ ] TC-L04: Unlocked levels show level number
+[ ] TC-L05: Each level shows grid dimensions (e.g., "4×4", "6×6")
+[ ] TC-L06: Timed levels show time limit (e.g., "180s")
+[ ] TC-L07: Star ratings displayed (0-3 stars per level)
+[ ] TC-L08: Tapping unlocked level starts game with that config
+[ ] TC-L09: "← Back" returns to menu
+[ ] TC-L10: Completing level N unlocks level N+1
+[ ] TC-L11: Stars persist across sessions (localStorage)
+[ ] TC-L12: Only best star rating is kept (no downgrade)
+[ ] TC-L13: Level labels shown (Beginner, Easy, ..., Grandmaster)
+
+================================================================================
+4. SETTINGS
+================================================================================
+
+[ ] TC-S01: Sound toggle switches between on/off
+[ ] TC-S02: Volume slider adjusts from 0% to 100%
+[ ] TC-S03: Theme selector shows 5 color options
+[ ] TC-S04: Selected theme has white border and scale
+[ ] TC-S05: Dark Mode toggle available
+[ ] TC-S06: All settings persist to localStorage
+[ ] TC-S07: Settings load correctly on return visit
+[ ] TC-S08: "← Back" returns to menu
+
+================================================================================
+5. STATISTICS SCREEN
+================================================================================
+
+[ ] TC-ST01: Shows "Games Played" count
+[ ] TC-ST02: Shows "Wins" count
+[ ] TC-ST03: Shows "Total Moves" accumulated
+[ ] TC-ST04: Shows "Best Moves" (minimum for single game)
+[ ] TC-ST05: Shows "Best Streak" (max combo)
+[ ] TC-ST06: Shows "Highest Level" reached
+[ ] TC-ST07: Shows "Perfect Games" count
+[ ] TC-ST08: Shows "Highest Score"
+[ ] TC-ST09: Shows "Time Played" formatted (Xh Xm or Xm or Xs)
+[ ] TC-ST10: Shows "Avg Moves/Game" calculated
+[ ] TC-ST11: Stats display "—" when no data exists
+[ ] TC-ST12: "← Back" returns to menu
+
+================================================================================
+6. ACHIEVEMENTS
+================================================================================
+
+[ ] TC-A01: Shows all 10 achievements in list
+[ ] TC-A02: Unlocked achievements have full color + XP badge
+[ ] TC-A03: Locked achievements show grayscale icon + 🔒
+[ ] TC-A04: Total XP sum displayed at top
+[ ] TC-A05: "X/10 unlocked" counter shown
+[ ] TC-A06: FIRST_WIN unlocks after 1 win
+[ ] TC-A07: STREAK_5 unlocks after 5-combo
+[ ] TC-A08: STREAK_10 unlocks after 10-combo
+[ ] TC-A09: PERFECT_GAME unlocks on minimum-moves completion
+[ ] TC-A10: SPEED_DEMON unlocks with >50% time remaining
+[ ] TC-A11: PERSISTENCE unlocks after 50 games
+[ ] TC-A12: LEVEL_5 unlocks on reaching level 5
+[ ] TC-A13: LEVEL_10 unlocks on reaching level 10
+[ ] TC-A14: HIGH_SCORER unlocks at 1000+ points
+[ ] TC-A15: AchievementPopup appears on unlock
+[ ] TC-A16: Popup auto-dismisses after 3.5 seconds
+[ ] TC-A17: Achievements persist in localStorage
+[ ] TC-A18: "← Back" returns to menu
+
+================================================================================
+7. DAILY CHALLENGE
+================================================================================
+
+[ ] TC-D01: Shows 7-day calendar (last 7 days)
+[ ] TC-D02: Today highlighted with border
+[ ] TC-D03: Completed days show ✅
+[ ] TC-D04: Today shows 🎯 if not completed
+[ ] TC-D05: Level difficulty matches day of week
+[ ] TC-D06: Bonus multiplier displayed (×1.5 to ×2.4)
+[ ] TC-D07: "Start Challenge" button enabled if not completed
+[ ] TC-D08: After completion, shows "✅ Completed!" state
+[ ] TC-D09: Completing daily sets localStorage for today's date
+[ ] TC-D10: Next day shows new challenge (fresh state)
+[ ] TC-D11: "← Back" returns to menu
+
+================================================================================
+8. GAME PLAY — CORE MECHANICS
+================================================================================
+
+[ ] TC-G01: Grid renders with correct dimensions for selected level
+[ ] TC-G02: Tiles display with correct connection graphics
+[ ] TC-G03: Tapping a tile rotates it 90° clockwise
+[ ] TC-G04: EMPTY tiles are not interactive
+[ ] TC-G05: CROSS tiles are always correct (no rotation needed)
+[ ] TC-G06: Rotation animation plays smoothly
+[ ] TC-G07: Connected tiles show visual feedback (glow/color)
+[ ] TC-G08: Win condition: all connections match neighbors
+[ ] TC-G09: Win triggers confetti + level complete UI
+[ ] TC-G10: Game counts moves accurately
+[ ] TC-G11: Timer counts up from 0 (or down from limit)
+[ ] TC-G12: Timer pauses when game is paused
+[ ] TC-G13: Timer stops on win
+[ ] TC-G14: Grid shuffled randomly at level start (not already solved)
+
+================================================================================
+9. GAME PLAY — COMBO SYSTEM
+================================================================================
+
+[ ] TC-C01: Correct rotation increments combo counter
+[ ] TC-C02: Incorrect rotation resets combo to 0
+[ ] TC-C03: Combo ×2+ shows in header with fire icon
+[ ] TC-C04: Combo below 2 hides from header
+[ ] TC-C05: Combo multiplier adds bonus score
+[ ] TC-C06: Max combo tracked for achievements/stats
+
+================================================================================
+10. GAME PLAY — HUD (GameHeader)
+================================================================================
+
+[ ] TC-H01: Level badge shows "LVL X"
+[ ] TC-H02: Move counter updates in real-time
+[ ] TC-H03: Timer displays in MM:SS format
+[ ] TC-H04: Timer turns red + pulses under 30s remaining
+[ ] TC-H05: Mute button toggles audio
+[ ] TC-H06: Pause button opens PauseDialog
+[ ] TC-H07: HUD fixed at top of screen
+[ ] TC-H08: HUD has backdrop blur for readability
+
+================================================================================
+11. PAUSE DIALOG
+================================================================================
+
+[ ] TC-P01: Opens when pause button tapped
+[ ] TC-P02: Shows current moves and time
+[ ] TC-P03: Shows current level number
+[ ] TC-P04: "Resume" closes dialog and continues game
+[ ] TC-P05: Timer resumes after unpause
+[ ] TC-P06: "Restart Level" resets game state
+[ ] TC-P07: "Exit to Menu" returns to menu
+[ ] TC-P08: Backdrop blur covers game grid
+[ ] TC-P09: Dialog has spring animation on open/close
+
+================================================================================
+12. RESULT SCREEN
+================================================================================
+
+[ ] TC-R01: Shows "Level Complete!" heading
+[ ] TC-R02: Displays star rating (1-3 stars)
+[ ] TC-R03: Shows move count, time, and score
+[ ] TC-R04: "Next Level" button advances to next level
+[ ] TC-R05: "Replay" restarts same level
+[ ] TC-R06: "Menu" returns to menu screen
+[ ] TC-R07: "Next Level" hidden on final level (Level 10)
+[ ] TC-R08: Stars calculated correctly:
+            3★ = moves ≤ optimal + 2
+            2★ = moves ≤ optimal × 1.5
+            1★ = completed
+
+================================================================================
+13. CONFETTI
+================================================================================
+
+[ ] TC-CF01: 60 particles spawn on win
+[ ] TC-CF02: Particles have varied colors (6 colors)
+[ ] TC-CF03: Particles have gravity effect (fall down)
+[ ] TC-CF04: Particles fade out over ~4 seconds
+[ ] TC-CF05: Confetti is pointer-events-none (no blocking)
+[ ] TC-CF06: Confetti cleans up after animation
+
+================================================================================
+14. AUDIO
+================================================================================
+
+[ ] TC-AU01: tileRotate sound plays on tap
+[ ] TC-AU02: tileConnect sound plays on correct connection
+[ ] TC-AU03: puzzleSolve sound plays when board solved
+[ ] TC-AU04: levelComplete sound plays on level end
+[ ] TC-AU05: hint sound plays when hint activated
+[ ] TC-AU06: uiClick sound plays on menu button press
+[ ] TC-AU07: Muting disables all sounds
+[ ] TC-AU08: Volume slider affects all sound levels
+[ ] TC-AU09: Sounds don't play during pause
+[ ] TC-AU10: Background music loops continuously
+
+================================================================================
+15. PERSISTENCE (localStorage)
+================================================================================
+
+[ ] TC-LS01: Tutorial seen flag persists
+[ ] TC-LS02: Highest unlocked level persists
+[ ] TC-LS03: Star ratings per level persist
+[ ] TC-LS04: Stats object persists and accumulates
+[ ] TC-LS05: Achievements persist
+[ ] TC-LS06: Daily completion persists per date
+[ ] TC-LS07: Settings persist (sound, volume, theme, dark mode)
+[ ] TC-LS08: Corrupted localStorage handled gracefully (defaults)
+
+================================================================================
+16. EDGE CASES & ERROR HANDLING
+================================================================================
+
+[ ] TC-E01: Very fast tapping doesn't break rotation count
+[ ] TC-E02: Tapping during win animation is ignored
+[ ] TC-E03: Pausing immediately after starting works
+[ ] TC-E04: Network disconnect doesn't crash game
+[ ] TC-E05: Browser tab background/foreground doesn't break timer
+[ ] TC-E06: Level 10 completion doesn't try to unlock Level 11
+[ ] TC-E07: Daily challenge level stays same all day
+[ ] TC-E08: Multiple quick pauses/unpauses don't duplicate timers
+[ ] TC-E09: Resize/orientation change doesn't break grid
+[ ] TC-E10: SSR/hydration: localStorage reads don't crash server render
+
+================================================================================
+17. RESPONSIVE & MOBILE
+================================================================================
+
+[ ] TC-RM01: Game fits on mobile viewport (no horizontal scroll)
+[ ] TC-RM02: Touch targets minimum 44px for tile taps
+[ ] TC-RM03: Menu buttons full-width on mobile
+[ ] TC-RM04: Landscape overlay shows (from existing component)
+[ ] TC-RM05: Grid scales appropriately for 8x8 on small screens
+
+================================================================================
+END OF TEST CHECKLIST
+================================================================================

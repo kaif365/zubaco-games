@@ -1,0 +1,344 @@
+SEQUENCE RECALL - TEST CHECKLIST
+==================================
+Game: Sequence Recall (Simon-Says style)
+Location: sequence-recall/sequence-recall-frontend/
+Date: 2025
+
+================================================================================
+SECTION 1: MENU SCREEN (12 tests)
+================================================================================
+
+[ ] 1.01  Menu renders on app load with title "Sequence Recall" and brain emoji
+[ ] 1.02  Subtitle "Watch, remember, repeat the pattern!" is visible
+[ ] 1.03  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.04  Buttons animate in sequentially (staggered entrance)
+[ ] 1.05  Clicking "Play" navigates to game phase
+[ ] 1.06  Clicking "Levels" navigates to level selector
+[ ] 1.07  Clicking "Daily Challenge" navigates to daily challenge screen
+[ ] 1.08  Clicking "Achievements" navigates to achievements screen
+[ ] 1.09  Clicking "Statistics" navigates to stats screen
+[ ] 1.10  Clicking "Settings" navigates to settings screen
+[ ] 1.11  Each button has correct icon and gradient color
+[ ] 1.12  Buttons have press animation (scale 0.97 on tap)
+
+================================================================================
+SECTION 2: LEVEL SELECTOR (15 tests)
+================================================================================
+
+[ ] 2.01  Level selector renders with "Select Level" title
+[ ] 2.02  10 level tiles displayed in 5-column grid
+[ ] 2.03  Level 1 is unlocked by default
+[ ] 2.04  Levels 2-10 are locked by default (show lock icon)
+[ ] 2.05  Unlocked levels show level number and tile count
+[ ] 2.06  Unlocked levels show star rating (0-3 stars)
+[ ] 2.07  Locked levels show 🔒 icon and are not clickable
+[ ] 2.08  Clicking unlocked level starts game with that level config
+[ ] 2.09  Back button returns to menu
+[ ] 2.10  Completing level 1 with ≥1 star unlocks level 2
+[ ] 2.11  Star calculation: ≥95% = 3★, ≥70% = 2★, >0% = 1★
+[ ] 2.12  High score persists in localStorage
+[ ] 2.13  Level progress persists across page reloads
+[ ] 2.14  Level tiles animate in with staggered delay
+[ ] 2.15  Sequence length increases per level (3→12 tiles)
+
+================================================================================
+SECTION 3: DAILY CHALLENGE (14 tests)
+================================================================================
+
+[ ] 3.01  Daily challenge screen renders with title and "1.5×" multiplier note
+[ ] 3.02  Week calendar shows Sun-Sat with current day highlighted
+[ ] 3.03  Completed days show green checkmark
+[ ] 3.04  Incomplete days show gray circle
+[ ] 3.05  Current streak counter displays correctly
+[ ] 3.06  Best streak counter displays correctly
+[ ] 3.07  "Start Daily Sequence" button is active if not completed today
+[ ] 3.08  Button shows "✓ Completed Today" and is disabled after completion
+[ ] 3.09  Clicking start button navigates to game phase
+[ ] 3.10  Daily seed is deterministic (same challenge for same date)
+[ ] 3.11  Completing daily updates streak correctly
+[ ] 3.12  Missing a day resets current streak to 1
+[ ] 3.13  Daily state persists in localStorage
+[ ] 3.14  Back button returns to menu
+
+================================================================================
+SECTION 4: ACHIEVEMENTS (12 tests)
+================================================================================
+
+[ ] 4.01  Achievements screen renders with title and unlock count
+[ ] 4.02  All 10 achievements listed with icon, title, and description
+[ ] 4.03  Unlocked achievements show full opacity with green checkmark
+[ ] 4.04  Locked achievements shown at 50% opacity
+[ ] 4.05  Achievement items animate in with staggered entrance
+[ ] 4.06  "First Victory" unlocks after first completed game
+[ ] 4.07  "On Fire" unlocks at 5-round streak
+[ ] 4.08  "Unstoppable" unlocks at 10-round streak
+[ ] 4.09  "Perfectionist" unlocks for zero-mistake game
+[ ] 4.10  "High Scorer" unlocks at 1000+ points
+[ ] 4.11  Achievement popup appears when new achievement unlocked
+[ ] 4.12  Back button returns to menu
+
+================================================================================
+SECTION 5: STATISTICS (11 tests)
+================================================================================
+
+[ ] 5.01  Stats screen renders with "Statistics" title
+[ ] 5.02  10 stat cards displayed in 2-column grid
+[ ] 5.03  Games Played counter is accurate
+[ ] 5.04  Best Round shows highest single-game round count
+[ ] 5.05  Total Rounds accumulates across all games
+[ ] 5.06  Avg Rounds = Total Rounds / Games Played
+[ ] 5.07  Best Streak shows highest consecutive correct streak
+[ ] 5.08  High Score shows all-time best
+[ ] 5.09  Time Played formats correctly (minutes/hours)
+[ ] 5.10  Stat cards animate in with staggered entrance
+[ ] 5.11  Back button returns to menu
+
+================================================================================
+SECTION 6: SETTINGS (10 tests)
+================================================================================
+
+[ ] 6.01  Settings screen renders with title
+[ ] 6.02  Sound toggle switch visible with "Enable tile sounds" subtitle
+[ ] 6.03  Toggling sound switch updates state
+[ ] 6.04  Volume slider visible with percentage label
+[ ] 6.05  Volume slider disabled when sound is off
+[ ] 6.06  Dark Mode toggle switch visible
+[ ] 6.07  All settings persist in localStorage
+[ ] 6.08  Settings load correctly on revisit
+[ ] 6.09  Toggle animations are smooth (spring physics)
+[ ] 6.10  Back button returns to menu
+
+================================================================================
+SECTION 7: GAME MECHANICS - SEQUENCE DISPLAY (14 tests)
+================================================================================
+
+[ ] 7.01  Game loads with correct number of tiles (boxCount: 2-6)
+[ ] 7.02  Tiles display in proper layout with distinct colors
+[ ] 7.03  "Showing sequence" phase: tiles flash one at a time
+[ ] 7.04  Each tile flash has audible sound (if sound enabled)
+[ ] 7.05  Flash timing is consistent and visible
+[ ] 7.06  Sequence grows by 1 each successful round
+[ ] 7.07  Initial sequence length matches level config
+[ ] 7.08  No triple-repeat constraint: same tile doesn't appear 3+ times consecutively
+[ ] 7.09  Sequence display is clearly distinguishable from input phase
+[ ] 7.10  Visual indicator shows "Watch!" during sequence display
+[ ] 7.11  Tile colors: green, red, blue, yellow (+ extras for higher boxCount)
+[ ] 7.12  Each tile has unique sound (piano/retro variants)
+[ ] 7.13  Sequence replays identically on failure replay strategies
+[ ] 7.14  Session timer visible during gameplay
+
+================================================================================
+SECTION 8: GAME MECHANICS - PLAYER INPUT (14 tests)
+================================================================================
+
+[ ] 8.01  "Awaiting input" phase activates after sequence display ends
+[ ] 8.02  Tapping correct tile in sequence advances position
+[ ] 8.03  Correct tap produces visual feedback (flash/highlight)
+[ ] 8.04  Correct tap plays tile's associated sound
+[ ] 8.05  All tiles in correct order → round success
+[ ] 8.06  Tapping wrong tile → triggers wrong move handling
+[ ] 8.07  Wrong tap produces error visual feedback
+[ ] 8.08  Wrong tap plays error sound
+[ ] 8.09  Input disabled during "showing-sequence" phase
+[ ] 8.10  Input disabled during round-success/failure transitions
+[ ] 8.11  Touch targets are large enough for mobile (min 44×44px)
+[ ] 8.12  Multiple rapid taps handled correctly (no double-register)
+[ ] 8.13  Tile press animation provides immediate tactile feedback
+[ ] 8.14  Input position indicator shows progress through sequence
+
+================================================================================
+SECTION 9: WRONG MOVE STRATEGIES (10 tests)
+================================================================================
+
+[ ] 9.01  GAME_END strategy: wrong move immediately ends game
+[ ] 9.02  PLAY_AGAIN strategy: replays same sequence for retry
+[ ] 9.03  PREV_SEQUENCE strategy: goes back one sequence length
+[ ] 9.04  NEXT_SEQUENCE strategy: continues to next sequence despite error
+[ ] 9.05  Strategy applied correctly based on server/level config
+[ ] 9.06  Lives/attempts system (if configured) decrements properly
+[ ] 9.07  Game over screen appears after all lives lost
+[ ] 9.08  Wrong move count tracked accurately
+[ ] 9.09  Visual transition between failure and next action is clear
+[ ] 9.10  Score penalty applied for wrong moves (if configured)
+
+================================================================================
+SECTION 10: SCORING & PROGRESSION (12 tests)
+================================================================================
+
+[ ] 10.01  Base score awarded per correct tile tap
+[ ] 10.02  Score multiplier increases with sequence length
+[ ] 10.03  Streak multiplier applied for consecutive correct rounds
+[ ] 10.04  Perfect round bonus awarded (all correct, no mistakes)
+[ ] 10.05  Score displayed and updates in real-time
+[ ] 10.06  Round counter visible and increments
+[ ] 10.07  Level/difficulty indicator visible
+[ ] 10.08  Score calculation: baseScorePerSound × sequenceLength
+[ ] 10.09  Combo multiplier resets on wrong move
+[ ] 10.10  End-of-game score summary is accurate
+[ ] 10.11  High score detection and celebration
+[ ] 10.12  Score persists to stats after game end
+
+================================================================================
+SECTION 11: SESSION & TIMER (10 tests)
+================================================================================
+
+[ ] 11.01  Session timer counts down from server-provided endTime
+[ ] 11.02  Timer displays minutes:seconds format
+[ ] 11.03  Timer turns red/warning when <30 seconds remain
+[ ] 11.04  Game ends when session timer reaches zero
+[ ] 11.05  Session persistence: can resume after page refresh (WebSocket reconnect)
+[ ] 11.06  Multiple rounds fit within single session time
+[ ] 11.07  Timer pauses appropriately during transitions
+[ ] 11.08  Session end triggers game-over/session-complete phase
+[ ] 11.09  Final score submitted on session end
+[ ] 11.10  Timer accuracy ±1 second over session duration
+
+================================================================================
+SECTION 12: GAME PHASES & TRANSITIONS (10 tests)
+================================================================================
+
+[ ] 12.01  Phase: loading → ready (initial connection/load)
+[ ] 12.02  Phase: ready → tutorial (first time) or showing-sequence
+[ ] 12.03  Phase: showing-sequence → awaiting-input (after display)
+[ ] 12.04  Phase: awaiting-input → round-success (all correct)
+[ ] 12.05  Phase: awaiting-input → round-failure (wrong tap)
+[ ] 12.06  Phase: round-success → showing-sequence (next round)
+[ ] 12.07  Phase: round-failure → game-over or retry
+[ ] 12.08  Phase: game-over → menu (replay button returns to menu)
+[ ] 12.09  Phase transitions have smooth animations
+[ ] 12.10  Phase: session-complete with final summary
+
+================================================================================
+SECTION 13: PAUSE DIALOG (8 tests)
+================================================================================
+
+[ ] 13.01  Pause dialog renders with "Game Paused" title
+[ ] 13.02  Three buttons visible: Resume, Restart, Quit to Menu
+[ ] 13.03  Backdrop blur and dark overlay visible
+[ ] 13.04  Resume button continues game from paused state
+[ ] 13.05  Restart button starts fresh game
+[ ] 13.06  Quit button returns to menu
+[ ] 13.07  Dialog animates in with spring scale effect
+[ ] 13.08  Game state preserved during pause (timer stops)
+
+================================================================================
+SECTION 14: CONFETTI & CELEBRATIONS (7 tests)
+================================================================================
+
+[ ] 14.01  Confetti triggers on significant achievements
+[ ] 14.02  60+ particles spawn with varied colors
+[ ] 14.03  Particles fall with gravity and drift
+[ ] 14.04  Particles have rotation animation
+[ ] 14.05  Confetti auto-stops after duration (3s default)
+[ ] 14.06  Confetti doesn't block user interaction (pointer-events-none)
+[ ] 14.07  Particles fade out as they fall off screen
+
+================================================================================
+SECTION 15: AUDIO SYSTEM (10 tests)
+================================================================================
+
+[ ] 15.01  Tile sounds play during sequence display
+[ ] 15.02  Tile sounds play on correct tap
+[ ] 15.03  Error sound plays on wrong tap
+[ ] 15.04  Each tile has distinct pitch/sound
+[ ] 15.05  Sound respects settings toggle (mute when disabled)
+[ ] 15.06  Volume slider affects all game sounds
+[ ] 15.07  No audio overlap when rapid taps occur
+[ ] 15.08  Piano and retro sound variants available
+[ ] 15.09  Audio doesn't lag or delay gameplay
+[ ] 15.10  No audio errors in console when sounds disabled
+
+================================================================================
+SECTION 16: API & WEBSOCKET INTEGRATION (12 tests)
+================================================================================
+
+[ ] 16.01  REST API connection established on game start
+[ ] 16.02  WebSocket connection established for real-time communication
+[ ] 16.03  Session data received from server (endTime, config)
+[ ] 16.04  Score submission works on game end
+[ ] 16.05  Leaderboard data fetches correctly
+[ ] 16.06  Achievement sync with backend
+[ ] 16.07  API error handling: shows error state (ApiErrorProvider)
+[ ] 16.08  WebSocket reconnection on disconnect
+[ ] 16.09  Loading state shown while fetching data
+[ ] 16.10  Graceful degradation if API unavailable
+[ ] 16.11  Session resume on page refresh
+[ ] 16.12  Daily challenge validation with server
+
+================================================================================
+SECTION 17: RESPONSIVE DESIGN (8 tests)
+================================================================================
+
+[ ] 17.01  Mobile portrait: full-screen game area
+[ ] 17.02  Landscape orientation: shows "Tilt detected" message
+[ ] 17.03  Landscape message: phone icon + "Switch to portrait" text
+[ ] 17.04  Orientation change detection is responsive
+[ ] 17.05  Tiles scale appropriately for different screen sizes
+[ ] 17.06  Menu buttons and text readable on small screens
+[ ] 17.07  Touch targets adequate size on mobile (≥44px)
+[ ] 17.08  No horizontal scroll on any screen size
+
+================================================================================
+SECTION 18: NAVIGATION & APP FLOW (10 tests)
+================================================================================
+
+[ ] 18.01  App starts at menu phase
+[ ] 18.02  All menu → screen transitions work
+[ ] 18.03  All "Back" buttons return to menu
+[ ] 18.04  Game end → returns to menu (not page reload)
+[ ] 18.05  Browser back button doesn't break state
+[ ] 18.06  Direct URL / loads app correctly
+[ ] 18.07  /404 route shows appropriate page
+[ ] 18.08  AppProviders wrap app correctly (I18n, Audio, Bootstrap, ApiError)
+[ ] 18.09  No flash of wrong screen on initial load
+[ ] 18.10  State machine prevents invalid phase transitions
+
+================================================================================
+SECTION 19: PERFORMANCE & EDGE CASES (8 tests)
+================================================================================
+
+[ ] 19.01  No memory leaks from animation frames
+[ ] 19.02  Timers cleaned up on component unmount
+[ ] 19.03  WebSocket cleaned up on navigate away
+[ ] 19.04  No excessive re-renders during gameplay
+[ ] 19.05  localStorage read/write doesn't cause lag
+[ ] 19.06  Large sequence (12+ items) renders smoothly
+[ ] 19.07  Rapid phase switching doesn't crash
+[ ] 19.08  App recovers gracefully from corrupted localStorage
+
+================================================================================
+SECTION 20: ACCESSIBILITY & VISUAL (6 tests)
+================================================================================
+
+[ ] 20.01  Color contrast meets WCAG AA for text elements
+[ ] 20.02  Tile colors distinguishable for colorblind users
+[ ] 20.03  Animations respect prefers-reduced-motion
+[ ] 20.04  Interactive elements have visible focus states
+[ ] 20.05  Game state communicated through multiple channels (visual + audio)
+[ ] 20.06  Loading states provide feedback to user
+
+================================================================================
+TOTAL TESTS: 203
+================================================================================
+SECTIONS BREAKDOWN:
+- Menu Screen: 12
+- Level Selector: 15
+- Daily Challenge: 14
+- Achievements: 12
+- Statistics: 11
+- Settings: 10
+- Sequence Display: 14
+- Player Input: 14
+- Wrong Move Strategies: 10
+- Scoring & Progression: 12
+- Session & Timer: 10
+- Game Phases: 10
+- Pause Dialog: 8
+- Confetti: 7
+- Audio System: 10
+- API & WebSocket: 12
+- Responsive Design: 8
+- Navigation & App Flow: 10
+- Performance & Edge Cases: 8
+- Accessibility & Visual: 6
+================================================================================

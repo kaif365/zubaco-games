@@ -1,0 +1,301 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-bg-active: var(--bg-active);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-critical: var(--critical);
+  --color-warning: var(--warning);
+  --color-success: var(--success-new);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --font-sans: var(--font-primary), system-ui, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  --radius-xs: calc(var(--radius) - 10px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: #2c2c2b;
+  --foreground: #f5f5f5;
+  --bg-active: #121212;
+  --card: #1f1f1e;
+  --card-foreground: #ffffff;
+  --popover: #2a2724;
+  --popover-foreground: #f5f5f5;
+  --primary: #8b5cf6;
+  --primary-foreground: #120e09;
+  --secondary: #171513;
+  --secondary-foreground: #f5f5f5;
+  --muted: #25221f;
+  --muted-foreground: #a0998a;
+  --muted-white: rgba(255, 255, 255, 0.1);
+  --accent: #2f2a23;
+  --accent-foreground: #f5f5f5;
+  --destructive: rgba(239, 68, 68, 1);
+  --destructive-foreground: #ffffff;
+  --critical: rgba(239, 68, 68, 1);
+  --warning: rgba(251, 191, 36, 1);
+  --success-new: rgba(36, 251, 83, 1);
+  --border: #3b3b39;
+  --input: rgba(255, 255, 255, 0.07);
+  --ring: #f0b340;
+  --sidebar: #181817;
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-muted: #9a9380;
+  --sidebar-muted-small: #666665;
+  --sidebar-accent: #292621;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
+  --bg-table-header: #181817;
+  --success: #5dbb8a;
+  --text-muted: #5c5c52;
+  --radius: 0.875rem;
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+
+body {
+  background:
+    radial-gradient(circle at top, rgba(181, 108, 37, 0.18), transparent 30%),
+    linear-gradient(180deg, #1f1c19 0%, #1b1815 100%);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden; /* Prevent body scroll (layout container scrolls) */
+}
+
+.card-border {
+  border: 1px solid var(--border);
+  backdrop-filter: blur(2px);
+}
+.bg-card-inner {
+  background-color: var(--card-inner);
+}
+.bg-table-header {
+  background-color: var(--bg-table-header);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+small,
+.text-muted {
+  color: var(--text-muted);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.75;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+[role="combobox"]:focus-visible {
+  box-shadow: 0 0 0 3px rgba(240, 179, 64, 0.2);
+}
+
+/* Inputs should keep the same look across interaction states */
+input:focus,
+input:focus-visible,
+input:active,
+textarea:focus,
+textarea:focus-visible,
+textarea:active,
+[role="combobox"]:focus,
+[role="combobox"]:focus-visible,
+[role="combobox"]:active {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+button {
+  cursor: pointer;
+}
+
+table thead tr {
+  background: rgba(240, 179, 64, 0.06);
+}
+
+/* table tbody tr:nth-child(even) {
+  background: rgba(240, 179, 64, 0.025);
+}
+
+table tbody tr:hover {
+  background: rgba(240, 179, 64, 0.08);
+} */
+
+.uppercase {
+  letter-spacing: 0.05em;
+}
+.bg-active {
+  background-color: var(--bg-active);
+}
+.bg-primary {
+  background-color: var(--primary);
+}
+
+.hover\:bg-primary\/90:hover {
+  background-color: #f5c363;
+}
+
+.bg-white {
+  background-color: var(--card) !important;
+}
+
+.border-slate-200 {
+  border-color: var(--border) !important;
+}
+
+.hover\:bg-slate-50:hover {
+  background-color: rgba(240, 179, 64, 0.08) !important;
+}
+
+.text-slate-600,
+.text-gray-500,
+.text-zinc-500 {
+  color: var(--muted-foreground) !important;
+}
+
+/* Global control sizing: keep buttons/inputs at 40px */
+button:not([role="switch"]),
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+[role="combobox"] {
+  min-height: 40px;
+}
+
+/* Target only buttons using Tailwind px-3 */
+button.px-3 {
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+}
+
+/* Select dropdown triggers (including pagination rows select) */
+button[role="combobox"] {
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+}
+
+/* Custom Scrollbar Styles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(240, 179, 64, 0.6);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #f5c363;
+}
+
+/* Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(240, 179, 64, 0.6) rgba(255, 255, 255, 0.02);
+}
+
+.scrollbar-subtle::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0);
+}
+
+.scrollbar-subtle:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Keep current typography up to 1480px, scale up on larger screens */
+@media (min-width: 1481px) {
+  .text-\[10px\] {
+    font-size: 12px !important;
+    line-height: 1.35 !important;
+  }
+
+  .text-xs {
+    font-size: 14px !important;
+    line-height: 1.5 !important;
+  }
+
+  .text-sm {
+    font-size: 16px !important;
+    line-height: 1.45 !important;
+  }
+
+  .text-base {
+    font-size: 18px !important;
+    line-height: 1.5 !important;
+  }
+
+  .text-lg {
+    font-size: 20px !important;
+    line-height: 1.45 !important;
+  }
+
+  .text-xl {
+    font-size: 22px !important;
+    line-height: 1.4 !important;
+  }
+
+  .text-2xl {
+    font-size: 28px !important;
+    line-height: 1.35 !important;
+  }
+
+  .text-3xl {
+    font-size: 34px !important;
+    line-height: 1.25 !important;
+  }
+}

@@ -1,0 +1,243 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    MAZE NAVIGATION — FULL GAME ANALYSIS
+═══════════════════════════════════════════════════════════════════════════════
+
+Game: Maze Navigation
+Genre: Puzzle / Navigation / Maze Runner
+Platform: Web (React 19 + Vite + TypeScript + TailwindCSS + PixiJS)
+Date: 2025
+
+───────────────────────────────────────────────────────────────────────────────
+ 1. GAME CONCEPT
+───────────────────────────────────────────────────────────────────────────────
+
+Maze Navigation is a timed maze-running game. The player navigates a ball/beacon
+through a grid-based maze (15×10 cells) using directional controls (UP/DOWN/
+LEFT/RIGHT) to reach the goal. The game has multiple rounds per session, a 
+countdown timer (120s), and scores based on completion speed and efficiency.
+
+Core mechanic: Swipe or tap directional buttons to move through a maze. Walls
+block movement. Reach the goal marker before time runs out. Multiple rounds per
+game session with increasing difficulty.
+
+───────────────────────────────────────────────────────────────────────────────
+ 2. EXISTING FRONTEND STRUCTURE
+───────────────────────────────────────────────────────────────────────────────
+
+Stack: React 19 + Vite + TypeScript + TailwindCSS + Framer Motion (motion/react)
+       + PixiJS (canvas rendering) + Zustand (state) + React Router + i18next
+Entry: src/main.tsx → App.tsx → AppProviders → AppRouter
+Auth: Dev-session token
+Routing: React Router (home /, demo /demo, game /game, result /result)
+
+Pages (src/pages/):
+  • home-page.tsx — Instructions screen with "Play Now" + "Learn How to Play"
+  • demo-page.tsx — Demo tutorial boards
+  • game-page.tsx — Active gameplay (wraps MazeSection)
+  • result-page.tsx — Success/Failure result with stage theme
+
+Section (src/section/):
+  • instructions/ — GameInstructionsScreen (stage-themed, skeleton loader)
+  • maze/maze-section.tsx — Main orchestrator (phases, timer, audio, API)
+  • results/ — GameSuccessScreen / GameFailureScreen
+
+Components:
+  • organisms/maze-hud.tsx — HUD with level chip, timer chip, sound toggle,
+    "Start Fresh" button, with urgent timer warning
+  • organisms/maze-controls.tsx — D-pad (UP/DOWN/LEFT/RIGHT) using Chevrons
+  • templates/maze-template.tsx — Layout: HUD + Canvas + Controls
+  • custom/maze/maze-canvas.tsx — PixiJS canvas (walls, floor, player beacon, goal)
+  • custom/maze/maze-canvas-build-scene.ts — Builds Pixi scene from maze data
+  • custom/maze/maze-canvas-wall-draw.ts — 3D-extruded wall rendering
+  • custom/maze/maze-canvas-floor-draw.ts — Floor tile rendering
+  • custom/maze/maze-canvas-goal.ts — Goal marker animation
+  • custom/maze/maze-canvas-beacon-player.ts — Player beacon with trail
+  • custom/maze/maze-canvas-start-movement.ts — Movement animation system
+  • molecules/demo-tutorial-overlay.tsx — Tutorial step overlays
+  • molecules/live-game-route-skeleton.tsx — Loading skeleton
+
+Hooks (src/hooks/):
+  • use-maze-audio.ts — Audio playback (BGM, move, win, lose, pickSide)
+  • use-maze-canvas-travel.ts — Movement animation logic
+  • use-maze-live-move-flush.ts — Batched move submission to API
+  • use-maze-timer.ts — Countdown timer
+  • use-stage-bootstrap.ts — Stage content + auth bootstrap
+  • use-dev-auth.ts — Dev authentication
+
+Store (src/store/ — Zustand):
+  • live/index.ts — Live game state (session, phase, score, timer, level)
+  • demo/index.ts — Demo tutorial state
+  • settings/index.ts — Bootstrap ready, sound enabled, instruction content
+
+Audio (src/audio/):
+  • soundRegistry.ts — 7 sounds: stepForward, wallHit, pathFound, levelComplete,
+    gameOver, timerWarning, uiClick
+
+Types:
+  • maze.ts — Direction enum (UP=1, DOWN=2, LEFT=4, RIGHT=8), MazeCell
+  • maze-phase.ts — MazeGamePhase enum (START, PLAYING, WIN, LOSE)
+  • stage-theme.ts — StageId type
+
+Constants (src/constants/maze.ts):
+  • MAZE_COLS=15, MAZE_ROWS=10, CELL_SIZE=40
+  • MAZE_START_TIMER=120 (seconds)
+  • MAZE_TIMER_LOW_WARNING_SECONDS=60
+  • MAZE_LEVEL_COMPLETE_BASE_SCORE=50
+  • MAZE_TIMER_SCORE_FACTOR=0.5
+
+Save Progress: src/features/maze-navigation/save-progress/
+
+───────────────────────────────────────────────────────────────────────────────
+ 3. BACKEND ENGINE (NestJS + Restate)
+───────────────────────────────────────────────────────────────────────────────
+
+Location: maze-navigation-backend/src/game/engine/
+
+  • achievementEngine.ts — 10 achievements:
+    FIRST_WIN, STREAK_5, STREAK_10, PERFECT_GAME, SPEED_DEMON,
+    PERSISTENCE (50 games), LEVEL_5, LEVEL_10, HIGH_SCORER (1000pts), NO_MISTAKES
+  
+  • boosterEngine.ts — 5 boosters:
+    TIME_FREEZE (5s), HINT (×2/game), SKIP (×1/game), DOUBLE_POINTS (10s), UNDO (×2/game)
+  
+  • comboEngine.ts — Streak multiplier:
+    +0.25× per 3-streak milestone, max 4.0×
+  
+  • dailyChallenge.ts — Date-seeded (SHA-256), level scales with day of week
+  
+  • leaderboard.ts — Ranked scores (top 100)
+  
+  • scoreHistory.ts — Historical score tracking
+
+───────────────────────────────────────────────────────────────────────────────
+ 4. EXISTING GAME FLOW
+───────────────────────────────────────────────────────────────────────────────
+
+Current flow:
+  Home (Instructions) → [Demo] → Game (MazeSection) → Result
+
+The MazeSection manages:
+  ✅ Phase machine (START → PLAYING → WIN/LOSE)
+  ✅ Live game bootstrap (auto-resume existing session)
+  ✅ Timer countdown with warning at ≤60s
+  ✅ Multi-round progression (multiple mazes per session)
+  ✅ Score tracking (base 50 + timer bonus)
+  ✅ PixiJS canvas with 3D-extruded walls
+  ✅ D-pad controls (directional movement)
+  ✅ Move batching + submission to API
+  ✅ Demo tutorial (guided overlays)
+  ✅ Sound effects toggle in HUD
+  ✅ "Start Fresh" in HUD (forfeit/restart)
+  ✅ Stage theming (7 stages with eclipse glow)
+  ✅ Success/Failure result screen with stage overlay
+  ✅ Session recovery on page refresh
+  ✅ Junction arrows (hint system)
+
+───────────────────────────────────────────────────────────────────────────────
+ 5. GOLD STANDARD COMPLIANCE ANALYSIS
+───────────────────────────────────────────────────────────────────────────────
+
+ALREADY IMPLEMENTED:
+  ✅ Tutorial / Demo Flow (guided overlay steps)
+  ✅ Instructions Screen (stage-themed, "Play Now" + "Learn How to Play")
+  ✅ Playing state with HUD (level, timer, sound toggle)
+  ✅ Result screen (Success/Failure with stage theme)
+  ✅ Timer with urgency indicator (≤60s)
+  ✅ D-pad controls for movement
+  ✅ PixiJS canvas rendering (3D walls, beacon player, goal)
+  ✅ Multi-round progression
+  ✅ Session recovery / auto-resume
+  ✅ Audio system (7 sounds)
+  ✅ Stage theming (7 color themes)
+  ✅ Error handling + offline support
+
+MISSING FROM GOLD STANDARD:
+  ❌ Menu Screen (Play / Levels / Daily / Achievements / Stats / Settings)
+  ❌ Level Selector (visual grid with stars, unlock progression)
+  ❌ Settings Screen (sound toggle, volume, theme — only toggle exists in HUD)
+  ❌ Stats Screen (games played, wins, moves, time, etc.)
+  ❌ Achievements Screen (10 badges with unlock state)
+  ❌ Daily Challenge Screen (calendar, date-seeded maze)
+  ❌ Pause Dialog (resume / restart / exit)
+  ❌ Combo display in HUD (×N multiplier)
+  ❌ Confetti celebration on level/game complete
+  ❌ Star rating system (per maze)
+  ❌ Local persistence (level unlock, stars, stats, achievements)
+
+NOTE: This game uses React Router for navigation (home→demo→game→result).
+The Gold Standard menu layer should be added as a new route/page that sits
+between the home-page instructions and the game-page.
+
+───────────────────────────────────────────────────────────────────────────────
+ 6. SIMILAR GAMES (Research — Verified from Google Play Store)
+───────────────────────────────────────────────────────────────────────────────
+
+1. Maze: Puzzle and Relaxing Game (Infinity Games) — 10M+ downloads, 3.8★ (138K reviews)
+   URL: play.google.com/store/apps/details?id=com.rikudogames.maze
+   • Swipe to guide light through maze to find exit
+   • 5,000+ unique mazes, 100+ combinations
+   • 7 game modes: Classic, Time-Limited, Restricted Moves, Token Collection,
+     Intertwined Mazes with Teleportation Portals
+   • 4 maze types: square, triangular, hexagonal, circular
+   • Constellation-based level progression (unlock system)
+   • Soothing music + vivid colors
+   • Funny shaped mazes (bunny, guitar, tree)
+
+2. Maze Games: Labyrinth Puzzles (RV AppStudios) — 1M+ downloads, 4.0★ (12.6K reviews)
+   URL: play.google.com/store/apps/details?id=com.rvappstudios.maze.games.puzzle.mazes.labyrinth
+   • 1500+ free puzzles
+   • 4 fun labyrinth modes
+   • Customize theme, shape, and avatar
+   • Real-time online multiplayer maze games
+   • Unlock achievements and rewards
+   • Hint button when stuck
+   • Dragging mode + joystick mode controls
+   • 25 languages supported
+   • Offline play
+   • Bonus levels for coins
+
+3. Mazes & More (Maple Media) — 500K+ downloads, 4.0★
+   URL: play.google.com/store/apps/details?id=com.leodesol.games.classic.maze.labyrinth
+   • Classic maze navigation
+   • Star rating per maze (speed-based)
+   • Daily challenge mazes
+   • Statistics tracking
+   • Multiple difficulty levels
+
+Key features from similar games incorporated:
+  ✅ Multiple game modes (timed, restricted moves)
+  ✅ Level unlock progression with stars
+  ✅ Customizable themes
+  ✅ Achievement/reward system
+  ✅ Hint system (junction arrows already exist)
+  ✅ Daily challenge
+  ✅ Offline play
+  ✅ Statistics tracking
+
+───────────────────────────────────────────────────────────────────────────────
+ 7. IMPLEMENTATION PLAN
+───────────────────────────────────────────────────────────────────────────────
+
+New components to create in src/features/maze-navigation/components/:
+
+  1. MenuScreen.tsx — 6 buttons (Play, Levels, Daily, Achievements, Stats, Settings)
+  2. LevelSelector.tsx — 10 levels grid, stars, unlock progression
+  3. Settings.tsx — Sound toggle, volume slider, theme selection
+  4. StatsScreen.tsx — 10 stat categories with persistence
+  5. Achievements.tsx — 10 badges + popup notification
+  6. DailyChallenge.tsx — Calendar + date-seeded daily maze
+  7. PauseDialog.tsx — Resume / Restart / Exit with game info
+  8. Confetti.tsx — 60-particle celebration animation
+
+Integration approach:
+  The existing app uses React Router (/, /demo, /game, /result). The menu screen
+  will be rendered as the new default view in home-page.tsx, which currently shows
+  the instructions screen. The instructions screen will be shown when user taps
+  "Play" (just before game starts).
+
+Star Rating:
+  3★ = Completed with ≥70% time remaining (fast solve)
+  2★ = Completed with ≥40% time remaining (medium solve)
+  1★ = Completed (any time remaining)
+
+═══════════════════════════════════════════════════════════════════════════════

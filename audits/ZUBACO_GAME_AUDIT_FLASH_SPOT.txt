@@ -1,0 +1,1654 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #4: FLASH SPOT (Reaction/Observation Game)
+================================================================================
+Audit Date: May 23, 2026
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Reaction-time observation game — tap cells that are actively changing
+          (color, shape, size, opacity) within a timed window
+Stack: NestJS 11 + Prisma 7 + BullMQ + Socket.IO + Restate (backend),
+       React 19 + Vite 6 + Framer Motion + TailwindCSS (frontend)
+Runtime: Bun (backend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Flash Spot is a well-architected reaction game with server-authoritative scoring,
+deterministic seeded change schedules, and solid anti-cheat foundations. The
+backend is one of the more complete in the lineup — proper AES-GCM encryption,
+atomic CAS pattern, Restate durable execution, idempotency keys, and circuit
+breakers.
+
+However, it has a UNIQUE CRITICAL BUG that no other game has: the encryption
+env var name is MISMATCHED between config (.env uses VITE_PAYLOAD_AES_SECRET)
+and code (httpClient.ts reads VITE_ENCRYPTION_KEY). This means encryption is
+SILENTLY NEVER APPLIED — all payloads sent in plaintext despite the developer's
+clear intent to encrypt them.
+
+Additionally, using Date.now() for reaction timing in a game that MEASURES
+reaction time is fundamentally wrong — performance.now() is required. And the
+requestAnimationFrame loop sets React state EVERY FRAME (60fps), creating a
+constant 60 re-renders/second that's 6× worse than the timer issue in other games.
+
+TOTAL ISSUES: 60 (4 Critical, 13 High, 20 Medium, 23 Low)
+
+RELEASE READINESS SCORE: 56/100
+(Strong backend architecture undermined by env var mismatch + timing inaccuracy)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Encryption env var MISMATCH — encryption SILENTLY NEVER APPLIED
+           (VITE_PAYLOAD_AES_SECRET in .env vs VITE_ENCRYPTION_KEY in code)
+BLOCKER-2: VITE_ encryption key exposed in client JS bundle
+BLOCKER-3: Hardcoded fallback JWT secrets (3 DIFFERENT values across HTTP/WS/config)
+BLOCKER-4: Hardcoded fallback HMAC secret ('dev-hmac-secret')
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (33 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: Fallback JWT Secret in Production Path (3 Different Values!)     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: src/common/config/env.config.ts (line 15),                            │
+│        src/common/config/app.config.ts (line 3),                             │
+│        src/ws/game.gateway.ts (line 40)                                      │
+│                                                                              │
+│ Description:                                                                 │
+│   THREE different fallback values for JWT secret:                            │
+│   • env.config.ts:   'dev-secret-change-in-production'                       │
+│   • app.config.ts:   'dev-secret-flash-spot'                                 │
+│   • game.gateway.ts: 'dev-secret'                                            │
+│                                                                              │
+│   env.config.ts has a production check but app.config.ts and game.gateway.ts │
+│   DO NOT. The WS gateway reads directly from process.env, bypassing all      │
+│   validation logic.                                                          │
+│                                                                              │
+│ Exploit Scenario:                                                            │
+│   Container deployed without JWT_SECRET → attacker forges JWT                │
+│   signed with any of the 3 known fallback strings.                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Single config service. Throw at startup if missing. No fallbacks.          │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Complete account takeover for ALL users                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: WebSocket Gateway Uses Independent Fallback JWT Secret           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (line 40)                                       │
+│                                                                              │
+│ Description:                                                                 │
+│   const secret = process.env.JWT_SECRET || 'dev-secret';                     │
+│   WS gateway bypasses centralized config. Even if HTTP endpoints are         │
+│   properly secured, WS path uses a weaker fallback.                          │
+│                                                                              │
+│ Exploit: Connect via WebSocket with JWT signed with 'dev-secret',            │
+│   gain access to real-time game events of any user.                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Import centralized config service. No fallback.                            │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Eavesdrop on any user's game session via WS                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: .env File Contains Secrets (Committed Pattern)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: .env (root)                                                            │
+│                                                                              │
+│ Description:                                                                 │
+│   JWT_SECRET="change-me-min-32-chars-long-secret-key"                        │
+│   DATABASE_URL="postgresql://user:password@localhost:5432/flash_spot"         │
+│   .env is IDENTICAL to .env.example — pattern suggests it's committed.       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   git rm --cached .env; verify .gitignore includes .env                      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Full DB access if repo exposed                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: HMAC Secret Has Insecure Fallback                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts (line 18)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';                │
+│   HMAC_SECRET is validated in env.validation.ts for production, but          │
+│   the guard itself doesn't check NODE_ENV — always falls back.              │
+│                                                                              │
+│ Exploit: Forge HMAC signatures for protected endpoints.                      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Client `isCorrect` Field Stored Without Server Validation        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 165)                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   GameInput records store the CLIENT's claim of correctness:                 │
+│     isCorrect: tap.isCorrect  // ← client-provided!                          │
+│                                                                              │
+│   While scoring IS server-authoritative (good), the DB stores the            │
+│   client's lie. Any analytics/dashboards querying GameInput.isCorrect        │
+│   will show manipulated data.                                                │
+│                                                                              │
+│ Exploit: Cheating client sends isCorrect: true for all taps,                 │
+│   poisoning analytics and any systems querying GameInput directly.           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Store SERVER-validated correctness:                                         │
+│   isCorrect: validatedResults[i].isActuallyCorrect                           │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Poisoned analytics, potential downstream exploitation         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: Client Timestamp Fully Trusted for Tap Timing Validation         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (lines 149-154)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   const gameStartTime = session.startedAt.getTime();                         │
+│   for (const tap of taps) {                                                  │
+│     const tapTimeRelative = tap.timestamp - gameStartTime;                   │
+│     const isActuallyCorrect = validateTap(                                   │
+│       tap.cellId, tapTimeRelative, changes);                                 │
+│   }                                                                          │
+│                                                                              │
+│   Client-provided timestamps directly determine whether taps fall            │
+│   within activation windows. A cheater can reverse-engineer the              │
+│   change schedule from the seed and submit perfectly timed taps.             │
+│                                                                              │
+│ Exploit:                                                                     │
+│   1. Receive seed from startGame response                                    │
+│   2. Pre-compute all change windows (activateAt + displayDuration)           │
+│   3. Submit taps with fabricated timestamps matching each window              │
+│   4. Perfect score every time                                                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   - Validate timestamps are monotonically increasing                         │
+│   - Validate total elapsed time matches actual wall clock                    │
+│   - Validate timestamps fall within [startedAt, endTime]                     │
+│   - Compare last_tap - first_tap against server-measured duration            │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Automated perfect scores on leaderboard                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Seed Returned to Client Enables Pre-Computation                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (lines 109-115)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   startGame response includes:                                               │
+│   return { gameSessionId, seed, config: stageConfig, ... };                  │
+│                                                                              │
+│   Since change schedule is fully deterministic from seed, and the            │
+│   algorithm is shared (client mirrors server), a sophisticated cheater       │
+│   pre-computes ALL change windows instantly and fakes perfect play.          │
+│                                                                              │
+│ Mitigation Level: Partially mitigated since frontend needs seed for          │
+│   rendering, but combined with B-06 (trusted timestamps) this is             │
+│   trivially exploitable.                                                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   - Progressive seed revelation (per-round seeds via WebSocket)              │
+│   - OR: Don't reveal full schedule — push changes as they happen             │
+│   - OR: At minimum, validate timestamps rigorously (B-06 fix)               │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Combined with B-06 → guaranteed perfect score bot             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Race Condition in submitResult (Double-Submit Window)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic Bug                                                          │
+│ File: src/game/game.service.ts (lines 123-175)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   submitResult uses findFirst to check status, then updateMany with          │
+│   status check. The atomic CAS at updateMany prevents actual double          │
+│   completion, BUT duplicate work occurs between the checks:                  │
+│   - Duplicate GameInput records created                                      │
+│   - Duplicate cheat flags emitted                                            │
+│   - Wasted CPU regenerating schedule                                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Redis lock or advisory lock at the beginning of submitResult.              │
+│   OR wrap entire operation in Prisma $transaction.                           │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Duplicate Cheat Flag Creation Logic                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic Bug                                                          │
+│ File: src/game/game.service.ts (lines 172-213)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Score discrepancy check runs TWICE:                                        │
+│   1. First check ~line 172 → creates DB record                              │
+│   2. Second check ~line 213 → pushes to cheatFlags array                    │
+│   Duplicate DB records for same flag.                                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove duplicate condition check. Handle score discrepancy once.           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Metrics Endpoint Exposed Without Authentication                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/common/metrics/metrics.controller.ts                               │
+│                                                                              │
+│ Description:                                                                 │
+│   /metrics endpoint has no auth guards. Exposes Prometheus metrics           │
+│   (request counts, error rates, latencies) to anyone.                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add API key guard or restrict via network policy.                          │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Health Endpoints Expose Internal State Without Auth              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/health/health.controller.ts                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   /health/ready exposes DB connectivity, Redis health, queue stats           │
+│   (waiting/active/failed counts), memory heap usage.                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Protect /health/ready behind API key. Keep /health/live public.            │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: In-Memory IP Rate Limiter Won't Scale Horizontally               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance / Security                                             │
+│ File: src/hardening/ip-rate-limiter.middleware.ts                             │
+│                                                                              │
+│ Description:                                                                 │
+│   private readonly store = new Map<string, RateEntry>();                      │
+│   With multiple pods, each has its own counter. Attacker can send            │
+│   maxRequests × N across N instances.                                        │
+│   Also: @nestjs/throttler with Redis is ALREADY configured!                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove this middleware; rely on existing ThrottlerGuard with Redis.         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: Memory Leak in IP Rate Limiter (No Eviction)                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/hardening/ip-rate-limiter.middleware.ts                             │
+│                                                                              │
+│ Description:                                                                 │
+│   Map never cleaned up. Expired entries accumulate indefinitely.             │
+│   Under sustained unique-IP traffic, grows forever → OOM.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add periodic cleanup or remove in favor of Redis throttler.                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Server OOM crash under sustained traffic                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Redis KEYS Command Used (Blocks Event Loop)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ Files: src/redis/redis.service.ts (line 103),                                │
+│        src/http-cache/cache-invalidation.service.ts (line 21)                │
+│                                                                              │
+│ Description:                                                                 │
+│   KEYS command scans entire keyspace, blocking Redis for ALL clients.        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use SCAN with cursor-based iteration.                                      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: Multiple Independent Redis Connections (5+ Instances)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Architecture                                                       │
+│ Files: feature-flags, idempotency, http-cache, cache-invalidation, queue     │
+│                                                                              │
+│ Description:                                                                 │
+│   At least 5 separate services create their own new Redis() connections      │
+│   independently, despite global RedisService existing.                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Inject shared RedisService everywhere.                                     │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: getConfig Endpoint Missing stageId Validation                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Validation                                                         │
+│ File: src/game/game.controller.ts (lines 30-33)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   @Query('stageId') stageId: string — no UUID validation pipe.               │
+│   Arbitrary strings passed to Prisma. Safe but inconsistent.                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add @IsUUID() pipe or ParseUUIDPipe.                                       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: getCurrentSession Endpoint Missing stageId Validation            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Validation                                                         │
+│ File: src/game/game.controller.ts (lines 35-38)                              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-18: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 49-54)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   /api/docs available unconditionally in production.                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Gate behind NODE_ENV !== 'production'.                                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-19: SecurityHeadersMiddleware Not Applied in AppModule               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/app.module.ts (lines 76-79)                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   Imported but never added to consumer. helmet() in main.ts covers           │
+│   most headers already.                                                      │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-20: Commented Import in main.ts (Dead Code)                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/main.ts (line 8)                                                   │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-21: ApiExceptionFilter Never Used (Dead Code)                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/common/filters/api-exception.filter.ts                             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-22: SanitizePipe Never Applied                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/common/pipes/sanitize.pipe.ts                                      │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-23: QueueService Never Called from GameService (Dead Code)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/queue/queue.service.ts                                             │
+│                                                                              │
+│ Description:                                                                 │
+│   enqueueScoreSubmitted, enqueueCheatDetected, enqueueSessionCompleted       │
+│   defined but NEVER invoked from GameService.                                │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-24: Session Cleanup Processor Is a No-Op Stub                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Incomplete Implementation                                          │
+│ File: src/queue/processors/session-cleanup.processor.ts (lines 12-15)        │
+│                                                                              │
+│ Description:                                                                 │
+│   Only logs. No Prisma query to mark/delete expired sessions.                │
+│   Sessions accumulate forever.                                               │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: DB bloat over time                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-25: Game Events Processor Is a No-Op Stub                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Incomplete Implementation                                          │
+│ File: src/queue/processors/game-events.processor.ts (lines 34-57)            │
+│                                                                              │
+│ Description:                                                                 │
+│   handleScoreSubmitted, handleSessionCompleted, handleCheatDetected          │
+│   only log. No actual processing.                                            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-26: Unique Constraint + Non-Transactional Delete/Create = Data Loss  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Data Integrity                                                     │
+│ File: prisma/schema.prisma (line 35), src/game/game.service.ts               │
+│                                                                              │
+│ Description:                                                                 │
+│   @@unique([userId, stageId]) + startGame logic that deletes previous        │
+│   session before creating new one. NOT in a transaction!                     │
+│   If create fails after delete → user loses previous score.                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   await this.prisma.$transaction(async (tx) => {                             │
+│     if (existing) await tx.gameSession.delete(...);                           │
+│     return tx.gameSession.create(...);                                        │
+│   });                                                                        │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Permanent score loss on transient failures                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-27: CORS Wildcard Fallback in Non-Production                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 38-41)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   origin: corsOrigins?.length > 0 ? corsOrigins : true                       │
+│   Staging/QA environments allow all origins if CORS_ORIGINS unset.           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-28: Leaderboard Engine Is In-Memory Only (Dead Code)                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/game/engine/leaderboard.ts                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   Local array. Never instantiated in service layer. Resets on restart.       │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-29: $queryRawUnsafe in Health Check                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/health/prisma.health.ts (line 12)                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   await this.prisma.$queryRawUnsafe('SELECT 1');                             │
+│   Safe here (hardcoded) but bad pattern. Use $queryRaw`SELECT 1`.            │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-30: WebSocket join-session Has No Ownership Validation               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (lines 63-69)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Any authenticated user can join ANY session room by providing any          │
+│   sessionId. Receives real-time events for other users' games.               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Validate client.data.userId owns the session before joining.               │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Eavesdrop on other users' scores/events                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-31: Feature Flag Guard Not Registered                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/feature-flags/feature-flag.guard.ts                                │
+│                                                                              │
+│ Description:                                                                 │
+│   FeatureFlagGuard defined but never registered. @RequireFeature()           │
+│   decorator won't work.                                                      │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-32: BullMQ Connection Missing Redis Auth                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Configuration                                                      │
+│ File: src/queue/queue.module.ts (lines 10-15)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   BullMQ connection only specifies host + port:                              │
+│   { host: ..., port: ..., maxRetriesPerRequest: null }                       │
+│   Missing: username, password, db from env vars.                             │
+│   If Redis requires auth (production), all queue operations fail.            │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Queue processing completely broken in production              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-33: timingSafeEqual Crash on Length Mismatch                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security / Error Handling                                          │
+│ File: src/common/guards/hmac.guard.ts (lines 47-48)                          │
+│                                                                              │
+│ Description:                                                                 │
+│   crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))      │
+│   Throws if buffers have different lengths. Attacker gets 500 error          │
+│   instead of 401, and stack trace may leak info.                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Check lengths match before calling timingSafeEqual:                        │
+│   if (sigBuf.length !== expBuf.length) return false;                         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (27 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Encryption Key Exposed in Client JS Bundle (VITE_ Prefix)        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env → VITE_PAYLOAD_AES_SECRET                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   VITE_PAYLOAD_AES_SECRET has VITE_ prefix → embedded in production          │
+│   JS bundle. Anyone extracts it from devtools.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove client-side encryption (use HTTPS only).                            │
+│   OR per-session ephemeral key negotiated via handshake.                     │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Score forgery, decrypt all game payloads                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Encryption ENV VAR NAME MISMATCH — Encryption NEVER APPLIED!     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security / Bug                                                     │
+│ Files: .env (VITE_PAYLOAD_AES_SECRET),                                       │
+│        src/services/httpClient.ts line 7 (reads VITE_ENCRYPTION_KEY)         │
+│                                                                              │
+│ Description:                                                                 │
+│   .env defines:        VITE_PAYLOAD_AES_SECRET="abc..."                      │
+│   httpClient reads:    VITE_ENCRYPTION_KEY                                   │
+│                                                                              │
+│   These are DIFFERENT names! VITE_ENCRYPTION_KEY is always undefined.        │
+│   The condition `if (ENCRYPTION_KEY && ...)` is ALWAYS FALSE.                │
+│   ALL payloads sent in PLAINTEXT despite developer's clear intent            │
+│   to encrypt them.                                                           │
+│                                                                              │
+│   *** THIS IS UNIQUE TO FLASH SPOT — NO OTHER GAME HAS THIS BUG ***         │
+│                                                                              │
+│ Player Impact:                                                               │
+│   Score submissions, session data, and all API traffic are completely         │
+│   unencrypted. Combined with F-01 being moot (key never used),              │
+│   there is ZERO transport protection beyond HTTPS.                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Align env var names. Either:                                               │
+│   - Change httpClient.ts to read VITE_PAYLOAD_AES_SECRET                     │
+│   - Or rename .env to VITE_ENCRYPTION_KEY                                    │
+│   (But then fix F-01 — key still shouldn't be in bundle)                     │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: All intended security measures silently non-functional         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Auth Token Stored in sessionStorage (XSS Vulnerable)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 23)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   sessionStorage.getItem('auth_token') — accessible to any XSS.             │
+│   Combined with source maps shipped to production (F-09),                    │
+│   understanding and exploiting the code is trivial.                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use httpOnly cookies. Disable production sourcemaps.                       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Account takeover via XSS                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Socket Auth Token from localStorage (Inconsistent)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / Security                                                     │
+│ File: src/services/socketClient.ts (line 17)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Socket reads: localStorage.getItem('auth_token')                           │
+│   HTTP writes: sessionStorage                                                │
+│   Mismatch → socket always sends null → unauthenticated WebSocket.          │
+│                                                                              │
+│ Additionally, localStorage persists across sessions, increasing              │
+│   attack window for stolen tokens.                                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Unify storage. Use cookie-based auth for both.                             │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Real-time features completely non-functional                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: Using Date.now() for Reaction Timing — WRONG for This Game       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Accuracy                                                      │
+│ File: src/features/flash-spot/components/GamePage.tsx (lines 95-107, 112)    │
+│                                                                              │
+│ Description:                                                                 │
+│   The animation loop and tap handler both use Date.now().                    │
+│   Date.now() has 1-15ms resolution depending on browser/OS.                  │
+│   It's affected by system clock adjustments (NTP, timezone changes).         │
+│                                                                              │
+│   For a game that MEASURES REACTION TIME this is fundamentally wrong.        │
+│   Flash Spot's core mechanic IS timing accuracy — using an inaccurate        │
+│   clock defeats the purpose of the game.                                     │
+│                                                                              │
+│ Player Impact:                                                               │
+│   Player taps a changing cell at the correct moment → Date.now() jitter      │
+│   places them outside the activation window → INCORRECT result.              │
+│   Feels unfair and unpredictable.                                            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use performance.now() for ALL game-internal timing:                        │
+│   roundStartRef.current = performance.now();                                 │
+│   const elapsed = performance.now() - roundStartRef.current;                 │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Incorrect scoring in a game about timing accuracy             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: requestAnimationFrame Loop = Re-render EVERY FRAME (60fps)       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/features/flash-spot/components/GamePage.tsx (lines 95-107)         │
+│                                                                              │
+│ Description:                                                                 │
+│   setActiveChanges(newActive) called inside requestAnimationFrame on         │
+│   EVERY frame (~60fps). Even when active set hasn't changed, React           │
+│   creates a new Set object → triggers full component tree re-render          │
+│   every 16ms. That's 60 re-renders/second!                                  │
+│                                                                              │
+│   This is 6× WORSE than the 100ms timer issue in other games.               │
+│                                                                              │
+│ Performance Impact:                                                          │
+│   - 60 renders/sec × (16 cells + header + controls) = massive waste          │
+│   - On budget phones: guaranteed dropped frames                              │
+│   - Battery drain: constant GC from new Set() allocation                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Compare new active set with previous before setState:                      │
+│   const prevActive = activeChangesRef.current;                               │
+│   const changed = newActive.size !== prevActive.size ||                       │
+│     [...newActive].some(id => !prevActive.has(id));                           │
+│   if (changed) { activeChangesRef.current = newActive;                       │
+│     setActiveChanges(newActive); }                                           │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Jank, frame drops, battery drain on ALL devices               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: handleStart Doesn't Reset Previous Game State (Replay Bug)       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/features/flash-spot/components/GamePage.tsx (lines 75-78)          │
+│                                                                              │
+│ Description:                                                                 │
+│   When onReplay triggers handleStart again, stale state persists:            │
+│   - taps[] from previous round not cleared                                   │
+│   - score not reset to 0                                                     │
+│   - activeChanges not cleared                                                │
+│   - feedback not cleared                                                     │
+│                                                                              │
+│   Old taps array gets submitted along with new game data.                    │
+│                                                                              │
+│ Player Impact:                                                               │
+│   Score from previous round contaminates new round.                          │
+│   Incorrect final score submitted to server.                                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   At beginning of handleStart:                                               │
+│   setTaps([]); setScore(0); setFeedback(null);                               │
+│   setActiveChanges(new Set()); timer.reset();                                │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Wrong scores, corrupted replay data                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: Double Score Calculation on Game End                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/features/flash-spot/components/GamePage.tsx (lines 144-172)        │
+│                                                                              │
+│ Description:                                                                 │
+│   calculateScore called in BOTH useEffect (sets state) AND render path       │
+│   (uses fresh result). Confusion about source of truth.                      │
+│   If taps state is stale during effect vs render → score discrepancy.        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove useEffect score calculation. Compute only during render.            │
+│   Pass computed score to submitResult.                                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: Source Maps Enabled in Production                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: vite.config.ts (line 27)                                               │
+│                                                                              │
+│ Description:                                                                 │
+│   sourcemap: true ships full source maps, exposing all business logic,       │
+│   anti-cheat, and encryption code.                                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   sourcemap: false or 'hidden' (for error monitoring only).                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: Cell Size Doesn't Update on Orientation Change                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Mobile UX                                                          │
+│ File: src/features/flash-spot/components/GameGrid.tsx (lines 38-41)          │
+│                                                                              │
+│ Description:                                                                 │
+│   cellSize uses window.innerWidth in useMemo but only depends on             │
+│   gridSize — no resize/orientation listener.                                 │
+│   Rotating device → incorrectly sized grid until restart.                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add resize listener updating windowWidth state.                            │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Broken layout on orientation change                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: changes.find() Called Per Cell Per Frame (O(n²))                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/features/flash-spot/components/GameGrid.tsx (lines 55-100)         │
+│                                                                              │
+│ Description:                                                                 │
+│   Inside grid map: changes.find(c => c.cellId === cell.id)                   │
+│   O(n) per cell × 16 cells × 60 fps = 11,520 find() calls per second.       │
+│   With 12 changes: 192 comparisons per frame.                                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Pre-compute Map<number, ScheduledChange> outside render loop.              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Slight inefficiency, compounds with F-06                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: No Debounce on Cell Taps — Double-Tap Score Exploit              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat / UX                                                    │
+│ File: src/features/flash-spot/components/GamePage.tsx (lines 110-132)        │
+│                                                                              │
+│ Description:                                                                 │
+│   Players can rapidly tap the same cell multiple times while it's            │
+│   active and accumulate points for each tap. No check for duplicate          │
+│   taps on the same change event.                                             │
+│                                                                              │
+│ Exploit:                                                                     │
+│   Rapid multi-finger tapping on active cell → inflated score.               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Track claimed changes: const claimed = useRef(new Set<string>());          │
+│   Key: `${cellId}-${activateAt}` — once tapped, ignore repeats.             │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Score inflation exploit on leaderboard                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: No Haptic Feedback on Tap                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Feel                                                          │
+│ File: Entire game interaction layer                                          │
+│                                                                              │
+│ Description:                                                                 │
+│   For a REACTION game, haptic/vibration feedback is critical.                │
+│   Players can't tell if tap registered without looking at visual.            │
+│   useAudio hook exists but never called from GamePage.                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   navigator.vibrate(10) on tap.                                              │
+│   Integrate useAudio with correct/incorrect tap events.                      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Reduced tactile responsiveness in reaction game               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: Touch Target Size Not Guaranteed on Small Screens                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Mobile UX                                                          │
+│ File: src/features/flash-spot/components/GameGrid.tsx (line 82)              │
+│                                                                              │
+│ Description:                                                                 │
+│   4×4 grid with maxWidth=400px: cells ~92px (adequate).                      │
+│   On <360px screens: cells ~75px minus gaps → approaching 44px minimum.      │
+│   No min-width/min-height constraint.                                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add min-width: 44px; min-height: 44px to cells.                            │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: Timer setInterval Drifts vs requestAnimationFrame Loop           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/features/flash-spot/hooks/useGameTimer.ts (lines 33-42)            │
+│                                                                              │
+│ Description:                                                                 │
+│   Timer uses setInterval(100ms) — separate from rAF animation loop.          │
+│   Under heavy load: timer drifts, shows 0:00 but game hasn't ended.         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Consolidate timing — use same rAF loop for both active changes             │
+│   AND timer display, both reading from performance.now() base.              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Timer display out of sync with actual game state              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: GameOverScreen Component Never Used (Dead Code)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Code Quality                                                       │
+│ File: src/features/flash-spot/components/GameOverScreen.tsx                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Defined but never rendered. GamePage uses ResultScreen instead.            │
+│   Contains window.location.reload() in "Play Again" — code smell.           │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: Encryption Key in Module-Level Config Object                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/app/config/appConfig.ts (lines 33-34)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   encryption.key stored in singleton config accessible via devtools.         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Don't store key in persistent config. Access only at point of use.         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: Loading State Has No Timeout/Error Recovery                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/flash-spot/components/GamePage.tsx (lines 160-167)        │
+│                                                                              │
+│ Description:                                                                 │
+│   If startGame() hangs (network timeout), loading spinner shows              │
+│   indefinitely. Falls back to local game eventually but user stares          │
+│   at spinner for up to 10 seconds.                                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Show "Taking longer than expected..." after 3-5 seconds.                   │
+│   Allow cancellation.                                                        │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: No ARIA Labels on Game Grid Cells                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Accessibility                                                      │
+│ File: src/features/flash-spot/components/GameGrid.tsx                        │
+│                                                                              │
+│ Description:                                                                 │
+│   Grid buttons have no aria-label or role attributes.                        │
+│   Screen readers announce nothing meaningful.                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: Instruction Steps Are Redundant and Incomplete                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/app/components/InstructionScreen.tsx (lines 64-66)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Only step "1" shown with no step 2 or 3. Repeats text from above.         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add meaningful steps: 1) Watch cells, 2) Tap changing ones,                │
+│   3) Avoid unchanged cells.                                                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: Theme CSS Variables Flash on Mount                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/App.tsx (lines 13-20)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   CSS variables set via DOM manipulation in useEffect.                       │
+│   Single frame of unstyled content possible before effect runs.              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-22: Unsafe Type Cast (import.meta as any)                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/services/socketClient.ts (line 6)                                  │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-23: framer-motion Not in Manual Chunks (Large Bundle)                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Build / Performance                                                │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   framer-motion (~150KB) bundled into main chunk.                            │
+│   Increases initial load time on mobile networks.                            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add to manualChunks or use dynamic import for game page.                   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-24: Changes May Overlap in Time on Same Cell (Edge Case)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Game Logic                                                         │
+│ File: src/features/flash-spot/engine/changeGenerator.ts (lines 96-98)        │
+│                                                                              │
+│ Description:                                                                 │
+│   Generator doesn't prevent overlapping activation windows if                │
+│   changeIntervalMs < displayDurationMs for same cell.                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Validate: changeIntervalMs > displayDurationMs in config.                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-25: No Sound Integration in Gameplay                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: useAudio hook (implemented but never called)                           │
+│                                                                              │
+│ Description:                                                                 │
+│   useAudio hook with correct/incorrect/tap sounds exists but never           │
+│   imported in GamePage or GameGrid. Game is completely silent.               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Import useAudio. Play sounds on correct tap, incorrect tap.                │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Silent game feels unpolished. Audio feedback critical         │
+│   for reaction games (confirms tap registered).                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-26: No Pause/Background Handling (visibilitychange)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: Entire game timing layer                                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Tab switch / phone lock: rAF pauses but setInterval timer continues.       │
+│   No document.visibilitychange handler.                                      │
+│   Returning to game → desync (timer expired but changes jump forward).      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Listen to visibilitychange. Pause timer + animation when hidden.           │
+│   Resume on return.                                                          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Game ruined when switching apps briefly                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-27: OfflineBanner Text Not Internationalized                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: i18n                                                               │
+│ File: src/app/components/OfflineBanner.tsx                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Hardcoded English strings. Hindi users see English for connectivity.       │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Bottlenecks (sorted by impact):
+
+1. requestAnimationFrame Loop = 60 Re-renders/Second (WORST ISSUE)
+   - setActiveChanges(new Set(...)) called every frame
+   - New Set object triggers React reconciliation every 16ms
+   - GameGrid (16 cells) + header + controls re-render each time
+   - This is 6× WORSE than the 100ms timer in other games
+   - Fix: Only setState when active set content actually changes
+
+2. changes.find() Called Per Cell Per Frame (O(n² per frame))
+   - 16 cells × 12 changes × 60fps = 11,520 comparisons/second
+   - Fix: Pre-compute lookup Map once per state change
+
+3. Timer setInterval Drifts vs rAF Loop
+   - Two independent timing systems running simultaneously
+   - Under load: visible desync
+   - Fix: Consolidate to single rAF-based timing
+
+4. Date.now() Jitter (1-15ms resolution)
+   - Not a performance issue but an ACCURACY issue
+   - In a reaction game, 15ms error is significant
+   - Fix: performance.now() (sub-millisecond resolution)
+
+5. framer-motion in Main Chunk (~150KB)
+   - Increases initial load time
+   - Fix: Dynamic import or manual chunk
+
+ESTIMATED PERFORMANCE PROFILE:
+- Idle (pre-game): 0ms/frame (fine)
+- During gameplay: ~12ms render work per 16ms frame (75% budget consumed!)
+- On budget phone (2× slower): ~24ms per frame = CONSTANT JANK
+- With F-06 fix: Renders only on state change (~2-3x per second) = smooth
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Clean 4×4 grid layout with clear visual changes
+✓ Multiple change types (color, shape, size, opacity) — variety
+✓ Stage-based theming with CSS custom properties
+✓ Offline detection with banner
+✓ Error boundary with retry
+✓ i18n ready (English + Hindi)
+✓ CSS hardening for mobile (user-select, tap-highlight, overscroll)
+✓ React.memo on GameGrid for performance intent
+
+UX PROBLEMS:
+
+1. Date.now() Timing Inaccuracy (CRITICAL FOR THIS GENRE)
+   - This is a REACTION GAME — timing IS the core mechanic
+   - Using an inaccurate clock defeats the game's purpose
+   - Players will feel "I tapped it!" but get incorrect result
+   - FRUSTRATION LEVEL: VERY HIGH
+
+2. No Haptic/Audio Feedback on Tap
+   - Reaction games NEED instant feedback
+   - Visual-only confirmation adds latency to perception
+   - Players can't tell if tap registered without looking
+   - FRUSTRATION LEVEL: HIGH
+
+3. No Double-Tap Protection
+   - Rapid tapping exploits score
+   - Breaks fairness of leaderboard
+   - Honest players at disadvantage
+   - FRUSTRATION LEVEL: HIGH (for honest players)
+
+4. Replay Bug (State Not Reset)
+   - Playing again carries over old state
+   - Score contamination
+   - FRUSTRATION LEVEL: HIGH
+
+5. No Pause on Background
+   - Phone notification → game ruined
+   - Tab switch → timer expired
+   - FRUSTRATION LEVEL: MEDIUM
+
+6. No Sound Effects
+   - useAudio hook exists but disconnected
+   - Silent reaction game feels incomplete
+   - FRUSTRATION LEVEL: MEDIUM
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features that players of reaction/observation games EXPECT:
+
+1.  [!] Haptic feedback on tap (required for reaction games)
+2.  [!] Sound effects (correct/incorrect/countdown)
+3.  [!] Accurate timing (performance.now() not Date.now())
+4.  [ ] Double-tap prevention
+5.  [ ] Pause when app backgrounded
+6.  [ ] Difficulty progression (more cells, faster changes)
+7.  [ ] Streak indicator (consecutive correct taps)
+8.  [ ] Combo multiplier (reward fast consecutive taps)
+9.  [ ] Visual accuracy indicator (how close to center of activation)
+10. [ ] Practice mode (no scoring, learn patterns)
+11. [ ] Countdown warning before game ends (last 5 seconds)
+12. [ ] Score breakdown (accuracy%, speed bonus, streak bonus)
+13. [ ] Personal best display during game
+14. [ ] Reaction time histogram (post-game)
+15. [ ] Color blind mode (additional shape indicators)
+16. [ ] Leaderboard view
+17. [ ] Share score button
+18. [ ] Daily challenge mode
+19. [ ] Tutorial with slow-motion demonstration
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add "pop" sound on correct tap (satisfying micro-feedback)
+2. Add "buzz" sound on incorrect tap (immediate negative feedback)
+3. Add haptic: short vibration on correct, double-pulse on incorrect
+4. Add streak fire effect (consecutive correct taps glow the border)
+5. Add combo text floating up (+10, +20, COMBO x3!)
+6. Add screen shake on miss (subtle 2px, 100ms)
+7. Add countdown pulse (last 5 seconds — cells glow red border)
+8. Add confetti burst on perfect round
+9. Add speed indicator (shows ms reaction time per tap)
+10. Add "NEW BEST!" animation when beating personal record
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Fix rAF loop: only setState when active set actually changes (CRITICAL)
+2. Switch from Date.now() to performance.now() for all timing
+3. Pre-compute active changes lookup Map (avoid per-cell find())
+4. Add resize/orientation listener for cell size
+5. Consolidate timer into rAF loop (single timing source)
+6. Disable production sourcemaps
+7. Move framer-motion to manual chunk / dynamic import
+8. Add double-tap prevention (track claimed activations)
+
+Backend:
+1. Remove all fallback secrets (throw if missing)
+2. Store server-validated isCorrect, not client's claim
+3. Add timestamp monotonicity + duration validation
+4. Replace Redis KEYS with SCAN
+5. Unify Redis connections via shared service
+6. Add auth to BullMQ connection config
+7. Wrap delete/create in $transaction
+8. Remove in-memory rate limiter (use Redis throttler)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Encryption (COMPLETELY BROKEN)
+- VITE_ENCRYPTION_KEY ≠ VITE_PAYLOAD_AES_SECRET (env var mismatch)
+- Encryption SILENTLY NEVER APPLIED — all traffic plaintext
+- Even if fixed: key exposed in JS bundle (VITE_ prefix)
+- Severity: CRITICAL (unique to Flash Spot)
+
+Attack Surface 2: Secret Management
+- 3 different fallback JWT secrets across HTTP/WS/config
+- HMAC fallback 'dev-hmac-secret'
+- .env committed pattern (identical to .env.example)
+- Severity: CRITICAL
+
+Attack Surface 3: Anti-Cheat
+- Seed returned to client enables pre-computation
+- Client timestamps fully trusted for tap validation
+- Client isCorrect stored as-is (analytics poisoning)
+- Double-tap exploit (no deduplication)
+- Severity: HIGH
+
+Attack Surface 4: Authentication
+- Token in sessionStorage (XSS vulnerable)
+- Socket uses localStorage / HTTP uses sessionStorage (mismatch)
+- Source maps shipped to production (aids exploitation)
+- Severity: HIGH
+
+Attack Surface 5: Infrastructure
+- /metrics publicly exposed
+- In-memory rate limiter (bypassed + leaks)
+- BullMQ connection missing Redis auth
+- timingSafeEqual crash on length mismatch
+- Severity: MEDIUM
+
+OVERALL SECURITY POSTURE:
+Server-side change schedule regeneration + scoring is excellent architecture.
+But the encryption being SILENTLY BROKEN means all that work is undermined.
+The env var name mismatch is a subtle, dangerous bug that tests would miss
+(encryption "works" — it just uses empty key, which may pass without error).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mixed" - 5/10
+
+POSITIVE REVIEWS WOULD SAY:
+"Clean visual design with the cell change effects."
+"Different change types (color, shape, size) keep it interesting."
+"Quick sessions — good for killing time."
+"Server validates everything — fair competitive play."
+
+NEGATIVE REVIEWS WOULD SAY:
+"I TAPPED IT! I definitely tapped it while it was changing! WRONG??"
+"Zero audio. Zero vibration. How do I know if my tap registered?"
+"Plays like a tech demo, not a game."
+"My phone gets warm and the battery drains playing this."
+"Hit replay and my old score was still showing. Confusing."
+"I looked away for 2 seconds (notification) and came back to game over."
+"No combo system? No streaks? Just tap and... that's it?"
+"I figured out a way to multi-tap for extra points. Broken."
+"Stuttery on my budget phone. Every other game works fine."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Top 10 player complaints (predicted):
+
+1. "I tapped it in time but it said I was wrong!" — Date.now() inaccuracy
+2. "No sound or vibration — feels dead" — No audio/haptic feedback
+3. "Choppy on my phone" — 60 re-renders/sec from rAF loop
+4. "Multi-tap exploit ruins leaderboard" — No double-tap prevention
+5. "Replay doesn't work right" — State not reset on replay
+6. "Nothing happens for 2 seconds after I hit start" — Loading timeout UX
+7. "Notification killed my game" — No background/pause handling
+8. "Grid is too small on my phone" — No responsive cell sizing
+9. "No combos? No streaks? Boring!" — Missing engagement features
+10. "Timer showed 0 but game was still going" — Timer/rAF desync
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Quick reaction → instant feedback loop
+✓ Multiple change types (color, shape, size, opacity) — variety
+✓ Time pressure creates urgency
+✓ Pattern recognition develops with practice
+✓ Skill-based — reflexes directly rewarded
+✓ Simple rules, zero learning curve
+✓ Quick sessions (good for mobile)
+
+Flow State Enablers:
+✓ Constant visual activity keeps attention
+✓ Clear success/failure signals
+✓ Growing pattern complexity (difficulty stages)
+✓ Time pressure prevents overthinking
+
+What Would Amplify Fun:
+- Combo system (consecutive hits → multiplier)
+- Streak fire effect (visual reward for consistency)
+- Sound effects (satisfying "pop" on hit)
+- Increasing speed (ramping difficulty within round)
+- Personal best tracking (competition with self)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. TIMING FEELS UNFAIR (BIGGEST BLOCKER)
+   - Date.now() jitter makes correct taps register wrong
+   - "I DEFINITELY hit that!" → rage quit → uninstall
+   - CORE MECHANIC FEELS BROKEN
+
+2. NO AUDIO/HAPTIC FEEDBACK
+   - Reaction games live and die on instant feedback
+   - Without "pop" sound + vibration: feels like touching dead glass
+   - Competitors (Whack-a-Mole, Tap Color, etc.) have this
+
+3. PERFORMANCE ISSUES
+   - 60fps re-renders = jank on budget phones
+   - Budget phones are majority mobile market
+   - "My phone can't handle this" → uninstall
+
+4. NO SATISFACTION SIGNALS
+   - No combos, no streaks, no "AMAZING!" text
+   - No sound, no haptic, no celebration
+   - Correct taps feel unrewarded
+
+5. NO "ONE MORE ROUND" HOOK
+   - No personal best tracking
+   - No daily challenge
+   - No progression
+   - No reason to come back
+
+6. DOUBLE-TAP EXPLOIT RUINS COMPETITION
+   - Leaderboard dominated by exploiters
+   - Honest players can't compete → leave
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     75/100 (solid server-side, clean separation)
+- Security:                         25/100 (encryption broken + 3 fallback secrets)
+- Performance:                      30/100 (60fps re-render bomb, worst in lineup)
+- Game Logic & Correctness:         50/100 (replay bug, timing inaccuracy)
+- UX & Polish:                      40/100 (no audio, no haptic, no double-tap fix)
+- Anti-Cheat:                       55/100 (server replay exists, but timestamps trusted)
+- Accessibility:                    25/100 (no ARIA, no color blind mode)
+- Retention & Engagement:           30/100 (no combos, no streaks, no progression)
+- Error Handling:                   55/100 (error boundary exists, loading timeout UX missing)
+- Production Readiness:             35/100 (env mismatch, dead code, missing Redis auth)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 56/100
+═══════════════════════════════════════
+
+VERDICT: NOT READY FOR PUBLIC LAUNCH
+The env var name mismatch (F-02) that silently disables encryption is a showstopper.
+The Date.now() timing in a reaction game makes the core mechanic unreliable.
+The 60fps re-render bomb makes it unplayable on budget devices.
+These three issues together make this the LOWEST-SCORING game so far.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: SECURITY — FIX SILENTLY BROKEN ENCRYPTION (1 day)
+  □ Fix env var name mismatch (VITE_ENCRYPTION_KEY vs VITE_PAYLOAD_AES_SECRET)
+  □ Remove ALL fallback secrets (JWT, HMAC, WS)
+  □ Unify JWT secret to single config service
+  □ Remove .env from version control
+  □ Fix auth token storage mismatch (socket vs HTTP)
+  □ Disable production sourcemaps
+  □ Add Redis auth to BullMQ connection
+
+PHASE 2: FIX CORE MECHANIC — TIMING ACCURACY (1 day)
+  □ Replace Date.now() with performance.now() everywhere
+  □ Fix rAF loop: only setState when active set changes (CRITICAL PERF)
+  □ Pre-compute active changes lookup Map
+  □ Consolidate timer into rAF loop (single timing source)
+  □ Add double-tap prevention (track claimed activations)
+  □ Fix replay state reset bug (F-07)
+
+PHASE 3: ANTI-CHEAT (1 day)
+  □ Store server-validated isCorrect, not client's claim
+  □ Validate timestamp monotonicity + total duration
+  □ Add maximum tap rate check (superhuman detection)
+  □ Wrap delete/create in $transaction (prevent data loss)
+  □ Fix WS join-session ownership validation
+
+PHASE 4: GAME FEEL — AUDIO + HAPTIC (1 day)
+  □ Wire up useAudio hook (correct tap, incorrect tap, countdown)
+  □ Add haptic feedback (navigator.vibrate)
+  □ Add combo counter / streak indicator
+  □ Add floating score text (+10, +20, COMBO!)
+  □ Add countdown warning (last 5 seconds visual pulse)
+
+PHASE 5: POLISH (2 days)
+  □ Add background/pause handling (visibilitychange)
+  □ Add orientation change handler for cell sizing
+  □ Add loading timeout UX (message after 3s)
+  □ Implement session cleanup processor
+  □ Add confetti burst on perfect round
+  □ Add personal best tracking
+  □ Add meaningful instruction steps
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ranked by (Player Impact × Effort Efficiency):
+
+#1  Fix rAF loop — only setState on actual change
+    Effort: 30 minutes | Impact: Game goes from "constant jank" to "smooth"
+    ROI: ∞ (game is literally unplayable on budget phones without this)
+
+#2  Fix env var name mismatch (encryption silently broken)
+    Effort: 5 minutes | Impact: Encryption actually works
+    ROI: ∞ (non-negotiable — intended security completely non-functional)
+
+#3  Switch Date.now() to performance.now()
+    Effort: 15 minutes | Impact: Core mechanic becomes accurate
+    ROI: ∞ (reaction game with inaccurate timing = broken game)
+
+#4  Remove all fallback secrets
+    Effort: 30 minutes | Impact: Prevents total auth bypass
+    ROI: ∞ (non-negotiable security)
+
+#5  Add double-tap prevention
+    Effort: 20 minutes | Impact: Leaderboard fairness restored
+    ROI: 9x (simple check, huge competitive integrity impact)
+
+#6  Wire up sound effects (useAudio hook already exists!)
+    Effort: 30 minutes | Impact: Game goes from dead → alive
+    ROI: 8x (hook exists, just needs import + calls)
+
+#7  Fix replay state reset bug
+    Effort: 10 minutes | Impact: Replay actually works correctly
+    ROI: 8x (trivial fix, prevents score corruption)
+
+#8  Add haptic feedback
+    Effort: 15 minutes | Impact: Reaction game feels responsive
+    ROI: 7x (critical for the genre)
+
+#9  Fix auth storage mismatch (socket vs HTTP)
+    Effort: 15 minutes | Impact: WebSocket actually connects authenticated
+    ROI: 7x (real-time features completely broken otherwise)
+
+#10 Add background/pause handling
+    Effort: 30 minutes | Impact: Notifications don't ruin games
+    ROI: 5x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+What's WELL DONE in this game (credit where due):
+
+BACKEND:
+✓ Server-authoritative scoring — regenerates change schedule from seed
+✓ Zod-based DTO validation with strict schemas (.max(500) on taps)
+✓ AES-256-GCM encryption layer (correct implementation, just broken config)
+✓ Atomic CAS pattern (updateMany where status:1) prevents double-submit
+✓ Structured logging with credential redaction (Pino)
+✓ Comprehensive health checks (DB, Redis, memory, queue)
+✓ Restate durable execution for session expiry
+✓ Deterministic PRNG (mulberry32) for reproducible game state
+✓ Correlation ID propagation for distributed tracing
+✓ Graceful shutdown with drain period
+✓ Multiple rate limiting layers (throttler + IP + queue-level)
+✓ Circuit breaker pattern with state machine
+✓ Idempotency support (Redis-backed, prevents duplicate submissions)
+✓ CORS production enforcement (throws if CORS_ORIGINS missing)
+✓ Feature flags with Redis + local cache
+
+FRONTEND:
+✓ Clean architecture — engine/hooks/components separation
+✓ Deterministic seeded PRNG matching server-side
+✓ Error boundary with reset capability
+✓ Offline detection (useSyncExternalStore pattern)
+✓ Stage-based theming with CSS custom properties (elegant)
+✓ Audio via Web Audio API (procedural, no files needed)
+✓ i18n ready (English + Hindi)
+✓ React.memo on GameGrid (performance intent — just needs fix)
+✓ CSS hardening (user-select:none, tap-highlight, overscroll)
+✓ TypeScript strict mode
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+vs Arrows (58/100):
+- Worse: Encryption SILENTLY BROKEN (unique bug)
+- Worse: 60fps re-render bomb (6× worse than 100ms timer)
+- Better: More complete backend infrastructure (idempotency, circuit breaker)
+- Same: Security pattern (fallback secrets)
+
+vs Block Fill (62/100):
+- Worse: Timing accuracy wrong for genre (Date.now() in reaction game)
+- Worse: Replay state reset bug (contaminated scores)
+- Better: Cleaner frontend architecture (engine separation)
+- Same: Audio hook exists but disconnected
+
+vs Colour Sorting (61/100):
+- Worse: Performance (60fps vs 10fps re-renders)
+- Worse: Active exploit (double-tap score inflation)
+- Better: Game logic simpler, fewer stale closure risks
+- Same: Auth storage mismatch, no haptics, no sounds
+
+FLASH SPOT UNIQUE ISSUES (not found in other games):
+★ Encryption env var name mismatch (SILENTLY BROKEN)
+★ Date.now() for timing in a REACTION GAME (wrong tool for the job)
+★ 60fps re-render bomb (rAF sets state every frame)
+★ Double-tap score exploit (no dedup on same activation)
+★ Replay state contamination (old taps persist)
+★ Seed returned to client + trusted timestamps = perfect bot combo
+
+================================================================================
+END OF AUDIT — GAME #4: FLASH SPOT
+================================================================================

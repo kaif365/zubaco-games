@@ -1,0 +1,121 @@
+Shunya Games 
+Scoring Reference 
+Sliding Puzzle 
+ 
+Completed Round 
+100 pts 
+Incomplete Round 
+0 pts 
+Time Bonus 
+floor(10 × remaining time / total time) 
+Final Score 
+Sum of round scores + time bonus 
+ 
+Arrows 
+ 
+Completed Round 
+50 pts 
+Partially Cleared Round 
+floor(5 × arrows removed / total arrows) 
+Empty Round 
+0 pts 
+Time Bonus 
+floor(10 × remaining time / total time) 
+Final Score 
+Sum of round scores + time bonus 
+ 
+Sudoku 
+ 
+Solved Round 
+100 pts 
+Unsolved Round 
+0 pts 
+Time Bonus 
+floor(10 × remaining time / total time) 
+Final Score 
+Sum of round scores + time bonus 
+ 
+Spot The Difference 
+ 
+Base Score Per Round 
+100 pts 
+Wrong Click Penalty 
+−5 pts per wrong click 
+Hint Penalty 
+−5 pts per hint used 
+Minimum Round Score 
+0 pts 
+Round Formula 
+max(0, 100 − wrong_clicks×5 − hints×5) 
+Time Bonus 
+floor(10 × remaining time / total time) 
+Final Score 
+Sum of round scores + time bonus 
+ 
+Sequence Recall 
+Score Per Click 
+total individual tile clicks that were correct across all 
+successful rounds × scorePerClick (default: 10) 
+Time Bonus 
+floor(seconds left × bonusTimeRatio) — only if no wrong 
+moves were made 
+Default bonusTimeRatio 
+1.0 
+Final Score 
+successful moves × scorePerClick + time bonus 
+ 
+Memory Card Matching 
+Completed Level 
+100 pts 
+Incomplete Level 
+0 pts 
+Time Bonus 
+Remaining whole seconds — only if all levels completed 
+Final Score 
+Completed levels × 100 + time bonus 
+ 
+Infinity Loop 
+Solved Board 
+10 + remaining seconds on that board 
+Unsolved Board 
+0 pts 
+Time Bonus 
+None — time reward is baked into each board score 
+Final Score 
+Sum of all board scores 
+ 
+Block Fill 
+Easy Board 
+20 pts 
+Medium Board 
+30 pts 
+Hard Board 
+40 pts 
+Fallback Board 
+20 pts (if level name doesn't match easy/medium/hard) 
+Demo Board 
+0 pts 
+End Bonus 
+Remaining seconds left in overall game timer 
+Final Score 
+Sum of board scores + remaining seconds bonus 
+ 
+ 
+ 
+Maze Navigation 
+Complete round (optimal path) 
+100 pts 
+Complete round (inefficient 
+path) 
+max(10, floor(100 × shortest_path / 
+moves_taken)) 
+Incomplete round 
+0 pts 
+Minimum Round Score(if 
+completed) 
+10 pts 
+Time Bonus 
+floor(5 × remaining time / total time) 
+Final Score 
+Sum of round scores + time bonus 
+ 

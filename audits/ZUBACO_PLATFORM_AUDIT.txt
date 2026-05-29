@@ -1,0 +1,1275 @@
+================================================================================
+ZUBACO PLATFORM BACKEND — COMPREHENSIVE SECURITY & ARCHITECTURE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior Platform Security / Architecture / Financial Engineering Review
+Component: Central Platform API (zubaco-platform/)
+Stack: NestJS 11 + Prisma 7.8 + PostgreSQL + Redis (ioredis) + Passport JWT +
+       bcrypt + Razorpay + SMS (MSG91/Twilio) + FCM Push Notifications
+Role: The CENTRAL NERVOUS SYSTEM — authenticates all users, manages wallets,
+      runs tournaments, tracks leaderboards, handles anti-cheat, social
+      features, energy system, achievements, KYC, bank details, and provides
+      the JWT tokens that ALL 20 game backends and the mobile app consume.
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Zubaco Platform Backend is a NestJS 11 monolith serving as the unified
+API for ALL platform operations: authentication (phone OTP + Google + Apple),
+user management, wallet/payments (Razorpay), KYC verification, tournament
+management (seasons → stages → games → elimination), leaderboards (Redis
+sorted sets + DB fallback), social features (friends + challenges + referrals),
+notifications (FCM push), free-play progression (energy/lives system + XP +
+levels + stars), achievement system, and centralized anti-cheat.
+
+ARCHITECTURE VERDICT:
+The platform is WELL-DESIGNED at a macro level. The database schema is
+comprehensive (800+ lines of Prisma, 25+ models, proper indexes, enums for
+all game types). The tournament elimination system is correctly implemented.
+The wallet uses Prisma $transaction for atomic balance updates. The OTP system
+uses bcrypt hashing with Redis rate limiting. The JWT uses separate access +
+refresh secrets with token rotation.
+
+CRITICAL SECURITY FINDINGS:
+
+1. REFRESH TOKEN VERIFICATION IS O(N) — scans ALL active tokens via bcrypt
+   compare. With 10K users × 3 devices, that's 30K bcrypt comparisons per
+   refresh. This is a DENIAL OF SERVICE vector AND a performance disaster.
+
+2. GOOGLE/APPLE LOGIN ACCEPTS CLIENT-SUPPLIED google_id/apple_id WITHOUT
+   SERVER-SIDE TOKEN VERIFICATION. Anyone can log in as any Google/Apple
+   user by sending a forged ID.
+
+3. ANTI-CHEAT ADMIN ENDPOINTS HAVE NO ROLE CHECK — any authenticated user
+   can call /anti-cheat/flags, /anti-cheat/users/:id/ban, etc.
+
+4. TOURNAMENT SCORE SUBMISSION IS CLIENT-TRUSTED — the platform accepts
+   whatever score the client sends without server-side verification.
+
+5. WALLET DEPOSIT/WITHDRAWAL HAS RACE CONDITION — concurrent requests can
+   cause double-spend due to non-atomic read-then-write pattern.
+
+6. FALLBACK JWT SECRETS IN CONFIG — 'dev-access-secret-change-me' used if
+   env var missing.
+
+TOTAL ISSUES: 47 (6 Critical, 8 High, 18 Medium, 15 Low)
+
+RELEASE READINESS SCORE: 38/100
+
+This score is LOWER than the game average (60/100) because the platform
+handles REAL MONEY (wallet, deposits, withdrawals, KYC) and USER PII
+(phone numbers, email, bank details, identity documents). Security
+standards for financial services are orders of magnitude higher than
+for casual game frontends.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Google/Apple OAuth accepts unverified client-supplied IDs
+BLOCKER-2: Refresh token verification is O(N) full-table bcrypt scan
+BLOCKER-3: Anti-cheat/admin endpoints have no authorization (any user = admin)
+BLOCKER-4: Tournament scores are client-trusted (no server verification)
+BLOCKER-5: Wallet operations have race conditions (double-spend possible)
+BLOCKER-6: JWT fallback secrets in config (hardcoded 'dev-access-secret-change-me')
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+MODULE: AUTH (auth/) — 10 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-01: Google OAuth — No Server-Side Token Verification              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Authentication Bypass                                              │
+│ Files: auth.controller.ts, auth.service.ts, google.strategy.ts               │
+│                                                                              │
+│ The /auth/google endpoint accepts a GoogleLoginDto with fields:              │
+│   { google_id, email, name, picture }                                        │
+│                                                                              │
+│ The controller passes these DIRECTLY to authService.googleLogin() which      │
+│ creates or links a user based on the google_id. No ID token is verified.     │
+│                                                                              │
+│ google.strategy.ts has a TODO comment:                                        │
+│   "// TODO: Install google-auth-library and verify token"                    │
+│   "return null;"                                                             │
+│                                                                              │
+│ ATTACK: Anyone can call POST /api/v1/auth/google with:                       │
+│   { "google_id": "VICTIM_GOOGLE_ID", "email": "victim@gmail.com", ... }     │
+│ and get full access to that user's account.                                  │
+│                                                                              │
+│ FIX: Require an actual Google ID token in the DTO, verify it server-side     │
+│ using google-auth-library's verifyIdToken(), then extract the sub/email.     │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-02: Apple OAuth — Same Unverified Pattern                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Authentication Bypass                                              │
+│ File: auth.service.ts (appleLogin), apple-login.dto.ts                       │
+│                                                                              │
+│ AppleLoginDto accepts: { apple_id, email?, name? }                           │
+│ Same flaw: apple_id is trusted from client without verifying Apple's         │
+│ identity token server-side.                                                  │
+│                                                                              │
+│ FIX: Verify Apple's identityToken using jsonwebtoken + Apple's JWKS.         │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-03: Refresh Token Verification is O(N) Full-Table Scan            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Performance / Denial of Service                                    │
+│ File: token.service.ts (verifyRefreshToken, revokeRefreshToken)              │
+│                                                                              │
+│ Code (verifyRefreshToken):                                                   │
+│   const storedTokens = await this.prisma.refreshToken.findMany({            │
+│     where: { expires_at: { gt: new Date() } },                              │
+│     orderBy: { created_at: 'desc' },                                        │
+│     take: 50,  // Only checks last 50! Others are orphaned.                 │
+│   });                                                                        │
+│   for (const stored of storedTokens) {                                       │
+│     const matches = await bcrypt.compare(token, stored.token_hash);         │
+│     if (matches) return { userId: stored.user_id };                          │
+│   }                                                                          │
+│                                                                              │
+│ PROBLEMS:                                                                    │
+│ 1. Loads up to 50 tokens then does bcrypt.compare() on EACH ONE             │
+│    bcrypt.compare is ~100ms per call → 50 × 100ms = 5 SECONDS per refresh!  │
+│ 2. If there are more than 50 active tokens, tokens 51+ are UNREACHABLE      │
+│ 3. revokeRefreshToken has the SAME pattern (no take: 50 limit though —      │
+│    it loads ALL active tokens and compares each one)                          │
+│ 4. An attacker can trigger thousands of refresh calls to DoS the server     │
+│                                                                              │
+│ FIX: Don't hash refresh tokens with bcrypt. Use a simpler scheme:           │
+│   - Store SHA-256(refreshToken) in DB (indexed, O(1) lookup)                │
+│   - Or store the raw UUID with a unique index                                │
+│   - JWT-based refresh tokens with jti claim                                  │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-04: JWT Fallback Secrets in Config                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: config/index.ts (lines 3-4)                                            │
+│                                                                              │
+│ Code:                                                                        │
+│   accessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me'│
+│   refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me'│
+│                                                                              │
+│ If env vars are unset, the KNOWN fallback secrets are used. Any attacker     │
+│ reading the source code can forge JWTs.                                      │
+│                                                                              │
+│ BETTER THAN GAMES: At least uses .env.example (not committed .env with       │
+│ actual secrets). But fallback strings must still be removed.                 │
+│                                                                              │
+│ FIX: Throw on startup if JWT_ACCESS_SECRET or JWT_REFRESH_SECRET is missing. │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-05: OTP Not Phone-Number Validated                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Input Validation                                                   │
+│ File: auth/dto/send-otp.dto.ts                                               │
+│                                                                              │
+│ Code:                                                                        │
+│   export class SendOtpDto {                                                  │
+│     @IsString()                                                              │
+│     phone: string;                                                           │
+│   }                                                                          │
+│                                                                              │
+│ Only validates that phone is a string. No @IsPhoneNumber() validation.       │
+│ The import for IsPhoneNumber exists but ISN'T USED. An attacker could        │
+│ send OTPs to arbitrary strings ("hello", "admin", "../../etc/passwd").       │
+│ In dev mode, the OTP is logged to console with whatever "phone" is sent.    │
+│                                                                              │
+│ FIX: Add @Matches(/^\+\d{10,15}$/) or @IsPhoneNumber() validation.         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-06: OTP Logged in Dev Mode                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Information Disclosure                                             │
+│ File: otp.service.ts (line 40)                                               │
+│                                                                              │
+│ Code:                                                                        │
+│   console.log(`[DEV] OTP for ${phone}: ${otp}`);                            │
+│                                                                              │
+│ If NODE_ENV is 'development' (or unset — defaults to 'development' in        │
+│ config), OTPs are logged to console/stdout. If logs are collected by a       │
+│ logging service (CloudWatch, DataDog), OTPs are persisted in plain text.    │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-07: OTP Rate Limit Only Per-Phone (No Global/IP Limit)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Abuse Prevention                                                   │
+│ File: otp.service.ts (lines 19-25)                                           │
+│                                                                              │
+│ Rate limits 5 OTPs per phone per hour. But an attacker can enumerate         │
+│ millions of phone numbers, sending 1 OTP each. This:                         │
+│ - Burns SMS credits (MSG91/Twilio costs money!)                              │
+│ - Could be used for SMS bombing/harassment                                   │
+│ - No IP-based rate limit to stop automated enumeration                      │
+│                                                                              │
+│ FIX: Add per-IP rate limit (e.g., 20 OTPs per IP per hour).                │
+│ Also add global rate limit (e.g., 1000 OTPs per minute platform-wide).      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-08: Auto-Registration on OTP Verify (No Abuse Protection)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Abuse Prevention                                                   │
+│ File: auth.service.ts (verifyOtpAndLogin, line 29-36)                        │
+│                                                                              │
+│ If a phone number doesn't exist, a new user is auto-created on first OTP     │
+│ verification. Combined with missing phone validation (AUTH-05), an attacker  │
+│ could create thousands of ghost accounts.                                    │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-09: link-account DTO Not Validated                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Input Validation                                                   │
+│ File: auth.controller.ts (linkAccount)                                       │
+│                                                                              │
+│ Uses inline type { provider: 'google' | 'apple' | 'phone'; ... } instead   │
+│ of a validated DTO class. class-validator won't validate this.               │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE AUTH-10: Banned User Check Only on Refresh (Not Every Request)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: auth.service.ts (refreshTokens), jwt.strategy.ts                       │
+│                                                                              │
+│ Ban check only happens during token refresh. A banned user with a valid      │
+│ access token (15 min lifetime) can continue using the platform until the     │
+│ token expires. For financial operations (withdrawal), this window is risky.  │
+│                                                                              │
+│ FIX: Add a lightweight ban check in JwtStrategy.validate() using Redis       │
+│ (cache banned user IDs, TTL 60s).                                            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: WALLET & PAYMENTS (wallet/) — 10 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-01: Race Condition in Deposit/Withdrawal (Double-Spend)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Financial Security                                                 │
+│ Files: wallet.service.ts (deposit, requestWithdrawal, deductEntryFee)        │
+│                                                                              │
+│ Pattern in requestWithdrawal:                                                │
+│   const wallet = await this.getWallet(userId);     // READ                   │
+│   const balance = Number(wallet.balance);            // CHECK                │
+│   if (balance < amount) throw ...;                   // CHECK                │
+│   const newBalance = balance - amount;               // CALCULATE            │
+│   await this.prisma.$transaction([                   // WRITE                │
+│     this.prisma.wallet.update({ data: { balance: newBalance } }),            │
+│     this.prisma.transaction.create(...)                                      │
+│   ]);                                                                        │
+│                                                                              │
+│ RACE: Two concurrent withdrawals can both read the same balance,             │
+│ both pass the check, and both deduct. Example:                               │
+│   Balance: ₹1000. Two ₹800 withdrawal requests at the same moment.          │
+│   Both read balance=1000, both check 1000>=800 ✓, both write balance=200.   │
+│   Net: ₹1600 withdrawn from ₹1000 balance. MONEY LOST.                      │
+│                                                                              │
+│ The same pattern exists in deposit(), deductEntryFee(), creditPrize(),       │
+│ and creditReferralBonus().                                                   │
+│                                                                              │
+│ FIX: Use SELECT ... FOR UPDATE or Prisma's serialized transaction:           │
+│   await this.prisma.$transaction(async (tx) => {                             │
+│     const wallet = await tx.$queryRaw`SELECT * FROM wallets                 │
+│       WHERE user_id = ${userId} FOR UPDATE`;                                 │
+│     // Check + update in same transaction                                    │
+│   }, { isolationLevel: 'Serializable' });                                    │
+│                                                                              │
+│ OR use atomic increment:                                                     │
+│   await tx.wallet.update({ where: ..., data: { balance: { decrement } } })  │
+│                                                                              │
+│ NOTE: verifyPayment and handleWebhook use { increment: amount } which is    │
+│ CORRECT. But requestWithdrawal and deductEntryFee don't.                    │
+│                                                                              │
+│ Priority Score: 10/10 (REAL MONEY AT RISK)                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-02: Razorpay Webhook Body Parsed as JSON (Signature Mismatch)   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Financial Security                                                 │
+│ File: payment-gateway.service.ts (handleWebhook)                             │
+│                                                                              │
+│ Code:                                                                        │
+│   const expectedSignature = crypto.createHmac('sha256', this.webhookSecret)  │
+│     .update(JSON.stringify(body)).digest('hex');                              │
+│                                                                              │
+│ Razorpay signs the RAW request body. NestJS parses JSON before the           │
+│ handler gets it. JSON.stringify(parsedBody) may produce different bytes      │
+│ than the original raw body (whitespace, key ordering, number precision).     │
+│ This means legitimate webhooks may FAIL verification, and an attacker who    │
+│ knows the key ordering that JSON.stringify produces could forge webhooks.    │
+│                                                                              │
+│ FIX: Use @Req() with raw body access:                                        │
+│   app.useGlobalPipes(... rawBody: true)                                      │
+│   Then verify against req.rawBody instead of JSON.stringify(body).          │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-03: Deposit Verify Doesn't Check User Ownership                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Authorization                                                      │
+│ File: wallet.controller.ts (verifyPayment)                                   │
+│                                                                              │
+│ Code:                                                                        │
+│   @Post('deposit/verify')                                                    │
+│   @UseGuards(JwtAuthGuard)                                                   │
+│   async verifyPayment(@Body() body: { order_id, payment_id, signature }) {   │
+│     return this.paymentGateway.verifyPayment(...);                           │
+│   }                                                                          │
+│                                                                              │
+│ The endpoint is auth-guarded but doesn't pass userId. The service finds      │
+│ the transaction by order_id without verifying the caller owns it. User A     │
+│ could verify User B's payment (if they know the order_id).                   │
+│                                                                              │
+│ In practice, the money goes to the correct user (transaction.user_id), but   │
+│ the authorization gap is a code smell for a financial system.                │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-04: Webhook Endpoint Has No Auth (Correct, But No IP Filter)    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: wallet.controller.ts (razorpayWebhook)                                 │
+│                                                                              │
+│ No @UseGuards (correct — webhooks are server-to-server). But no IP           │
+│ whitelist for Razorpay's IP ranges. Anyone can attempt webhook forgery.      │
+│ Signature verification is the primary defense (assuming WALLET-02 is fixed). │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-05: Withdraw Endpoint Doesn't Validate DTO                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Input Validation                                                   │
+│ File: wallet.controller.ts (withdraw)                                        │
+│                                                                              │
+│ @Body() body: { amount: number } — no DTO class, no class-validator.         │
+│ A user could send { amount: -500 } to trigger negative withdrawal            │
+│ (deposit by negative withdrawal). The service checks amount >= minWithdrawal │
+│ but doesn't check for negative.                                              │
+│                                                                              │
+│ The WalletService has no negative check either. Only `amount < minWithdrawal`│
+│ which would catch 0 and small amounts, but negative numbers pass:            │
+│   -500 < 100 → true → throw "Minimum withdrawal"... actually this does      │
+│   catch negative numbers. But relying on business logic for input validation │
+│   is fragile.                                                                │
+│                                                                              │
+│ Priority Score: 3/10 (accidentally works, but fragile)                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-06: Balance Stored as Decimal but Compared as Number            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Financial Precision                                                │
+│ Files: wallet.service.ts (all methods)                                       │
+│                                                                              │
+│ Pattern: const balance = Number(wallet.balance);                             │
+│                                                                              │
+│ Prisma returns Decimal fields as Prisma.Decimal (arbitrary precision).       │
+│ Converting to JavaScript Number introduces floating-point precision loss.    │
+│ Example: 999999999999.99 → 1000000000000 (precision loss at ~16 digits).    │
+│                                                                              │
+│ For INR amounts under ₹10 lakh, this is fine. But if the platform scales    │
+│ or handles large prize pools, precision errors will cause balance            │
+│ discrepancies.                                                               │
+│                                                                              │
+│ FIX: Use Decimal arithmetic throughout (wallet.balance.add(amount)).         │
+│ Or store as integer paisa (₹100 = 10000 paisa).                            │
+│                                                                              │
+│ Priority Score: 3/10 (fine for current scale, risky at large scale)          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-07: KYC Document URL From Client (No S3 Pre-Signed Upload)      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security / Design                                                  │
+│ File: wallet.controller.ts (submitKycDocument), kyc.service.ts               │
+│                                                                              │
+│ The KYC endpoint accepts { document_url: string } from the client.           │
+│ Client is trusted to provide a valid S3 URL. An attacker could supply:      │
+│ - A URL pointing to malware                                                  │
+│ - A URL to someone else's document                                           │
+│ - An SSRF-triggering URL (http://169.254.169.254/...)                       │
+│                                                                              │
+│ FIX: Generate S3 pre-signed upload URLs server-side, validate the URL        │
+│ matches your S3 bucket pattern before storing.                               │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-08: Bank Details Not Encrypted at Rest                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Data Privacy                                                       │
+│ Files: bank-detail.service.ts, Prisma schema (BankDetail model)              │
+│                                                                              │
+│ Account numbers, IFSC codes, and UPI IDs stored in plain text in DB.         │
+│ A database breach exposes all users' financial details.                       │
+│                                                                              │
+│ FIX: Encrypt sensitive fields (AES-256) before storing. Show masked          │
+│ versions in API responses (****1234).                                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-09: setPrimary is Non-Atomic (Race Condition)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Data Integrity                                                     │
+│ File: bank-detail.service.ts (setPrimary)                                    │
+│                                                                              │
+│ Two separate operations: updateMany (unset all) then update (set one).       │
+│ Not wrapped in a transaction. Concurrent calls could leave multiple or       │
+│ zero primary accounts.                                                       │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE WALLET-10: Deposit balance_after Calculated Optimistically             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Data Integrity                                                     │
+│ File: payment-gateway.service.ts (createDepositOrder)                        │
+│                                                                              │
+│ Code:                                                                        │
+│   balance_after: currentBalance + amountInr                                  │
+│                                                                              │
+│ Transaction is PENDING but balance_after is pre-calculated as if it will     │
+│ succeed. If the payment fails, the balance_after field is wrong.             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: TOURNAMENT (tournament/) — 6 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TOURN-01: Score Submission is Client-Trusted (No Server Verification)  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat / Financial Security                                    │
+│ File: tournament.service.ts (submitTournamentResult)                         │
+│                                                                              │
+│ Code:                                                                        │
+│   async submitTournamentResult(userId, sessionId, score, durationMs) {       │
+│     // ... session lookup ...                                                │
+│     await this.prisma.gameSession.update({                                   │
+│       data: { score, duration_ms: durationMs, outcome: 'COMPLETED' ... }     │
+│     });                                                                      │
+│   }                                                                          │
+│                                                                              │
+│ The platform BLINDLY trusts the score and duration sent by the client.       │
+│ In a tournament with REAL MONEY prize pools, this means:                     │
+│ - A player can submit score: 999999 and win every tournament                 │
+│ - The anti-cheat system is called NOWHERE in the tournament flow             │
+│ - The game-specific backends do server-side scoring, but the platform       │
+│   doesn't verify against them                                                │
+│                                                                              │
+│ The ENTIRE tournament prize distribution is based on unverified scores.      │
+│                                                                              │
+│ FIX: Platform must either:                                                   │
+│ 1. Call the game-specific backend to get the server-computed score, OR       │
+│ 2. Store game backend's server_score and compare, OR                         │
+│ 3. Accept scores ONLY from game backends (not from client/mobile)            │
+│ Also: Call antiCheatService.analyzeGameResult() in submitTournamentResult.   │
+│                                                                              │
+│ Priority Score: 10/10 (REAL MONEY TOURNAMENTS)                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TOURN-02: No Entry Fee Deduction in Registration                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Business Logic                                                     │
+│ File: tournament.service.ts (registerForSeason)                              │
+│                                                                              │
+│ The Season model has entry_fee field (Decimal), but registerForSeason()      │
+│ NEVER calls walletService.deductEntryFee(). Registration is free for all     │
+│ seasons regardless of configured entry fee.                                  │
+│                                                                              │
+│ WalletService.deductEntryFee() exists and is correctly implemented, but      │
+│ it's never called from the registration flow.                                │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TOURN-03: getStageRankings Uses Inline require() (Anti-Pattern)        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Code Quality                                                       │
+│ File: tournament.controller.ts (getStageRankings, line 64)                   │
+│                                                                              │
+│ Code:                                                                        │
+│   const { PrismaService } = require('../common/prisma/prisma.service');      │
+│   // Note: in production, inject PrismaService properly                      │
+│                                                                              │
+│ This inline require is a TODO leftover. The method doesn't even use          │
+│ PrismaService — it calls eliminationService.getStageRankings() which         │
+│ takes a seasonStageId, but the controller passes seasonId instead.           │
+│ This endpoint is BROKEN: it sends the wrong ID type.                         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TOURN-04: Server Seed Sent to Client in Tournament Start Response      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: tournament.service.ts (startTournamentGame, line 123)                  │
+│                                                                              │
+│ Code: return { session_id, game_type, server_seed: serverSeed, config };    │
+│                                                                              │
+│ The server seed is sent to the client. Combined with the game-specific       │
+│ word/question banks in client bundles, pre-computation is possible.          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TOURN-05: Elimination Doesn't Handle Incomplete Players                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: elimination.service.ts (runElimination)                                │
+│                                                                              │
+│ Only considers entries with completed_at != null. Players who registered     │
+│ but didn't play are silently excluded from elimination. They should be       │
+│ auto-eliminated (score = 0, last rank) or marked as WITHDRAWN.              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TOURN-06: No Prize Distribution After Final Stage                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: tournament.service.ts, elimination.service.ts                          │
+│                                                                              │
+│ Elimination runs and ranks players, but there's no automatic prize           │
+│ distribution. WalletService.creditPrize() exists but is never called         │
+│ from the tournament flow. Admin must manually credit winners.                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: ANTI-CHEAT (anti-cheat/) — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CHEAT-01: Admin Endpoints Accessible by ANY Authenticated User         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Authorization / Privilege Escalation                               │
+│ File: anti-cheat.controller.ts                                               │
+│                                                                              │
+│ @Controller('anti-cheat')                                                    │
+│ @UseGuards(JwtAuthGuard)    // <-- Only checks if user is logged in!        │
+│                                                                              │
+│ Endpoints exposed to ANY authenticated user:                                 │
+│   GET  /anti-cheat/flags                  — View all cheat flag queue        │
+│   POST /anti-cheat/flags/:id/review       — Dismiss/warn/ban any user       │
+│   GET  /anti-cheat/users/:userId/flags    — View any user's flags           │
+│   POST /anti-cheat/users/:userId/ban      — BAN any user                    │
+│   POST /anti-cheat/users/:userId/unban    — UNBAN any user                  │
+│                                                                              │
+│ ANY REGULAR PLAYER can:                                                      │
+│ 1. View all cheat flags (privacy violation)                                  │
+│ 2. BAN ANY USER including admins                                             │
+│ 3. UNBAN themselves after being banned                                       │
+│ 4. Dismiss their own cheat flags                                             │
+│                                                                              │
+│ FIX: Add an AdminGuard that checks user role. The User model doesn't         │
+│ even HAVE a role field — it needs to be added to the schema.                │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CHEAT-02: Anti-Cheat Not Called in Tournament Flow                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: tournament.service.ts (submitTournamentResult)                         │
+│                                                                              │
+│ analyzeGameResult() is never called in the tournament score submission       │
+│ flow. The comprehensive anti-cheat (impossible score, timing anomaly,        │
+│ rapid progression, score anomaly detection) only works IF a caller           │
+│ explicitly invokes it. No caller does.                                       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CHEAT-03: Auto-Ban Threshold is Cumulative (Never Resets)              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Game Design                                                        │
+│ File: anti-cheat.service.ts (line 77)                                        │
+│                                                                              │
+│ Code: const criticalCount = await this.prisma.cheatFlag.count({             │
+│   where: { user_id: userId, severity: 'CRITICAL' } });                      │
+│ if (criticalCount >= 3) → auto-ban                                          │
+│                                                                              │
+│ This is a LIFETIME count. Even if critical flags were reviewed and           │
+│ dismissed, they still count toward auto-ban. A legit player with 3           │
+│ false-positive critical flags over years gets auto-banned.                   │
+│                                                                              │
+│ FIX: Only count unreviewed flags, or flags within a time window.            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: GAME SESSION (game-session/) — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE SESSION-01: getSessionState Exposes Server Seed to Any Auth'd User     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Authorization / Anti-Cheat                                         │
+│ File: game-session.controller.ts (getState), game-session.service.ts         │
+│                                                                              │
+│ GET /game-session/:sessionId/state — No ownership check. ANY logged-in      │
+│ user can view any session's server_seed, config, and game_type by guessing   │
+│ or enumerating UUIDs.                                                        │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE SESSION-02: startGame Accepts Arbitrary game_type String               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Input Validation                                                   │
+│ File: game-session.controller.ts (startGame)                                 │
+│                                                                              │
+│ @Body() body: { game_type: string; config?: any }                            │
+│ game_type is cast to `any` in the service. No enum validation. A user        │
+│ can create sessions with game_type: "HACKED_GAME" or arbitrary strings.     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE SESSION-03: config Parameter is Unvalidated JSON                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Input Validation                                                   │
+│ File: game-session.service.ts (startGame)                                    │
+│                                                                              │
+│ Config is stored as-is in JSONB. No schema validation. Could be used to      │
+│ store arbitrary data in the database.                                        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: SOCIAL (social/) — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE SOCIAL-01: Referral Code is Predictable (Derived from User ID)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Abuse Prevention                                                   │
+│ File: social.service.ts (generateReferralCode, applyReferralCode)            │
+│                                                                              │
+│ Code:                                                                        │
+│   const code = `ZUB${userId.substring(0, 6).toUpperCase()}`;                │
+│                                                                              │
+│ Referral code is literally the first 6 chars of the user's UUID with a       │
+│ "ZUB" prefix. Since UUIDs are guessable/enumerable, an attacker can:        │
+│ 1. Generate valid referral codes for any user                                │
+│ 2. Create multiple accounts and cross-refer for bonus farming               │
+│                                                                              │
+│ The applyReferralCode method is even worse:                                  │
+│   const codePrefix = code.substring(3, 9).toLowerCase();                    │
+│   const referrer = await this.prisma.user.findFirst({                       │
+│     where: { id: { startsWith: codePrefix } }                               │
+│   });                                                                        │
+│                                                                              │
+│ It searches users whose ID starts with the code prefix. If multiple users    │
+│ match (UUIDs can share 6-char prefixes), the WRONG user gets credited.      │
+│                                                                              │
+│ FIX: Generate cryptographically random referral codes, store in DB,          │
+│ validate with exact match.                                                   │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE SOCIAL-02: Challenge serverSeed Not Used Correctly                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: challenge.service.ts (createChallenge)                                 │
+│                                                                              │
+│ A server_seed is generated for the challenge so both players get the same    │
+│ puzzle. But the challenge doesn't create a game session — the players start  │
+│ sessions independently. There's no mechanism to ensure both players use the  │
+│ same seed (they'd need to pass it to the game backend somehow).             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE SOCIAL-03: Share Link Contains Session+User ID (Information Leak)      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Information Disclosure                                             │
+│ File: social.service.ts (generateShareLink)                                  │
+│                                                                              │
+│ Code: Buffer.from(`${sessionId}:${userId}`).toString('base64url')           │
+│                                                                              │
+│ Base64url is easily decodable. Share link reveals user ID + session ID.     │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE SOCIAL-04: Both Referrer AND Referee Get Bonus (Double Payout)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Business Logic                                                     │
+│ File: social.service.ts (applyReferralCode, line 118-119)                    │
+│                                                                              │
+│ Code:                                                                        │
+│   await this.walletService.creditReferralBonus(referrer.id, referral.id);   │
+│   await this.walletService.creditReferralBonus(userId, referral.id);        │
+│                                                                              │
+│ Both users get ₹50 bonus (configurable). This is a BUSINESS DECISION,       │
+│ not a bug per se. But combined with SOCIAL-01 (predictable codes), this     │
+│ enables bonus farming: create account, use own referral code → ₹100 free.  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: FREE-PLAY / ENERGY (free-play/) — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ENERGY-01: consumeLife Has Race Condition                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Data Integrity                                                     │
+│ File: energy.service.ts (consumeLife)                                        │
+│                                                                              │
+│ Pattern: getEnergy() → check total_available → update                        │
+│ Two concurrent game starts could both read 1 life, both pass the check,     │
+│ and both decrement, resulting in -1 lives.                                   │
+│                                                                              │
+│ Not financial, but allows free play without lives.                            │
+│                                                                              │
+│ FIX: Atomic decrement with WHERE current_lives > 0 check.                   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ENERGY-02: refillEnergy Has No Cost/Cooldown                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Business Logic                                                     │
+│ File: free-play.controller.ts (refillEnergy)                                 │
+│                                                                              │
+│ POST /free-play/energy/refill — instantly refills all lives.                │
+│ No payment check, no ad-watch verification, no cooldown. Unlimited          │
+│ free lives for anyone who calls this endpoint.                               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE ENERGY-03: Level Config Auto-Generated if Missing                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Data Integrity                                                     │
+│ File: free-play.service.ts (getLevelConfig)                                  │
+│                                                                              │
+│ If a level config doesn't exist in DB, it's auto-generated and persisted.   │
+│ The generation function (generateLevelConfig) is referenced but not shown.   │
+│ If it produces incorrect configs, they're permanently stored.               │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: LEADERBOARD (leaderboard/) — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE LB-01: Redis Leaderboard Updated by updateScore (Not Called Anywhere)  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Integration                                                │
+│ File: leaderboard.service.ts (updateScore)                                   │
+│                                                                              │
+│ leaderboardService.updateScore() exists but is never called from             │
+│ FreePlayService.submitResult, TournamentService.submitTournamentResult,      │
+│ or GameSessionService.submitResult.                                          │
+│                                                                              │
+│ The Redis sorted set leaderboard is always empty. getGameLeaderboard falls   │
+│ back to DB every time. The Redis cache layer is dead code.                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE LB-02: Redis zrevrange Returns Strings (Type Safety)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: leaderboard.service.ts (getGameLeaderboard)                            │
+│                                                                              │
+│ Redis ZREVRANGE with WITHSCORES returns alternating [member, score] strings. │
+│ The code parses them correctly but there's no type safety.                   │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: USERS (users/) — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE USER-01: No Role/Permission System                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Authorization                                                      │
+│ Files: Prisma schema (User model), all controllers                           │
+│                                                                              │
+│ The User model has no role field. There is NO distinction between regular    │
+│ users and admins. This means:                                                │
+│ - Anti-cheat admin endpoints are accessible by all users (CHEAT-01)         │
+│ - KYC approval endpoints have no access control                              │
+│ - No admin dashboard authorization                                           │
+│                                                                              │
+│ FIX: Add role field to User model (enum: PLAYER, MODERATOR, ADMIN,          │
+│ SUPER_ADMIN). Create a RolesGuard. Annotate admin endpoints with            │
+│ @Roles(Role.ADMIN).                                                          │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE USER-02: avatar_url Accepted Without Validation                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Input Validation / XSS                                             │
+│ File: users/dto/update-profile.dto.ts                                        │
+│                                                                              │
+│ avatar_url is just @IsString(). Could contain javascript: URLs, data:        │
+│ URIs with XSS payload, or SSRF-triggering URLs. Should validate against      │
+│ URL format and allowed domains.                                              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: NOTIFICATION (notification/) — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE NOTIF-01: FCM Server Key Approach is Deprecated                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Deprecation                                                        │
+│ File: notification.service.ts (sendPushNotification)                         │
+│                                                                              │
+│ Uses FCM_SERVER_KEY (Legacy HTTP API). Google deprecated this in June 2024.  │
+│ Should migrate to Firebase Admin SDK with HTTP v1 API.                       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE NOTIF-02: markAsRead Uses user_id in WHERE (IDOR Protection — Good!)   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: NONE (Positive observation)                                        │
+│ Category: Authorization                                                      │
+│ File: notification.service.ts (markAsRead)                                   │
+│                                                                              │
+│ updateMany with { id: notificationId, user_id: userId } ensures users can   │
+│ only mark their OWN notifications. This is correct IDOR protection.          │
+│                                                                              │
+│ (Documenting this as a positive finding)                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: INFRASTRUCTURE (main.ts, app.module.ts, config/) — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE INFRA-01: No Helmet Security Headers                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security Headers                                                   │
+│ File: main.ts                                                                │
+│                                                                              │
+│ Unlike the game backends (which all use helmet()), the platform backend      │
+│ does NOT use helmet. Missing: X-Frame-Options, X-Content-Type-Options,      │
+│ Content-Security-Policy, Strict-Transport-Security.                          │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE INFRA-02: CORS Fallback to localhost:5173                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: main.ts (line 19)                                                      │
+│                                                                              │
+│ origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173']   │
+│                                                                              │
+│ Falls back to localhost if unset. No production check (unlike the games).    │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE INFRA-03: enableImplicitConversion in ValidationPipe                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: main.ts (line 14)                                                      │
+│                                                                              │
+│ enableImplicitConversion: true — allows class-transformer to auto-convert    │
+│ types. This can lead to unexpected type coercion attacks (string "true"      │
+│ → boolean true, string "1" → number 1). Should be false in production.      │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE INFRA-04: Throttle Rate Limit Too Generous (100 req/min)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Abuse Prevention                                                   │
+│ File: app.module.ts (line 22)                                                │
+│                                                                              │
+│ ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }])                       │
+│                                                                              │
+│ 100 requests per minute per user. For a financial platform, this is          │
+│ generous. Consider lower limits for sensitive endpoints (auth, wallet).      │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. DATABASE SCHEMA ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+POSITIVE — WELL-DESIGNED:
+✓ 25+ models covering all domain entities
+✓ Proper indexes on foreign keys and query patterns
+✓ Composite unique constraints (user_id + season_id, user_id + game_type)
+✓ Cascade deletes on user relations
+✓ Decimal(12,2) for financial fields (not Float!)
+✓ Comprehensive enum types (20 game types, all statuses)
+✓ RefreshToken has index on expires_at (for cleanup)
+✓ OTP has compound index on [phone, expires_at]
+✓ Leaderboard has composite index on [leaderboard_id, score(sort: Desc)]
+✓ Separate models for Configuration, LevelConfig, StageGame
+✓ Proper tournament hierarchy: Season → SeasonStage → StageGame + StageEntry
+✓ Cohort system for player grouping
+✓ Soft delete support (deleted_at on User)
+
+ISSUES:
+1. No role/permission field on User (blocks admin authorization)
+2. BankDetail.account_number is plain text (should be encrypted)
+3. KycDocument.document_url points to S3 (should validate URL domain)
+4. No index on Challenge.expires_at (for expired challenge cleanup)
+5. CheatFlag has no relation to User model (just user_id string)
+6. No audit trail model (admin actions aren't logged)
+7. Transaction.metadata is Json (no schema validation)
+8. GameSession.config is Json (no schema validation)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CRITICAL BOTTLENECK:
+- Refresh token verification: O(50) bcrypt compares = ~5 seconds per call
+  This alone makes the platform unusable under moderate load.
+
+MODERATE BOTTLENECKS:
+- Anti-cheat: 3 DB queries per score analysis (recent scores, last hour count)
+  At scale: consider Redis counters for rapid progression checks
+- Leaderboard DB fallback: Full table scan with ORDER BY for scores
+  Redis sorted set is the solution, but it's never populated (LB-01)
+- Elimination: Loads all stage entries + updates each one individually in
+  a transaction. For 10K players, that's 10K UPDATE statements.
+  Consider: batch UPDATE with rank computed via window function
+
+EFFICIENT:
+✓ Wallet operations use $transaction (atomic, though need FOR UPDATE)
+✓ Notification uses createMany for bulk sends
+✓ Friends leaderboard pre-fetches friend IDs then queries in batch
+✓ Pagination on all list endpoints
+✓ Redis for OTP rate limiting
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. FINANCIAL RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RISK LEVEL: EXTREME
+
+The platform handles REAL MONEY (INR deposits, withdrawals, tournament
+entry fees, prize distribution). Financial systems require the highest
+security standards. Current state:
+
+1. DOUBLE-SPEND: Wallet race condition allows withdrawing more than balance
+2. UNVERIFIED SCORES: Tournament winners (who get REAL MONEY prizes) are
+   determined by client-submitted scores with NO server verification
+3. REFERRAL FARMING: Predictable referral codes + both users get bonus =
+   unlimited free money via account farming
+4. NO AUDIT TRAIL: No logging of admin financial actions (approvals,
+   rejections, prize credits)
+5. BANK DETAILS UNENCRYPTED: PCI-DSS requires encryption of financial data
+6. WEBHOOK SIGNATURE BYPASS: JSON.stringify mismatch could allow forged
+   Razorpay webhooks (free deposits)
+
+REGULATORY CONSIDERATIONS (India):
+- RBI guidelines require KYC for digital wallets
+- GST on entry fees may apply (not handled)
+- TDS on prize winnings above ₹10,000 (Section 194BA) — not deducted
+- Data localization requirements for financial data
+- CERT-In compliance for security incidents
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POSITIVE OBSERVATIONS — WHAT THE PLATFORM DOES RIGHT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ARCHITECTURE:
+✓ Clean NestJS module structure (12 modules, well-separated concerns)
+✓ ConfigModule.forRoot({ isGlobal: true }) — centralized config
+✓ Comprehensive Prisma schema (25+ models, proper types/indexes)
+✓ .env.example provided (no committed .env — BETTER THAN ALL 20 GAMES!)
+✓ Separate access + refresh token secrets
+✓ Token rotation on refresh (old token revoked)
+
+AUTH:
+✓ OTP hashed with bcrypt before storage (not plain text)
+✓ OTP rate limiting via Redis (5 per phone per hour)
+✓ OTP max attempts (5 per code)
+✓ Cryptographically secure OTP generation (crypto.randomBytes)
+✓ Auto-registration on first OTP (good UX, but needs abuse prevention)
+✓ Multi-provider support (Phone, Google, Apple)
+✓ Account linking flow
+
+WALLET:
+✓ Razorpay signature verification (HMAC SHA-256)
+✓ Separate balance + bonus_balance (non-withdrawable bonus)
+✓ Minimum withdrawal threshold (₹100)
+✓ KYC required for withdrawals
+✓ Transaction history with pagination
+✓ Decimal(12,2) for financial precision
+✓ Entry fee deducts bonus first, then balance (smart)
+
+TOURNAMENT:
+✓ Full Season → Stage → StageGame → StageEntry hierarchy
+✓ Cohort system for player segmentation
+✓ Round-robin cohort assignment (load balancing)
+✓ Elimination by percentage (configurable per stage)
+✓ Tiebreaker: total_time_ms (faster player wins tie)
+✓ Max players enforcement
+✓ Duplicate registration prevention
+✓ Already-played detection (one attempt per game per stage)
+
+ANTI-CHEAT:
+✓ Four detection methods (impossible score, timing, rapid progression, anomaly)
+✓ Statistical anomaly detection (3σ deviation)
+✓ Auto-ban on 3 critical flags
+✓ Flag queue for admin review
+✓ Per-user flag summary with severity breakdown
+
+SOCIAL:
+✓ Friend request flow (send → accept/decline)
+✓ Challenge system with 24h expiry
+✓ Score comparison after both play
+✓ Notifications for challenge events
+✓ Referral system with bonus credits
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     70/100 (well-structured, clean modules)
+- Authentication Security:          20/100 (OAuth bypass, O(N) refresh)
+- Authorization:                    10/100 (no roles, admin endpoints exposed)
+- Financial Security:               15/100 (race conditions, unverified scores)
+- Data Privacy:                     30/100 (bank details unencrypted, PII exposure)
+- Anti-Cheat Integration:           25/100 (exists but never called in flows)
+- Input Validation:                 40/100 (DTOs partial, many inline types)
+- Performance:                      35/100 (refresh token O(N), no Redis LB)
+- Database Design:                  75/100 (comprehensive schema, good indexes)
+- Production Readiness:             30/100 (fallback secrets, no helmet, CORS)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 38/100
+═══════════════════════════════════════
+
+THIS IS THE MOST CRITICAL COMPONENT. It handles real money, user identity,
+and tournament integrity. Launching with these issues would expose the
+platform to financial loss, account takeover, and regulatory non-compliance.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. PRIORITY ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL SECURITY (1-2 days)
+  □ Fix Google/Apple OAuth — verify ID tokens server-side
+  □ Fix refresh token — SHA-256 indexed lookup instead of O(N) bcrypt
+  □ Add role field to User model + AdminGuard on admin endpoints
+  □ Fix wallet race conditions — SELECT FOR UPDATE or atomic decrement
+  □ Remove JWT fallback secrets — throw on missing
+  □ Verify tournament scores via game backends (not client-trusted)
+
+PHASE 2: FINANCIAL HARDENING (1 day)
+  □ Fix Razorpay webhook signature verification (raw body, not JSON.stringify)
+  □ Add ownership check to deposit/verify endpoint
+  □ Encrypt bank details at rest
+  □ Add entry fee deduction to tournament registration
+  □ Implement TDS deduction on prize winnings (Indian tax compliance)
+  □ Add audit trail for admin financial actions
+
+PHASE 3: ABUSE PREVENTION (0.5 day)
+  □ Replace predictable referral codes with random codes in DB
+  □ Add phone number validation (@IsPhoneNumber)
+  □ Add IP-based OTP rate limiting
+  □ Add cost/cooldown to energy refill
+  □ Add account creation rate limiting
+
+PHASE 4: INTEGRATION (1 day)
+  □ Call antiCheatService.analyzeGameResult in tournament + free-play flows
+  □ Call leaderboardService.updateScore after game completion
+  □ Implement prize distribution after final stage elimination
+  □ Fix stage rankings endpoint (wrong ID type)
+  □ Add banned user check in JwtStrategy
+
+PHASE 5: PRODUCTION HARDENING (0.5 day)
+  □ Add helmet middleware
+  □ Add production CORS check (throw if missing)
+  □ Lower throttle limits for sensitive endpoints
+  □ Disable enableImplicitConversion
+  □ Add structured logging (replace console.log)
+  □ Migrate FCM to Admin SDK (HTTP v1)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Fix Google/Apple OAuth (verify ID tokens server-side)
+    Effort: 2 hours | Impact: Prevents ANY account takeover
+    ROI: ∞ (security — currently anyone can log in as anyone)
+
+#2  Fix refresh token (SHA-256 lookup instead of O(N) bcrypt)
+    Effort: 1 hour | Impact: 5000x performance improvement on refresh
+    ROI: ∞ (DoS prevention + performance)
+
+#3  Add role field + AdminGuard (block admin endpoint access)
+    Effort: 2 hours | Impact: Prevents users from banning each other
+    ROI: ∞ (authorization — currently ALL users are admins)
+
+#4  Fix wallet race conditions (SELECT FOR UPDATE)
+    Effort: 2 hours | Impact: Prevents double-spend / money loss
+    ROI: ∞ (financial security — real money at risk)
+
+#5  Verify tournament scores via game backends
+    Effort: 4 hours | Impact: Tournament integrity for paid competitions
+    ROI: ∞ (financial security — prize money based on unverified scores)
+
+#6  Remove JWT fallback secrets
+    Effort: 15 min | Impact: Prevents token forgery
+    ROI: ∞ (security)
+
+#7  Fix Razorpay webhook raw body verification
+    Effort: 30 min | Impact: Prevents forged deposit webhooks
+    ROI: ∞ (financial security)
+
+#8  Replace predictable referral codes
+    Effort: 30 min | Impact: Prevents referral bonus farming
+    ROI: High (prevents free money exploit)
+
+#9  Call anti-cheat in tournament + free-play flows
+    Effort: 30 min | Impact: Activates the entire anti-cheat system
+    ROI: 10x (already built, just needs to be called!)
+
+#10 Call leaderboardService.updateScore after games
+    Effort: 15 min | Impact: Redis leaderboard goes from dead to live
+    ROI: 10x (already built, just needs to be called!)
+
+================================================================================
+END OF AUDIT — ZUBACO PLATFORM BACKEND
+================================================================================

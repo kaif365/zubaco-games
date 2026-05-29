@@ -1,0 +1,283 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    LOGIC REFLECTOR — TEST CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════
+
+Game: Logic Reflector (Laser Puzzle)
+Stack: React 19 + Vite + TypeScript + TailwindCSS + Framer Motion + i18next
+Last Updated: 2025
+
+───────────────────────────────────────────────────────────────────────────────
+ 1. MENU SCREEN (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 1.1  Menu shows on app launch (after tutorial seen flag)
+[ ] 1.2  "Play" button transitions to GameContainer (playing phase)
+[ ] 1.3  "Levels" button opens LevelSelector
+[ ] 1.4  "Daily Challenge" button opens DailyChallenge
+[ ] 1.5  "Achievements" button opens Achievements screen
+[ ] 1.6  "Statistics" button opens StatsScreen
+[ ] 1.7  "Settings" button opens Settings screen
+[ ] 1.8  All buttons have staggered entry animation and press feedback
+
+───────────────────────────────────────────────────────────────────────────────
+ 2. LEVEL SELECTOR (10 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 2.1  Shows 10 levels in 5×2 grid layout
+[ ] 2.2  Level 1 always unlocked
+[ ] 2.3  Locked levels show lock icon and are non-interactive
+[ ] 2.4  Stars (0-3) displayed for completed levels
+[ ] 2.5  Selecting unlocked level transitions to playing phase
+[ ] 2.6  Grid size scales: 4×4 → 8×7 across levels
+[ ] 2.7  Time limit decreases: 120s → 60s across levels
+[ ] 2.8  Back button returns to menu
+[ ] 2.9  Highest unlocked level persists across refreshes (localStorage)
+[ ] 2.10 Completing a level unlocks the next
+
+───────────────────────────────────────────────────────────────────────────────
+ 3. SETTINGS (7 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 3.1  Sound toggle works (on/off)
+[ ] 3.2  Volume slider adjusts from 0-100%
+[ ] 3.3  Dark theme toggle switches theme
+[ ] 3.4  Settings persist across page refreshes
+[ ] 3.5  Back button returns to menu
+[ ] 3.6  Default values: sound on, volume 80%, dark theme
+[ ] 3.7  Volume slider disabled when sound is off
+
+───────────────────────────────────────────────────────────────────────────────
+ 4. STATS SCREEN (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 4.1  Shows 10 stats (games played, wins, moves, best moves, streak,
+         level, perfect, fast, time, high score)
+[ ] 4.2  Stats update correctly after game completion
+[ ] 4.3  Stats persist across page refreshes (localStorage)
+[ ] 4.4  Time formatted as h:mm
+[ ] 4.5  Back button returns to menu
+[ ] 4.6  Zero state shows "0" for unplayed stats
+[ ] 4.7  High score updates only when new exceeds previous
+[ ] 4.8  Total time accumulates across games
+
+───────────────────────────────────────────────────────────────────────────────
+ 5. ACHIEVEMENTS (9 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 5.1  10 achievements displayed with icons and descriptions
+[ ] 5.2  Unlocked achievements show colored/filled state
+[ ] 5.3  Locked achievements show grayed-out state
+[ ] 5.4  Achievement popup appears when new achievement unlocked
+[ ] 5.5  Popup auto-dismisses after 4 seconds
+[ ] 5.6  Achievement state persists across refreshes
+[ ] 5.7  Back button returns to menu
+[ ] 5.8  FIRST_WIN triggers after first puzzle solved
+[ ] 5.9  All 10 have unique trigger conditions
+
+───────────────────────────────────────────────────────────────────────────────
+ 6. DAILY CHALLENGE (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 6.1  Calendar week shows 7 days with completion status
+[ ] 6.2  Today highlighted with target emoji
+[ ] 6.3  Completed days show checkmark
+[ ] 6.4  Difficulty scales with day of week
+[ ] 6.5  "Start Challenge" hidden/disabled when already completed today
+[ ] 6.6  Completion state persists per date in localStorage
+[ ] 6.7  Bonus multiplier displayed (1.5×–2.4×)
+[ ] 6.8  Back button returns to menu
+
+───────────────────────────────────────────────────────────────────────────────
+ 7. DEMO / TUTORIAL FLOW (6 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 7.1  "Learn How to Play" button appears on instructions screen
+[ ] 7.2  Demo boards load correctly (pre-built puzzles)
+[ ] 7.3  Demo explains mirror placement mechanics
+[ ] 7.4  Demo shows laser reflection visually
+[ ] 7.5  "Complete" returns to instructions screen
+[ ] 7.6  Demo is skippable via button in instructions
+
+───────────────────────────────────────────────────────────────────────────────
+ 8. INSTRUCTIONS SCREEN (7 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 8.1  Stage-themed design (eclipse glow + accent colors)
+[ ] 8.2  Content loaded from stage content API
+[ ] 8.3  "Play Now" button starts game session
+[ ] 8.4  Loading spinner replaces button while session starts
+[ ] 8.5  Stage content skeleton shown while loading
+[ ] 8.6  Error alert appears on connection failure
+[ ] 8.7  Offline modal shown when network drops
+
+───────────────────────────────────────────────────────────────────────────────
+ 9. HUD (HEADS-UP DISPLAY) (12 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 9.1  Level number shown (e.g., "Level 3 / 7")
+[ ] 9.2  Level progress dots update (empty → active → complete)
+[ ] 9.3  Timer countdown displayed (MM:SS format)
+[ ] 9.4  Timer turns urgent (red) at ≤15 seconds
+[ ] 9.5  Combo ×N displayed when combo ≥ 2
+[ ] 9.6  Combo animates on increment (scale pulse)
+[ ] 9.7  Moves counter shows current block placements
+[ ] 9.8  Mute button toggles sound
+[ ] 9.9  Pause button opens PauseDialog
+[ ] 9.10 Quit button forfeits and goes to result
+[ ] 9.11 Clock icon rendered next to timer
+[ ] 9.12 Timer value uses monospace font for stable width
+
+───────────────────────────────────────────────────────────────────────────────
+ 10. GAME BOARD (14 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 10.1  Grid renders with correct rows × columns
+[ ] 10.2  Emitter cells show emitter icon with direction indicator
+[ ] 10.3  Target cells show target icon
+[ ] 10.4  Fixed cells (pre-placed blocks) are not removable
+[ ] 10.5  Empty cells respond to click (place selected block)
+[ ] 10.6  Placed blocks can be removed on click
+[ ] 10.7  Laser beam traces from emitter through reflections
+[ ] 10.8  Beam splits correctly at splitter blocks
+[ ] 10.9  Beam stops at blocker blocks
+[ ] 10.10 Targets light up when beam hits them
+[ ] 10.11 All targets lit = level complete trigger
+[ ] 10.12 Board resizes responsively (min 48px, max 80px cells)
+[ ] 10.13 Drag-and-drop from toolbar to grid works
+[ ] 10.14 Board disabled during non-playing phases
+
+───────────────────────────────────────────────────────────────────────────────
+ 11. TOOLBAR (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 11.1  Shows available block types with icons
+[ ] 11.2  Remaining count displayed per block type
+[ ] 11.3  Depleted blocks (count=0) are grayed out
+[ ] 11.4  Selecting a block highlights it
+[ ] 11.5  Re-selecting deselects (toggle behavior)
+[ ] 11.6  Drag from toolbar creates ghost element
+[ ] 11.7  Drop on valid cell places the block
+[ ] 11.8  Toolbar hidden during non-playing phases
+
+───────────────────────────────────────────────────────────────────────────────
+ 12. LASER ENGINE (10 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 12.1  Beam fires from emitter in specified direction
+[ ] 12.2  Beam reflects off mirror-fwd (/) correctly
+[ ] 12.3  Beam reflects off mirror-bwd (\) correctly
+[ ] 12.4  Beam reflects off reflect-block (nearest face)
+[ ] 12.5  Beam splits into multiple arms at splitter
+[ ] 12.6  Beam stops at blocker
+[ ] 12.7  Beam exits grid after EXIT_REACH_CELLS distance
+[ ] 12.8  Max bounces limit (48) prevents infinite loops
+[ ] 12.9  Target hit detection uses radius-based proximity
+[ ] 12.10 Angled emitters (arbitrary degrees) work correctly
+
+───────────────────────────────────────────────────────────────────────────────
+ 13. PAUSE DIALOG (7 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 13.1  Opens when pause button tapped
+[ ] 13.2  Shows current moves count and elapsed time
+[ ] 13.3  Shows current level number
+[ ] 13.4  "Resume" closes dialog
+[ ] 13.5  "Restart Level" resets current puzzle
+[ ] 13.6  "Exit to Menu" returns to menu screen
+[ ] 13.7  Backdrop blur prevents board interaction
+
+───────────────────────────────────────────────────────────────────────────────
+ 14. RESULT SCREEN (10 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 14.1  Success screen shown when all levels completed (ENDED)
+[ ] 14.2  Failure screen shown on time-up (EXPIRED) or forfeit (MANUALLY_ENDED)
+[ ] 14.3  Score displayed (totalScore from scoreboard)
+[ ] 14.4  Completed/total games breakdown shown
+[ ] 14.5  "Time's Up" indicator shown for EXPIRED status
+[ ] 14.6  Stage overlay images load correctly
+[ ] 14.7  "Continue" button reloads page (returns to menu)
+[ ] 14.8  Confetti animation plays on success
+[ ] 14.9  Score chip and level chip icons displayed
+[ ] 14.10 Stage-themed colors applied to result card
+
+───────────────────────────────────────────────────────────────────────────────
+ 15. CONFETTI (4 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 15.1  60 particles spawn on activation
+[ ] 15.2  Particles have varied colors (purple, indigo, cyan, amber, etc.)
+[ ] 15.3  Particles fall with gravity and fade out
+[ ] 15.4  Component unmounts cleanly (no interval leaks)
+
+───────────────────────────────────────────────────────────────────────────────
+ 16. AUDIO (7 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 16.1  mirrorPlace sound plays on block placement
+[ ] 16.2  beamHit sound plays when target is lit
+[ ] 16.3  beamMiss sound plays on failed placement
+[ ] 16.4  puzzleSolve sound plays when all targets lit
+[ ] 16.5  levelComplete sound plays on level clear
+[ ] 16.6  hint sound plays when hint is used
+[ ] 16.7  uiClick sound plays on UI interactions
+
+───────────────────────────────────────────────────────────────────────────────
+ 17. PERSISTENCE & STORAGE (9 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 17.1  Tutorial seen flag persists
+[ ] 17.2  Level unlock progress persists
+[ ] 17.3  Level star ratings persist
+[ ] 17.4  Settings persist (sound, volume, theme)
+[ ] 17.5  Stats persist and accumulate
+[ ] 17.6  Achievements persist
+[ ] 17.7  Daily challenge completion persists per date
+[ ] 17.8  Session recovery (live session token stored for resume)
+[ ] 17.9  Clearing localStorage resets to defaults
+
+───────────────────────────────────────────────────────────────────────────────
+ 18. ANIMATIONS & TRANSITIONS (7 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 18.1  Menu buttons have staggered fade-in
+[ ] 18.2  Level selector tiles animate in
+[ ] 18.3  Pause dialog uses spring animation
+[ ] 18.4  Achievement popup slides from top
+[ ] 18.5  Combo counter scales on increment
+[ ] 18.6  Board transitions (opening, closing, solved states)
+[ ] 18.7  Laser beam animates along path
+
+───────────────────────────────────────────────────────────────────────────────
+ 19. NETWORK & ERROR HANDLING (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 19.1  Offline modal appears when network drops
+[ ] 19.2  Retry button in offline modal re-checks connection
+[ ] 19.3  Error alert shown on API failure (dismissible)
+[ ] 19.4  Auto-resume works when session token found on load
+[ ] 19.5  Auth failure doesn't hang on skeleton forever
+[ ] 19.6  Game start falls back gracefully on network error
+[ ] 19.7  Level prefetch doesn't block gameplay
+[ ] 19.8  Move submission batching works correctly
+
+───────────────────────────────────────────────────────────────────────────────
+ 20. RESPONSIVE & UX (6 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 20.1  Landscape orientation shows "tilt screen" message
+[ ] 20.2  Grid cell size adapts to viewport (48–80px)
+[ ] 20.3  Toolbar ghost follows pointer during drag
+[ ] 20.4  Stage theming (7 stages) applies correct eclipse colors
+[ ] 20.5  Touch interactions work on mobile
+[ ] 20.6  Content is accessible (aria-labels, aria-live)
+
+───────────────────────────────────────────────────────────────────────────────
+ TOTAL: 165 TEST CASES
+───────────────────────────────────────────────────────────────────────────────
+
+ Star Rating System:
+   ★★★ (3 stars) — Solved using minimum (optimal) number of block placements
+   ★★☆ (2 stars) — Solved using optimal + 1 block placements
+   ★☆☆ (1 star)  — Solved (any number of placements)
+
+ Achievement Triggers:
+   FIRST_WIN      — Win 1 game
+   STREAK_5       — 5-level streak (consecutive solves)
+   STREAK_10      — 10-level streak
+   PERFECT_GAME   — Solve with minimum blocks (3★)
+   SPEED_DEMON    — Finish with >50% time remaining
+   PERSISTENCE    — Play 50 games
+   LEVEL_5        — Reach level 5
+   LEVEL_10       — Reach level 10
+   HIGH_SCORER    — Score 1000+ in session
+   NO_MISTAKES    — Complete without removing any block
+
+ Block Types:
+   reflect-block  — Square reflective surface (bounces beam off nearest face)
+   mirror-fwd /   — Diagonal mirror (redirects beam 90°)
+   mirror-bwd \   — Diagonal mirror (redirects beam 90° opposite)
+   splitter +     — Splits beam into multiple directions
+   blocker ■      — Absorbs/stops the beam
+
+═══════════════════════════════════════════════════════════════════════════════

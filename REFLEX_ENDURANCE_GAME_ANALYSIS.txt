@@ -1,0 +1,172 @@
+========================================================================
+REFLEX ENDURANCE – FULL GAME ANALYSIS
+========================================================================
+Version: 1.0
+Location: C:\game\zubaco-games-repo\zubaco-games\reflex-endurance\reflex-endurance-frontend\
+
+========================================================================
+1. OVERVIEW
+========================================================================
+Reflex Endurance is a timed reflex game where colored circles spawn 
+randomly on a play area. The player must tap ONLY the green circles 
+while avoiding red, blue, and yellow circles. Circles disappear after 
+2 seconds. Speed increases over time. Game ends on timer expiry or 
+too many wrong taps.
+
+Genre: Reflex / Reaction / Endurance
+Core loop: Circle spawns → Player taps (or ignores) → Score/Penalty → Speed increases
+
+========================================================================
+2. TECH STACK
+========================================================================
+- React 19 + Vite + TypeScript
+- TailwindCSS 3.4 (className-based dark theme)
+- framer-motion (AnimatePresence, spring animations)
+- react-i18next (translations)
+- Custom hooks (useState + useCallback + useRef)
+- No router, no Zustand/Redux, no react-query
+
+========================================================================
+3. PROJECT STRUCTURE
+========================================================================
+src/
+├── App.tsx                     (ErrorBoundary → ThemeProvider → OfflineBanner → GamePage)
+├── main.tsx
+├── audio/                      (AudioManager, AudioProvider, soundRegistry, types, useAudio)
+├── components/
+│   ├── ErrorBoundary.tsx
+│   ├── InstructionScreen.tsx   (idle state UI)
+│   ├── OfflineBanner.tsx
+│   └── ResultScreen.tsx        (result with score/replay)
+├── features/reflex/
+│   ├── components/
+│   │   └── GamePage.tsx        (main orchestrator)
+│   ├── engine/
+│   │   ├── circleGenerator.ts  (generateCircle: position + color)
+│   │   └── random.ts           (mulberry32, computeFinalSeed)
+│   ├── hooks/
+│   │   ├── useGameSession.ts   (API: startGame, submitGame)
+│   │   └── useReflexGame.ts    (game logic: spawn, tap, timer)
+│   └── save-progress/
+│       ├── saveProgressOutbox.ts (localStorage save/sync)
+│       └── saveProgressTypes.ts  (ReflexEnduranceProgressEntry)
+├── hooks/
+│   ├── useAudio.ts
+│   ├── useSocket.ts
+│   └── useTheme.tsx            (ThemeProvider dark/light/system)
+├── services/
+│   ├── httpClient.ts
+│   └── socketClient.ts
+├── types/
+│   └── game.ts                 (Circle, Tap, GameConfig, StartGameResponse, SubmitResponse)
+└── i18n/
+
+========================================================================
+4. GAME MECHANICS
+========================================================================
+
+4.1 PHASES
+- idle: Shows InstructionScreen, player clicks "Start"
+- playing: Circles spawn, player taps green ones
+- ended: Shows ResultScreen with score
+
+4.2 CIRCLE SYSTEM
+- 4 colors: green (40%), red (20%), blue (20%), yellow (20%)
+- Only GREEN is correct — all others are traps
+- Position: random x (10-90%), random y (10-90%)
+- Circles auto-disappear after 2 seconds
+- Spawned by mulberry32(seed) for deterministic replay
+
+4.3 SPEED ACCELERATION
+- initialSpawnIntervalMs: 1200ms (default)
+- speedIncreaseEveryMs: 30000ms (every 30s)
+- speedMultiplier: 0.85 (speed * 0.85^N)
+- Minimum interval: 300ms
+- Formula: interval = max(300, initialInterval × multiplier^speedups)
+
+4.4 GAME OVER CONDITIONS
+- Timer runs out (timeLimitMs: 300000 = 5 minutes)
+- Wrong taps reach maxWrongTaps (default: 2)
+
+4.5 SCORING
+- +1 point per correct green tap
+- Wrong tap increments wrongTaps counter (no score deduction, just life loss)
+- Endurance: survive as long as possible, tap as many greens as possible
+
+4.6 CONTROLS
+- Touch/Click on circles
+- No keyboard controls for gameplay
+
+4.7 DEFAULT CONFIG (GameConfig)
+- timeLimitMs: 300000 (5 minutes)
+- initialSpawnIntervalMs: 1200
+- speedIncreaseEveryMs: 30000
+- speedMultiplier: 0.85
+- maxWrongTaps: 2
+
+========================================================================
+5. BACKEND LEVEL CONFIGURATION
+========================================================================
+Level | Time(ms) | Rounds | MaxReaction(ms) | Multiplier
+------|----------|--------|-----------------|----------
+  1   |  60000   |   10   |     1000        |   1.0×
+  2   |  55000   |   12   |      900        |   1.2×
+  3   |  52000   |   14   |      850        |   1.4×
+  4   |  50000   |   16   |      800        |   1.6×
+  5   |  48000   |   18   |      750        |   1.8×
+  6   |  45000   |   20   |      700        |   2.0×
+  7   |  42000   |   22   |      650        |   2.3×
+  8   |  40000   |   24   |      600        |   2.6×
+  9   |  38000   |   26   |      550        |   3.0×
+  10  |  35000   |   30   |      500        |   3.5×
+
+========================================================================
+6. AUDIO (7 sounds)
+========================================================================
+- targetAppear: circle spawns
+- targetHit: correct tap on green
+- targetMiss: wrong tap on non-green
+- combo: streak milestone
+- levelComplete: game won / time survived
+- gameOver: too many mistakes
+- uiClick: menu interactions
+
+========================================================================
+7. BACKEND ENGINES
+========================================================================
+- achievementEngine: 10 achievements (First Win, Streak 5/10, Perfect, Speed Demon, etc.)
+- boosterEngine: 5 boosters (Time Freeze, Hint, Skip, Double Points, Undo)
+- comboEngine: streak tracking, multiplier
+- dailyChallenge: SHA-256 date-based seed, difficulty by day of week, 1.5× bonus
+- leaderboard: standard
+- scoreHistory: standard
+- levelConfig: 10 levels (above table)
+- circleValidator: server-side tap validation
+- timingAnalyzer: reaction time analysis
+
+========================================================================
+8. SAVE PROGRESS SYSTEM
+========================================================================
+- ReflexEnduranceProgressEntry: levelIndex, score, stars, completedAt, timeTakenMs, movesUsed, hintsUsed
+- localStorage keys: 'reflex-endurance-save-progress', 'reflex-endurance-save-outbox'
+- Functions: saveLevel, getProgress, getLevelProgress, getHighestCompletedLevel, getTotalScore
+- Outbox pattern for offline sync
+- Only saves if new score > existing score
+
+========================================================================
+9. API ENDPOINTS
+========================================================================
+POST /game/start     → { stageId } → { gameSessionId, seed, config, serverTime }
+POST /game/submit    → { gameSessionId, taps, clientScore } → { finalScore, status, correctTaps }
+
+========================================================================
+10. INTEGRATION NOTES
+========================================================================
+- App.tsx: ErrorBoundary → ThemeProvider → OfflineBanner → GamePage (no router!)
+- ResultScreen.onReplay currently calls window.location.reload() → change to setAppPhase('menu')
+- Circle rendering: absolute positioned buttons with percentage-based left/top
+- Circle size: w-12 h-12 (3rem)
+- Active area: aspect-square bg-gray-800 rounded-xl
+- GamePage is the only component in features/reflex/components/
+- Need to add appPhase state machine wrapping existing idle/playing/ended phases
+========================================================================

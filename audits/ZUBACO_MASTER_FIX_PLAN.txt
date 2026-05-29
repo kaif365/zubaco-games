@@ -1,0 +1,2003 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║            ZUBACO GAMING PLATFORM — MASTER FIX PLAN                              ║
+║                                                                                  ║
+║  Extracted from: 44 Audit Reports                                                ║
+║  Total Issues: 197 (de-duplicated)                                               ║
+║  Date: 2026-05-24                                                                ║
+║  Structure: 4 Priority Tiers                                                     ║
+║                                                                                  ║
+║  HOW TO USE THIS DOCUMENT:                                                       ║
+║  - Work through Tier 1 → Tier 2 → Tier 3 → Tier 4 in order                     ║
+║  - Within each tier, items are numbered by priority (do #1 first)                ║
+║  - Each item has: [Source Report] | [Effort] | [What to do]                      ║
+║  - Mark items ✅ as you complete them                                            ║
+║  - Do NOT skip tiers. Tier 1 = survival. Tier 4 = polish.                        ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                    TIER 1: FIX BEFORE LAUNCH (SURVIVAL)
+
+          These issues will cause immediate financial loss, legal action,
+          or complete security compromise on Day 1. Non-negotiable.
+
+          Estimated effort: 3-5 focused days
+          Items: 38
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 1 — CATEGORY A: AUTHENTICATION (Account Takeover Prevention)               │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T1-001 | Google OAuth: Verify ID token server-side
+  Source: Platform Audit AUTH-01, API Security Audit API2
+  Effort: 2-3 hours
+  File: zubaco-platform/src/auth/auth.service.ts, google.strategy.ts
+  Action:
+    1. npm install google-auth-library
+    2. Change GoogleLoginDto to accept { idToken: string } instead of raw profile
+    3. In authService.googleLogin():
+       - Call oAuth2Client.verifyIdToken({ idToken, audience: CLIENT_ID })
+       - Extract sub, email, name from verified payload
+       - Use verified data (not client-supplied) for user lookup/creation
+    4. Remove the TODO comment in google.strategy.ts
+
+☐ T1-002 | Apple OAuth: Verify identity token server-side
+  Source: Platform Audit AUTH-02, API Security Audit API2
+  Effort: 2-3 hours
+  File: zubaco-platform/src/auth/auth.service.ts, apple-login.dto.ts
+  Action:
+    1. npm install apple-signin-auth OR use jsonwebtoken + jwks-rsa
+    2. Change AppleLoginDto to accept { identityToken: string, authorizationCode: string }
+    3. In authService.appleLogin():
+       - Verify identity token against Apple's JWKS endpoint
+       - Extract sub, email from verified JWT
+       - Use verified sub (not client-supplied apple_id)
+
+☐ T1-003 | Remove JWT fallback secrets from source code
+  Source: Platform Audit AUTH-04, API Security Audit API2
+  Effort: 15 minutes
+  File: zubaco-platform/src/config/index.ts
+  Action:
+    Replace:
+      accessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me'
+      refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me'
+    With:
+      accessSecret: process.env.JWT_ACCESS_SECRET || (() => { throw new Error('JWT_ACCESS_SECRET required') })()
+      refreshSecret: process.env.JWT_REFRESH_SECRET || (() => { throw new Error('JWT_REFRESH_SECRET required') })()
+
+☐ T1-004 | Fix refresh token O(N) bcrypt scan → O(1) SHA-256 lookup
+  Source: Platform Audit AUTH-03, Performance Audit 1.1
+  Effort: 3-4 hours
+  File: zubaco-platform/src/auth/token.service.ts
+  Action:
+    1. Change token storage: store SHA-256(refreshToken) not bcrypt(refreshToken)
+    2. SHA-256 is deterministic → can be used as indexed lookup key
+    3. On refresh: hash submitted token with SHA-256 → findUnique by token_hash
+    4. Remove the loop-and-compare logic entirely
+    5. Add migration to re-hash existing tokens (or invalidate all → users re-login)
+  WARNING: This will log out all existing users. Deploy during off-hours.
+
+☐ T1-005 | Add AdminGuard to anti-cheat admin endpoints
+  Source: Platform Audit, API Security Audit API5
+  Effort: 1-2 hours
+  File: zubaco-platform/src/anti-cheat/anti-cheat.controller.ts
+  Action:
+    1. Create AdminGuard that checks a user role/flag
+    2. Add admin role to User model OR create separate admin table
+    3. Apply @UseGuards(AdminGuard) to:
+       - GET /anti-cheat/flags
+       - POST /anti-cheat/flags/:id/review
+       - GET /anti-cheat/users/:id/flags
+       - POST /anti-cheat/users/:id/ban
+       - POST /anti-cheat/users/:id/unban
+
+☐ T1-006 | OTP brute-force protection: limit OTP sends per phone number
+  Source: API Security Audit API2, API4
+  Effort: 1 hour
+  File: zubaco-platform/src/auth/auth.service.ts
+  Action:
+    1. Add Redis key: otp_send:{phone} with TTL 60s, max 1 per 60s
+    2. Add Redis key: otp_send_daily:{phone} with TTL 86400s, max 5 per day
+    3. Reject /otp/send if limit exceeded
+    4. Add per-phone rate limit to /otp/verify (max 5 attempts per OTP)
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 1 — CATEGORY B: FINANCIAL (Money Loss Prevention)                          │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T1-007 | Fix deposit double-credit race condition (verify + webhook)
+  Source: Payment Audit FIN-DEP-01, Platform Audit
+  Effort: 1 hour
+  File: zubaco-platform/src/wallet/payment-gateway.service.ts
+  Action:
+    Replace findFirst + update pattern with atomic updateMany:
+      const result = await prisma.transaction.updateMany({
+        where: { reference_id: orderId, status: 'PENDING' },
+        data: { status: 'COMPLETED' }
+      });
+      if (result.count === 0) return; // Already processed by other path
+      // Only NOW credit wallet
+    Apply this fix to BOTH verifyPayment() and handleWebhook()
+
+☐ T1-008 | Fix concurrent withdrawal double-spend race condition
+  Source: Payment Audit FIN-WD-01, Platform Audit
+  Effort: 1 hour
+  File: zubaco-platform/src/wallet/wallet.service.ts
+  Action:
+    Replace read-then-write with atomic decrement:
+      const result = await prisma.wallet.updateMany({
+        where: { user_id: userId, balance: { gte: amount } },
+        data: { balance: { decrement: amount } }
+      });
+      if (result.count === 0) throw new BadRequestException('Insufficient balance');
+    Remove the separate getWallet() → check → update pattern
+
+☐ T1-009 | Call deductEntryFee() during tournament registration
+  Source: Payment Audit FIN-ENTRY-01
+  Effort: 30 minutes
+  File: zubaco-platform/src/tournament/tournament.service.ts (registerForSeason)
+  Action:
+    Before creating SeasonEntry record, add:
+      if (season.entry_fee && Number(season.entry_fee) > 0) {
+        await this.walletService.deductEntryFee(userId, seasonId, Number(season.entry_fee));
+      }
+    Wrap entire registration in transaction (entry fee deduction + SeasonEntry creation)
+
+☐ T1-010 | Verify payment amount from Razorpay (defense-in-depth)
+  Source: Payment Audit FIN-DEP-02
+  Effort: 1 hour
+  File: zubaco-platform/src/wallet/payment-gateway.service.ts
+  Action:
+    After signature verification in verifyPayment():
+      const payment = await razorpay.payments.fetch(paymentId);
+      if (payment.amount !== transaction.amount_paise) {
+        throw new BadRequestException('Amount mismatch');
+      }
+
+☐ T1-011 | Implement actual bank payout (RazorpayX)
+  Source: Payment Audit FIN-WD-03
+  Effort: 1-2 days
+  File: zubaco-platform/src/wallet/payment-gateway.service.ts
+  Action:
+    1. Sign up for RazorpayX Payout API
+    2. Implement processWithdrawal() to call Razorpay Payout API:
+       - Create fund account (linked to user bank details)
+       - Create payout to fund account
+       - Handle payout status webhook (processed/reversed/failed)
+    3. Update transaction status based on payout callback
+
+☐ T1-012 | Add minimum deposit/withdrawal limits enforcement
+  Source: Payment Audit FIN-WD-04, Legal Audit
+  Effort: 30 minutes
+  File: zubaco-platform/src/wallet/wallet.service.ts
+  Action:
+    - Deposit: min ₹10, max ₹1,00,000 per transaction (already exists, verify)
+    - Withdrawal: min ₹100, max ₹50,000 per day
+    - Withdrawal: max 3 per day
+    - Add aggregate daily check before processing
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 1 — CATEGORY C: LEGAL COMPLIANCE (Criminal Liability Prevention)           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T1-013 | Implement age verification (18+ check)
+  Source: Legal Audit, Privacy Audit, Payment Audit FIN-KYC-03
+  Effort: 2-3 hours
+  Files: auth.service.ts, User model (schema.prisma)
+  Action:
+    1. Add date_of_birth field to User model (if not already present)
+    2. Require DOB during registration (after OTP verify)
+    3. Calculate age >= 18 before allowing:
+       - Tournament registration
+       - Deposits
+       - Withdrawals
+    4. Block underage users from real-money features
+
+☐ T1-014 | Implement state-based geo-fencing
+  Source: Legal Audit Section 1.2
+  Effort: 1-2 days
+  Files: New middleware, auth flows
+  Action:
+    1. Create GeoFenceGuard middleware
+    2. During registration: Detect state from phone number prefix OR GPS
+    3. Block real-money features for users in:
+       - Andhra Pradesh, Telangana, Tamil Nadu (complete ban)
+       - Assam, Odisha, Sikkim, Meghalaya, Nagaland (restricted)
+    4. Store user_state in profile
+    5. Re-verify on each deposit/tournament entry
+    6. Add to Terms of Service (T1-017)
+
+☐ T1-015 | Implement TDS calculation on withdrawals (30% on net winnings)
+  Source: Legal Audit Section 2.1, Payment Audit FIN-PRIZE-02
+  Effort: 2-3 days
+  Files: wallet.service.ts, new tds.service.ts
+  Action:
+    1. Track per-user per-FY: total_deposits, total_withdrawals
+    2. On each withdrawal:
+       net_winnings = (total_withdrawals + this_withdrawal + current_balance) - total_deposits
+       if (net_winnings > 0):
+         tds_due = net_winnings * 0.30 - tds_already_paid
+         actual_payout = withdrawal_amount - tds_due
+    3. Store TDS records for Form 16C generation
+    4. PAN collection: Require PAN before first withdrawal if net winnings > 0
+
+☐ T1-016 | Implement GST on deposits (28%)
+  Source: Legal Audit Section 2.2
+  Effort: 1-2 days
+  Files: payment-gateway.service.ts, new gst.service.ts
+  Action:
+    1. On deposit, calculate GST component:
+       gst_amount = deposit_amount × 28/128 (inclusive method)
+       OR add ₹28 per ₹100 (exclusive method) — get legal advice
+    2. Store GST breakdown per transaction
+    3. Generate tax invoices per deposit
+    4. Monthly GST filing data export
+
+☐ T1-017 | Create Terms of Service document
+  Source: Legal Audit Section 7, App Store compliance
+  Effort: 1 day (legal review needed)
+  Action:
+    Create legal document covering:
+    - User eligibility (18+, Indian resident, excluded states)
+    - One account per person
+    - Fair play policy
+    - Real-money disclosure
+    - Limitation of liability
+    - Dispute resolution (arbitration clause)
+    - Termination conditions
+    - Intellectual property
+    Host on S3/static page, link from app
+
+☐ T1-018 | Create Privacy Policy document
+  Source: Legal Audit Section 5, Privacy Audit, DPDPA
+  Effort: 1 day (legal review needed)
+  Action:
+    Create document covering:
+    - What data collected (phone, email, DOB, Aadhaar, PAN, bank)
+    - Purpose of collection
+    - Third parties (Razorpay, SMS providers, Firebase, AWS)
+    - User rights (access, deletion, correction)
+    - Data retention periods
+    - Contact for Data Protection Officer
+    - Grievance officer details (IT Act requirement)
+
+☐ T1-019 | Implement consent collection at signup
+  Source: Privacy Audit Section 2.1, Legal Audit Section 5
+  Effort: 2-3 hours
+  Files: auth.service.ts, mobile app signup flow
+  Action:
+    1. Add consent_accepted_at timestamp to User model
+    2. After OTP verify, show T&C + Privacy Policy
+    3. Require explicit acceptance before account creation
+    4. Store consent record with version of policy accepted
+    5. Block access if consent not given
+
+☐ T1-020 | Add account deletion endpoint (Apple/Google requirement)
+  Source: Privacy Audit Section 3.2, App Store compliance
+  Effort: 3-4 hours
+  Files: users.controller.ts, users.service.ts
+  Action:
+    1. DELETE /users/me endpoint
+    2. Require OTP confirmation before deletion
+    3. Anonymize personal data (set phone=DELETED, email=null, name=DELETED)
+    4. Keep financial records (legal retention 8 years) but anonymized
+    5. Revoke all tokens
+    6. 30-day grace period before permanent deletion
+    NOTE: App Store WILL REJECT without this.
+
+☐ T1-021 | CORS: Fix admin backend wildcard origin
+  Source: API Security Audit API8
+  Effort: 15 minutes
+  File: zubaco-admin-panel-repo/.../main.ts
+  Action:
+    Replace: app.enableCors({ origin: '*' })
+    With: app.enableCors({ origin: ['https://admin.zubaco.com'], credentials: true })
+
+☐ T1-022 | Add helmet() security headers to all backends
+  Source: API Security Audit API8
+  Effort: 30 minutes
+  Files: main.ts in platform, admin, all 20 games
+  Action:
+    1. npm install helmet
+    2. app.use(helmet())
+    This adds: HSTS, X-Content-Type-Options, X-Frame-Options, etc.
+
+☐ T1-023 | Fix server seed exposure (give hash before, reveal after)
+  Source: Game Fairness Audit Section 1.2, API Security Audit API3
+  Effort: 2-3 hours
+  File: zubaco-platform/src/tournament/tournament.service.ts
+  Action:
+    In startTournamentGame():
+    - Generate server_seed
+    - Return server_seed_hash = SHA-256(server_seed) to client (NOT the seed)
+    - Store actual server_seed in DB
+    After game submission:
+    - Return actual server_seed so client can verify
+
+☐ T1-024 | Add input validation DTOs to platform backend
+  Source: API Security Audit Section 3, Platform Audit
+  Effort: 3-4 hours
+  Files: All controllers in zubaco-platform
+  Action:
+    Replace raw @Body() type annotations with proper class-validator DTOs:
+    - auth: GoogleLoginDto, AppleLoginDto (already being fixed)
+    - wallet: VerifyDepositDto, WithdrawDto (validate amount as number, positive)
+    - tournament: SubmitScoreDto (validate score >= 0, duration > 0)
+    - social: ChallengeDto, ReferralDto
+    Ensure main.ts has: app.useGlobalPipes(new ValidationPipe({ whitelist: true }))
+    whitelist: true strips unknown properties (prevents mass assignment)
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 1 — CATEGORY D: DATABASE (Day-1 Crashes)                                   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T1-025 | Fix database connection exhaustion (85 max, 22 services need 110+)
+  Source: Cost Audit Section 1.2, Performance Audit Section 3.1
+  Effort: 1-2 hours
+  Files: Prisma schema + Terraform
+  Action: Pick ONE:
+    Option A: Reduce Prisma pool size to 3 per service (22×3=66 < 85)
+      - Add to each DATABASE_URL: ?connection_limit=3
+    Option B: Add RDS Proxy ($140/month but handles pooling)
+      - Add aws_db_proxy resource in Terraform
+    Option C: Consolidate game backends (long-term fix, do in Tier 3)
+  RECOMMENDED: Option A now (immediate), Option B for production
+
+☐ T1-026 | Add request body size limit
+  Source: API Security Audit API4
+  Effort: 5 minutes
+  File: zubaco-platform/src/main.ts
+  Action:
+    app.use(json({ limit: '1mb' }));
+    app.use(urlencoded({ limit: '1mb', extended: true }));
+
+☐ T1-027 | Add /health endpoint to platform backend
+  Source: DR Audit Section 2.1, Monitoring Audit
+  Effort: 15 minutes
+  File: zubaco-platform/src/app.controller.ts (or new health.controller.ts)
+  Action:
+    @Get('health')
+    async health() {
+      const dbOk = await this.prisma.$queryRaw`SELECT 1`;
+      return { status: 'ok', db: !!dbOk, timestamp: new Date() };
+    }
+    Configure ALB health check to use this endpoint.
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 1 — CATEGORY E: GAME INTEGRITY (Tournament Fairness)                       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T1-028 | Add server-side score validation boundaries
+  Source: Game Fairness Audit, API Security Audit API6
+  Effort: 2-3 hours
+  File: anti-cheat.service.ts, each game backend's submit endpoint
+  Action:
+    For each game type, enforce:
+    1. score >= 0 (no negative scores)
+    2. score <= absolute_maximum (game-specific ceiling)
+    3. duration >= minimum_possible (can't finish maze in 0.5s)
+    4. duration <= session_timeout (can't play for 3 hours on 3-min game)
+    5. Reject immediately if any violated (don't just flag — REJECT)
+
+☐ T1-029 | Game session ownership check (BOLA fix)
+  Source: API Security Audit API1
+  Effort: 1 hour
+  File: zubaco-platform/src/game-session/game-session.service.ts
+  Action:
+    In getState() and submitResult():
+    - After finding session, verify: session.user_id === requestingUserId
+    - Return 403 if mismatch
+    Do same for all game backends' /session/:id endpoints
+
+☐ T1-030 | Ensure same game config for all tournament participants
+  Source: Game Fairness Audit Section 3
+  Effort: 2-3 hours
+  Files: tournament.service.ts, game backends
+  Action:
+    1. When stage starts, generate ONE config/seed per stage_game
+    2. ALL players in same stage_game get SAME configuration
+    3. Store stage_game_config in DB (not generated per-player)
+    4. Server generates puzzle from seed (not client-side Math.random)
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 1 — CATEGORY F: MOBILE APP BLOCKERS                                        │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T1-031 | Stop passing JWT in WebView URL query params
+  Source: API Security Audit Section 4.2, Mobile Audit
+  Effort: 2-3 hours
+  File: zubaco-mobile app WebView component
+  Action:
+    Replace: uri: `${gameUrl}?token=${token}`
+    With: Use WebView's injectedJavaScript or postMessage to pass token
+    OR: Set token via cookie (HttpOnly) before loading WebView
+    Reason: URL params get logged everywhere (CDN, access logs, referrer)
+
+☐ T1-032 | Store tokens in secure storage (not AsyncStorage)
+  Source: Mobile Audit, API Security Audit Section 4.1
+  Effort: 2-3 hours
+  File: zubaco-mobile auth storage layer
+  Action:
+    1. npm install react-native-keychain
+    2. Replace AsyncStorage.setItem('token', ...) with:
+       Keychain.setGenericPassword('access_token', token)
+    3. Use Keychain for refresh token storage
+    4. AsyncStorage is plaintext on rooted devices
+
+☐ T1-033 | Add app version check (force update capability)
+  Source: Mobile Audit
+  Effort: 2-3 hours
+  Files: Platform API (new endpoint), mobile app startup
+  Action:
+    1. GET /app/version → { min_version: "1.0.0", latest: "1.2.0" }
+    2. Mobile checks on startup:
+       - If current < min_version → force update screen (block app)
+       - If current < latest → soft update prompt
+    3. Needed for: pushing security patches, breaking API changes
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 1 — CATEGORY G: CI/CD (Prevent Deploying Bad Code)                         │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T1-034 | Add actual test execution to CI pipeline
+  Source: Testing Audit Section 1.1
+  Effort: 30 minutes
+  File: .github/workflows/platform-ci.yml
+  Action:
+    In the "test" job, after `npx tsc --noEmit`, add:
+      - run: npm test -- --coverage --passWithNoTests
+    For now --passWithNoTests allows CI to pass, but as tests are added
+    in Tier 2/3, this starts catching regressions.
+
+☐ T1-035 | Add environment variable validation on startup
+  Source: Platform Audit AUTH-04, all game backends
+  Effort: 1 hour
+  Files: config/index.ts or main.ts in platform + games
+  Action:
+    On app bootstrap, verify ALL required env vars exist:
+    - DATABASE_URL, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET
+    - RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET
+    - SMS_API_KEY (MSG91 or Twilio)
+    If ANY missing → throw Error, prevent startup
+
+☐ T1-036 | Ensure NODE_ENV=production in deployment
+  Source: API Security Audit API8
+  Effort: 15 minutes
+  Files: Terraform task definitions, Dockerfile
+  Action:
+    1. In ECS task definition, set environment: [{ name: "NODE_ENV", value: "production" }]
+    2. Verify config/index.ts uses NODE_ENV correctly
+    3. This prevents: stack traces in responses, debug logging, Swagger in prod
+
+☐ T1-037 | Disable Swagger in production for admin backend
+  Source: API Security Audit API8
+  Effort: 15 minutes
+  File: admin backend main.ts
+  Action:
+    if (process.env.NODE_ENV !== 'production') {
+      const document = SwaggerModule.createDocument(app, config);
+      SwaggerModule.setup('api-docs', app, document);
+    }
+
+☐ T1-038 | Add webhook IP validation for Razorpay
+  Source: Payment Audit, API Security Audit
+  Effort: 30 minutes
+  File: zubaco-platform/src/wallet/ (webhook handler)
+  Action:
+    1. Add middleware that checks request IP against Razorpay's known IPs
+    2. Razorpay publishes webhook IPs in their documentation
+    3. Reject webhooks from non-Razorpay IPs
+    4. Also exempt webhook endpoint from ThrottlerGuard
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                    TIER 2: FIX WITHIN FIRST WEEK (STABILITY)
+
+          App store approval, basic observability, complete half-built
+          features, prevent common attack vectors.
+
+          Estimated effort: 5-7 days
+          Items: 52
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — CATEGORY A: APP STORE READINESS                                        │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T2-001 | Implement responsible gaming features (required for Play Store RMG)
+  Source: Legal Audit Section 6
+  Effort: 2-3 days
+  Action:
+    a) Self-exclusion: User can self-exclude for 24h/7d/30d/permanent
+       - API: POST /users/me/self-exclude { duration: "24h" }
+       - During exclusion: block deposits + tournament entry
+       - Cannot reverse before period ends
+    b) User-configurable deposit limits:
+       - API: PATCH /users/me/limits { daily_deposit: 5000 }
+       - Lower limit: immediate. Raise limit: 48h cooling.
+    c) Session time reminders:
+       - Mobile: show notification after 1 hour continuous play
+       - Show net P&L in notification
+    d) Gambling helpline link:
+       - Display in settings/about: NCPG helpline 1800-599-0019
+    e) Real-money warning:
+       - Display "This game involves real money" at deposit & tournament entry
+
+☐ T2-002 | Google Play RMG application preparation
+  Source: Legal Audit Section 4.1
+  Effort: 2 days (paperwork + app changes)
+  Action:
+    1. Ensure company is registered in India (MCA)
+    2. Implement all Play Store RMG requirements:
+       - Geo-fencing (T1-014 ✓)
+       - Age verification (T1-013 ✓)
+       - Responsible gaming (T2-001)
+       - KYC before withdrawal (exists ✓)
+       - T&C + Privacy Policy (T1-017, T1-018 ✓)
+    3. Fill Google Play RMG application form
+    4. Submit for review (takes 2-4 weeks)
+
+☐ T2-003 | Apple App Store submission preparation
+  Source: Legal Audit Section 4.2
+  Effort: 1 day
+  Action:
+    1. Apply for Apple's real-money gaming exception (India)
+    2. Verify account deletion works (T1-020 ✓)
+    3. Add age rating (17+)
+    4. Add gambling disclaimers to app description
+    5. Ensure external payment (Razorpay) is declared
+
+☐ T2-004 | Create Refund & Cancellation Policy
+  Source: Legal Audit Section 7
+  Effort: 3-4 hours
+  Action:
+    Document: When refunds available, processing time, non-refundable items.
+    Required for Consumer Protection Act compliance.
+
+☐ T2-005 | Create Game Rules documentation (all 20 games)
+  Source: Legal Audit Section 7, Game Fairness Audit
+  Effort: 1 day
+  Action:
+    For each game: rules, scoring, time limits, tie-breaking, max possible score.
+    Needed for: skill certification, fair play disputes, app store review.
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — CATEGORY B: PUSH NOTIFICATIONS (Complete Half-Built Feature)           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T2-006 | Install firebase-admin and implement push notification sending
+  Source: Realtime Audit Section 1.2
+  Effort: 4-6 hours
+  Files: platform backend notification module
+  Action:
+    1. npm install firebase-admin
+    2. Initialize Firebase Admin SDK with service account
+    3. Create notification.worker.ts (or use SQS consumer)
+    4. sendPush(userId, { title, body, data }):
+       - Fetch user's FCM token from DB
+       - Call admin.messaging().send({ token, notification: { title, body }, data })
+    5. Handle token expired/invalid (clean up stale tokens)
+
+☐ T2-007 | Trigger notifications for key events
+  Source: Realtime Audit Section 2
+  Effort: 3-4 hours
+  Files: tournament.service.ts, wallet.service.ts, social.service.ts
+  Action:
+    Add notification triggers for:
+    - Tournament stage starting (10 min before)
+    - Deposit confirmed
+    - Withdrawal processed
+    - Challenge received
+    - Elimination from tournament
+    - KYC approved/rejected
+    - Prize credited
+
+☐ T2-008 | Implement in-app notification listing with real data
+  Source: Mobile Audit, Realtime Audit
+  Effort: 2-3 hours
+  Files: notification.service.ts
+  Action:
+    - GET /notifications should return REAL notifications (not empty)
+    - Mark as read should update DB
+    - Unread count for badge display
+    - Paginate properly
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — CATEGORY C: MONITORING & OBSERVABILITY (Stop Flying Blind)             │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T2-009 | Install structured logging (Winston/Pino)
+  Source: Monitoring Audit Section 1
+  Effort: 2-3 hours
+  Files: All backend main.ts files
+  Action:
+    1. npm install nestjs-pino pino pino-http
+    2. Replace NestJS Logger with Pino:
+       - JSON output format
+       - Request ID correlation (X-Request-ID header)
+       - Log level configurable via env var
+       - Automatic HTTP request/response logging
+    3. Remove console.log statements
+
+☐ T2-010 | Add Sentry (or similar) for error tracking
+  Source: Monitoring Audit Section 3
+  Effort: 1-2 hours
+  Files: All backend main.ts files, mobile app
+  Action:
+    1. npm install @sentry/node @sentry/nestjs
+    2. Initialize with DSN in each backend
+    3. Add SentryGlobalFilter for unhandled exceptions
+    4. For mobile: npm install @sentry/react-native
+    5. Captures: stack traces, context, user ID, breadcrumbs
+
+☐ T2-011 | Configure SNS alert subscribers (email/Slack)
+  Source: Monitoring Audit Section 2.1
+  Effort: 30 minutes
+  File: infrastructure/terraform/monitoring.tf
+  Action:
+    Add email subscription to SNS "alerts" topic:
+      resource "aws_sns_topic_subscription" "alert_email" {
+        topic_arn = aws_sns_topic.alerts.arn
+        protocol  = "email"
+        endpoint  = "ops@zubaco.com"
+      }
+    Or integrate with Slack/PagerDuty via Lambda
+
+☐ T2-012 | Add application-level health checks for all services
+  Source: DR Audit Section 2.1, Monitoring Audit
+  Effort: 1-2 hours
+  Files: Each backend's app.controller.ts
+  Action:
+    GET /health → { status, db: connected, redis: connected, uptime }
+    Configure ALB target group health check to use /health
+    This ensures unhealthy tasks are removed from rotation
+
+☐ T2-013 | Add CloudWatch dashboard for key metrics
+  Source: Monitoring Audit Section 2.3
+  Effort: 2-3 hours
+  File: Terraform or AWS Console
+  Action:
+    Create dashboard showing:
+    - ECS CPU/Memory per service
+    - RDS connections, CPU, free storage
+    - ALB request count, 5xx rate, latency
+    - Redis memory usage
+    - Active task count per service
+
+☐ T2-014 | Add critical business alerts
+  Source: Monitoring Audit Section 2.2
+  Effort: 1-2 hours
+  File: Custom CloudWatch metrics or application code
+  Action:
+    Emit custom metrics for:
+    - payment_failure (counter) → alert if > 5 in 5 min
+    - withdrawal_pending_count (gauge) → alert if > 100
+    - wallet_negative_balance (counter) → alert if > 0 (CRITICAL)
+    - auth_failure_rate → alert if > 50% in 5 min
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — CATEGORY D: FINANCIAL CONTROLS                                         │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T2-015 | Add OTP verification for withdrawals (2FA)
+  Source: Payment Audit FIN-WD-02
+  Effort: 2-3 hours
+  File: wallet.service.ts, wallet.controller.ts
+  Action:
+    1. POST /wallet/withdraw → sends OTP to user's phone
+    2. POST /wallet/withdraw/confirm { otp, withdrawalId } → processes withdrawal
+    3. OTP expires in 5 minutes
+    4. Max 3 OTP attempts
+
+☐ T2-016 | Add bank detail change cooling period (48 hours)
+  Source: Payment Audit FIN-WD-02, FIN-WD-04
+  Effort: 1-2 hours
+  File: bank-detail.service.ts, wallet.service.ts
+  Action:
+    1. On bank detail add/change: Set bank_detail_changed_at timestamp
+    2. In withdrawal flow: if (now - bank_detail_changed_at < 48h) → reject
+    3. Notify user of cooling period
+
+☐ T2-017 | Implement daily reconciliation job
+  Source: Payment Audit FIN-RECON-01
+  Effort: 1 day
+  Files: New cron service
+  Action:
+    Create scheduled job (daily at 2 AM IST):
+    1. For each user: verify SUM(transactions) = wallet.balance
+    2. Compare total deposits with Razorpay settlements
+    3. Flag discrepancies
+    4. Alert on any mismatch
+
+☐ T2-018 | Expire abandoned PENDING deposits (cleanup cron)
+  Source: Payment Audit FIN-DEP-04
+  Effort: 1 hour
+  File: New scheduled task
+  Action:
+    Every 30 minutes: Update transactions SET status='EXPIRED'
+    WHERE status='PENDING' AND type='DEPOSIT' AND created_at < NOW() - 30 minutes
+
+☐ T2-019 | Implement refund endpoint
+  Source: Payment Audit FIN-RECON-02
+  Effort: 3-4 hours
+  Files: wallet.service.ts, admin controller
+  Action:
+    1. Admin endpoint: POST /admin/refund { userId, amount, reason }
+    2. Credits user wallet
+    3. Creates REFUND transaction with reason
+    4. Sends notification to user
+    5. Audit log entry
+
+☐ T2-020 | Add deposit limits based on KYC level
+  Source: Payment Audit FIN-DEP-03, Legal Audit RBI
+  Effort: 2-3 hours
+  File: wallet.service.ts
+  Action:
+    - No KYC: max ₹10,000/month total deposits
+    - Basic KYC (PAN only): max ₹1,00,000/month
+    - Full KYC (Aadhaar + PAN): max ₹10,00,000/month
+    Track monthly aggregate, reject if exceeded
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — CATEGORY E: SECURITY HARDENING                                         │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T2-021 | Add per-endpoint rate limiting
+  Source: API Security Audit API4
+  Effort: 2-3 hours
+  File: Platform backend controllers
+  Action:
+    Override global rate limit for sensitive endpoints:
+    - /auth/otp/send: 3/minute per phone (already in T1-006)
+    - /wallet/withdraw: 5/hour per user
+    - /wallet/deposit/create-order: 10/hour per user
+    - /social/referral/apply: 3/day per user
+    - /leaderboard/*: 100/minute (read-heavy, allow more)
+    Use @Throttle() decorator per-endpoint
+
+☐ T2-022 | Add notification ownership check (BOLA fix)
+  Source: API Security Audit API1
+  Effort: 30 minutes
+  File: notification.service.ts
+  Action:
+    POST /notifications/:id/read → verify notification.user_id === req.user.id
+
+☐ T2-023 | Add bank detail ownership check (BOLA fix)
+  Source: API Security Audit API1
+  Effort: 30 minutes
+  File: bank-detail.service.ts
+  Action:
+    DELETE /wallet/bank-details/:id → verify bankDetail.user_id === req.user.id
+
+☐ T2-024 | Add challenge participant verification (BOLA fix)
+  Source: API Security Audit API1
+  Effort: 30 minutes
+  File: social.service.ts (challenges)
+  Action:
+    POST /social/challenges/:id/submit → verify user is challenger or opponent
+
+☐ T2-025 | Prevent mass assignment on user profile update
+  Source: API Security Audit API3
+  Effort: 30 minutes
+  File: users.controller.ts
+  Action:
+    Create UpdateProfileDto with ONLY allowed fields:
+      class UpdateProfileDto {
+        @IsOptional() @IsString() full_name?: string;
+        @IsOptional() @IsUrl() profile_pic_url?: string;
+        @IsOptional() @IsString() username?: string;
+      }
+    Use { whitelist: true } in ValidationPipe (strips xp, level, is_banned)
+
+☐ T2-026 | Add device fingerprinting to prevent multi-accounting
+  Source: Game Fairness Audit, API Security Audit API6
+  Effort: 3-4 hours
+  Files: Mobile app, platform auth
+  Action:
+    1. Collect device fingerprint on mobile (device ID + model + screen)
+    2. Send with registration/login
+    3. Store in User or new DeviceFingerprint table
+    4. Flag if same fingerprint registers multiple accounts
+    5. Block if > 2 accounts per device
+
+☐ T2-027 | Add referral abuse prevention
+  Source: API Security Audit API6
+  Effort: 2-3 hours
+  File: social.service.ts (referrals)
+  Action:
+    1. Require referred user to deposit minimum ₹100 before referral bonus pays
+    2. Max 20 referral bonuses per user
+    3. Block same-device referrals
+    4. Add 7-day delay before referral bonus credited
+
+☐ T2-028 | Implement KYC document verification API
+  Source: Payment Audit FIN-KYC-01
+  Effort: 1-2 days
+  File: kyc.service.ts
+  Action:
+    1. Choose API provider (Digio, HyperVerge, or Signzy)
+    2. On KYC submission:
+       - Call API to verify Aadhaar/PAN validity
+       - Extract DOB from document (age verification)
+       - Cross-match name between document and account
+    3. Auto-approve if API confirms
+    4. Manual review only for API-flagged cases
+    COST: ₹5-15 per verification
+
+☐ T2-029 | Encrypt sensitive PII at field level
+  Source: Privacy Audit Section 1.1, Payment Audit FIN-KYC-02
+  Effort: 1 day
+  Files: Schema + new encryption middleware
+  Action:
+    Encrypt (AES-256-GCM) before storing:
+    - KycDocument.doc_number (Aadhaar/PAN numbers)
+    - BankDetail.account_number
+    - Optionally: User.phone_number (but need for OTP lookup)
+    Use AWS KMS for key management.
+    Add Prisma middleware to auto-encrypt on write, decrypt on read.
+
+☐ T2-030 | Add audit logging for admin actions
+  Source: Monitoring Audit, API Security Audit API3
+  Effort: 3-4 hours
+  Files: Admin backend
+  Action:
+    Create AuditLog table: { admin_id, action, target_entity, target_id, timestamp, details }
+    Log every admin action:
+    - User ban/unban
+    - KYC approve/reject
+    - Tournament create/modify
+    - User data export
+    - Cheat flag review
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — CATEGORY F: TESTING (Minimum Viable Tests)                             │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T2-031 | Write unit tests for wallet service (financial logic)
+  Source: Testing Audit Section 2.1
+  Effort: 1 day
+  Files: wallet.service.spec.ts
+  Action:
+    Test cases:
+    - deposit() credits correct amount
+    - withdraw() fails on insufficient balance
+    - withdraw() fails without KYC
+    - deductEntryFee() deducts bonus first
+    - creditPrize() adds to balance correctly
+    - concurrent withdrawal doesn't overdraw (integration test)
+
+☐ T2-032 | Write unit tests for auth service
+  Source: Testing Audit Section 2.2
+  Effort: 1 day
+  Files: auth.service.spec.ts
+  Action:
+    Test cases:
+    - sendOtp() generates 6-digit code
+    - verifyOtp() rejects wrong code
+    - verifyOtp() rejects expired code
+    - verifyOtp() rejects after max attempts
+    - googleLogin() rejects invalid token
+    - appleLogin() rejects invalid token
+    - token refresh returns new access token
+
+☐ T2-033 | Write unit tests for tournament service
+  Source: Testing Audit Section 2.1
+  Effort: 1 day
+  Files: tournament.service.spec.ts
+  Action:
+    Test cases:
+    - registerForSeason() deducts entry fee
+    - registerForSeason() rejects duplicate
+    - registerForSeason() rejects when full
+    - submitScore() stores score correctly
+    - submitScore() rejects out-of-bounds score
+
+☐ T2-034 | Write integration test for deposit flow
+  Source: Testing Audit
+  Effort: 4-6 hours
+  Action:
+    End-to-end deposit test:
+    1. Create order → verify Razorpay order created
+    2. Simulate payment captured
+    3. Call verify → wallet credited exactly once
+    4. Call webhook → wallet NOT credited again (idempotent)
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — CATEGORY G: DATA PROTECTION                                            │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T2-035 | Implement data export endpoint (Right to Access)
+  Source: Privacy Audit Section 3.1, DPDPA
+  Effort: 3-4 hours
+  File: users.service.ts
+  Action:
+    GET /users/me/data-export →
+    Returns JSON with all user's personal data:
+    - Profile info
+    - Transaction history
+    - Game history (summary)
+    - KYC status
+    - Notification preferences
+    Rate limit: 1 per 7 days (prevent abuse)
+
+☐ T2-036 | Implement data retention cleanup job
+  Source: Privacy Audit Section 2.3
+  Effort: 3-4 hours
+  File: New cron service
+  Action:
+    Nightly job:
+    1. Delete refresh tokens expired > 7 days ago
+    2. Hard-delete users with deleted_at > 30 days
+    3. Delete KYC images for verified users (keep status only)
+    4. Expire abandoned pending transactions > 30 min
+
+☐ T2-037 | Add S3 bucket versioning for KYC documents
+  Source: DR Audit Section 1.3, Privacy Audit
+  Effort: 15 minutes
+  File: Terraform S3 resource
+  Action:
+    Add: versioning { enabled = true }
+    Prevents accidental data loss from overwrites
+
+☐ T2-038 | Mask sensitive data in logs
+  Source: Monitoring Audit Section 1, Privacy Audit
+  Effort: 1-2 hours
+  Files: Logger configuration
+  Action:
+    In Pino config, add redact paths:
+    redact: ['req.headers.authorization', 'req.body.otp', 'req.body.password',
+             'req.body.account_number', 'req.body.doc_number']
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — CATEGORY H: INFRASTRUCTURE FIXES                                       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T2-039 | Enable Redis Multi-AZ with automatic failover
+  Source: DR Audit Section 1.2
+  Effort: 30 minutes (Terraform change)
+  File: infrastructure/terraform/elasticache.tf
+  Action:
+    Set: automatic_failover_enabled = true, num_cache_clusters = 2
+    Prevents Redis SPOF
+
+☐ T2-040 | Add Redis connection retry/reconnect in application
+  Source: DR Audit Section 1.2
+  Effort: 1 hour
+  File: Platform Redis module config
+  Action:
+    Configure ioredis with:
+    - retryStrategy: exponential backoff
+    - maxRetriesPerRequest: 3
+    - enableReadyCheck: true
+    - reconnectOnError: true
+    Prevents app crash on transient Redis failure
+
+☐ T2-041 | Add AWS Budget alert ($1000/month threshold)
+  Source: Cost Audit Section 3
+  Effort: 30 minutes
+  File: Terraform or AWS Console
+  Action:
+    resource "aws_budgets_budget" "monthly" {
+      budget_type  = "COST"
+      limit_amount = "1000"
+      limit_unit   = "USD"
+      time_unit    = "MONTHLY"
+      notification { threshold = 80 }
+      notification { threshold = 100 }
+    }
+
+☐ T2-042 | Set auto-scaling maximum limits to prevent cost runaway
+  Source: Cost Audit Section 3
+  Effort: 15 minutes
+  File: Terraform ECS auto-scaling resources
+  Action:
+    Verify all services have reasonable max_capacity:
+    - Platform: max 10 ✓
+    - Games: max 3 per game ✓
+    - Admin: max 2 ✓
+    Add CloudWatch alarm if any service hits max capacity
+
+☐ T2-043 | Implement graceful shutdown for ECS tasks
+  Source: DR Audit Section 2.1
+  Effort: 1 hour
+  Files: main.ts in each backend
+  Action:
+    app.enableShutdownHooks();
+    // NestJS will call onModuleDestroy() before exit
+    // This drains active connections before termination
+    Also set ECS deregistration_delay to 30 seconds (ALB connection draining)
+
+☐ T2-044 | Static frontend hosting (remove ECS for admin frontend)
+  Source: Cost Audit Section 1.4
+  Effort: 2-3 hours
+  Files: Terraform, CI workflow
+  Action:
+    Admin frontend uses output:'export' (static HTML/JS/CSS).
+    Deploy to S3 + CloudFront instead of ECS:
+    1. Build → upload to S3 bucket
+    2. CloudFront distribution in front
+    3. Remove admin-frontend ECS task definition
+    Saves: $18-36/month + faster loads
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                    TIER 3: FIX WITHIN FIRST MONTH (SCALE)
+
+          Performance optimization, real-time features, comprehensive
+          testing, architecture improvements for growth.
+
+          Estimated effort: 2-4 weeks
+          Items: 56
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — CATEGORY A: PERFORMANCE & CACHING                                      │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T3-001 | Implement Redis-backed leaderboard caching
+  Source: Performance Audit Section 1.2, Cost Audit
+  Effort: 1 day
+  Action:
+    - Use Redis Sorted Sets (ZADD) for leaderboard data
+    - Cache TTL: 30 seconds (near real-time feel)
+    - Invalidate on score update
+    - Reduces DB leaderboard queries by 99%
+
+☐ T3-002 | Cache tournament season/stage data in Redis
+  Source: Performance Audit Section 2.1
+  Effort: 3-4 hours
+  Action:
+    - GET /tournament/seasons → cache for 5 minutes (same for all users)
+    - Invalidate when admin changes season
+
+☐ T3-003 | Cache user profile in Redis
+  Source: Performance Audit Section 2.1
+  Effort: 2-3 hours
+  Action:
+    - GET /users/me → Redis cache, 30s TTL, key: user:{userId}
+    - Invalidate on profile update
+
+☐ T3-004 | Add Redis caching for free-play config (static data)
+  Source: Performance Audit Section 2.1
+  Effort: 1-2 hours
+  Action:
+    - GET /free-play/config/:gameType/:level → cache 1 hour
+    - Level configs rarely change (invalidate on admin update)
+
+☐ T3-005 | Pre-compute admin analytics (materialized view / cache)
+  Source: Performance Audit Section 1.3
+  Effort: 4-6 hours
+  Action:
+    - Instead of 8 real-time COUNT/SUM queries per dashboard load
+    - Background job computes analytics every 5 minutes → stores in Redis
+    - GET /admin/analytics/overview reads from cache (instant response)
+
+☐ T3-006 | Add pagination to admin exports (prevent OOM)
+  Source: Performance Audit, API Security Audit API4
+  Effort: 2-3 hours
+  Action:
+    - Stream CSV export (don't load all users into memory)
+    - Use cursor-based pagination in Prisma
+    - Write rows to response stream as fetched
+    - Or: async export → generate file → download link via email
+
+☐ T3-007 | Add database indexes for common query patterns
+  Source: Performance Audit Section 1.4
+  Effort: 1-2 hours
+  File: schema.prisma
+  Action:
+    Review and add indexes for:
+    - Transaction: @@index([user_id, created_at(sort: Desc)])
+    - GameSession: @@index([user_id, game_type, created_at(sort: Desc)])
+    - CheatFlag: @@index([user_id, severity])
+    - SeasonEntry: @@index([season_id, user_id])
+    Run: npx prisma migrate dev after adding
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — CATEGORY B: REAL-TIME & WEBSOCKET                                      │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T3-008 | Implement WebSocket gateway (NestJS + Socket.io)
+  Source: Realtime Audit Section 3.1
+  Effort: 2-3 days
+  Action:
+    1. npm install @nestjs/websockets @nestjs/platform-socket.io socket.io
+    2. Create EventsGateway with @WebSocketGateway()
+    3. Add Redis adapter for multi-instance support:
+       npm install @socket.io/redis-adapter
+    4. JWT authentication in WebSocket handshake
+    5. Rooms: user:{userId}, tournament:{seasonId}, game:{gameType}
+
+☐ T3-009 | Live leaderboard updates via WebSocket
+  Source: Realtime Audit Section 2
+  Effort: 1 day
+  Action:
+    - When score submitted → emit to tournament:{seasonId} room
+    - Client receives updated rankings without polling
+    - Fallback: REST endpoint still works for non-WS clients
+
+☐ T3-010 | Tournament event notifications via WebSocket
+  Source: Realtime Audit Section 2
+  Effort: 4-6 hours
+  Action:
+    Emit events:
+    - stage_starting (10 min before)
+    - stage_started
+    - stage_ended
+    - player_eliminated
+    - season_completed
+    - prize_distributed
+
+☐ T3-011 | Configure ALB for WebSocket support
+  Source: Realtime Audit Section 4
+  Effort: 1-2 hours
+  File: Terraform ALB config
+  Action:
+    - Set idle_timeout = 3600 (for long-lived WS connections)
+    - Add stickiness to target group OR use Redis adapter
+    - Separate target group for WebSocket traffic (optional)
+
+☐ T3-012 | Mobile app WebSocket integration
+  Source: Realtime Audit
+  Effort: 1-2 days
+  File: Mobile app
+  Action:
+    1. npm install socket.io-client
+    2. Connect on app open, reconnect on network change
+    3. Subscribe to user-specific room
+    4. Handle events: update leaderboard, show tournament alerts
+    5. Disconnect on app background (save battery)
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — CATEGORY C: ANTI-CHEAT IMPROVEMENTS                                    │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T3-013 | Server-side game state generation (replace client-side Math.random)
+  Source: Game Fairness Audit Section 1
+  Effort: 2-3 days
+  Action:
+    For each game:
+    1. Server generates puzzle/config from server_seed (deterministic RNG)
+    2. ALL players in same tournament game get exact same puzzle
+    3. Client receives the puzzle to RENDER (not generate)
+    4. Server can verify: given this puzzle, is this score achievable?
+
+☐ T3-014 | Add input replay recording
+  Source: Game Fairness Audit Section 2.2
+  Effort: 1-2 days
+  Action:
+    1. Game frontend records all player inputs (clicks/taps with timestamps)
+    2. On submit: send compressed replay data with score
+    3. Server stores replay (S3, compressed)
+    4. Anti-cheat can replay inputs to verify score matches
+    5. Admin can view replays for disputed results
+
+☐ T3-015 | Add input pattern analysis (bot detection)
+  Source: Game Fairness Audit Section 2.2
+  Effort: 1-2 days
+  Action:
+    Analyze input timing distribution:
+    - Humans: variable inter-tap intervals (normal distribution)
+    - Bots: fixed intervals or zero-delay sequences
+    - Flag: variance too low → likely automated
+    - Flag: reaction time < human minimum (150ms)
+
+☐ T3-016 | Add multi-account correlation
+  Source: Game Fairness Audit, API Security Audit
+  Effort: 1 day
+  Action:
+    Cross-reference:
+    - Same device fingerprint → flag
+    - Same IP + same tournament → flag
+    - Score coordination (multiple accounts always ranking together) → flag
+    - Same bank account across accounts → flag
+
+☐ T3-017 | Weighted auto-ban (accumulate severity)
+  Source: Game Fairness Audit Section 2.1
+  Effort: 2-3 hours
+  Action:
+    Current: Only 3 CRITICAL flags → ban
+    Change: Weighted system:
+    - CRITICAL = 10 points
+    - HIGH = 5 points
+    - MEDIUM = 2 points
+    - LOW = 1 point
+    Auto-ban at 15 points (catches repeat minor offenders)
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — CATEGORY D: ARCHITECTURE CONSOLIDATION                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T3-018 | Consolidate 20 game backends into 1 unified game service
+  Source: Cost Audit Section 1.1, API Security Audit API9
+  Effort: 2-3 weeks
+  Action:
+    1. Create single game-service with game_type routing
+    2. Move all 20 game engines into one codebase (they share 90% code)
+    3. Route: POST /game/:gameType/session/start
+    4. Deploy as 1 ECS service (auto-scale based on load)
+    Benefits:
+    - 20 services → 1 (saves $300+/month)
+    - Single deployment for security patches
+    - One set of config/secrets
+    - Unified testing
+
+☐ T3-019 | Add API Gateway (AWS API Gateway or Kong)
+  Source: API Security Audit API9
+  Effort: 1-2 weeks
+  Action:
+    Place gateway in front of all services:
+    - Unified auth verification
+    - Centralized rate limiting
+    - Request/response transformation
+    - API versioning (/v1/, /v2/)
+    - Consistent error format
+    - API usage analytics
+
+☐ T3-020 | Add API versioning
+  Source: API Security Audit API9
+  Effort: 1 day
+  Action:
+    1. Prefix all routes with /v1/
+    2. NestJS: app.setGlobalPrefix('api/v1')
+    3. When breaking changes needed → create /v2/ with deprecation on /v1/
+
+☐ T3-021 | Add circuit breaker for external services
+  Source: DR Audit Section 2.1
+  Effort: 1 day
+  Action:
+    npm install nestjs-opossum (circuit breaker)
+    Wrap external calls:
+    - Razorpay API (payment creation, payout)
+    - SMS API (MSG91/Twilio)
+    - Firebase (push notifications)
+    - KYC verification API
+    If service down → fail fast instead of cascading timeouts
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — CATEGORY E: COMPREHENSIVE TESTING                                      │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T3-022 | Write E2E tests for complete user journey
+  Source: Testing Audit
+  Effort: 2-3 days
+  Action:
+    Test flows:
+    1. Register → verify phone → set profile → complete
+    2. KYC submit → admin approve → status updated
+    3. Deposit → play free game → check leaderboard
+    4. Deposit → enter tournament → play → submit score → rankings
+    5. Win tournament → prize credited → withdraw → payout
+
+☐ T3-023 | Write load tests for tournament spike
+  Source: Testing Audit, Performance Audit Section 3.2
+  Effort: 1-2 days
+  Action:
+    Using k6 or Artillery:
+    - Simulate 1000 concurrent registrations
+    - Simulate 500 simultaneous game starts
+    - Simulate 500 score submissions in 60 seconds
+    - Verify: no 5xx errors, p99 < 3s, no double-credits
+
+☐ T3-024 | Write security tests (automated)
+  Source: Testing Audit
+  Effort: 1-2 days
+  Action:
+    Test cases:
+    - Verify BOLA: User A cannot access User B's session
+    - Verify rate limits work (send 101 requests, get 429)
+    - Verify auth: expired JWT gets 401
+    - Verify mass assignment: extra fields stripped
+    - Verify withdrawal race condition (concurrent requests)
+
+☐ T3-025 | Add test coverage enforcement to CI
+  Source: Testing Audit
+  Effort: 30 minutes
+  File: .github/workflows/platform-ci.yml
+  Action:
+    Add: npm test -- --coverage --coverageThreshold='{"global":{"lines":50}}'
+    Start at 50%, increase to 80% over time
+
+☐ T3-026 | Mobile app component tests (React Native Testing Library)
+  Source: Testing Audit
+  Effort: 2-3 days
+  Action:
+    Test key screens:
+    - Login flow renders correctly
+    - Wallet shows correct balance
+    - Tournament list displays data
+    - WebView loads with correct URL
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — CATEGORY F: DR & RESILIENCE                                             │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T3-027 | Add cross-region RDS snapshot replication
+  Source: DR Audit Section 1.1
+  Effort: 1-2 hours (Terraform)
+  Action:
+    Copy daily RDS snapshots to ap-south-2 (Mumbai backup):
+    aws_db_snapshot_copy resource with destination region
+
+☐ T3-028 | Enable S3 versioning + cross-region replication
+  Source: DR Audit Section 1.3
+  Effort: 1 hour (Terraform)
+  Action:
+    S3 bucket versioning already added (T2-037).
+    Add CRR to backup region for KYC documents.
+
+☐ T3-029 | Define and document RTO/RPO targets
+  Source: DR Audit
+  Effort: 2-3 hours (documentation)
+  Action:
+    Define:
+    - RTO: 15 minutes (time to recover from single-AZ failure)
+    - RTO: 4 hours (time to recover from region failure)
+    - RPO: 5 minutes (max data loss acceptable)
+    Document recovery procedures for each scenario.
+
+☐ T3-030 | Implement blue/green deployment
+  Source: DR Audit Section 2.2
+  Effort: 1-2 days
+  Action:
+    Use ECS blue/green deployment via CodeDeploy:
+    - Deploy new version alongside old
+    - Route 10% traffic to new (canary)
+    - If healthy after 5 min → route 100%
+    - If unhealthy → instant rollback to old
+
+☐ T3-031 | Add DLQ processor for SQS dead letter queue
+  Source: DR Audit Section 2.1
+  Effort: 3-4 hours
+  Action:
+    DLQ exists in Terraform but nothing processes it:
+    1. Create DLQ consumer (Lambda or scheduled ECS task)
+    2. Alert when DLQ depth > 0
+    3. Log failed messages for investigation
+    4. Manual retry mechanism
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — CATEGORY G: AML & FRAUD PREVENTION                                     │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T3-032 | Implement suspicious transaction detection
+  Source: Legal Audit Section 3.2
+  Effort: 1-2 days
+  Action:
+    Flag for manual review:
+    - Deposit followed immediately by withdrawal (no games played)
+    - Multiple deposits from different payment methods
+    - Daily transactions > ₹50,000 without full KYC
+    - Account transfers to same bank account from multiple users
+    - Deposit pattern matches structuring (just below thresholds)
+
+☐ T3-033 | Block credit card deposits
+  Source: Legal Audit Section 3.1 (RBI 2022 circular)
+  Effort: 2-3 hours
+  Action:
+    Razorpay API can filter payment methods:
+    - Allow: UPI, Debit Card, Netbanking, Wallet
+    - Block: Credit Card (as per RBI circular on gaming)
+
+☐ T3-034 | Implement automated prize distribution
+  Source: Payment Audit FIN-PRIZE-01
+  Effort: 1-2 days
+  Action:
+    1. When stage_end_date passes → trigger stage closure
+    2. Calculate rankings from submitted scores
+    3. Eliminate bottom players per stage rules
+    4. When season ends: distribute prize pool per prize split
+    5. Call walletService.creditPrize() for each winner
+    6. Create notification for winners
+
+☐ T3-035 | Bonus balance play-through requirement
+  Source: Payment Audit FIN-ENTRY-02
+  Effort: 3-4 hours
+  Action:
+    Before allowing withdrawal of bonus-derived winnings:
+    - Track wagering requirement (e.g., play 3× bonus amount in entry fees)
+    - Only convert bonus winnings to withdrawable after requirement met
+    - Display progress to user
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — CATEGORY H: MONITORING DEPTH                                            │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T3-036 | Add distributed tracing (OpenTelemetry / AWS X-Ray)
+  Source: Monitoring Audit
+  Effort: 1-2 days
+  Action:
+    1. npm install @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node
+    2. Initialize tracing in main.ts
+    3. Propagate trace-id across service boundaries (HTTP headers)
+    4. Visualize: Mobile → Platform → Game Backend → Database
+    5. Identify slow paths automatically
+
+☐ T3-037 | Create operational runbook
+  Source: Monitoring Audit, DR Audit
+  Effort: 1 day (documentation)
+  Action:
+    Document procedures for:
+    - Service not responding (diagnosis + restart)
+    - Database connection issues (check RDS, check app)
+    - Payment failures (check Razorpay status, check webhook)
+    - High error rate (check Sentry, check logs)
+    - User complaint about missing money (reconciliation steps)
+    - Security incident (contain, assess, notify)
+
+☐ T3-038 | Add request correlation ID across all services
+  Source: Monitoring Audit Section 1
+  Effort: 2-3 hours
+  Action:
+    1. Middleware: read X-Request-ID from header or generate UUID
+    2. Include in all log entries
+    3. Pass to downstream services (game backends)
+    4. Return in response header (for client debugging)
+    5. Store in Sentry breadcrumb context
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                    TIER 4: FIX OVER TIME (MATURITY)
+
+          Long-term improvements, documentation, cost optimization,
+          team scaling, operational excellence.
+
+          Estimated effort: Ongoing (1-3 months)
+          Items: 51
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 4 — CATEGORY A: DOCUMENTATION                                              │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T4-001 | Create root README.md
+  Source: Documentation Audit Section 2.1
+  Effort: 2-3 hours
+  Action: Architecture overview, repo structure, quick start, tech stack
+
+☐ T4-002 | Create per-project README.md (platform, mobile, admin, games)
+  Source: Documentation Audit Section 2.2
+  Effort: 1 day
+  Action: Setup, env vars, running locally, testing, deploying
+
+☐ T4-003 | Add OpenAPI/Swagger to platform backend
+  Source: Documentation Audit Section 2.3
+  Effort: 1-2 days
+  Action: NestJS @ApiTags, @ApiOperation, @ApiResponse decorators
+
+☐ T4-004 | Create architecture diagrams (Mermaid or draw.io)
+  Source: Documentation Audit Section 2.4
+  Effort: 1 day
+  Action: System diagram, data flow, auth flow, payment flow, tournament flow
+
+☐ T4-005 | Create deployment runbook
+  Source: Documentation Audit Section 2.5
+  Effort: 3-4 hours
+  Action: How to deploy, rollback, pre/post checks, migration guide
+
+☐ T4-006 | Create CONTRIBUTING.md
+  Source: Documentation Audit
+  Effort: 1-2 hours
+  Action: Code style, PR process, commit conventions, testing requirements
+
+☐ T4-007 | Create ADRs (Architecture Decision Records)
+  Source: Documentation Audit Section 2.4
+  Effort: 3-4 hours
+  Action: Document WHY decisions were made (20 backends, NestJS, Fargate, etc.)
+
+☐ T4-008 | Create incident response playbook
+  Source: Documentation Audit Section 2.5, Monitoring Audit
+  Effort: 3-4 hours
+  Action: Severity levels, escalation, communication, post-mortem template
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 4 — CATEGORY B: COST OPTIMIZATION                                          │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T4-009 | Evaluate Reserved Instances / Savings Plans
+  Source: Cost Audit Section 3
+  Effort: 2-3 hours
+  Action: If committed to 1 year → 30-40% savings on RDS + ElastiCache
+
+☐ T4-010 | Implement Fargate Spot for non-critical services
+  Source: Cost Audit Section 3
+  Effort: 1 day
+  Action: Game backends can use Spot (70% discount, may be interrupted)
+
+☐ T4-011 | Add auto-scaling schedule (scale down at night)
+  Source: Cost Audit Section 3
+  Effort: 1-2 hours
+  Action: 11 PM - 7 AM IST: reduce min_capacity to 1 for all services
+
+☐ T4-012 | Replace NAT Gateway with VPC endpoints for AWS services
+  Source: Cost Audit Section 3
+  Effort: 2-3 hours
+  Action: S3 Gateway endpoint, ECR Interface endpoint → saves NAT cost
+
+☐ T4-013 | Add ECR image cleanup lifecycle policy
+  Source: Cost Audit Section 3
+  Effort: 30 minutes
+  Action: Keep only last 10 images per repo, delete older
+
+☐ T4-014 | Set CloudWatch log retention policy
+  Source: Cost Audit Section 3
+  Effort: 30 minutes
+  Action: Dev: 7 days, Staging: 14 days, Prod: 30 days
+
+☐ T4-015 | Add cost allocation tags to all resources
+  Source: Cost Audit Section 3
+  Effort: 1-2 hours
+  Action: Tag: service=platform, environment=prod, team=backend
+  Enables per-service cost tracking in AWS Cost Explorer
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 4 — CATEGORY C: ADVANCED SECURITY                                          │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T4-016 | Migrate from HS256 to RS256 for JWT
+  Source: API Security Audit Section 4.1
+  Effort: 1 day
+  Action:
+    - Generate RSA key pair
+    - Platform signs with private key
+    - Game backends verify with public key
+    - Compromise of public key doesn't allow forgery
+
+☐ T4-017 | Add JWT audience (aud) claim for service isolation
+  Source: API Security Audit Section 4.2
+  Effort: 2-3 hours
+  Action:
+    - Platform tokens: aud: "platform"
+    - Game backends verify aud before accepting
+    - Prevents cross-service token abuse
+
+☐ T4-018 | Implement secret rotation procedures
+  Source: DR Audit, Documentation Audit
+  Effort: 1 day
+  Action:
+    Document and automate rotation for:
+    - JWT secrets (generate new, old valid for 24h)
+    - Razorpay keys (coordinate with Razorpay)
+    - Database password (RDS credential rotation)
+    - SMS API keys
+
+☐ T4-019 | Add WAF rules for game-specific patterns
+  Source: Infrastructure Audit
+  Effort: 2-3 hours
+  Action:
+    - Block automated scraping of leaderboard data
+    - Detect and block unusual score submission patterns
+    - Geographic restrictions at WAF level (faster than app-level)
+
+☐ T4-020 | Implement VPN detection
+  Source: Legal Audit Section 1.2
+  Effort: 3-4 hours
+  Action:
+    - Integrate VPN detection API (IPQualityScore or MaxMind)
+    - Flag users accessing from VPN during tournament play
+    - Required for geo-fencing enforcement
+
+☐ T4-021 | Database-level role separation
+  Source: API Security Audit API5
+  Effort: 1 day
+  Action:
+    Create separate DB users with limited permissions:
+    - app_read: SELECT only
+    - app_write: SELECT, INSERT, UPDATE
+    - app_admin: Full access (admin backend only)
+    - app_migration: DDL (CI/CD only)
+
+☐ T4-022 | Admin frontend: HttpOnly cookie for auth
+  Source: API Security Audit Section 4.1
+  Effort: 2-3 hours
+  Action:
+    - Set JWT as HttpOnly, Secure, SameSite=Strict cookie
+    - Prevents XSS from stealing admin sessions
+    - Add CSRF token for state-changing operations
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 4 — CATEGORY D: FULL COMPLIANCE                                            │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T4-023 | Get legal opinion on skill classification
+  Source: Legal Audit Section 1.1
+  Effort: External (₹2-5 lakh, 2-4 weeks)
+  Action:
+    Hire gaming law specialist to:
+    - Analyze each game for skill vs chance ratio
+    - Provide legal opinion letter
+    - Certify platform as "game of skill"
+    This document is needed for state regulators and app stores.
+
+☐ T4-024 | File for Google Play RMG eligibility
+  Source: Legal Audit Section 4.1
+  Effort: External (2-4 weeks review)
+  Action: Submit application with all compliance documents
+
+☐ T4-025 | GST registration and filing setup
+  Source: Legal Audit Section 2.2
+  Effort: External (CA needed)
+  Action:
+    - Register for GST (if not already)
+    - Set up monthly filing process
+    - Integrate with accounting software (Tally/Zoho)
+
+☐ T4-026 | TDS filing setup (Form 26QC quarterly)
+  Source: Legal Audit Section 2.1
+  Effort: External (CA needed)
+  Action:
+    - Register on TRACES (TDS filing portal)
+    - Set up quarterly filing process
+    - Generate Form 16C for users
+    - Integrate TDS calculation in platform (T1-015)
+
+☐ T4-027 | Appoint Data Protection Officer (DPO)
+  Source: Privacy Audit, DPDPA
+  Effort: External
+  Action:
+    - Designate DPO (can be existing team member for startups)
+    - Publish DPO contact details in privacy policy
+    - DPO responsible for: DPIA, breach response, user requests
+
+☐ T4-028 | Conduct Data Protection Impact Assessment (DPIA)
+  Source: Privacy Audit, DPDPA
+  Effort: 1-2 days
+  Action:
+    Document:
+    - What data processed, why
+    - Risks to data subjects
+    - Mitigation measures
+    - Necessity and proportionality assessment
+
+☐ T4-029 | Implement AML/CFT compliance program
+  Source: Legal Audit Section 3.2
+  Effort: 2-3 weeks (process + tech)
+  Action:
+    - Appoint Principal Officer
+    - Risk-based customer categorization
+    - Suspicious transaction reporting to FIU-India
+    - Staff training
+    - Record keeping (5 years)
+
+☐ T4-030 | Create Data Processing Agreements with third parties
+  Source: Privacy Audit Section 4
+  Effort: External (legal)
+  Action:
+    Execute DPAs with:
+    - Razorpay (payment data)
+    - MSG91/Twilio (phone numbers)
+    - Firebase (device data)
+    - KYC provider (identity documents)
+    - AWS (standard DPA available)
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 4 — CATEGORY E: ADVANCED TESTING                                            │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T4-031 | Achieve 80% test coverage for platform backend
+  Source: Testing Audit
+  Effort: 2-3 weeks
+  Action: Write tests for all remaining services and edge cases
+
+☐ T4-032 | Add chaos engineering tests
+  Source: DR Audit
+  Effort: 1 week
+  Action:
+    - Kill random ECS tasks → verify auto-recovery
+    - Simulate Redis failure → verify graceful degradation
+    - Simulate high latency → verify timeouts work
+    - Simulate DB connection exhaustion → verify queue behavior
+
+☐ T4-033 | Add contract tests (mobile ↔ platform API)
+  Source: Testing Audit
+  Effort: 2-3 days
+  Action:
+    Use Pact or similar:
+    - Mobile defines expected API contracts
+    - Platform backend verifies it satisfies contracts
+    - Prevents breaking mobile on backend changes
+
+☐ T4-034 | Set up automated security scanning in CI
+  Source: Testing Audit
+  Effort: 2-3 hours
+  Action:
+    Add to CI:
+    - npm audit (dependency vulnerabilities)
+    - Snyk or Trivy (container scanning)
+    - OWASP ZAP (dynamic API scanning)
+    - semgrep (SAST - static analysis)
+
+☐ T4-035 | Load test at 10x expected traffic
+  Source: Testing Audit, Performance Audit
+  Effort: 2-3 days
+  Action:
+    Using k6/Artillery, simulate:
+    - 10,000 concurrent users
+    - 1,000 simultaneous tournament entries
+    - 500 concurrent score submissions
+    Identify breaking points and fix before reaching them
+
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ TIER 4 — CATEGORY F: PLATFORM MATURITY                                           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+☐ T4-036 | Implement feature flags (LaunchDarkly or custom)
+  Source: DR Audit Section 2.2
+  Effort: 1-2 days
+  Action:
+    - Deploy code without activating features
+    - A/B testing capability
+    - Instant kill-switch for problematic features
+    - Gradual rollout (5% → 25% → 100%)
+
+☐ T4-037 | Add scheduled stage management (cron-based tournament lifecycle)
+  Source: Payment Audit FIN-PRIZE-01
+  Effort: 1-2 days
+  Action:
+    Automated tournament lifecycle:
+    - Cron checks stages approaching start_date → activate
+    - Cron checks stages past end_date → close + rank + eliminate
+    - Cron checks seasons completed → distribute prizes
+    Remove dependency on manual admin actions
+
+☐ T4-038 | Implement friend challenge real-time flow
+  Source: Realtime Audit
+  Effort: 2-3 days
+  Action:
+    Via WebSocket:
+    - Challenge sent → opponent gets real-time notification
+    - Accept → both players start game simultaneously
+    - Submit → both see results in real-time
+    - Winner announced via WebSocket event
+
+☐ T4-039 | Add user-facing transaction receipts
+  Source: Legal Audit
+  Effort: 1 day
+  Action:
+    For each deposit/withdrawal/entry:
+    - Generate receipt with GST breakdown
+    - Store receipt PDF on S3
+    - Show in transaction history
+    - Email copy (if email provided)
+
+☐ T4-040 | Implement TDS certificate generation (Form 16C)
+  Source: Legal Audit Section 2.1
+  Effort: 2-3 days
+  Action:
+    - Calculate annual TDS per user
+    - Generate Form 16C PDF
+    - Make available via GET /users/me/tds-certificate/:fy
+    - Required annually by law
+
+☐ T4-041 | Add seasonal analytics and reporting
+  Source: Monitoring Audit
+  Effort: 1-2 days
+  Action:
+    - Revenue dashboard (daily/weekly/monthly)
+    - User acquisition cost
+    - Retention cohort analysis
+    - ARPU (Average Revenue Per User)
+    - Tournament profitability per season
+
+☐ T4-042 | Implement game spectating (watch live games)
+  Source: Realtime Audit
+  Effort: 1-2 weeks
+  Action:
+    - Stream game state via WebSocket
+    - Viewers subscribe to player's game room
+    - Read-only view of game in progress
+    - Great for engagement + tournament excitement
+
+☐ T4-043 | Add in-app chat/messaging
+  Source: Realtime Audit
+  Effort: 1-2 weeks
+  Action:
+    - Friend-to-friend messaging
+    - Challenge discussion
+    - Use WebSocket for real-time delivery
+    - Store message history in DB
+    - Content moderation/filtering
+
+☐ T4-044 | Add player online/offline status
+  Source: Realtime Audit
+  Effort: 1 day
+  Action:
+    - Track WebSocket connection → online
+    - Disconnect → offline (with 30s grace period)
+    - Show green dot on friend list
+    - Enable "challenge online friends"
+
+☐ T4-045 | Implement proper error codes across all APIs
+  Source: API Security Audit, Documentation Audit
+  Effort: 1-2 days
+  Action:
+    Standard error format:
+    { code: "INSUFFICIENT_BALANCE", message: "...", details: {...} }
+    Document all error codes per endpoint
+    Mobile can show proper user-facing messages
+
+☐ T4-046 | Add request/response logging for financial endpoints
+  Source: Monitoring Audit, Payment Audit
+  Effort: 3-4 hours
+  Action:
+    For /wallet/* endpoints:
+    - Log full request + response (redacting sensitive fields)
+    - Store in separate "financial_audit_log" table
+    - Retain for 8 years (legal requirement)
+    - Enable compliance team to audit any transaction
+
+☐ T4-047 | Add mobile crash reporting (Firebase Crashlytics)
+  Source: Monitoring Audit, Mobile Audit
+  Effort: 2-3 hours
+  Action:
+    1. npm install @react-native-firebase/crashlytics
+    2. Initialize in app entry
+    3. Report JavaScript errors + native crashes
+    4. Link to user ID for debugging specific user issues
+
+☐ T4-048 | DR drill: Test full recovery from backup
+  Source: DR Audit
+  Effort: 1 day
+  Action:
+    - Restore RDS from backup to test instance
+    - Verify all data present
+    - Deploy services against restored DB
+    - Verify app works end-to-end
+    - Document actual recovery time (measure RTO)
+    Schedule: Quarterly
+
+☐ T4-049 | Implement CHANGELOG.md
+  Source: Documentation Audit
+  Effort: Ongoing
+  Action:
+    - Document every release with changes
+    - Format: Keep a Changelog (keepachangelog.com)
+    - Include: Added, Changed, Fixed, Security
+
+☐ T4-050 | Set up staging environment
+  Source: Testing Audit, DR Audit
+  Effort: 1-2 days (Terraform workspace)
+  Action:
+    - Duplicate infrastructure for staging
+    - Use smaller instances (cost-saving)
+    - Deploy before production (smoke test)
+    - Use for load testing without affecting prod
+
+☐ T4-051 | Implement database migration CI validation
+  Source: Testing Audit, DR Audit
+  Effort: 3-4 hours
+  Action:
+    In CI pipeline:
+    - Apply migration to test database
+    - Verify no data loss
+    - Verify rollback works
+    - Run seed data + tests against migrated DB
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                         SUMMARY & METRICS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+███████████████████████████████████████████████████████████████████████████████████
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TOTAL ITEMS: 197
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Tier │ Items │ Effort    │ Goal                                                 │
+│ ─────────────────────────────────────────────────────────────────────────────── │
+│  1   │  38   │ 3-5 days  │ Survive launch (no money loss, no criminal charges)  │
+│  2   │  52   │ 5-7 days  │ App store approval + basic stability                 │
+│  3   │  56   │ 2-4 weeks │ Scale to 10K users, real-time, comprehensive tests   │
+│  4   │  51   │ 1-3 months│ Industry-grade platform, full compliance              │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+CATEGORY BREAKDOWN:
+  Authentication/Security:     28 items
+  Financial/Payment:           24 items
+  Legal/Regulatory:            22 items
+  Testing/QA:                  18 items
+  Performance/Caching:         14 items
+  Real-Time/WebSocket:         12 items
+  Monitoring/Observability:    16 items
+  Documentation:               11 items
+  Infrastructure/DR:           19 items
+  Privacy/Data Protection:     12 items
+  Architecture:                 8 items
+  Cost Optimization:           7 items
+  Mobile App:                   6 items
+
+AFTER TIER 1 COMPLETE:
+  - Platform can safely handle real money
+  - No immediate criminal liability
+  - No account takeover possible
+  - No free tournament entry exploit
+  - Basic legal documents exist
+
+AFTER TIER 2 COMPLETE:
+  - App stores will accept submission
+  - Users get push notifications
+  - Team can see errors (Sentry)
+  - Financial reconciliation running
+  - Basic test suite catches regressions
+
+AFTER TIER 3 COMPLETE:
+  - Real-time leaderboards & notifications
+  - Platform handles 10K concurrent users
+  - 80% test coverage on critical paths
+  - Architecture consolidated (cost savings)
+  - Anti-cheat significantly harder to bypass
+
+AFTER TIER 4 COMPLETE:
+  - Full regulatory compliance
+  - Industry-standard documentation
+  - Cost-optimized infrastructure
+  - Mature testing & monitoring
+  - Ready for 100K+ users
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                      END OF MASTER FIX PLAN
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

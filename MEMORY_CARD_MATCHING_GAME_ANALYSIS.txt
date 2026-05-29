@@ -1,0 +1,187 @@
+========================================================================
+MEMORY CARD MATCHING – GAME ANALYSIS
+========================================================================
+Date: 2025-05-25
+Game: Memory Card Matching
+Location: C:\game\zubaco-games-repo\zubaco-games\memory-card-matching\memory-card-matching-frontend\
+
+========================================================================
+1. TECH STACK
+========================================================================
+- React 19 + Vite + TypeScript
+- TailwindCSS (utility styles + CSS modules for MemoryCardView)
+- Framer Motion (framer-motion ^12.38.0)
+- React Query (TanStack Query) for data fetching
+- i18next for internationalization
+- uuid for session IDs
+- Encryption: custom AES encryption for session storage
+
+========================================================================
+2. ARCHITECTURE
+========================================================================
+State Management:
+- useReducer-based game engine (useMemoryGame.ts) — NOT Zustand
+- App-level state machine via useState in App.tsx
+- React Query for API caching (gameConfig, stageContent, demoLevels)
+
+Screen Flow (APP_SCREENS):
+- INSTRUCTIONS → User sees instructions + "Play Now" / "Learn How to Play"
+- DEMO → Interactive demo tutorial (from API-provided demo levels)
+- GAMEPLAY → Card matching game (multi-level, timed)
+- GAME_OVER → Win/Lose result screen (GameSuccessScreen / GameFailureScreen)
+
+No React Router — single-page with screen state machine in App.tsx
+
+========================================================================
+3. GAME MECHANICS
+========================================================================
+Game States (GAME_STATES):
+- LOADING → Fetching session/config from API
+- PREVIEW → Cards shown face-up briefly (previewDurationSeconds per level)
+- PLAYING → Player flips cards to find matches
+- CHECKING_MATCH → Two cards flipped, checking if they match
+- LEVEL_TRANSITION → Level complete, transitioning to next
+- FINISHED → All levels complete or time ran out
+
+Core Gameplay:
+- Grid of cards (variable rows × columns per level)
+- Cards have pairs (pairId) — flip 2 cards, if same pairId = match
+- Multi-level: complete all levels within global time limit
+- Time syncs with server (useTimeSync hook)
+- Timer counts DOWN from gameTimeLimitSeconds
+- Flip animation: 400ms (FLIP_ANIMATION_DURATION_MS)
+- Level complete celebration: 800ms
+- Round transition delay: 800ms
+
+Card Content Types:
+- symbol (emoji/unicode), image (URL), color, wordImage
+- 24 built-in symbols (SYMBOLS array)
+- 12 jewel palette colors
+
+Scoring (from backend):
+- Based on: speed, accuracy (fewer mismatches), combo streak
+- Server calculates final score on game-over
+
+========================================================================
+4. EXISTING COMPONENTS
+========================================================================
+Screens:
+- InstructionsScreen.tsx → Wrapper around @micro-screens GameInstructionsScreen
+- DemoScreen.tsx → Interactive tutorial with demo levels
+- GameplayScreen.tsx → Main game (complex: API calls, save progress, encryption)
+- GameOverScreen.tsx → Win (GameSuccessScreen) or Lose (GameFailureScreen)
+- StartScreen.tsx → Title screen with play button (NOT currently used in flow)
+
+Components:
+- CardGrid.tsx → CSS Grid of cards, handles tap, aspect ratio calculation
+- MemoryCardView.tsx → Single card with flip animation (CSS module)
+- GameHeader.tsx → Level label + timer badge
+- TimerBar.tsx → Timer display with urgent state (≤10s)
+- RoundTransitionOverlay.tsx → "Level X Complete" overlay between rounds
+- TiltOverlay.tsx → Landscape orientation warning
+- LoadingScreen.tsx → Loading spinner
+- ErrorScreen.tsx → Error display
+- shared/GameClearModal.tsx → Demo complete modal
+
+Hooks:
+- useMemoryGame.ts → Main game reducer (all state transitions)
+- useGameConfig.ts → Fetch game config from API
+- useGameMutations.ts → Start game, complete board, game over, analytics
+- useTimeSync.ts → Sync timer with server
+- useMemoryCardSfx.ts → Card flip/match/mismatch sounds
+- useMemoryCardJuiceAnimations.ts → Celebration animations
+- useMemoryCardBgm.ts → Background music control
+- useCardContent.ts → Resolve card display content
+- useCompactLandscape.ts → Orientation detection
+- useDemoLevels.ts → Fetch demo levels
+- useStageContent.ts → Fetch stage-specific content
+- useAuthGate.ts / useDevAuth.ts → Authentication
+
+Audio:
+- 7 sounds: cardFlip, cardMatch, cardMismatch, combo, levelComplete, gameOver, uiClick
+- AudioManager + AudioProvider pattern
+- BGM hook separate from SFX
+
+========================================================================
+5. BACKEND ENGINE
+========================================================================
+- achievementEngine.ts → 10 achievements (same IDs as other games)
+- boosterEngine.ts → 5 boosters: TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+- comboEngine.ts → Streak multiplier (max 4×, milestone every 3)
+- dailyChallenge.ts → Date-seeded daily with level scaling + bonus multiplier
+- leaderboard.ts → Top 100 ranked scores
+- scoreHistory.ts → Historical score tracking
+
+========================================================================
+6. WHAT'S MISSING (Gold Standard gaps)
+========================================================================
+Currently the app goes: Instructions → Gameplay → GameOver → back to Instructions.
+StartScreen.tsx EXISTS but is NOT wired into the flow.
+
+MISSING features for Gold Standard:
+1. MenuScreen — Main menu with 6 options (Play, Levels, Daily, Achievements, Stats, Settings)
+2. LevelSelector — Level grid with stars, unlock progression (10 levels from API)
+3. Settings — Sound toggle, volume, card theme selection
+4. StatsScreen — 10 game statistics
+5. Achievements — 10 badges with unlock popup
+6. DailyChallenge — Calendar, date-seeded puzzle, streak
+7. PauseDialog — Pause during gameplay (Resume/Restart/Exit)
+8. Confetti — Win celebration particles
+
+Integration plan:
+- App.tsx has screen state machine — add 'menu' screen as initial
+- StartScreen.tsx already exists but needs to become full MenuScreen
+- Add new screens to APP_SCREENS constant
+- Wire into App.tsx switch statement
+
+========================================================================
+7. SIMILAR GAMES (Internet Research)
+========================================================================
+Popular memory card matching games with features to incorporate:
+
+1. "Memory Match" (Google Play - 10M+ downloads)
+   - Star rating per level (3★ system)
+   - Progressive difficulty (more cards, less time)
+   - Daily challenge mode
+   - Power-ups: peek, extra time, remove pair
+
+2. "Match Cards - Memory Game" (iOS/Android)
+   - Multiple card themes (animals, food, flags)
+   - Combo multiplier for consecutive matches
+   - Leaderboard with global ranking
+   - Timed + untimed modes
+
+3. "Concentration - Memory Card Game" (Web)
+   - Best moves tracking
+   - Personal best per grid size
+   - Undo last flip feature
+   - Streak counter visual
+
+4. "Memori" (Premium card game app)
+   - Beautiful flip animations
+   - Achievement badges system
+   - Weekly challenges
+   - Card collection/unlock system
+
+Features to add from research:
+- Star rating: 3★ = 0 mistakes, 2★ = ≤2 mistakes, 1★ = completed
+- Combo visual feedback (streak counter on HUD)
+- Card theme selection in settings
+- Personal best tracking per level
+
+========================================================================
+8. GOLD STANDARD ARCHITECTURE COMPLIANCE
+========================================================================
+Required flow: Menu → [Play/Levels/Daily/Achievements/Stats/Settings]
+             → Play → Instructions → Gameplay (HUD + Pause) → Result + Confetti
+
+Current: Instructions → Gameplay → GameOver
+Target:  Menu → Instructions → Gameplay (with Pause) → GameOver + Confetti
+
+Star Rating for Memory Card:
+- 3★ = 0 mismatches (perfect game)
+- 2★ = ≤2 mismatches
+- 1★ = completed (any mismatches)
+
+Components to create in: src/features/memory-card/components/
+========================================================================

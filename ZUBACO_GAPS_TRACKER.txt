@@ -1,0 +1,233 @@
+﻿================================================================================
+ZUBACO - GAPS & ISSUES TRACKER
+================================================================================
+Created: May 23, 2026
+Based on: Full platform audit of all components
+
+STATUS KEY: [TODO] = Not started | [WIP] = In Progress | [DONE] = Completed
+
+================================================================================
+HIGH PRIORITY - CORE FUNCTIONALITY GAPS
+================================================================================
+
+1. [DONE] ENERGY/LIVES SYSTEM (Platform - Free Play)
+   Location: c:\game\zubaco-platform\src\free-play\
+   Issue: Users can play unlimited games with no throttle
+   Need: Daily energy system (e.g., 5 lives, recharge 1 per hour), purchasable refills
+   Files to create/modify: energy.service.ts, free-play.service.ts, prisma schema
+
+2. [DONE] PAYMENT GATEWAY INTEGRATION (Platform - Wallet)
+   Location: c:\game\zubaco-platform\src\wallet\
+   Issue: deposit() is internal credit only - no real payment processing
+   Need: Razorpay/Cashfree integration (create order, verify payment, webhook)
+   Files to create: payment-gateway.service.ts, payment.controller.ts, webhook handler
+
+3. [DONE] KYC VERIFICATION FLOW (Platform - Wallet)
+   Location: c:\game\zubaco-platform\src\wallet\
+   Issue: Only checks kyc_verified flag but no submission/verification flow
+   Need: Document upload endpoint, verification status tracking, admin review
+
+4. [DONE] PUSH NOTIFICATIONS (FCM/APNS) (Platform - Notification)
+   Location: c:\game\zubaco-platform\src\notification\
+   Issue: sendPushNotification() only logs to console - completely non-functional
+   Need: Firebase Admin SDK integration, device token registration, send via FCM
+
+5. [DONE] ANTI-CHEAT MODULE (Platform - New Module)
+   Location: c:\game\zubaco-platform\src\anti-cheat\ (doesn't exist)
+   Issue: No post-game analysis, no flagging system, no banning workflow
+   Need: Score anomaly detection, timing analysis, flag queue, ban/suspend endpoints
+
+6. [DONE] CHALLENGE A FRIEND (Platform - Social)
+   Location: c:\game\zubaco-platform\src\social\
+   Issue: Key social feature missing entirely
+   Need: Create challenge, accept/decline, play same config, compare scores
+
+7. [DONE] ADMIN: USER MANAGEMENT API (Admin Backend)
+   Location: c:\game\zubaco-admin-panel-repo\zubaco-admin-panel\backend\
+   Issue: Cannot search/ban/suspend users or view their data
+   Need: users module with search, detail, ban, wallet-ops endpoints
+
+8. [DONE] ADMIN: SEASON LIFECYCLE API (Admin Backend)
+   Location: c:\game\zubaco-admin-panel-repo\zubaco-admin-panel\backend\
+   Issue: No season CRUD, no elimination trigger, no stage open/close
+   Need: seasons module with full lifecycle management
+
+9. [DONE] ADMIN: ANALYTICS API (Admin Backend)
+   Location: c:\game\zubaco-admin-panel-repo\zubaco-admin-panel\backend\
+   Issue: No DAU/MAU/revenue/retention data endpoints
+   Need: analytics module with aggregation queries
+
+10. [DONE] 12 GAME FRONTENDS: WEBSOCKET NOT WIRED
+    Location: All 12 new game frontends (colour-sorting, flash-spot, etc.)
+    Issue: HTTP-only; no real-time communication during gameplay
+    Need: Add SocketProvider, useSocket hook mirroring older games' pattern
+
+11. [DONE] 12 GAME FRONTENDS: INSTRUCTION/RESULT SCREENS DEAD CODE
+    Location: All 12 new game frontends
+    Issue: InstructionScreen.tsx and ResultScreen.tsx exist but never rendered
+    Need: Wire them into the game flow (show before start, show after end)
+
+
+================================================================================
+MEDIUM PRIORITY - IMPORTANT BUT NOT BLOCKING
+================================================================================
+
+12. [DONE] ACHIEVEMENT UNLOCKING ENGINE (Platform - Users)
+    Location: c:\game\zubaco-platform\src\users\
+    Issue: Achievements queried but no logic to check/award them
+    Need: Achievement definitions, trigger conditions, unlock service
+
+13. [DONE] TOURNAMENT HISTORY ON PROFILE (Platform - Users)
+    Location: c:\game\zubaco-platform\src\users\
+    Issue: No getTournamentHistory() method
+    Need: Query season entries, stages reached, prizes won
+
+14. [DONE] PER-STAGE LEADERBOARD ENDPOINT (Platform - Leaderboard)
+    Location: c:\game\zubaco-platform\src\leaderboard\
+    Issue: Stage rankings only in EliminationService, not exposed as leaderboard
+    Need: /leaderboard/stage/:stageId endpoint
+
+15. [DONE] EXPLICIT ACCOUNT LINKING API (Platform - Auth)
+    Location: c:\game\zubaco-platform\src\auth\
+    Issue: Only implicit linking by email match
+    Need: POST /auth/link-account endpoint for manual provider linking
+
+16. [DONE] BANK/UPI DETAILS + PAYOUT PROCESSING (Platform - Wallet)
+    Location: c:\game\zubaco-platform\src\wallet\
+    Issue: Withdrawal creates pending transaction but no payout execution
+    Need: Bank details model, UPI verification, payout provider integration
+
+17. [DONE] MOBILE: 6 MISSING SCREENS
+    Location: c:\game\zubaco-mobile\src\screens\
+    Missing: FreePlayScreen, WalletScreen, NotificationsScreen,
+             SettingsScreen, ReferralScreen, SupportScreen
+    Need: Create all 6 screens + add to navigation
+
+18. [DONE] MOBILE: DEEP LINKING CONFIG
+    Location: c:\game\zubaco-mobile\
+    Issue: No linking configuration in NavigationContainer
+    Need: URL scheme config, path mapping for notifications/shares
+
+19. [DONE] MOBILE: OFFLINE DETECTION
+    Location: c:\game\zubaco-mobile\
+    Issue: No NetInfo or connectivity handling
+    Need: @react-native-community/netinfo, offline overlay component
+
+20. [DONE] TERRAFORM: SQS QUEUES
+    Location: c:\game\infrastructure\terraform\infrastructure.tf
+    Issue: No message queues for async processing
+    Need: Game events queue, notification queue, analytics queue
+
+21. [DONE] TERRAFORM: SNS TOPICS
+    Location: c:\game\infrastructure\terraform\infrastructure.tf
+    Issue: No pub/sub topics for event fan-out
+    Need: Push notification topic, game-event topic
+
+22. [DONE] TERRAFORM: ROUTE 53 DNS
+    Location: c:\game\infrastructure\terraform\infrastructure.tf
+    Issue: No DNS zone or records
+    Need: Hosted zone for zubaco.com, A/CNAME records for services
+
+23. [DONE] TERRAFORM: ECS TASK DEFINITIONS + SERVICES
+    Location: c:\game\infrastructure\terraform\infrastructure.tf
+    Issue: Cluster defined but no task defs or services
+    Need: Task definitions for platform, admin, game backends
+
+24. [DONE] TERRAFORM: AUTO-SCALING POLICIES
+    Location: c:\game\infrastructure\terraform\infrastructure.tf
+    Issue: No auto-scaling for ECS services
+    Need: Target tracking policies for CPU/memory
+
+25. [DONE] TERRAFORM: CLOUDWATCH ALARMS
+    Location: c:\game\infrastructure\terraform\infrastructure.tf
+    Issue: No alarms for CPU, memory, errors, latency
+    Need: Alarm definitions + SNS alert topic
+
+
+================================================================================
+LOW PRIORITY - POLISH & NICE-TO-HAVE
+================================================================================
+
+26. [DONE] SMS GATEWAY INTEGRATION (Twilio/MSG91)
+    Location: c:\game\zubaco-platform\src\auth\
+    Issue: OTP only logged in dev, no real SMS delivery
+    Need: Twilio/MSG91 SDK integration for production
+
+27. [DONE] SCORE SHARING / DEEP LINKS
+    Location: c:\game\zubaco-platform\src\social\
+    Issue: No share endpoint for social media
+    Need: Generate shareable links/images with score
+
+28. [DONE] MOBILE: ANALYTICS SDK (Firebase/Mixpanel)
+    Location: c:\game\zubaco-mobile\
+    Issue: No event tracking
+    Need: Firebase Analytics or Mixpanel integration
+
+29. [DONE] MOBILE: CRASH REPORTING (Sentry)
+    Location: c:\game\zubaco-mobile\
+    Issue: No crash/error tracking
+    Need: @sentry/react-native integration
+
+30. [DONE] MOBILE: APP UPDATE ENFORCEMENT
+    Location: c:\game\zubaco-mobile\
+    Issue: No minimum version check
+    Need: Version API + in-app update prompt
+
+31. [DONE] MOBILE: BIOMETRIC AUTH COMPLETION
+    Location: c:\game\zubaco-mobile\
+    Issue: Dependency exists but not wired
+    Need: Biometric prompt for wallet/sensitive actions
+
+32. [DONE] ADMIN: EXPORT RESULTS (CSV/PDF)
+    Location: admin backend
+    Issue: No export functionality for tournament results
+    Need: CSV/PDF generation endpoints
+
+33. [DONE] ADMIN: BANNER/ANNOUNCEMENT MANAGEMENT
+    Location: admin backend
+    Issue: No content management for in-app banners
+    Need: CRUD for banners with scheduling
+
+34. [DONE] ADMIN: PRIZE DISTRIBUTION SYSTEM
+    Location: admin backend
+    Issue: No automated prize crediting
+    Need: Prize rules engine, batch wallet credits post-season
+
+
+================================================================================
+STRUCTURAL ISSUES (Code quality, not features)
+================================================================================
+
+35. [WONTFIX] GAME FOLDER NAMING INCONSISTENCY
+    5 games have mismatched parent/subfolder names:
+    - rapid-category-sort/rapid-sort-backend/
+    - live-route-builder/live-route-backend/
+    - number-grid-sprint/number-grid-backend/
+    - speed-type-answer/speed-type-backend/
+    - Infinity-loop/Infinity-Loop-backend/ (capital I)
+
+36. [WONTFIX] FRONTEND ARCHITECTURE DIVERGENCE
+    3 older games use different patterns:
+    - Infinity-loop: src/lib/game/ instead of features/
+    - maze-navigation: src/pages/, src/components/ (no features)
+    - memory-card-matching: src/game/, src/screens/ (flat)
+
+37. [WONTFIX] RESTATE INTEGRATION UNEVEN
+    Only ~7 of 20 backends have Restate durable execution workflows
+    Newer 12 games don't have game-expiry or session-restate services
+
+38. [DONE] ADMIN FRONTEND PAGES ARE SHELLS
+    Seasons, analytics, wallets, notifications pages have placeholder UI only
+    No data fetching, no API integration, no functional components
+
+
+================================================================================
+TOTAL GAPS: 38
+  High Priority: 11
+  Medium Priority: 14
+  Low Priority: 9
+  Structural: 4
+================================================================================
+
+
+

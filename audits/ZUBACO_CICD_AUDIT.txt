@@ -1,0 +1,332 @@
+================================================================================
+ZUBACO CI/CD PIPELINES — COMPREHENSIVE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior DevOps / CI/CD Review
+Component: GitHub Actions Workflows (.github/workflows/)
+Files: platform-ci.yml, admin-ci.yml, games-ci.yml
+Platform: GitHub Actions + AWS ECR/ECS + S3/CloudFront
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Three CI/CD pipelines cover the entire Zubaco ecosystem:
+
+1. platform-ci.yml — Platform API: test → deploy-staging → deploy-production
+2. admin-ci.yml   — Admin Panel: build → deploy (backend ECR + frontend S3)
+3. games-ci.yml   — 20 Games: detect-changes → build matrix → deploy matrix
+
+ARCHITECTURE HIGHLIGHTS:
+✓ Smart change detection for games (only builds/deploys changed games)
+✓ Matrix strategy for parallel game builds
+✓ Environment-based deployment gates (staging/production)
+✓ Path-based triggers (only runs when relevant code changes)
+✓ Service containers for tests (Postgres 16, Redis 7)
+
+TOTAL ISSUES: 12 (1 Critical, 4 High, 4 Medium, 3 Low)
+
+CI/CD SCORE: 58/100
+
+The pipelines are functional but have significant gaps: no tests for
+admin or games, no security scanning, deployment uses --force-new-deployment
+without updating the task definition image tag, and AWS credentials use
+static access keys instead of OIDC.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+MODULE: DEPLOYMENT LOGIC — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-DEPLOY-01: force-new-deployment Doesn't Update Image Tag           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Deployment                                                         │
+│ Files: ALL three workflows                                                   │
+│                                                                              │
+│ All deploy steps do:                                                         │
+│   docker push .../$REPO:${{ github.sha }}                                   │
+│   aws ecs update-service --force-new-deployment                             │
+│                                                                              │
+│ force-new-deployment restarts tasks with the CURRENT task definition.       │
+│ The task definition still references :latest (from Terraform). It does NOT │
+│ use the :${{ github.sha }} image just pushed.                               │
+│                                                                              │
+│ RESULT: Deployment pushes a new image but ECS keeps running the OLD image. │
+│ The only way the new image deploys is if :latest is also pushed (platform  │
+│ does this for prod, but not staging; admin and games DON'T push :latest).  │
+│                                                                              │
+│ FIX: Register a new task definition with the specific image tag, then      │
+│ update-service with --task-definition. Example:                             │
+│   aws ecs register-task-definition ... --container-definitions '[{         │
+│     "image": "...:$SHA" }]'                                                │
+│   aws ecs update-service --task-definition NEW_TD_ARN                      │
+│ Or use the aws-actions/amazon-ecs-deploy-task-definition action.           │
+│                                                                              │
+│ Priority Score: 10/10 (deployments don't actually deploy new code)          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-DEPLOY-02: No Database Migration Step in Deploy                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Deployment                                                         │
+│ Files: platform-ci.yml, admin-ci.yml                                         │
+│                                                                              │
+│ Test job runs `prisma db push --force-reset` on a test DB.                  │
+│ Deploy jobs push Docker images but NEVER run migrations on staging/prod.   │
+│ Schema changes will crash the application.                                  │
+│                                                                              │
+│ FIX: Add pre-deploy step: `npx prisma migrate deploy` against the target  │
+│ database (use Secrets Manager for connection string).                       │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-DEPLOY-03: No Smoke Test After Deploy                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Deployment Safety                                                  │
+│ Files: ALL three workflows                                                   │
+│                                                                              │
+│ No post-deployment health check or smoke test. Deploy fires and forgets.   │
+│ A broken deployment won't be detected until users report issues.           │
+│                                                                              │
+│ FIX: Add step that waits for ECS service stability + hits /health endpoint.│
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: SECURITY — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-SEC-01: Static AWS Access Keys Instead of OIDC                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Credential Management                                              │
+│ Files: ALL three workflows                                                   │
+│                                                                              │
+│ All workflows use:                                                           │
+│   aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}                       │
+│   aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}               │
+│                                                                              │
+│ Long-lived static credentials stored as GitHub secrets. If leaked            │
+│ (via fork PR attack, log exposure, or GitHub breach), full AWS access.     │
+│                                                                              │
+│ FIX: Use GitHub OIDC with AWS IAM Identity Provider:                        │
+│   aws-actions/configure-aws-credentials@v4                                  │
+│     role-to-assume: arn:aws:iam::role/GitHubActionsRole                    │
+│     role-session-name: github-actions                                       │
+│ Short-lived tokens, no static secrets needed.                                │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-SEC-02: No Security Scanning in Pipeline                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ Files: ALL three workflows                                                   │
+│                                                                              │
+│ No security scanning steps:                                                  │
+│ - No npm audit / snyk / dependabot for dependency vulnerabilities           │
+│ - No SAST (CodeQL, Semgrep) for code vulnerabilities                        │
+│ - No Docker image scanning (Trivy, Snyk Container)                          │
+│ - No secret scanning (gitleaks, trufflehog)                                 │
+│                                                                              │
+│ FIX: Add at minimum:                                                         │
+│ 1. npm audit --audit-level=high                                              │
+│ 2. Docker image scan via Trivy action                                        │
+│ 3. CodeQL analysis workflow                                                  │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-SEC-03: Admin Frontend Deploy Deletes S3 with --delete              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Deployment Safety                                                  │
+│ File: admin-ci.yml                                                           │
+│                                                                              │
+│ aws s3 sync out/ s3://zubaco-admin-cdn/ --delete                            │
+│                                                                              │
+│ The --delete flag removes files from S3 not in the local build.             │
+│ Combined with the "/*" CloudFront invalidation, a failed build that        │
+│ produces empty output would DELETE the entire admin panel.                  │
+│                                                                              │
+│ FIX: Add pre-check: test -d out && test $(ls out/ | wc -l) -gt 0          │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: TESTING — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-TEST-01: No Tests for Admin or Games                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Quality Assurance                                                  │
+│ Files: admin-ci.yml, games-ci.yml                                            │
+│                                                                              │
+│ Platform pipeline: test job (tsc + prisma generate + build)                 │
+│ Admin pipeline: build job only (tsc + build, no test step)                  │
+│ Games pipeline: build only (tsc, no test step)                               │
+│                                                                              │
+│ Even the platform "test" job doesn't run `npm test` — it only does type   │
+│ checking and build. No unit tests, no integration tests, no e2e tests      │
+│ are executed in any pipeline.                                               │
+│                                                                              │
+│ FIX: Add `npm test` step to all pipelines.                                   │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-TEST-02: Platform Uses prisma db push --force-reset                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Testing                                                            │
+│ File: platform-ci.yml                                                        │
+│                                                                              │
+│ `prisma db push --force-reset` drops and recreates the entire database.    │
+│ In CI this is fine (test DB), but it doesn't test that migrations work.    │
+│ Production uses `prisma migrate deploy` — the CI should test the same      │
+│ migration path.                                                              │
+│                                                                              │
+│ FIX: Use `prisma migrate deploy` in CI to validate migrations.              │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-TEST-03: No Lint Step in Any Pipeline                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ Files: ALL three workflows                                                   │
+│                                                                              │
+│ No ESLint, Prettier, or any linting step. Code style is unenforceable.     │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: OPERATIONAL — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-OPS-01: No Staging Deploy for Admin or Games                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Deployment Process                                                 │
+│ Files: admin-ci.yml, games-ci.yml                                            │
+│                                                                              │
+│ Platform has develop→staging, main→production flow.                        │
+│ Admin and games deploy DIRECTLY to production on main push.               │
+│ No staging environment for admin or games.                                  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-OPS-02: Games CI --force-new-deployment Missing for Game Backends   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Deployment                                                         │
+│ File: games-ci.yml                                                           │
+│                                                                              │
+│ Game backend images are pushed to ECR but no ECS update-service is called. │
+│ Only the frontend is deployed (S3 sync). Game backends sit in ECR unused.  │
+│                                                                              │
+│ This aligns with TF-ARCH-01 (no ECS services for games in Terraform).     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE CI-OPS-03: No Concurrency Control on Deploy Jobs                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Reliability                                                        │
+│ Files: ALL three workflows                                                   │
+│                                                                              │
+│ Multiple pushes to main in quick succession trigger parallel deploys.       │
+│ Without concurrency groups, two deploys can race.                           │
+│                                                                              │
+│ FIX: Add concurrency group:                                                  │
+│   concurrency:                                                               │
+│     group: deploy-${{ github.ref }}                                         │
+│     cancel-in-progress: true                                                │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. POSITIVE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SMART DESIGN:
+✓ Games pipeline detects changed games via git diff (only builds what changed)
+✓ Matrix strategy for parallel game builds (scales to 20 games)
+✓ Path-based triggers avoid unnecessary runs
+✓ Platform has proper staging→production flow with environment gates
+✓ Service containers (Postgres 16, Redis 7) match production versions
+✓ Node.js 22 with npm ci (deterministic installs)
+✓ npm cache via actions/setup-node
+✓ Docker images tagged with git SHA (traceability)
+✓ actions/checkout@v4, setup-node@v4, configure-aws-credentials@v4 (latest)
+✓ Game frontends deployed to S3 with CloudFront invalidation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Pipeline Architecture:            75/100 (smart change detection, matrix)
+- Deployment Logic:                 30/100 (force-new-deploy doesn't update image)
+- Security:                         35/100 (static keys, no scanning)
+- Testing:                          25/100 (no actual tests run)
+- Staging/Environments:             50/100 (platform only)
+- Operational Safety:               45/100 (no concurrency, no smoke test)
+- Code Quality Gates:               40/100 (tsc only, no lint, no test)
+
+═══════════════════════════════════════
+OVERALL CI/CD SCORE: 58/100
+═══════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. PRIORITY ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: FIX DEPLOYMENT (deploys currently don't work correctly)
+  □ Update task definition with specific image tag before ECS update
+  □ Add database migration step before deploy
+  □ Add post-deploy health check
+
+PHASE 2: SECURITY
+  □ Switch to GitHub OIDC for AWS authentication
+  □ Add npm audit step
+  □ Add Docker image scanning (Trivy)
+  □ Add CodeQL or Semgrep SAST
+
+PHASE 3: QUALITY
+  □ Add npm test to all pipelines
+  □ Add ESLint step
+  □ Add staging deploy for admin + games
+  □ Add concurrency groups
+
+================================================================================
+END OF AUDIT — ZUBACO CI/CD PIPELINES
+================================================================================

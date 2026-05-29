@@ -1,0 +1,596 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Admin {
+  id            String             @id @default(uuid())
+  email         String             @unique
+  password      String
+  access_tokens AdminAccessToken[]
+  created_at    DateTime           @default(now())
+  updated_at    DateTime           @updatedAt
+  deleted_at    DateTime?
+
+  @@map("admins")
+}
+
+model AdminAccessToken {
+  id           String   @id @default(uuid())
+  admin_id     String
+  access_token String   @unique
+  session_id   String   @unique
+  expires_at   DateTime
+  admin        Admin    @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+  created_at   DateTime @default(now())
+
+  @@index([admin_id])
+  @@map("admin_access_tokens")
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+  DEACTIVATE
+
+  @@map("status")
+}
+
+enum GameType {
+  ARROWS
+  SEQUENCE_RECALL
+  BLOCK_FILL
+  INFINITY_LOOP
+  MEMORY_CARD_MATCHING
+  SLIDING_PUZZLE
+  MAZE_NAVIGATION
+  LOGIC_REFLECTOR
+  SUDOKU
+  SPOT_THE_DIFFERENCE
+  COLOUR_SORTING
+  FLASH_SPOT
+  MEMORY_GROUPS
+  NUMBER_GRID_SPRINT
+  OBJECT_PLACEMENT_MEMORY
+  PATTERN_SURVIVAL
+  RAPID_CATEGORY_SORT
+  REFLEX_ENDURANCE
+  SPEED_TYPE_ANSWER
+  TRUE_FALSE_BLITZ
+  WORD_UNSCRAMBLE
+  LIVE_ROUTE_BUILDER
+
+  @@map("game_type")
+}
+
+enum Language {
+  EN
+  HI
+
+  @@map("language")
+}
+
+model Game {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  game_type GameType @unique
+  status    Status   @default(ACTIVE)
+
+  // Common global config
+  time_limit  Int     @default(180) @map("time_limit")
+  enable_demo Boolean @default(true) @map("enable_demo")
+
+  // Sequence Recall
+  cell_count          Int?   @map("cell_count")
+  min_sequence        Int?   @map("min_sequence")
+  max_sequence        Int?   @map("max_sequence")
+  demo_min_sequence   Int?   @map("demo_min_sequence")
+  demo_max_sequence   Int?   @map("demo_max_sequence")
+  flash_delay         Int?   @map("flash_delay")
+  level_delay         Int?   @map("level_delay")
+  bonus_time_ratio    Float? @map("bonus_time_ratio")
+  score_per_click     Int?   @map("score_per_click")
+  wrong_move_handling Int?   @map("wrong_move_handling")
+
+  // Block Fill
+  total_actual_rounds Int? @map("total_actual_rounds")
+  total_demo_rounds   Int? @map("total_demo_rounds")
+
+  // Shared — Block Fill + Infinity Loop
+  active_level_id String? @map("active_level_id")
+
+  // Infinity Loop
+  il_title                String? @map("il_title")
+  il_description          String? @map("il_description")
+  il_background_sound_url String? @map("il_background_sound_url")
+  il_tap_sound_url        String? @map("il_tap_sound_url")
+
+  has_pool Boolean @default(false) @map("has_pool")
+
+  meta_data_visible Boolean @default(false) @map("meta_data_visible")
+
+  // Memory Card Matching — dedicated columns (nullable for other game types)
+  preview_duration_seconds          Int? @map("preview_duration_seconds")
+  mismatch_display_duration_seconds Int? @map("mismatch_display_duration_seconds")
+
+  // Extensible config for new games (MCM, SP) — game-specific fields not shared across all games
+  // MCM: game_time_limit_seconds
+  // SP:  display_time
+  game_config  Json? @db.JsonB @map("game_config")
+
+  game_content Json? @db.JsonB @map("game_content")
+
+  game_stages      GameStage[]
+  cheat_flags      CheatFlag[]
+  content_sections GameContent[]
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  @@index([game_type])
+  @@map("games")
+}
+
+model GameContent {
+  id               String    @id @default(uuid())
+  game_id          String    @map("game_id")
+  game             Game      @relation(fields: [game_id], references: [id], onDelete: Cascade)
+  stage_id         String    @map("stage_id")
+  stage            Stage     @relation(fields: [stage_id], references: [id], onDelete: Cascade)
+  language         Language
+  content          Json?     @db.JsonB
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+  deleted_at       DateTime?
+
+  @@index([game_id])
+  @@index([stage_id])
+  @@map("game_contents")
+}
+
+model Stage {
+  id                String            @id @default(uuid())
+  stage_number      Int
+  stage_name        String
+  game_stages       GameStage[]
+  tournament_stages TournamentStage[]
+  content_sections  GameContent[]
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+  deleted_at        DateTime?
+
+  @@map("stages")
+}
+
+model Tournament {
+  id                String            @id @default(uuid())
+  name              String            @unique
+  start_date        DateTime?
+  end_date          DateTime?
+  status            Status            @default(ACTIVE)
+  tournament_stages TournamentStage[]
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+  deleted_at        DateTime?
+
+  @@map("tournaments")
+}
+
+model GameStage {
+  id         String    @id @default(uuid())
+  game_id    String
+  stage_id   String
+  game       Game      @relation(fields: [game_id], references: [id], onDelete: Cascade)
+  stage      Stage     @relation(fields: [stage_id], references: [id], onDelete: Cascade)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  @@unique([game_id, stage_id])
+  @@index([game_id])
+  @@map("game_stages")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// USER & AUTH (read from platform DB)
+// ═══════════════════════════════════════════════════════════════
+
+model User {
+  id            String    @id @default(uuid())
+  username      String?   @unique
+  display_name  String?
+  email         String?   @unique
+  phone         String?   @unique
+  avatar_url    String?
+  xp            Int       @default(0)
+  level         Int       @default(1)
+  is_verified   Boolean   @default(false)
+  is_banned     Boolean   @default(false)
+  ban_reason    String?
+  last_login_at DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  deleted_at    DateTime?
+
+  auth_providers    AuthProvider[]
+  game_progress     GameProgress[]
+  game_sessions     GameSession[]
+  season_entries    SeasonEntry[]
+  wallet            Wallet?
+  transactions      Transaction[]
+  notifications     Notification[]
+  season_leaderboards SeasonLeaderboard[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([username])
+  @@map("users")
+}
+
+model AuthProvider {
+  id             String           @id @default(uuid())
+  user_id        String
+  provider       AuthProviderType
+  provider_id    String
+  provider_email String?
+  created_at     DateTime         @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_id])
+  @@index([user_id])
+  @@map("auth_providers")
+}
+
+enum AuthProviderType {
+  GOOGLE
+  APPLE
+  PHONE
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GAME PROGRESS & SESSIONS
+// ═══════════════════════════════════════════════════════════════
+
+model GameProgress {
+  id            String   @id @default(uuid())
+  user_id       String
+  game_type     GameType
+  current_level Int      @default(1)
+  highest_level Int      @default(1)
+  total_xp      Int      @default(0)
+  total_plays   Int      @default(0)
+  best_score    Int      @default(0)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, game_type])
+  @@index([user_id])
+  @@map("game_progress")
+}
+
+model GameSession {
+  id             String          @id @default(uuid())
+  user_id        String
+  game_type      GameType
+  mode           GameMode
+  level          Int?
+  stage_entry_id String?
+  server_seed    String
+  client_seed    String?
+  nonce          Int             @default(0)
+  config         Json
+  score          Int?
+  max_score      Int?
+  duration_ms    Int?
+  outcome        SessionOutcome?
+  started_at     DateTime        @default(now())
+  completed_at   DateTime?
+  metadata       Json?
+
+  user        User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  stage_entry StageEntry? @relation(fields: [stage_entry_id], references: [id])
+
+  @@index([user_id, game_type])
+  @@index([stage_entry_id])
+  @@index([started_at])
+  @@map("game_sessions")
+}
+
+enum GameMode {
+  FREE_PLAY
+  TOURNAMENT
+}
+
+enum SessionOutcome {
+  COMPLETED
+  ABANDONED
+  TIMED_OUT
+  DISQUALIFIED
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SEASONS & TOURNAMENT ELIMINATION
+// ═══════════════════════════════════════════════════════════════
+
+model Season {
+  id          String       @id @default(uuid())
+  name        String
+  description String?
+  start_date  DateTime
+  end_date    DateTime
+  status      SeasonStatus @default(UPCOMING)
+  prize_pool  Decimal?     @db.Decimal(12, 2)
+  entry_fee   Decimal?     @db.Decimal(10, 2)
+  max_players Int?
+  rules       Json?
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  stages  SeasonStage[]
+  entries SeasonEntry[]
+
+  @@index([status])
+  @@index([start_date])
+  @@map("seasons")
+}
+
+enum SeasonStatus {
+  UPCOMING
+  REGISTRATION
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model SeasonStage {
+  id              String      @id @default(uuid())
+  season_id       String
+  stage_number    Int
+  name            String?
+  open_date       DateTime
+  close_date      DateTime
+  elimination_pct Float       @default(50.0)
+  status          StageStatus @default(LOCKED)
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+
+  season        Season       @relation(fields: [season_id], references: [id], onDelete: Cascade)
+  stage_games   StageGame[]
+  stage_entries StageEntry[]
+
+  @@unique([season_id, stage_number])
+  @@index([season_id])
+  @@map("season_stages")
+}
+
+enum StageStatus {
+  LOCKED
+  OPEN
+  CLOSED
+  ELIMINATED
+}
+
+model StageGame {
+  id              String   @id @default(uuid())
+  season_stage_id String
+  game_type       GameType
+  game_order      Int
+  level_config_id String?
+  created_at      DateTime @default(now())
+
+  season_stage SeasonStage @relation(fields: [season_stage_id], references: [id], onDelete: Cascade)
+
+  @@unique([season_stage_id, game_order])
+  @@index([season_stage_id])
+  @@map("stage_games")
+}
+
+model SeasonEntry {
+  id            String      @id @default(uuid())
+  user_id       String
+  season_id     String
+  cohort_id     String?
+  status        EntryStatus @default(ACTIVE)
+  registered_at DateTime    @default(now())
+
+  user          User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  season        Season       @relation(fields: [season_id], references: [id], onDelete: Cascade)
+  stage_entries StageEntry[]
+
+  @@unique([user_id, season_id])
+  @@index([season_id])
+  @@map("season_entries")
+}
+
+enum EntryStatus {
+  ACTIVE
+  ELIMINATED
+  WINNER
+  WITHDRAWN
+}
+
+model StageEntry {
+  id              String      @id @default(uuid())
+  season_entry_id String
+  season_stage_id String
+  total_score     Int         @default(0)
+  total_time_ms   Int         @default(0)
+  games_played    Int         @default(0)
+  rank            Int?
+  eliminated      Boolean     @default(false)
+  completed_at    DateTime?
+  created_at      DateTime    @default(now())
+
+  season_entry  SeasonEntry  @relation(fields: [season_entry_id], references: [id], onDelete: Cascade)
+  season_stage  SeasonStage  @relation(fields: [season_stage_id], references: [id], onDelete: Cascade)
+  game_sessions GameSession[]
+
+  @@unique([season_entry_id, season_stage_id])
+  @@index([season_stage_id, total_score])
+  @@map("stage_entries")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WALLET & TRANSACTIONS
+// ═══════════════════════════════════════════════════════════════
+
+model Wallet {
+  id            String   @id @default(uuid())
+  user_id       String   @unique
+  balance       Decimal  @default(0) @db.Decimal(12, 2)
+  bonus_balance Decimal  @default(0) @db.Decimal(12, 2)
+  currency      String   @default("INR")
+  kyc_verified  Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id            String            @id @default(uuid())
+  user_id       String
+  type          TransactionType
+  amount        Decimal           @db.Decimal(12, 2)
+  balance_after Decimal           @db.Decimal(12, 2)
+  status        TransactionStatus @default(PENDING)
+  reference_id  String?
+  description   String?
+  metadata      Json?
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@index([status])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  ENTRY_FEE
+  PRIZE_WIN
+  REFERRAL_BONUS
+  REFUND
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════
+
+model Notification {
+  id         String           @id @default(uuid())
+  user_id    String
+  type       NotificationType
+  title      String
+  body       String
+  data       Json?
+  read       Boolean          @default(false)
+  sent_push  Boolean          @default(false)
+  created_at DateTime         @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, read, created_at])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  STAGE_OPEN
+  STAGE_CLOSING
+  ELIMINATION
+  PRIZE_WON
+  FRIEND_REQUEST
+  CHALLENGE
+  SYSTEM
+  PROMOTION
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SEASON LEADERBOARD (denormalized for export/admin)
+// ═══════════════════════════════════════════════════════════════
+
+model SeasonLeaderboard {
+  id           String   @id @default(uuid())
+  season_id    String
+  user_id      String
+  rank         Int
+  score        Int
+  prize_amount Decimal? @db.Decimal(12, 2)
+  created_at   DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([season_id, user_id])
+  @@index([season_id, rank])
+  @@map("season_leaderboards")
+}
+
+model TournamentStage {
+  id            String     @id @default(uuid())
+  tournament_id String
+  stage_id      String
+  tournament    Tournament @relation(fields: [tournament_id], references: [id], onDelete: Cascade)
+  stage         Stage      @relation(fields: [stage_id], references: [id], onDelete: Cascade)
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+  deleted_at    DateTime?
+
+  @@unique([tournament_id, stage_id])
+  @@index([tournament_id])
+  @@map("tournament_stages")
+}
+
+model CheatFlag {
+  id              String   @id @default(uuid())
+  reference_id    String   @unique
+  user_id         String
+  flag_type       Int
+  game_type       Int
+  game_id         String
+  game            Game     @relation(fields: [game_id], references: [id])
+  game_created_at DateTime
+  received_at     DateTime @default(now())
+
+  @@index([user_id])
+  @@index([flag_type])
+  @@index([game_type])
+  @@index([game_id])
+  @@map("cheat_flags")
+}
+
+enum CheatFlagType {
+  SCORE_ANOMALY
+  TIMING_ANOMALY
+  IMPOSSIBLE_SCORE
+  RAPID_PROGRESSION
+  DEVICE_DUPLICATE
+  INPUT_BOT_PATTERN
+  SESSION_TAMPERING
+}
+
+enum CheatSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}

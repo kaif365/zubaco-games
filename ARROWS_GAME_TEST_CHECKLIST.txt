@@ -1,0 +1,188 @@
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                    ARROWS GAME — TEST CHECKLIST                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+URL: http://localhost:3007
+
+════════════════════════════════════════════════════════════════════════════════════
+A. FIRST LAUNCH / TUTORIAL
+════════════════════════════════════════════════════════════════════════════════════
+[ ] On first visit, Tutorial screen shows (not menu)
+[ ] Tutorial has 6 steps with icons
+[ ] "Got it! Let's Play" button works → goes to menu
+[ ] On next visit, Tutorial is skipped (goes straight to menu)
+
+════════════════════════════════════════════════════════════════════════════════════
+B. MAIN MENU
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Arrow emoji animates (pulse)
+[ ] Title "Arrow Puzzle" and subtitle displayed
+[ ] ▶ Play button visible and clickable
+[ ] 📋 Levels button opens level selector
+[ ] 📅 Daily Challenge button opens daily screen
+[ ] 🏆 Achievements button opens achievements
+[ ] 📊 Stats button opens stats
+[ ] ⚙️ Settings button opens settings
+
+════════════════════════════════════════════════════════════════════════════════════
+C. LEVEL SELECTOR
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Shows 10 levels in a 5×2 grid
+[ ] Level 1 is unlocked (amber highlight)
+[ ] Levels 2-10 show lock icon (if not yet unlocked)
+[ ] Clicking unlocked level starts that level
+[ ] Clicking locked level does nothing
+[ ] Close button (X) returns to menu
+[ ] After winning level 1, level 2 unlocks
+
+════════════════════════════════════════════════════════════════════════════════════
+D. GAMEPLAY — CORE MECHANICS
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Board renders with correct grid size (3×3 for level 1)
+[ ] Arrows display with correct directions (L-shape + arrowhead)
+[ ] Tapping a MOVABLE arrow → arrow animates sliding off the board
+[ ] Tapping a BLOCKED arrow → arrow shakes + life lost
+[ ] Movable arrows are darker color, blocked are lighter
+[ ] After removing an arrow, it disappears from board
+[ ] Removing all arrows = WIN
+
+════════════════════════════════════════════════════════════════════════════════════
+E. GAMEPLAY — HUD / HEADER
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Level badge shows (e.g., "Lv.1")
+[ ] Move counter increments on each valid removal
+[ ] Timer counts down from correct time limit
+[ ] Timer turns red + pulses at ≤10 seconds
+[ ] Lives (hearts) display — 6 total
+[ ] Heart grays out on wrong move
+[ ] Combo badge appears at 3+ streak (e.g., "3x Combo!")
+[ ] Combo resets on wrong move
+
+════════════════════════════════════════════════════════════════════════════════════
+F. GAMEPLAY — ACTIONS
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Undo button disabled when no moves made
+[ ] Undo restores last arrow to board
+[ ] Undo decrements move counter
+[ ] Hint button highlights a correct arrow (red glow)
+[ ] Restart button resets board to initial state
+[ ] Mute button toggles sound on/off
+[ ] Mute icon changes between speaker/muted
+
+════════════════════════════════════════════════════════════════════════════════════
+G. SOUND EFFECTS
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Tapping correct arrow → "correct" tone plays
+[ ] Tapping blocked arrow → "incorrect" buzz plays
+[ ] Level complete → celebratory ascending tone
+[ ] Start level → "start" tone plays
+[ ] Button taps (undo, hint, restart) → "tap" click sound
+[ ] Muting disables all sounds
+[ ] Unmuting re-enables sounds
+[ ] Sound preference persists across page reload
+
+════════════════════════════════════════════════════════════════════════════════════
+H. WIN CONDITION
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Confetti particles appear on win
+[ ] Confetti has multiple colors and shapes
+[ ] After ~1.5s delay, Result screen appears
+[ ] Result shows "Level Complete!" in green
+[ ] Score breakdown: Level, Moves, Best Streak, Time Bonus, Streak Bonus, Total
+[ ] "Next Level →" button advances to next level
+[ ] "Back to Menu" returns to menu
+[ ] Level unlocks persist (localStorage)
+
+════════════════════════════════════════════════════════════════════════════════════
+I. LOSE CONDITION
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Losing all 6 lives → Game Over
+[ ] Timer hitting 0 → Game Over
+[ ] Result shows "Game Over" in red with 💔
+[ ] "Try Again" button restarts same level
+[ ] "Back to Menu" returns to menu
+
+════════════════════════════════════════════════════════════════════════════════════
+J. DAILY CHALLENGE
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Shows today's date
+[ ] Shows assigned level (varies by day of week)
+[ ] Shows "1.5× Score Bonus!" label
+[ ] "Play Daily Challenge" button starts that level
+[ ] After completing, shows "✓ Completed Today!" with score
+[ ] Cannot replay daily challenge same day
+[ ] New challenge appears next day
+
+════════════════════════════════════════════════════════════════════════════════════
+K. ACHIEVEMENTS
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Shows 10 achievements total
+[ ] Shows count "X/10 unlocked"
+[ ] Unlocked achievements have amber border + checkmark
+[ ] Locked achievements are dimmed
+[ ] "First Victory" unlocks after first win
+[ ] Achievement popup appears at top of screen on unlock
+[ ] Popup auto-dismisses after 3 seconds
+
+════════════════════════════════════════════════════════════════════════════════════
+L. STATISTICS
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Shows Games Played count
+[ ] Shows Wins count
+[ ] Shows High Score
+[ ] Shows Highest Level
+[ ] Shows Best Streak
+[ ] Shows Win Rate percentage
+[ ] Recent Scores bar chart renders (after playing games)
+[ ] Stats persist across page reloads
+
+════════════════════════════════════════════════════════════════════════════════════
+M. SETTINGS
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Sound toggle switch works (on/off)
+[ ] Theme selector shows dark/light/system buttons
+[ ] Active theme is highlighted in amber
+[ ] Close button returns to menu
+[ ] Sound setting persists across reload
+
+════════════════════════════════════════════════════════════════════════════════════
+N. ANIMATIONS & VISUAL POLISH
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Arrow exit animation — snake-like step-by-step slide + fade
+[ ] Arrow shake animation on wrong tap (GSAP)
+[ ] Hint glow pulsates on the hinted arrow
+[ ] Confetti falls with rotation + varied speeds
+[ ] Timer pulse animation when low
+[ ] Achievement popup bounces in
+[ ] Page transitions feel smooth
+
+════════════════════════════════════════════════════════════════════════════════════
+O. RESPONSIVE & EDGE CASES
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Works on mobile viewport (375px width)
+[ ] Board scales appropriately for larger grids (5×5, 6×6)
+[ ] No horizontal scroll on any screen
+[ ] Level 10 (6×6, 12 arrows) renders without overflow
+[ ] Rapid tapping doesn't break state
+[ ] Tab switch pauses timer, tab return resumes
+[ ] Page reload preserves unlocked levels + stats
+
+════════════════════════════════════════════════════════════════════════════════════
+P. CROSS-GAME CONSISTENCY (vs Colour Sorting)
+════════════════════════════════════════════════════════════════════════════════════
+[ ] Menu layout matches colour-sorting style
+[ ] Dark background (gray-900) consistent
+[ ] Accent color is amber (vs indigo for colour-sorting) — intentional distinction
+[ ] Game header layout (timer + moves + actions) is same pattern
+[ ] Settings screen layout matches
+[ ] Achievements screen layout matches
+[ ] Stats screen layout matches
+[ ] Level selector grid layout matches
+[ ] Sound system uses same useAudio hook pattern
+[ ] Confetti animation same style
+[ ] Result screen score breakdown same format
+
+════════════════════════════════════════════════════════════════════════════════════
+END OF CHECKLIST
+════════════════════════════════════════════════════════════════════════════════════
+in future try making unlimited levels but not now 

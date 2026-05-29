@@ -1,0 +1,1547 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #6: LIVE ROUTE BUILDER (Path Connection Puzzle)
+================================================================================
+Audit Date: May 23, 2026
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Path-building puzzle — connect nodes that appear over time to build
+          the shortest route connecting all points (traveling salesman variant)
+Stack: NestJS 11 + Prisma 7 + BullMQ + Socket.IO + Redis (backend),
+       React 19 + Vite 6 + Framer Motion + TailwindCSS + SVG (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Live Route Builder is a unique game concept — nodes appear over time and players
+must connect them into an efficient route. The game uses SVG for rendering,
+seeded RNG for deterministic node generation, and has a clean architecture
+separation (engine/hooks/components).
+
+However, it has CRITICAL game logic bugs that make it fundamentally broken:
+- Timer expiration NEVER auto-submits results (player loses ALL progress)
+- No duplicate edge prevention (score corruption)
+- No temporal validation of edges (bot can connect nodes before they appear)
+- calculateOptimalPath uses array indices instead of node IDs (wrong scoring)
+
+Combined with the platform-wide security issues (fallback secrets, exposed
+encryption key), this game needs the most game-logic fixes of any audited so far.
+
+TOTAL ISSUES: 60 (7 Critical, 11 High, 16 Medium, 26 Low)
+
+RELEASE READINESS SCORE: 48/100
+(Unique concept, but fundamental game logic is broken)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Timer expires → results NEVER submitted (all progress lost!)
+BLOCKER-2: No duplicate edge prevention (score corruption)
+BLOCKER-3: No temporal edge validation (bot connects nodes before they appear)
+BLOCKER-4: calculateOptimalPath uses array indices not node IDs (wrong scoring)
+BLOCKER-5: .env with predictable JWT secret committed
+BLOCKER-6: 4 different fallback secrets across codebase
+BLOCKER-7: Encryption key exposed in client JS bundle
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (28 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env With Predictable JWT Secret Committed to Repo               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env (line 2)                                                          │
+│                                                                              │
+│ Description:                                                                 │
+│   JWT_SECRET="zubaco-live-route-jwt-secret-2025"                             │
+│   This is a predictable, human-readable string. If committed to VCS,         │
+│   anyone with repo access forges JWTs for any user.                          │
+│                                                                              │
+│ Exploit: Clone repo → forge JWT → submit infinite high scores as any user.  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   git rm --cached .env; use secrets manager; random 64-char secret.          │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Complete account impersonation                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: 4 Different Fallback Secrets Across Codebase                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files:                                                                       │
+│   session.guard.ts:  process.env.JWT_SECRET || 'fallback'                    │
+│   game.gateway.ts:   process.env.JWT_SECRET || 'dev-secret'                  │
+│   hmac.guard.ts:     process.env.HMAC_SECRET || 'dev-hmac-secret'            │
+│   app.config.ts:     process.env.JWT_SECRET || 'dev-secret-live-route'       │
+│                                                                              │
+│ Description:                                                                 │
+│   FOUR different fallback values! If JWT_SECRET env var is missing:          │
+│   - SessionGuard uses 'fallback'                                             │
+│   - WS Gateway uses 'dev-secret'                                             │
+│   - AppConfig uses 'dev-secret-live-route'                                   │
+│   Token signed with one won't verify against another!                        │
+│                                                                              │
+│ Exploit: Misconfigured deploy → all four use different fallbacks →           │
+│   auth is both bypassed AND inconsistent.                                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove ALL fallbacks. Single config service. Throw if missing.             │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Auth bypass on misconfiguration                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: No Temporal Validation of Edges (Pre-Computation Exploit)        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (lines 41-75)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Server generates nodes with `appearedAt` timestamps (e.g., node 5         │
+│   appears at 10000ms). Client submits edges with timestamps. But server      │
+│   NEVER validates that edge timestamps are AFTER both connected nodes'       │
+│   `appearedAt` values.                                                       │
+│                                                                              │
+│   Since the seed is returned to client and algorithm is deterministic,       │
+│   a bot can pre-compute ALL node positions instantly.                        │
+│                                                                              │
+│ Exploit:                                                                     │
+│   1. Bot receives seed from startGame                                        │
+│   2. Pre-computes all 15 nodes' positions                                    │
+│   3. Computes optimal route connecting all nodes                             │
+│   4. Submits edges with fabricated timestamps (barely above thresholds)      │
+│   5. Perfect score every time — connects nodes "before they appear"          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   for (const e of edges) {                                                   │
+│     const fromNode = nodes[e.from];                                          │
+│     const toNode = nodes[e.to];                                              │
+│     const edgeTime = e.timestamp - session.startedAt.getTime();              │
+│     if (edgeTime < fromNode.appearedAt || edgeTime < toNode.appearedAt) {    │
+│       cheatReasons.push(`Edge before node appeared`);                        │
+│     }                                                                        │
+│   }                                                                          │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Bots achieve perfect scores, dominate leaderboard             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Race Condition — Double Submit Creates Orphan Records            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Data Integrity                                                     │
+│ File: src/game/game.service.ts (lines 32-80)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Flow: findUnique → validate → createMany(edges) → createMany(cheatFlags)  │
+│   → updateMany(where: { status: 'active' })                                 │
+│                                                                              │
+│   Two concurrent submissions both pass the status check, both insert         │
+│   EdgeRecord rows. Only one updateMany succeeds (returns count:0 for         │
+│   loser). Loser throws error but ORPHAN edge records remain.                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Wrap in transaction with SELECT FOR UPDATE, or create edges AFTER          │
+│   updateMany succeeds.                                                       │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Data corruption on network retry                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Redis KEYS Command Used (Blocks Event Loop)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ Files: src/redis/redis.service.ts (line 102),                                │
+│        src/http-cache/cache-invalidation.service.ts (lines 21,30,36)         │
+│                                                                              │
+│ Description:                                                                 │
+│   KEYS command scans entire keyspace, blocking Redis for ALL clients.        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use SCAN with cursor-based iteration.                                      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: WebSocket join-session Has No Ownership Validation               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (lines 67-73)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Any authenticated user can join ANY session room by providing any          │
+│   sessionId. Receives events (scores, cheat detections) for other players.   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Validate sessionId belongs to client.data.userId before joining.           │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Eavesdrop on competitors during tournament                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: In-Memory Rate Limiter — Unbounded Memory Leak                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/ip-rate-limiter.middleware.ts (line 12)                   │
+│                                                                              │
+│ Description:                                                                 │
+│   private readonly store = new Map<string, RateEntry>();                      │
+│   Never cleaned up. Every unique IP remains forever. Under DDoS from         │
+│   rotating IPs → OOM crash.                                                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Periodic cleanup or use Redis-backed rate limiting.                        │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Server crash under sustained attack                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Metrics Endpoint Exposed Without Authentication                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/common/metrics/metrics.controller.ts                               │
+│                                                                              │
+│ Description:                                                                 │
+│   /api/v1/metrics exposes Prometheus metrics (request counts, latency,       │
+│   error rates, game session stats) to any unauthenticated caller.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add API key guard or bind to separate internal port.                       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Score Divergence Tolerance Too Generous + Non-Blocking            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 60)                                     │
+│                                                                              │
+│ Description:                                                                 │
+│   if (Math.abs(clientScore - serverScore) > 10) → flag only                 │
+│   ±10 on scores of 100-250 = 4-10% tolerance. And flagging doesn't          │
+│   block — game still returns serverScore successfully.                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Reduce to ±3 or just always use serverScore (ignore clientScore).          │
+│   Consider rejecting flagged submissions.                                    │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Cheaters flagged but never blocked                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 46-52)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   /api/docs always enabled, even in production.                              │
+│   Reveals full API schema, DTOs, auth requirements to attackers.             │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Multiple Redundant Redis Connections (6+ Instances)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Architecture / Performance                                         │
+│ Files: feature-flags, idempotency, http-cache, cache-invalidation,           │
+│        redis.service, queue.module                                            │
+│                                                                              │
+│ Description:                                                                 │
+│   At least 6 separate Redis connections. Global RedisService exists           │
+│   but isn't reused by other modules.                                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Inject shared RedisService everywhere.                                     │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: No Self-Loop or Duplicate Edge Detection Server-Side             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat / Validation                                            │
+│ File: src/game/game.service.ts (lines 50-55)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   No validation that from !== to (self-loops) or same edge isn't             │
+│   submitted multiple times. Duplicate edges corrupt path calculations.       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Dedup with Set; reject self-loops.                                         │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Score inflation via duplicate edges                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: calculateOptimalPath Is Greedy (Not Actually Optimal)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/game/engine/nodeGenerator.ts (lines 18-32)                         │
+│                                                                              │
+│ Description:                                                                 │
+│   Named "optimal" but implements nearest-neighbor greedy heuristic.          │
+│   Player can find shorter path than greedy → efficiency exceeds 100%.       │
+│   Could trigger false-positive cheat flags or inflate scores.                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Rename to calculateGreedyPath. Use minimum spanning tree for baseline.     │
+│   Cap pathEfficiency at 100%.                                                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Unpredictable scoring when player beats greedy algorithm      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Edge Validation break After First Invalid Edge                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic Bug                                                          │
+│ File: src/game/game.service.ts (lines 50-53)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   break after first invalid edge → subsequent invalid edges silently         │
+│   included in score calculations.                                            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove break. Flag all invalid edges. Filter them out before scoring.      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: CORS Falls Back to Allow-All in Non-Production                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 34-37)                                              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: Dead Engine Modules (6 Files Never Used)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: achievementEngine, boosterEngine, comboEngine,                        │
+│        dailyChallenge, leaderboard, scoreHistory                             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: Dead Pipes, Filters, Interceptors (Never Registered)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: sanitize.pipe, api-exception.filter, cache.interceptor,               │
+│        cache-invalidate.interceptor, cache decorators                        │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-18: QueueService Never Called from Game Flow                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ File: src/queue/queue.service.ts                                             │
+│                                                                              │
+│ Description:                                                                 │
+│   Methods defined but GameService uses EventService instead.                 │
+│   Queue processors are stubs (log only).                                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-19: SecurityHeadersMiddleware Not Applied                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code / Security                                               │
+│ File: src/app.module.ts (lines 61-64)                                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-20: Edge Timestamps Not Validated Against Session Boundaries          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts                                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Timestamps never validated to fall between session.startedAt and           │
+│   submission time. Bot submits timestamps from distant past/future.          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-21: Missing Database Indexes (playerId, status)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: prisma/schema.prisma                                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   No @@index on GameSession.playerId or GameSession.status.                  │
+│   Queries filtering by player or status will full-scan.                      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-22: Commented Import in main.ts                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/main.ts (line 8)                                                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-23: console.log Used Instead of Logger in main.ts                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/main.ts (line 68)                                                  │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-24: No Minimum Edge Count Validation (0 Edges = Free Score)          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Game Logic                                                         │
+│ File: src/game/dto/submit-game.dto.ts                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   edges: z.array(EdgeSchema).max(100) — no .min(1)!                          │
+│   Submit 0 edges → score = 100 (100% efficiency for 0 path).               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add .min(1) to require at least one edge.                                  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Free score exploit by submitting empty edges                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-25: pathEfficiency Can Exceed 100%                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (line 57)                                     │
+│                                                                              │
+│ Description:                                                                 │
+│   pathEfficiency = (optimal / actual) * 100                                  │
+│   If actual < optimal (player finds better path than greedy),                │
+│   efficiency exceeds 100% → score inflation.                                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Cap at 100%: Math.min(100, (optimal / actual) * 100)                       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-26: FeatureFlagGuard Not Registered as APP_GUARD                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/feature-flags/feature-flag.guard.ts                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-27: SessionCleanupProcessor Is a No-Op                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Incomplete Implementation                                          │
+│ File: src/queue/processors/session-cleanup.processor.ts                      │
+│                                                                              │
+│ Description:                                                                 │
+│   Runs every 5 minutes but only logs. Expired sessions accumulate.           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-28: No datasource url in schema.prisma                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: DX                                                                 │
+│ File: prisma/schema.prisma                                                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (32 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Encryption Key Exposed in Client JS Bundle                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 4)                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   VITE_ENCRYPTION_KEY shipped in client bundle. Any user extracts it         │
+│   from DevTools. Symmetric key = attacker encrypts AND decrypts.             │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Cheaters craft arbitrary encrypted submissions                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Client-Side Score Sent to Server (Manipulable)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/route/hooks/useGameSession.ts (lines 20-22)               │
+│                                                                              │
+│ Description:                                                                 │
+│   submitGame(edges, clientScore) sends client-computed score.                │
+│   Server may trust it (B-09 shows tolerance of ±10).                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Server should ONLY use serverScore. clientScore for sanity check only.     │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Leaderboard manipulation                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: No Duplicate Edge Prevention Client-Side                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Game Logic                                                         │
+│ File: src/features/route/hooks/useRouteGame.ts (lines 46-53)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   connectNode pushes new edges without checking if edge already exists.      │
+│   Player can repeatedly click same two nodes:                                │
+│   - calculateActualPath sums duplicate distances → corrupted efficiency     │
+│   - Score becomes unpredictable                                              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   if (prev.some(e => (e.from === fromId && e.to === toId) ||                 │
+│       (e.from === toId && e.to === fromId))) return prev;                    │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Score corruption, confusing behavior                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Timer Expires → Results NEVER Auto-Submitted (ALL PROGRESS LOST) │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Game Logic                                                         │
+│ File: src/features/route/hooks/useRouteGame.ts (lines 39-42)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   When time runs out:                                                        │
+│     setStatus('ended')                                                       │
+│   But submitGame() is NEVER triggered!                                       │
+│                                                                              │
+│   Player's entire route — all connections built over the full game           │
+│   duration — is completely lost unless they manually clicked "Submit          │
+│   Early" before time expired.                                                │
+│                                                                              │
+│   *** THIS IS THE MOST CRITICAL GAME LOGIC BUG IN ALL 6 GAMES ***           │
+│   *** PLAYERS WILL RAGE-QUIT WHEN THEIR ENTIRE GAME IS LOST ***             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   In GamePage, add: useEffect(() => {                                        │
+│     if (status === 'ended') handleEnd();                                     │
+│   }, [status]);                                                              │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: ALL progress lost on timeout. Guaranteed rage-quit.           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: Auth Token Key Mismatch (HTTP vs Socket)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / Security                                                     │
+│ Files: httpClient.ts (reads 'token'),                                        │
+│        socketClient.ts (reads 'auth_token')                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   HTTP reads localStorage.getItem('token')                                   │
+│   Socket reads localStorage.getItem('auth_token')                            │
+│   One won't authenticate → real-time features broken.                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Unify to single constant TOKEN_KEY.                                        │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Socket connections silently fail auth                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: No Error Handling on Game Start/Submit API Calls                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: UX / Robustness                                                    │
+│ File: src/features/route/components/GamePage.tsx (lines 18-22)               │
+│                                                                              │
+│ Description:                                                                 │
+│   handleStart and handleEnd have no try/catch. API failure → unhandled       │
+│   promise rejection. UI stays in current state with no feedback.             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Wrap in try/catch. Show error toast. Add loading state.                    │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Game appears broken on network error                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: No Loading State During Game Start (Double-Tap Creates Sessions) │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: UX                                                                 │
+│ File: src/features/route/components/GamePage.tsx (line 35)                    │
+│                                                                              │
+│ Description:                                                                 │
+│   loading={false} hardcoded. useGameSession exposes loading but              │
+│   it's never passed through. Player can double-tap start.                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Pass loading from useGameSession(). Disable button during API call.        │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Multiple sessions created on double-tap                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: O(n) Node Lookup Per Edge on Every Render                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/features/route/components/RouteCanvas.tsx (lines 19-24)            │
+│                                                                              │
+│ Description:                                                                 │
+│   For each edge: visibleNodes.find() called twice.                           │
+│   O(edges × nodes) on every render. SVG re-renders cascade because           │
+│   edges array reference changes on every connection.                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   useMemo(() => new Map(visibleNodes.map(n => [n.id, n])), [visibleNodes])   │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Lag on lower-end mobile during rapid connections              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: calculateOptimalPath Uses Array Index Instead of Node ID         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/features/route/engine/nodeGenerator.ts (lines 18-31)               │
+│                                                                              │
+│ Description:                                                                 │
+│   Uses indices (visited.has(0), current = 0) assuming nodes are              │
+│   0-indexed contiguous. But receives filtered subset where array             │
+│   indices DON'T correspond to node.id.                                       │
+│                                                                              │
+│   Greedy nearest-neighbor operates on WRONG indices.                         │
+│   Score calculation is FUNDAMENTALLY INCORRECT.                              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Rewrite to use node IDs for visited set and current tracking.              │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Every score calculation is wrong                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: Replay Uses window.location.reload() (Jarring UX)                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: UX                                                                 │
+│ File: src/features/route/components/GamePage.tsx (line 41)                    │
+│                                                                              │
+│ Description:                                                                 │
+│   Full page reload destroys all React state. Flash of white screen.          │
+│   Re-downloads all assets. Slow replay loop.                                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Reset game state to 'idle'. Add resetGame() to useRouteGame.              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Slow, jarring replay experience                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: No Undo/Disconnect Edge Mechanism                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Missing Feature / UX                                               │
+│ File: src/features/route/components/RouteCanvas.tsx                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Once an edge is drawn, it CANNOT be removed. In a route-building           │
+│   puzzle, misclicks are common (especially on mobile). One misclick          │
+│   permanently damages the route with no recovery.                            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add undo button or tap-existing-edge-to-remove.                            │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Single misclick ruins entire game. Frustrating.               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: Touch Targets Too Small for Route Drawing on Mobile              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Mobile UX                                                          │
+│ File: src/features/route/components/RouteCanvas.tsx (line 27)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Node circles: radius 10px (14px selected) in 600×500 SVG viewBox.         │
+│   On mobile (375px wide): maps to ~6-9px physical pixels.                    │
+│   FAR below 44px minimum for touch targets (Apple/Google guidelines).        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add invisible larger circle (r=24, fill=transparent) behind visible        │
+│   node as touch target. Or increase visible radius to 18-20.                 │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Extremely difficult to accurately tap nodes on mobile         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: Framer Motion on Every SVG Node (Re-render Overhead)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/features/route/components/RouteCanvas.tsx (line 26)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Each node uses <motion.g> with spring animations. 15 nodes                 │
+│   re-rendering on every state change (edge addition, timer tick).            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   React.memo on node components. CSS animations for pop-in.                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: No Validation That Connected Nodes Are Visible                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic / Anti-Cheat                                            │
+│ File: src/features/route/hooks/useRouteGame.ts (line 46)                     │
+│                                                                              │
+│ Description:                                                                 │
+│   connectNode(fromId, toId) doesn't verify both nodes are in                 │
+│   visibleNodes. Manipulated client connects nodes not yet appeared.          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Check visibleNodes contains both IDs before accepting.                     │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: Timer Causes Re-renders Every 100ms (Entire Tree)                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/features/route/hooks/useRouteGame.ts (lines 37-42)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   setTimeLeft() every 100ms triggers GamePage → GameHeader → RouteCanvas.   │
+│   RouteCanvas re-renders unnecessarily (timeLeft doesn't affect it).         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Separate timer into own component. React.memo on RouteCanvas.              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Frame drops on low-end devices                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: GameOverScreen Component Never Used (Dead Code)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ File: src/features/route/components/GameOverScreen.tsx                        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: Socket Infrastructure Completely Unused (Dead Code, +15KB)        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code / Bundle Size                                            │
+│ Files: src/hooks/useSocket.ts, src/services/socketClient.ts                  │
+│                                                                              │
+│ Description:                                                                 │
+│   useSocket hook and SocketManager never called. .env doesn't define         │
+│   VITE_SOCKET_URL. socket.io-client (~15KB) shipped but unused.              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove or implement real-time features (live opponent routes).             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: No Visual/Audio Feedback on Node Connection                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Feel                                                          │
+│ File: RouteCanvas.tsx                                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   useAudio exists but NEVER used in game components. No sound, no            │
+│   haptic, no animation on new edge. Edge silently appears.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Play correct sound. Animate edge draw-in. navigator.vibrate(10).           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Hard to confirm action registered; lacks game feel            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: OfflineBanner Text Not Internationalized                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: i18n                                                               │
+│ File: src/components/OfflineBanner.tsx                                       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: No .env.example File                                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: DX                                                                 │
+│ File: Project root                                                           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: computeFinalSeed Function Never Called (Dead Code)                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code / Anti-Cheat Gap                                         │
+│ File: src/features/route/engine/random.ts (lines 5-9)                        │
+│                                                                              │
+│ Description:                                                                 │
+│   Anti-cheat seed derivation planned but never implemented.                  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-22: No Confirmation Before Early Submit (Accidental Game End)        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/route/components/GamePage.tsx (line 43)                    │
+│                                                                              │
+│ Description:                                                                 │
+│   "Submit Early" immediately ends game. No confirmation dialog.              │
+│   Accidental tap on mobile ends game prematurely.                            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add confirmation modal or require long-press/double-tap.                   │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Frustrating accidental game termination                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-23: SVG Game Canvas Has No ARIA Labels                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: src/features/route/components/RouteCanvas.tsx (line 18)                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-24: No ESLint Configuration                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Code Quality                                                       │
+│ File: Project root                                                           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-25: InstructionScreen Shows Only One Step (Unclear Mechanic)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/components/InstructionScreen.tsx (lines 65-68)                     │
+│                                                                              │
+│ Description:                                                                 │
+│   Single step repeats instructions text. Route-building needs multi-step:    │
+│   1) Tap first node, 2) Tap second to connect, 3) Build shortest path.      │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Players don't understand click-two-nodes mechanic             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-26: Node Generator Doesn't Ensure Minimum Spacing                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Game Logic                                                         │
+│ File: src/features/route/engine/nodeGenerator.ts (lines 6-11)                │
+│                                                                              │
+│ Description:                                                                 │
+│   Nodes placed purely randomly. Two nodes can spawn at nearly identical      │
+│   coordinates → visually overlapping, untappable individually.              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add minimum distance check (50px). Retry placement if too close.           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Impossible to select correct node when overlapping            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-27: No Visual Indicator of Valid Connection Targets                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/features/route/components/RouteCanvas.tsx                           │
+│                                                                              │
+│ Description:                                                                 │
+│   When node is selected (yellow), no indication of valid targets.            │
+│   No "rubber band" line from selected node to cursor.                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Show rubber-band line from selected node to touch/cursor position.         │
+│   Highlight connectable nodes.                                               │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Player doesn't know rules at a glance                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-28: No Progress Indicator for Node Reveal                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/features/route/components/GameHeader.tsx                            │
+│                                                                              │
+│ Description:                                                                 │
+│   Shows "Nodes: 5/15" as text. Progress bar would be better.                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-29: Missing key Stability in Edge Rendering                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/features/route/components/RouteCanvas.tsx (line 20)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Edge list uses array index as key. Safe for append-only but breaks         │
+│   if undo is ever added.                                                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use `${e.from}-${e.to}` as key.                                            │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-30: No Keyboard Support for Node Selection                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Accessibility                                                      │
+│ File: src/features/route/components/RouteCanvas.tsx                           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-31: No Source Map Configuration for Production                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Build                                                              │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-32: Theme System Unused in Game                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/hooks/useTheme.tsx                                                 │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Bottlenecks (sorted by impact):
+
+1. Timer at 100ms = 10 Re-renders/Second (Including RouteCanvas)
+   - setTimeLeft() triggers full component tree re-render
+   - RouteCanvas re-renders even though timeLeft doesn't affect it
+   - Fix: Separate timer component + React.memo on RouteCanvas
+
+2. O(edges × nodes) Lookup on Every Render
+   - visibleNodes.find() called twice per edge per render
+   - With 15 nodes and 14+ edges: 30+ find() calls × 15 nodes
+   - Fix: Pre-compute Map<id, node>
+
+3. Framer Motion on 15 SVG Nodes
+   - Spring animations recalculated on every state change
+   - Fix: CSS animations for pop-in, React.memo for nodes
+
+4. Duplicate Edges (F-03) → Unbounded Edge Array
+   - No dedup = edges array grows without limit
+   - Each edge adds more SVG elements + find() calls
+   - Fix: Dedup check on connectNode
+
+5. Redis KEYS Command (Backend)
+   - Blocks event loop on large keyspaces
+   - Fix: Use SCAN
+
+ESTIMATED PERFORMANCE PROFILE:
+- Idle (pre-game): 0ms/frame (fine)
+- During gameplay: ~6ms render every 100ms (10 re-renders/sec)
+- With many edges + duplicates: up to 12ms/render
+- Budget phone: 2× = 24ms → borderline jank
+- With fixes (memo + Map + timer isolation): ~1ms on state change only
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ SVG rendering (resolution-independent, accessible potential)
+✓ preserveAspectRatio="xMidYMid meet" (proper scaling)
+✓ Node selection highlight (yellow = selected)
+✓ Progressive node reveal (adds time pressure/strategy)
+✓ Framer Motion node entrance (visual appeal)
+✓ Error boundary with reset capability
+✓ Offline detection
+✓ i18n ready (English + Hindi)
+
+UX PROBLEMS:
+
+1. Timer Expires → ALL Progress Lost (SHOWSTOPPER)
+   - Player builds route for full duration
+   - Timer hits 0 → nothing submitted
+   - "Where's my score??" → rage-quit
+   - FRUSTRATION LEVEL: MAXIMUM (guaranteed 1-star review)
+
+2. No Undo Button
+   - One misclick = route permanently damaged
+   - On mobile with tiny touch targets: very common
+   - FRUSTRATION LEVEL: VERY HIGH
+
+3. Touch Targets Way Too Small on Mobile
+   - 6-9px physical pixels for node circles
+   - Apple/Google minimum: 44px
+   - Constant misclicks on phone
+   - FRUSTRATION LEVEL: VERY HIGH
+
+4. No Connection Feedback
+   - Edge silently appears with no sound/vibration
+   - Can't tell if tap registered
+   - FRUSTRATION LEVEL: HIGH
+
+5. No Visual Guide (Rubber Band Line)
+   - Selected node but no line following finger
+   - Player doesn't know what will happen
+   - FRUSTRATION LEVEL: HIGH
+
+6. Overlapping Nodes
+   - Random placement can put nodes on top of each other
+   - Impossible to select the right one
+   - FRUSTRATION LEVEL: HIGH
+
+7. "Submit Early" No Confirmation
+   - Accidental tap ends game prematurely
+   - FRUSTRATION LEVEL: MEDIUM
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features that route/path-building game players EXPECT:
+
+1.  [!] Auto-submit on timer expiry (CRITICAL MISSING)
+2.  [!] Undo last edge (misclick recovery)
+3.  [!] Larger touch targets on mobile
+4.  [!] Rubber-band line from selected node to cursor
+5.  [ ] Sound effects on connection (success/error)
+6.  [ ] Haptic feedback on connection
+7.  [ ] Edge removal by tapping existing edge
+8.  [ ] Minimum node spacing (prevent overlap)
+9.  [ ] Node arrival countdown indicator
+10. [ ] Route efficiency meter (live score preview)
+11. [ ] Best route comparison after game (ghost overlay)
+12. [ ] Color-coded edge quality (green=short, red=long)
+13. [ ] Zoom/pan for complex routes
+14. [ ] Difficulty progression (more nodes, faster reveal)
+15. [ ] Daily challenge mode
+16. [ ] Share route/score button
+17. [ ] Submit confirmation dialog
+18. [ ] Replay same puzzle button
+19. [ ] Tutorial with animated demonstration
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add rubber-band line from selected node to touch position
+2. Add "pop" sound when edge connects (satisfying micro-feedback)
+3. Add haptic vibration on connection (15ms)
+4. Animate edge draw-in (line grows from source to destination)
+5. Color-code edges by distance (green=efficient, red=inefficient)
+6. Pulse animation when new node appears (draw attention)
+7. Particle burst on final node connected
+8. Show efficiency % updating live as player builds route
+9. Add countdown pulse when <10 seconds remaining
+10. Confetti on achieving >90% efficiency
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Auto-submit on timer expiry (CRITICAL — game-breaking bug)
+2. Add duplicate edge prevention in connectNode
+3. Pre-compute node ID Map (eliminate O(n) finds per edge)
+4. Separate timer into own component (stop cascading re-renders)
+5. React.memo on RouteCanvas (timer changes don't affect it)
+6. Add minimum node spacing in generator
+7. Increase touch targets (r=24 invisible hit area)
+8. Fix calculateOptimalPath to use node IDs not array indices
+9. Remove unused socket.io-client from bundle
+
+Backend:
+1. Add temporal edge validation (appearedAt check)
+2. Add duplicate edge + self-loop detection
+3. Wrap submission in transaction (prevent orphan records)
+4. Replace Redis KEYS with SCAN
+5. Remove all fallback secrets
+6. Add WS session ownership validation
+7. Add minimum edge count (.min(1))
+8. Cap pathEfficiency at 100%
+9. Remove dead engine modules
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Secret Management
+- .env committed with predictable JWT secret
+- 4 DIFFERENT fallback secrets across codebase
+- HMAC fallback 'dev-hmac-secret'
+- Severity: CRITICAL
+
+Attack Surface 2: Anti-Cheat (WEAKEST OF ALL GAMES)
+- No temporal edge validation (connect nodes before they appear)
+- Seed returned to client (pre-compute all node positions)
+- Client score sent and partially trusted (±10 tolerance)
+- Score divergence flagged but NEVER blocked
+- No duplicate edge detection
+- 0-edge submission = free score
+- pathEfficiency can exceed 100%
+- Severity: CRITICAL
+
+Attack Surface 3: Authentication
+- Token key mismatch (HTTP vs Socket use different localStorage keys)
+- Encryption key exposed in VITE_ bundle
+- No WS session ownership validation
+- Severity: HIGH
+
+Attack Surface 4: Infrastructure
+- /metrics publicly exposed
+- In-memory rate limiter (unbounded growth)
+- Redis KEYS command (blocking)
+- 6 redundant Redis connections
+- Severity: HIGH
+
+OVERALL SECURITY POSTURE:
+This game has the WEAKEST anti-cheat of all games audited. The combination of:
+- Seed returned to client (pre-compute all nodes)
+- No temporal validation (connect before nodes appear)
+- Client score partially trusted
+- Flags but never blocks cheating
+...means a trivial bot can achieve perfect scores every time without any risk
+of being rejected. The flag-only approach means cheaters are logged but continue
+to dominate the leaderboard.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Negative" - 3.5/10
+
+POSITIVE REVIEWS WOULD SAY:
+"Interesting concept — connecting nodes as they appear is novel."
+"I like the time pressure of nodes revealing gradually."
+"Clean visual design. SVG renders crisply."
+"The seeded randomness makes it fair."
+
+NEGATIVE REVIEWS WOULD SAY:
+"I played for 90 seconds building my route. Timer hit 0. Score: NOTHING. WTF?!"
+"CAN'T UNDO A CONNECTION?! One misclick and my route is ruined!"
+"The nodes are TINY on my phone. Impossible to tap the right one."
+"Two nodes spawned on top of each other. Couldn't select either."
+"No sound, no vibration, no feedback when I connect. Feels dead."
+"I accidentally hit 'Submit Early'. No confirmation. Game over."
+"Hit replay and the entire page reloaded. Why does it take so long?"
+"Can't tell which node I'm about to connect to. No rubber-band line."
+"Boring after 3 games. No progression, no challenges, no reason to come back."
+"Leaderboard is full of obvious bots with perfect scores."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Top 10 player complaints (predicted):
+
+1. "Timer expired and I got NO SCORE!" — Auto-submit missing (#1 guaranteed)
+2. "Can't undo a connection!" — No undo button
+3. "Nodes are too small to tap!" — Tiny touch targets
+4. "Two nodes overlap, can't select!" — No minimum spacing
+5. "No sound or feedback when I connect!" — Silent game
+6. "Accidentally submitted early!" — No confirmation
+7. "Page reload to replay? Seriously?!" — window.location.reload()
+8. "No idea what my score means!" — calculateOptimalPath is wrong
+9. "Bots everywhere on leaderboard!" — Weak anti-cheat
+10. "No rubber-band line?" — Can't predict connection target
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Novel mechanic — nodes appear over time (unique in the lineup!)
+✓ Strategic decision-making — when to connect vs wait for better nodes
+✓ Optimization challenge — minimize total path distance
+✓ Time pressure creates urgency
+✓ Clean, readable SVG visualization
+✓ Deterministic seeded RNG (fair competition)
+✓ Quick sessions (90-120 seconds)
+✓ Pattern recognition develops with practice
+
+Flow State Enablers:
+✓ Progressive reveal builds tension
+✓ Clear visual feedback on connections
+✓ Strategy depth (greedily connect nearby vs wait for optimal route)
+✓ No randomness in scoring — pure skill
+✓ Growing mastery over route optimization
+
+What Would Amplify Fun:
+- Rubber-band line (makes connection feel interactive)
+- Live efficiency meter (feedback on quality)
+- Sound effects (satisfying connection "click")
+- Undo (removes punishment for experimentation)
+- Route comparison (learn from optimal)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. PROGRESS LOST ON TIMEOUT (GAME-BREAKING)
+   - Player invests 90+ seconds of effort
+   - Timer hits 0 → NOTHING saved
+   - Guaranteed rage-quit + 1-star review + never return
+   - THIS SINGLE BUG KILLS THE GAME
+
+2. NO UNDO = FRUSTRATION > FUN
+   - Path-building games NEED mistake recovery
+   - Tiny touch targets on mobile = frequent misclicks
+   - Misclick + no undo = ruined route = frustration
+   - Frustration kills "one more try" loop
+
+3. TINY TOUCH TARGETS
+   - 6-9px on mobile (minimum should be 44px)
+   - Game becomes "try to tap the dot" game instead of "build route" game
+   - Mobile is primary platform → game is unplayable on primary platform
+
+4. BOT-DOMINATED LEADERBOARD
+   - Trivial to achieve perfect scores with bot
+   - Honest players can't compete
+   - "Why bother?" → stop playing
+
+5. NO FEEDBACK = NO SATISFACTION
+   - No sound, no haptic, no animation on connect
+   - Building a route should FEEL satisfying
+   - Silent game = prototype feel
+
+6. NO SOCIAL/SHARE
+   - Can't share route/score
+   - No daily challenge
+   - No competition mechanism
+   - No organic discovery
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     65/100 (clean separation, good seeded RNG)
+- Security:                         25/100 (4 fallback secrets, exposed key)
+- Performance:                      50/100 (timer re-renders, O(n) lookups)
+- Game Logic & Correctness:         25/100 (timer bug, wrong scoring, no dedup)
+- UX & Polish:                      25/100 (no undo, tiny targets, no feedback)
+- Anti-Cheat:                       20/100 (WEAKEST — flag-only, no temporal check)
+- Accessibility:                    25/100 (no ARIA, no keyboard, no a11y)
+- Retention & Engagement:           30/100 (no progression, no daily, no share)
+- Error Handling:                   35/100 (no try/catch on API, no loading state)
+- Production Readiness:             40/100 (dead code, missing .env.example)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 48/100
+═══════════════════════════════════════
+
+VERDICT: NOT READY — LOWEST SCORE IN THE LINEUP
+The timer-not-submitting bug alone makes this game unshippable. Combined with
+wrong scoring (array index vs node ID), no undo, tiny touch targets, and the
+weakest anti-cheat of all games — this needs the most work of any game audited.
+The concept is genuinely novel and interesting, but the execution is incomplete.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: GAME-BREAKING BUGS (1 day)
+  □ Auto-submit on timer expiry (F-04) — MOST CRITICAL
+  □ Fix calculateOptimalPath to use node IDs (F-09)
+  □ Add duplicate edge prevention (F-03)
+  □ Add temporal edge validation server-side (B-03)
+  □ Fix auth token key mismatch (F-05)
+  □ Add error handling on API calls (F-06)
+
+PHASE 2: SECURITY (1 day)
+  □ Remove ALL fallback secrets (B-02)
+  □ Remove .env from version control (B-01)
+  □ Remove client-side encryption key exposure (F-01)
+  □ Add WS session ownership validation (B-06)
+  □ Gate Swagger behind NODE_ENV (B-10)
+  □ Protect /metrics endpoint (B-08)
+  □ Cap pathEfficiency at 100% (B-25)
+  □ Add .min(1) to edges DTO (B-24)
+
+PHASE 3: MOBILE UX (1-2 days)
+  □ Increase touch targets (invisible r=24 hit area)
+  □ Add rubber-band line from selected node to cursor
+  □ Add undo button (remove last edge)
+  □ Add minimum node spacing in generator
+  □ Add "Submit Early" confirmation dialog
+  □ Replace window.location.reload() with state reset
+
+PHASE 4: GAME FEEL (1 day)
+  □ Wire up useAudio (connection sound, error sound)
+  □ Add haptic feedback (navigator.vibrate)
+  □ Animate edge draw-in (grow from source to destination)
+  □ Add node appearance pulse animation
+  □ Add live efficiency meter display
+  □ Color-code edges by distance (green/red)
+
+PHASE 5: ANTI-CHEAT HARDENING (1 day)
+  □ Add temporal edge validation (nodes must be visible)
+  □ Add duplicate edge detection server-side (B-12)
+  □ Validate timestamps within session boundaries (B-20)
+  □ Block (not just flag) cheating submissions
+  □ Implement computeFinalSeed (anti-replay)
+  □ Reduce score divergence tolerance to ±3
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ranked by (Player Impact × Effort Efficiency):
+
+#1  Auto-submit on timer expiry
+    Effort: 10 minutes | Impact: Game goes from "broken" to "functional"
+    ROI: ∞ (GAME IS LITERALLY UNPLAYABLE WITHOUT THIS)
+
+#2  Fix calculateOptimalPath (node IDs vs array indices)
+    Effort: 30 minutes | Impact: Scoring becomes correct
+    ROI: ∞ (every score is currently WRONG)
+
+#3  Add duplicate edge prevention
+    Effort: 10 minutes | Impact: Score corruption eliminated
+    ROI: 10x (simple check, prevents cascading bugs)
+
+#4  Increase touch targets
+    Effort: 15 minutes | Impact: Game becomes playable on mobile
+    ROI: 9x (add invisible hit circle, massive UX improvement)
+
+#5  Remove all fallback secrets
+    Effort: 30 minutes | Impact: Prevents auth bypass
+    ROI: ∞ (non-negotiable security)
+
+#6  Add undo button
+    Effort: 1 hour | Impact: Eliminates #2 player frustration
+    ROI: 8x (removes punishment for experimentation)
+
+#7  Add temporal edge validation (server)
+    Effort: 30 minutes | Impact: Bot exploitation prevented
+    ROI: 7x (simple check against appearedAt timestamps)
+
+#8  Wire up sound effects (useAudio already exists!)
+    Effort: 20 minutes | Impact: Game goes from silent → satisfying
+    ROI: 7x (hook exists, just needs import + calls)
+
+#9  Add rubber-band line from selected node
+    Effort: 1 hour | Impact: Player understands interaction model
+    ROI: 6x (major discoverability improvement)
+
+#10 Add error handling + loading state
+    Effort: 30 minutes | Impact: Game doesn't appear broken on failure
+    ROI: 5x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+What's WELL DONE in this game (credit where due):
+
+BACKEND:
+✓ Server-side score calculation from edges (right architecture)
+✓ Deterministic seeded node generation (mulberry32)
+✓ Atomic CAS pattern (updateMany where status: active)
+✓ AES-256-GCM encryption layer (correct implementation)
+✓ Structured logging with Pino
+✓ Graceful shutdown
+✓ Helmet + compression + security headers
+✓ Zod-based DTO validation
+✓ IdempotencyInterceptor (prevents duplicate submissions on retry)
+✓ Circuit breaker pattern
+✓ Feature flags infrastructure (Redis + cache)
+
+FRONTEND:
+✓ TypeScript strict mode (excellent config)
+✓ Clean architecture (engine/hooks/components separation)
+✓ Seeded PRNG matching server (mulberry32)
+✓ Error boundary with reset capability
+✓ Offline detection (useSyncExternalStore)
+✓ Web Audio API for procedural sounds (no asset files)
+✓ SVG rendering (resolution-independent)
+✓ preserveAspectRatio for proper scaling
+✓ i18n setup (English + Hindi)
+✓ Framer Motion for node entrance animations
+✓ Minimal dependency footprint
+
+GAME CONCEPT:
+✓ Genuinely novel — nodes appearing over time adds temporal strategy
+✓ Traveling Salesman Problem simplified for mobile = engaging puzzle
+✓ Progressive reveal creates natural difficulty curve
+✓ Pure skill-based (deterministic seeded RNG)
+✓ Quick sessions (90-120 seconds) — perfect for mobile
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+vs Arrows (58/100):
+- Worse: Game-breaking timer bug (progress lost)
+- Worse: Scoring algorithm fundamentally incorrect
+- Better: More novel/unique game concept
+- Same: Security pattern (fallback secrets)
+
+vs Block Fill (62/100):
+- Worse: Much less polished (no autosave, no pre-fetch)
+- Worse: Critical game logic bugs (scoring, timer, dedup)
+- Better: Cleaner frontend architecture
+- Same: Exposed encryption key
+
+vs Colour Sorting (61/100):
+- Worse: No undo (even worse for path games)
+- Worse: Touch targets inadequate for mobile
+- Better: Novel temporal mechanic
+- Same: Timer re-render pattern, no sounds
+
+vs Flash Spot (56/100):
+- Worse: Auto-submit completely missing (Flash Spot at least submits)
+- Better: SVG rendering (not 60fps React state bomb)
+- Same: Auth token storage mismatch
+
+vs Infinity Loop (59/100):
+- Worse: Scoring fundamentally broken (array indices)
+- Worse: No anti-cheat temporal validation
+- Better: Simpler architecture (less surface area for bugs)
+- Same: Dead engine modules
+
+LIVE ROUTE BUILDER UNIQUE ISSUES (not found in other games):
+★ Timer expiry NEVER submits results (WORST game-logic bug in entire platform)
+★ calculateOptimalPath uses array indices instead of node IDs (WRONG scoring)
+★ No duplicate edge prevention (score corruption by double-clicking)
+★ No temporal edge validation (connect nodes before they appear)
+★ 0-edge submission = free score (no minimum edge count)
+★ pathEfficiency can exceed 100% (uncapped score inflation)
+★ Node overlap (no minimum spacing between random positions)
+★ 4 DIFFERENT fallback secrets (most of any game)
+★ Socket infrastructure completely unused (dead code + bundle bloat)
+★ Touch targets 6-9px (smallest of any game — 7× below minimum)
+
+================================================================================
+END OF AUDIT — GAME #6: LIVE ROUTE BUILDER
+================================================================================

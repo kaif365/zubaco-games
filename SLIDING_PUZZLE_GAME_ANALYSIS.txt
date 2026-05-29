@@ -1,0 +1,224 @@
+SLIDING PUZZLE - GAME ANALYSIS
+================================
+Game: Sliding Puzzle (15-puzzle style image puzzle)
+Location: C:\game\zubaco-games-repo\zubaco-games\sliding-puzzle\sliding-puzzle-frontend\
+Date: 2025
+
+================================================================================
+1. TECH STACK
+================================================================================
+
+- React 19 + Vite + TypeScript
+- TailwindCSS + custom CSS (game.css)
+- @tanstack/react-query (QueryProvider)
+- react-router-dom (BrowserRouter)
+- i18next (translations)
+- socket.io-client (SocketProvider)
+- howler (audio via HTML5 Audio)
+- lucide-react (icons)
+- @radix-ui (Dialog, Toast, Slot)
+- embla-carousel-react
+- formik + yup (forms)
+- class-variance-authority + clsx + tailwind-merge
+
+================================================================================
+2. ARCHITECTURE
+================================================================================
+
+App.tsx:
+  └─ AppProviders (QueryProvider → SocketProvider → ThemeProvider → ToastProvider)
+       └─ Landscape check → AppRouter or "Tilt detected" message
+
+AppRouter.tsx:
+  └─ BrowserRouter → ErrorBoundary → Routes
+       - / → SlidingPuzzlePage (lazy)
+       - /game → redirect to /
+       - /404 → NotFoundPage
+       - /editor → GameEditorPage (DEV only)
+
+SlidingPuzzlePage.tsx:
+  └─ ErrorBoundary → Suspense → GameContainer (lazy)
+
+GameContainer.tsx (~640 lines):
+  - Main game orchestrator
+  - Manages: auth, game session, sound, screen state, demo flow
+  - AppScreen type: 'start' | 'demo' | 'game'
+  - Uses useGameSession hook for all game state
+
+================================================================================
+3. GAME MECHANICS
+================================================================================
+
+Core Concept: Classic sliding tile puzzle with image fragments
+- Grid: configurable (e.g. 3×3, 4×4, 5×5 etc.)
+- One blank tile (value -1), slide tiles into blank position
+- Goal: reassemble the full image from shuffled pieces
+- Multiple rounds per session (totalRounds from server)
+
+Game Phases (GamePhase):
+- idle: waiting to start
+- loading: connecting/fetching data
+- memorizing: shows solved image with countdown timer (displayTime from server)
+- shuffle-animation: gather-to-center then scatter animation
+- playing: player slides tiles
+- board-clearing: transitioning between rounds
+- loading-next: fetching next round's board
+- revealing: solved board reveal animation
+- calculating_result: waiting for server score
+- completed: game finished (success/failure)
+- expired: timer ran out
+- error: connection/API error
+
+Shuffle Animation Sequence:
+1. Start with solved positions (750ms delay)
+2. Gather all tiles to center (550ms transition + 120ms settle)
+3. Scatter to shuffled positions (550ms + 200ms settle)
+4. Start playing
+
+Memorize Phase:
+- Shows full image overlay with countdown bar
+- displayTime from server (seconds)
+- Image preloads before countdown starts
+- Fades out when complete
+
+Tile Movement:
+- Click/tap a tile adjacent to blank → tile slides into blank position
+- Invalid moves get "wrong step" sound
+- Valid moves get "whoosh" sound
+- Move submission: batched to server with timestamps
+
+Solving Detection:
+- isSolvedBoard() checks if pieces match sequential order
+- On solve: reveal overlay, success sound, level-complete burst effect
+- Round score calculated server-side
+
+================================================================================
+4. SCORING & PROGRESSION
+================================================================================
+
+- Multiple rounds per session (totalRounds)
+- Timer: session-level countdown (expiryAt from server)
+- Each round has: roundNumber, gridSize, fullImageUrl, displayTime
+- RoundScore: { roundNumber, score }
+- Final scoreboard: { rounds, timeBonus, totalScore }
+- Results: GameSuccessScreen (all rounds) or GameFailureScreen (expired)
+
+================================================================================
+5. RESULT SCREENS
+================================================================================
+
+Uses shared @micro-screens library:
+- GameSuccessScreen: stage, score, completedGames, totalGames, onContinue
+- GameFailureScreen: stage, score, completedGames, totalGames, onContinue
+- onContinue: globalThis.location.reload() (WILL CHANGE to setAppPhase('menu'))
+
+================================================================================
+6. SOUND SYSTEM
+================================================================================
+
+useSoundSystem hook:
+- Background music: /sounds/background_sound.mp3 (loop, 35% base vol)
+- Tap: /sounds/tap_sound.mp3 (70%)
+- Whoosh: /sounds/whoosh_sound.mp3 (50%) - valid tile move
+- Wrong step: /sounds/wrong_step.mp3 (80%) - invalid move
+- Success: /sounds/success_sound.mp3 (100%) - board solved
+
+Volume controls:
+- musicMultiplier (0-1) saved to localStorage 'game:musicvol'
+- sfxMultiplier (0-1) saved to localStorage 'game:sfxvol'
+- SoundSettings component with dual sliders
+
+================================================================================
+7. DEMO FLOW
+================================================================================
+
+- Fetched from API (getDemo)
+- DemoLevels: array of {levelName, boards[]}
+- DemoBoard: {id, gridSize, fullImageUrl, displayTime, initialPieces}
+- Same memorize → shuffle → play flow as real game
+- Completion modal on solve
+- No timer, no scoring
+- Can be toggled with "Learn How To Play" from start screen
+
+================================================================================
+8. SESSION PERSISTENCE
+================================================================================
+
+- PersistedLiveSession in localStorage
+- Fields: token, sessionId, expiryAt, startedAt, clientStartedAtMs, totalRounds,
+  currentRound, board, pieces, phase, capturedAtMs
+- Auto-resumes on page refresh if valid session exists
+- Server-anchored timestamps for move timing accuracy
+
+================================================================================
+9. KEY COMPONENTS
+================================================================================
+
+GameBoard.tsx: Renders grid of tiles with image fragments
+GameTile.tsx: Individual tile with CSS transitions for sliding
+GameTimer.tsx: Countdown timer (mm:ss format, urgent at ≤15s)
+MemorizeOverlay.tsx: Full image + countdown during memorize phase
+RevealOverlay.tsx: Celebration reveal when board solved
+RoundProgressDots.tsx: Shows progress through rounds
+SoundSettings.tsx: Music/SFX volume sliders
+DemoFlow.tsx: Tutorial/demo mode
+GameEditor.tsx: Dev tool for puzzle editing
+
+================================================================================
+10. API INTEGRATION
+================================================================================
+
+Auth: useAuth hook (authenticate, isLoading, isAuthenticated, error)
+Game API (gameApi.ts):
+- gameStart() → GameSession
+- getNextBoard() → GameBoard
+- getGameStatus() → GameStatusResponse
+- endGame() → EndGameResponse
+- getDemo() → DemoResponse
+- submitMoves(moves) → SubmitMovesResponse
+- endBoard() → EndBoardResponse
+
+Move Submission:
+- Batched via useMoveSubmission hook
+- Each move: {slot, clickedAt (ISO), moveId (UUID)}
+- Server-anchored timestamps via getServerAnchoredTimestamp
+
+Board Prefetch:
+- useBoardPrefetch hook for preloading next board
+
+================================================================================
+11. CONFIGURATION
+================================================================================
+
+appConfig:
+- game.apiUrl, game.usersApiUrl, game.cdnBaseUrl, game.cloudfrontUrl
+- game.stageId, game.stageNo (1-based stage number)
+- features.devtools (enables auto-solve button)
+- socket.url, encryption.key/enabled
+
+Stage theming:
+- STAGE_THEME_COLORS[stageNo]: {resultAccent, eclipse}
+- CSS variables: --game-accent, --game-accent-rgb, --game-eclipse, --game-eclipse-rgb
+
+================================================================================
+12. OFFLINE HANDLING
+================================================================================
+
+- useNetworkStatus hook monitors navigator.onLine
+- OfflineStatusModal appears when connection drops
+- Retry handler attempts session recovery
+- timedOutOfflineRef for timer-expired-while-offline case
+- Demo mode works fully offline
+
+================================================================================
+13. GOLD STANDARD INTEGRATION PLAN
+================================================================================
+
+Target: SlidingPuzzlePage.tsx (wraps GameContainer)
+- Add appPhase state machine around lazy GameContainer
+- Screens: menu, levels, daily, achievements, stats, settings, game
+- When appPhase === 'game': render GameContainer as-is
+- onContinue in result screens: setAppPhase('menu') instead of reload()
+- Components go in: src/features/game/components/ (alongside existing)
+
+================================================================================

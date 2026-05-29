@@ -1,0 +1,148 @@
+============================================================
+ZUBACO GAMES — MIGRATION STATUS TRACKER
+============================================================
+Last Updated: 2026-05-25
+
+This document tracks the progress of aligning ALL 20 games
+to the Gold Standard Architecture (see GOLD_STANDARD_ARCHITECTURE.txt)
+
+============================================================
+LEGEND
+============================================================
+  ✅ = Complete (production-ready)
+  🔶 = Partially done (needs finishing)
+  ❌ = Not started
+
+============================================================
+MIGRATION MATRIX (per game)
+============================================================
+
+Feature columns:
+  A = Audio System (Howler.js AudioManager)
+  B = Save Progress (Outbox pattern)
+  C = Pure Engine (feature-based folder)
+  D = i18n (react-i18next)
+  E = Auth Gate (AppBootstrapGate)
+  F = shadcn/ui components
+  G = Framer Motion animations
+  H = Confetti + Win dialogs
+  I = Settings/Stats/Instructions screens
+  J = Undo/Hints/Combo system
+
+GAME                        | A  | B  | C  | D  | E  | F  | G  | H  | I  | J  |
+============================|====|====|====|====|====|====|====|====|====|====|
+1.  Block Fill              | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+2.  Arrows                  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔶 | ✅ | ✅ | ✅ |
+3.  Colour-Sorting          | ✅ | ✅ | ✅ | ✅ | 🔶 | 🔶 | ✅ | ✅ | ✅ | ✅ |
+4.  Flash Spot              | ✅ | ✅ | 🔶 | 🔶 | ❌ | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 |
+5.  Infinity Loop           | ✅ | ✅ | 🔶 | 🔶 | ❌ | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 |
+6.  Live Route Builder      | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+7.  Logic Reflector         | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+8.  Maze Navigation         | ✅ | ✅ | 🔶 | 🔶 | ❌ | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 |
+9.  Memory Card Matching    | ✅ | ✅ | 🔶 | 🔶 | ❌ | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 |
+10. Memory Groups           | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+11. Number Grid Sprint      | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+12. Object Placement Memory | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+13. Pattern Survival        | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+14. Rapid Category Sort     | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+15. Reflex Endurance        | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+16. Sequence Recall         | ✅ | ✅ | 🔶 | 🔶 | ❌ | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 |
+17. Sliding Puzzle          | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+18. Speed Type Answer       | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+19. True False Blitz        | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+20. Word Unscramble         | ✅ | ✅ | 🔶 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+============================================================
+WHAT WAS DONE TODAY (2026-05-25)
+============================================================
+
+FOR ALL 20 GAMES:
+  ✅ Howler.js installed (npm)
+  ✅ AudioManager.ts (full Howler wrapper class)
+  ✅ AudioProvider.tsx (React context)
+  ✅ useAudio.ts (hook for components)
+  ✅ soundRegistry.ts (game-specific sound definitions)
+  ✅ index.ts (barrel exports)
+  ✅ Save-progress types (per-game)
+  ✅ Save-progress outbox (localStorage + sync queue)
+  ✅ Path aliases (@/*) added to all games
+  ✅ GOLD_STANDARD_ARCHITECTURE.txt created
+
+FOR ARROWS:
+  ✅ Framer Motion installed
+  ✅ Audio system wired into AppProviders
+  ✅ Legacy useAudio hook rewritten as compatibility wrapper
+  ✅ Feature-based engine created (features/arrows/engine/)
+  ✅ gameEngine.ts — pure functions (createSession, canMove, etc.)
+  ✅ scoreEngine.ts — calculateScore with star ratings
+  ✅ AppBootstrapGate.tsx (auth bypass for dev)
+  ✅ appEnv.ts (typed environment config)
+  ✅ TypeScript compiles with 0 errors
+
+FOR COLOUR-SORTING:
+  ✅ AudioProvider wired into App.tsx
+  ✅ Save-progress outbox created
+
+============================================================
+NEXT STEPS (per game, follow this order)
+============================================================
+
+For each remaining game (4-20), the following work is needed:
+
+1. WIRE AUDIO INTO APP
+   - Add <AudioProvider> to the main App.tsx or providers
+   - Replace any existing audio code with useAudio() hook
+
+2. ADD AUTH GATE
+   - Create AppBootstrapGate.tsx
+   - Create appEnv.ts for typed env vars
+   - Wrap app in gate component
+
+3. ADD SHADCN/UI
+   - Install: npx shadcn-ui@latest init
+   - Add: button, card, dialog, input
+   - Replace existing buttons/cards with shadcn components
+
+4. ADD FRAMER MOTION
+   - Install: npm install framer-motion
+   - Add page transition wrappers
+   - Add button scale animations
+   - Add error shake animations
+
+5. ADD MISSING SCREENS
+   - InstructionsScreen.tsx (first-time tutorial)
+   - SettingsScreen.tsx (sound, theme, language)
+   - StatsScreen.tsx (games played, best scores, streaks)
+   - WinDialog.tsx (with confetti)
+   - PauseDialog.tsx
+
+6. ADD UNDO/HINTS
+   - Each game's main hook needs: canUndo, handleUndo, hintsRemaining, handleHint
+
+7. ADD I18N
+   - Create locales/en.json and locales/hi.json
+   - Wrap all user-visible strings in t()
+   - Add language switcher to Settings
+
+8. ADD TESTS
+   - Unit tests for engine (pure functions)
+   - Component render tests
+
+============================================================
+COMMANDS REFERENCE
+============================================================
+
+Start any game in dev mode (from its frontend directory):
+  $env:PATH = "C:\Program Files\nodejs;$env:PATH"
+  node node_modules/vite/bin/vite.js
+
+TypeScript check:
+  npx tsc --noEmit
+
+Install shadcn:
+  npx shadcn-ui@latest init
+
+Add shadcn component:
+  npx shadcn-ui@latest add button card dialog
+
+============================================================

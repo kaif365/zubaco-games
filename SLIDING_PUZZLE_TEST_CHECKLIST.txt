@@ -1,0 +1,375 @@
+SLIDING PUZZLE - TEST CHECKLIST
+==================================
+Game: Sliding Puzzle (15-puzzle style image puzzle)
+Location: sliding-puzzle/sliding-puzzle-frontend/
+Date: 2025
+
+================================================================================
+SECTION 1: MENU SCREEN (12 tests)
+================================================================================
+
+[ ] 1.01  Menu renders on app load with title "Sliding Puzzle" and puzzle emoji
+[ ] 1.02  Subtitle "Slide tiles to reveal the image!" is visible
+[ ] 1.03  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.04  Buttons animate in sequentially (staggered entrance)
+[ ] 1.05  Clicking "Play" navigates to game phase
+[ ] 1.06  Clicking "Levels" navigates to level selector
+[ ] 1.07  Clicking "Daily Challenge" navigates to daily challenge screen
+[ ] 1.08  Clicking "Achievements" navigates to achievements screen
+[ ] 1.09  Clicking "Statistics" navigates to stats screen
+[ ] 1.10  Clicking "Settings" navigates to settings screen
+[ ] 1.11  Each button has correct icon and gradient color (amber theme)
+[ ] 1.12  Buttons have press animation (scale 0.97 on tap)
+
+================================================================================
+SECTION 2: LEVEL SELECTOR (15 tests)
+================================================================================
+
+[ ] 2.01  Level selector renders with "Select Level" title
+[ ] 2.02  10 level tiles displayed in 5-column grid
+[ ] 2.03  Level 1 is unlocked by default
+[ ] 2.04  Levels 2-10 are locked by default (show lock icon)
+[ ] 2.05  Unlocked levels show level number and grid size (3×3, 4×4, etc.)
+[ ] 2.06  Unlocked levels show star rating (0-3 stars)
+[ ] 2.07  Locked levels show 🔒 icon and are not clickable
+[ ] 2.08  Clicking unlocked level starts game
+[ ] 2.09  Back button returns to menu
+[ ] 2.10  Completing level 1 with ≥1 star unlocks level 2
+[ ] 2.11  Star calculation: ≥95% = 3★, ≥70% = 2★, >0% = 1★
+[ ] 2.12  High score persists in localStorage
+[ ] 2.13  Level progress persists across page reloads
+[ ] 2.14  Level tiles animate in with staggered delay
+[ ] 2.15  Grid size increases per level (3×3 → 5×5)
+
+================================================================================
+SECTION 3: DAILY CHALLENGE (13 tests)
+================================================================================
+
+[ ] 3.01  Daily challenge screen renders with title
+[ ] 3.02  "A unique puzzle every day!" subtitle visible
+[ ] 3.03  Week calendar shows Sun-Sat with current day highlighted
+[ ] 3.04  Completed days show green checkmark
+[ ] 3.05  Incomplete days show gray circle
+[ ] 3.06  Current streak counter displays correctly
+[ ] 3.07  Best streak counter displays correctly
+[ ] 3.08  "Start Daily Puzzle" button active if not completed today
+[ ] 3.09  Button shows "✓ Completed Today" and is disabled after completion
+[ ] 3.10  Clicking start navigates to game phase
+[ ] 3.11  Completing daily updates streak correctly
+[ ] 3.12  Daily state persists in localStorage
+[ ] 3.13  Back button returns to menu
+
+================================================================================
+SECTION 4: ACHIEVEMENTS (12 tests)
+================================================================================
+
+[ ] 4.01  Achievements screen renders with title and unlock count
+[ ] 4.02  All 10 achievements listed with icon, title, description
+[ ] 4.03  Unlocked achievements show full opacity with green checkmark
+[ ] 4.04  Locked achievements shown at 50% opacity
+[ ] 4.05  Achievement items animate in with staggered entrance
+[ ] 4.06  "First Solve" unlocks after first completed puzzle
+[ ] 4.07  "Speed Solver" unlocks for <30s solve
+[ ] 4.08  "Going Big" unlocks for 5×5 completion
+[ ] 4.09  "Puzzle Master" unlocks at level 10
+[ ] 4.10  Achievement popup appears when new achievement unlocked
+[ ] 4.11  Popup auto-dismisses after 4 seconds
+[ ] 4.12  Back button returns to menu
+
+================================================================================
+SECTION 5: STATISTICS (11 tests)
+================================================================================
+
+[ ] 5.01  Stats screen renders with "Statistics" title
+[ ] 5.02  10 stat cards displayed in 2-column grid
+[ ] 5.03  Games Played counter is accurate
+[ ] 5.04  Puzzles Solved counter accumulates
+[ ] 5.05  Total Moves counter accumulates
+[ ] 5.06  Avg Moves/Puzzle calculated correctly
+[ ] 5.07  High Score shows all-time best
+[ ] 5.08  Fastest Solve shows best time
+[ ] 5.09  Time Played formats correctly (seconds/minutes/hours)
+[ ] 5.10  Stat cards animate in with staggered entrance
+[ ] 5.11  Back button returns to menu
+
+================================================================================
+SECTION 6: SETTINGS (12 tests)
+================================================================================
+
+[ ] 6.01  Settings screen renders with title
+[ ] 6.02  Sound toggle switch visible with "Enable game audio" subtitle
+[ ] 6.03  Toggling sound switch updates state
+[ ] 6.04  Music Volume slider visible with percentage label
+[ ] 6.05  SFX Volume slider visible with percentage label
+[ ] 6.06  Volume sliders disabled when sound is off
+[ ] 6.07  Tile Numbers toggle visible with "Show numbers on tiles" subtitle
+[ ] 6.08  All settings persist in localStorage
+[ ] 6.09  Settings load correctly on revisit
+[ ] 6.10  Toggle animations are smooth (spring physics)
+[ ] 6.11  Amber accent color used for active toggles
+[ ] 6.12  Back button returns to menu
+
+================================================================================
+SECTION 7: GAME FLOW - INSTRUCTIONS SCREEN (10 tests)
+================================================================================
+
+[ ] 7.01  Instructions screen renders when game starts (AppScreen 'start')
+[ ] 7.02  Stage-themed styling applied (STAGE_THEME_COLORS)
+[ ] 7.03  "Play Now" button initiates authentication + game start
+[ ] 7.04  "Learn How To Play" opens demo flow
+[ ] 7.05  Demo button hidden if demo unavailable from API
+[ ] 7.06  Auth error alert displays at bottom
+[ ] 7.07  Retry button visible on auth error
+[ ] 7.08  Skeleton shown while stage content loads
+[ ] 7.09  Minimum 300ms skeleton display prevents flash
+[ ] 7.10  Settings gear icon accessible in top-right
+
+================================================================================
+SECTION 8: GAME FLOW - MEMORIZE PHASE (10 tests)
+================================================================================
+
+[ ] 8.01  Memorize phase shows full solved image
+[ ] 8.02  Countdown bar shrinks over displayTime seconds
+[ ] 8.03  "Memorize!" label visible during phase
+[ ] 8.04  Image preloads before countdown begins
+[ ] 8.05  Fade-out transition when memorize completes
+[ ] 8.06  Tiles visible underneath during transparent mode
+[ ] 8.07  Timer not active during memorize phase
+[ ] 8.08  No interaction allowed during memorize
+[ ] 8.09  displayTime configurable per board from server
+[ ] 8.10  Phase transitions to shuffle-animation after complete
+
+================================================================================
+SECTION 9: GAME FLOW - SHUFFLE ANIMATION (8 tests)
+================================================================================
+
+[ ] 9.01  Tiles start at solved positions
+[ ] 9.02  750ms delay before animation begins
+[ ] 9.03  Tiles gather to center (550ms transition)
+[ ] 9.04  120ms settle pause after gather
+[ ] 9.05  Tiles scatter to shuffled positions (550ms)
+[ ] 9.06  200ms settle pause after scatter
+[ ] 9.07  Blank tile image shown during gather phase
+[ ] 9.08  Playing phase starts after animation complete
+
+================================================================================
+SECTION 10: GAME FLOW - PLAYING (14 tests)
+================================================================================
+
+[ ] 10.01  Tiles respond to click/tap interactions
+[ ] 10.02  Only tiles adjacent to blank can move
+[ ] 10.03  Valid move: tile slides into blank position smoothly
+[ ] 10.04  Invalid move: tile doesn't move
+[ ] 10.05  Valid move plays whoosh sound
+[ ] 10.06  Invalid move plays wrong-step sound
+[ ] 10.07  Tile positions update correctly in state
+[ ] 10.08  Move recorded with server-anchored timestamp
+[ ] 10.09  Move recorded with unique moveId (UUID)
+[ ] 10.10  Moves batched for server submission
+[ ] 10.11  Board detects solved state (isSolvedBoard)
+[ ] 10.12  Solved board triggers reveal phase
+[ ] 10.13  Level number displayed in header
+[ ] 10.14  Timer displayed and counting down
+
+================================================================================
+SECTION 11: GAME TIMER (8 tests)
+================================================================================
+
+[ ] 11.01  Timer shows mm:ss format
+[ ] 11.02  Timer counts down from server expiryAt
+[ ] 11.03  Timer turns urgent (red) at ≤15 seconds
+[ ] 11.04  Timer expiry triggers game end (expired phase)
+[ ] 11.05  Timer not shown during non-game phases
+[ ] 11.06  Timer accuracy ±1 second
+[ ] 11.07  Timer uses server-anchored time
+[ ] 11.08  Timer handles offline gracefully
+
+================================================================================
+SECTION 12: ROUND PROGRESSION (10 tests)
+================================================================================
+
+[ ] 12.01  Round progress dots show current/total rounds
+[ ] 12.02  Completed rounds marked with score indicator
+[ ] 12.03  Board-clearing phase transitions between rounds
+[ ] 12.04  Next board prefetched during current play
+[ ] 12.05  Loading-next phase shows if board not ready
+[ ] 12.06  New board starts with memorize → shuffle → play
+[ ] 12.07  Round number increments correctly
+[ ] 12.08  All rounds complete triggers result calculation
+[ ] 12.09  Round scores accumulated in roundScores array
+[ ] 12.10  Level-complete burst effect on solve
+
+================================================================================
+SECTION 13: REVEAL OVERLAY (6 tests)
+================================================================================
+
+[ ] 13.01  Reveal overlay shows full image after solve
+[ ] 13.02  Success sound plays on reveal start
+[ ] 13.03  Level-complete burst animation fires
+[ ] 13.04  Burst effect lasts ~1450ms
+[ ] 13.05  Reveal transitions to next round or results
+[ ] 13.06  onRevealComplete callback triggers progression
+
+================================================================================
+SECTION 14: RESULT SCREENS (10 tests)
+================================================================================
+
+[ ] 14.01  Success screen shows for status ENDED
+[ ] 14.02  Failure screen shows for status EXPIRED
+[ ] 14.03  Score displayed correctly
+[ ] 14.04  Completed games / total games shown
+[ ] 14.05  Stage-themed styling applied
+[ ] 14.06  "Continue" button returns to menu (not page reload)
+[ ] 14.07  Custom event 'sliding-puzzle:return-to-menu' dispatched
+[ ] 14.08  SlidingPuzzlePage listens and sets appPhase to menu
+[ ] 14.09  Result renders only when scoreboard and finalStatus present
+[ ] 14.10  Calculating result loading screen shown while waiting
+
+================================================================================
+SECTION 15: DEMO FLOW (10 tests)
+================================================================================
+
+[ ] 15.01  Demo accessible from instructions screen "Learn How To Play"
+[ ] 15.02  Demo levels fetched from API on auth
+[ ] 15.03  Demo boards render with same puzzle mechanics
+[ ] 15.04  No timer in demo mode
+[ ] 15.05  No scoring in demo mode
+[ ] 15.06  Same memorize → shuffle → play flow
+[ ] 15.07  Completion modal on board solve
+[ ] 15.08  Multiple demo boards navigable
+[ ] 15.09  "Complete" returns to start screen
+[ ] 15.10  Demo works fully offline
+
+================================================================================
+SECTION 16: SOUND SYSTEM (10 tests)
+================================================================================
+
+[ ] 16.01  Background music starts on game entry
+[ ] 16.02  Background loops continuously
+[ ] 16.03  Whoosh sound on valid tile move
+[ ] 16.04  Wrong-step sound on invalid move
+[ ] 16.05  Tap sound on UI interactions
+[ ] 16.06  Success sound on board solve
+[ ] 16.07  Music volume controlled by musicMultiplier
+[ ] 16.08  SFX volume controlled by sfxMultiplier
+[ ] 16.09  Volumes persist in localStorage (game:musicvol, game:sfxvol)
+[ ] 16.10  SoundSettings panel accessible during game
+
+================================================================================
+SECTION 17: PAUSE DIALOG (8 tests)
+================================================================================
+
+[ ] 17.01  Pause dialog renders with "Game Paused" title
+[ ] 17.02  Three buttons: Resume, Restart, Quit to Menu
+[ ] 17.03  Backdrop blur and dark overlay visible
+[ ] 17.04  Resume continues game
+[ ] 17.05  Restart starts fresh game
+[ ] 17.06  Quit returns to menu
+[ ] 17.07  Dialog animates in with spring scale
+[ ] 17.08  Dialog animates out on dismiss
+
+================================================================================
+SECTION 18: CONFETTI (7 tests)
+================================================================================
+
+[ ] 18.01  Confetti triggers on significant events
+[ ] 18.02  60+ particles spawn with varied colors
+[ ] 18.03  Particles fall with gravity and drift
+[ ] 18.04  Particles rotate during fall
+[ ] 18.05  Confetti stops after duration (3s)
+[ ] 18.06  Doesn't block interactions (pointer-events-none)
+[ ] 18.07  Particles fade and clean up
+
+================================================================================
+SECTION 19: OFFLINE & ERROR HANDLING (10 tests)
+================================================================================
+
+[ ] 19.01  Offline modal appears when connection drops
+[ ] 19.02  Offline modal has retry button
+[ ] 19.03  Retry recovers session if token persisted
+[ ] 19.04  Demo excluded from offline modal
+[ ] 19.05  Timer-expired-while-offline handled gracefully
+[ ] 19.06  Auth error shown on instructions screen
+[ ] 19.07  Runtime game error alert at bottom
+[ ] 19.08  Error alerts dismissible
+[ ] 19.09  Session recovery on page refresh
+[ ] 19.10  clearData envelope handled (session invalidation)
+
+================================================================================
+SECTION 20: RESPONSIVE & ORIENTATION (8 tests)
+================================================================================
+
+[ ] 20.01  Landscape (≤610px height): "Tilt detected" message shown
+[ ] 20.02  Portrait: normal game rendering
+[ ] 20.03  Mandala background image in landscape warning
+[ ] 20.04  Orientation change detected in real-time
+[ ] 20.05  Board scales with aspect ratio container
+[ ] 20.06  Max width 420px for game board
+[ ] 20.07  Touch targets adequate for mobile
+[ ] 20.08  No content overflow/clipping
+
+================================================================================
+SECTION 21: SESSION PERSISTENCE (8 tests)
+================================================================================
+
+[ ] 21.01  Live session persisted to localStorage on game start
+[ ] 21.02  Persisted data: token, sessionId, expiryAt, startedAt, board, pieces, phase
+[ ] 21.03  Auto-resume on page refresh if valid session exists
+[ ] 21.04  Skips memorize overlay if phase was 'playing'
+[ ] 21.05  Unsent moves restored from persistence
+[ ] 21.06  Server-anchored timestamps maintained
+[ ] 21.07  Expired sessions not auto-resumed
+[ ] 21.08  Auth token restored into httpClient
+
+================================================================================
+SECTION 22: NAVIGATION & APP FLOW (8 tests)
+================================================================================
+
+[ ] 22.01  App starts at menu phase (not instructions screen)
+[ ] 22.02  All menu → screen transitions work
+[ ] 22.03  All "Back" buttons return to menu
+[ ] 22.04  Game end returns to menu via custom event
+[ ] 22.05  Browser URL / loads SlidingPuzzlePage
+[ ] 22.06  /404 shows NotFoundPage
+[ ] 22.07  AppProviders wrap entire app (Query, Socket, Theme, Toast)
+[ ] 22.08  State machine prevents invalid transitions
+
+================================================================================
+SECTION 23: PERFORMANCE & EDGE CASES (6 tests)
+================================================================================
+
+[ ] 23.01  Lazy loading of GameContainer works
+[ ] 23.02  No memory leaks from timers/intervals
+[ ] 23.03  Board image prefetch prevents flicker
+[ ] 23.04  Stable tile DOM order prevents snap effects
+[ ] 23.05  CSS transitions fire correctly on piece reorder
+[ ] 23.06  Corrupted localStorage handled gracefully
+
+================================================================================
+TOTAL TESTS: 218
+================================================================================
+SECTIONS BREAKDOWN:
+- Menu Screen: 12
+- Level Selector: 15
+- Daily Challenge: 13
+- Achievements: 12
+- Statistics: 11
+- Settings: 12
+- Instructions Screen: 10
+- Memorize Phase: 10
+- Shuffle Animation: 8
+- Playing: 14
+- Game Timer: 8
+- Round Progression: 10
+- Reveal Overlay: 6
+- Result Screens: 10
+- Demo Flow: 10
+- Sound System: 10
+- Pause Dialog: 8
+- Confetti: 7
+- Offline & Error: 10
+- Responsive & Orientation: 8
+- Session Persistence: 8
+- Navigation & App Flow: 8
+- Performance & Edge Cases: 6
+================================================================================

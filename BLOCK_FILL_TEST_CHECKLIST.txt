@@ -1,0 +1,141 @@
+============================================================
+BLOCK FILL GAME - TEST CHECKLIST
+============================================================
+Created: 2026-05-25
+URL: http://localhost:3008/
+Game Type: Flow Free (connect colored dots, fill entire grid)
+
+============================================================
+HOW TO RUN
+============================================================
+cd C:\game\zubaco-games-repo\zubaco-games\block-fill\block-fill-frontend
+$env:PATH = "C:\Program Files\nodejs;$env:PATH"
+npx vite --mode development --port 3008
+
+============================================================
+TEST CASES
+============================================================
+
+--- HOME / MENU ---
+[ ] App loads without errors (no white screen)
+[ ] Game title "Block Fill" displays correctly
+[ ] Difficulty packs visible (Easy/Medium/Hard)
+[ ] Can select different difficulty packs
+[ ] "Play Selected" button works → enters game
+[ ] "Generator" button works → opens level generator
+[ ] "Settings" button visible → navigates to Settings screen
+[ ] "Stats" button visible → navigates to Stats screen
+
+--- SETTINGS SCREEN (navigate to #/settings) ---
+[ ] Settings screen renders properly
+[ ] Sound toggle works (on/off)
+[ ] Vibration toggle works (on/off)
+[ ] "Reset All Progress" button shows confirm dialog
+[ ] Back button returns to home/game
+
+--- STATS SCREEN (navigate to #/stats) ---
+[ ] Stats screen renders properly
+[ ] Shows all stat categories (Games Played, Won, Win Rate, etc.)
+[ ] Stats default to 0/-- for new players
+[ ] Back button returns to home/game
+
+--- GAMEPLAY ---
+[ ] Grid board renders correctly (colored dots visible)
+[ ] Can touch/click a colored dot to start drawing path
+[ ] Can drag to draw a path between dots
+[ ] Path follows finger/mouse through grid cells
+[ ] Can backtrack by dragging over own path
+[ ] Releasing finger/mouse commits the path
+[ ] Move counter increments on each completed path draw
+[ ] Timer counts up during gameplay
+[ ] Coverage percentage updates as paths fill cells
+[ ] Pairs counter updates when a pair is fully connected
+
+--- GAME HUD BUTTONS ---
+[ ] Pause button works → shows pause dialog
+[ ] Undo button appears on HUD
+[ ] Undo button disabled when no moves made
+[ ] Undo button enabled after drawing a path
+[ ] Clicking Undo reverts the last path action
+[ ] Can undo multiple times (up to 20 moves)
+[ ] Hint button appears with count (3)
+[ ] Hint count decreases when hint is used
+[ ] Hint button disabled when hints = 0
+[ ] Mute button appears (speaker icon)
+[ ] Mute button toggles sound on/off
+[ ] Mute icon changes (Volume2 ↔ VolumeX)
+[ ] Reset Level button clears all paths
+[ ] Levels button returns to level select
+
+--- PAUSE DIALOG ---
+[ ] Pause dialog opens correctly
+[ ] "Resume" button continues the game
+[ ] "Reset" button restarts the level
+[ ] "Exit" button leaves the game
+
+--- WIN CONDITION ---
+[ ] Connecting all pairs + filling entire grid = WIN
+[ ] Win dialog appears on completion
+[ ] Confetti animation plays on win (60 colored pieces falling)
+[ ] Score displays correctly
+[ ] Time displays correctly
+[ ] "Replay" button restarts same level
+[ ] "Next Level" button advances to next puzzle
+[ ] "Level Select" button goes back to level list
+
+--- AUDIO ---
+[ ] Sound plays when picking up a path (if not muted)
+[ ] Sound plays when releasing a path
+[ ] Mute persists across game actions
+[ ] No audio errors in console
+
+--- RESPONSIVE / MOBILE ---
+[ ] Board scales to fit mobile screen
+[ ] Touch drawing works on mobile
+[ ] Portrait lock overlay shows in landscape mode
+[ ] Buttons are tappable on mobile (not too small)
+[ ] No horizontal overflow/scroll
+
+--- LEVEL GENERATOR (navigate to #/generator) ---
+[ ] Generator screen loads
+[ ] Can select difficulty
+[ ] Can change grid rows/cols
+[ ] Generate button creates level JSON
+[ ] Copy button copies JSON to clipboard
+[ ] Download button downloads JSON file
+
+============================================================
+KNOWN FEATURES ALREADY WORKING (from before our changes):
+============================================================
+✓ Core flow puzzle engine (path drawing)
+✓ Multiple difficulty packs (easy/medium/hard)
+✓ Timer system
+✓ Score calculation
+✓ Phaser board renderer
+✓ Level generator
+✓ Save progress (outbox pattern)
+✓ i18n translations
+✓ Auth gate (dev session)
+✓ Board card flip transitions
+
+============================================================
+NEW FEATURES ADDED (this session):
+============================================================
+★ Mute toggle button on game HUD
+★ Undo button (reverts last path action, up to 20 steps)
+★ Hint button (3 hints per level)
+★ Confetti animation on level completion
+★ Settings screen (sound/vibration toggles, reset progress)
+★ Stats screen (games played, win rate, streaks, times)
+★ Settings/Stats routes added to app navigation
+
+============================================================
+BUG REPORT FORMAT:
+============================================================
+If you find a bug, note:
+  1. Which test case failed
+  2. What you expected
+  3. What actually happened
+  4. Browser + screen size (if relevant)
+
+============================================================

@@ -1,0 +1,213 @@
+========================================================================
+MAZE NAVIGATION – COMPREHENSIVE TEST CHECKLIST
+========================================================================
+Total Test Cases: 148
+Version: 1.0
+Game: Maze Navigation
+Stack: React 19 + Vite + TypeScript + TailwindCSS + motion/react + PixiJS + Zustand + React Router + i18next
+
+========================================================================
+SECTION 1: MENU SCREEN (14 tests)
+========================================================================
+[ ] 1.1  Menu renders with game title "Maze Navigation" and subtitle
+[ ] 1.2  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.3  Buttons animate in sequentially with stagger delay
+[ ] 1.4  Tapping "Play" transitions to instructions screen
+[ ] 1.5  Tapping "Levels" transitions to level selector
+[ ] 1.6  Tapping "Daily Challenge" transitions to daily screen
+[ ] 1.7  Tapping "Achievements" transitions to achievements screen
+[ ] 1.8  Tapping "Statistics" transitions to stats screen
+[ ] 1.9  Tapping "Settings" transitions to settings screen
+[ ] 1.10 Each button has correct gradient accent color
+[ ] 1.11 Menu renders full-screen over dark background
+[ ] 1.12 Active button scale animation on tap (scale 0.97)
+[ ] 1.13 Menu icon emojis render correctly across devices
+[ ] 1.14 Menu is accessible (buttons focusable, proper labels)
+
+========================================================================
+SECTION 2: LEVEL SELECTOR (18 tests)
+========================================================================
+[ ] 2.1  Level grid renders 10 levels in 5-column layout
+[ ] 2.2  Level 1 is unlocked by default
+[ ] 2.3  Levels 2-10 are locked initially (show 🔒)
+[ ] 2.4  Unlocked levels show level number and star display
+[ ] 2.5  Stars display (0-3) for each completed level
+[ ] 2.6  Locked levels have reduced opacity and no click action
+[ ] 2.7  Tapping unlocked level calls onSelect with LevelConfig
+[ ] 2.8  Completing level N unlocks level N+1 (persistence check)
+[ ] 2.9  Star calculation: 3★ = ≥70% time remaining
+[ ] 2.10 Star calculation: 2★ = ≥40% time remaining
+[ ] 2.11 Star calculation: 1★ = completed (any time)
+[ ] 2.12 Best stars are saved (won't overwrite with worse)
+[ ] 2.13 "← Back" button returns to menu
+[ ] 2.14 Level configs scale difficulty (cols, rows, time, rounds)
+[ ] 2.15 localStorage persistence survives page refresh
+[ ] 2.16 Level grid entrance animation (scale from 0.8)
+[ ] 2.17 Level selector scrolls if content overflows
+[ ] 2.18 Corrupted localStorage gracefully falls back to defaults
+
+========================================================================
+SECTION 3: SETTINGS (12 tests)
+========================================================================
+[ ] 3.1  Settings screen renders with Sound, Volume, Theme toggles
+[ ] 3.2  Sound toggle reflects current state from localStorage
+[ ] 3.3  Toggling sound updates state and saves immediately
+[ ] 3.4  Volume slider shows current percentage (0-100)
+[ ] 3.5  Volume slider disabled when sound is off
+[ ] 3.6  Volume changes persist across page refresh
+[ ] 3.7  Theme toggle switches between dark/light
+[ ] 3.8  Theme preference persists in localStorage
+[ ] 3.9  Toggle pill animation slides left/right correctly
+[ ] 3.10 "← Back" button returns to menu
+[ ] 3.11 Settings load default values if no localStorage data
+[ ] 3.12 Invalid localStorage values handled gracefully
+
+========================================================================
+SECTION 4: STATISTICS (12 tests)
+========================================================================
+[ ] 4.1  Stats screen renders all 10 stat cards in 2-column grid
+[ ] 4.2  Displays: Games Played, Mazes Solved, Total Moves, Fewest Moves
+[ ] 4.3  Displays: Best Streak, Highest Level, Perfect Mazes, Speed Runs
+[ ] 4.4  Displays: Total Time (formatted as Xh Xm), High Score
+[ ] 4.5  All stats start at 0 for new player
+[ ] 4.6  Stats update correctly after game completion
+[ ] 4.7  Time format: shows "0m" when no time, "Xm" when <1h, "Xh Xm" when ≥1h
+[ ] 4.8  Stats entrance animation (opacity + y translate)
+[ ] 4.9  "← Back" button returns to menu
+[ ] 4.10 Stats survive page refresh via localStorage
+[ ] 4.11 Number formatting uses locale-aware toLocaleString
+[ ] 4.12 updateStats helper correctly increments/maxes values
+
+========================================================================
+SECTION 5: ACHIEVEMENTS (16 tests)
+========================================================================
+[ ] 5.1  Achievements screen renders all 10 achievement cards
+[ ] 5.2  Unlocked achievements show icon, title, description, and ✓
+[ ] 5.3  Locked achievements show at 50% opacity
+[ ] 5.4  "First Victory" unlocks after first win
+[ ] 5.5  "On Fire" unlocks at 5 streak
+[ ] 5.6  "Unstoppable" unlocks at 10 streak
+[ ] 5.7  "Perfectionist" unlocks with optimal path completion
+[ ] 5.8  "Speed Demon" unlocks with >50% time remaining
+[ ] 5.9  "Dedicated" unlocks after 50 games played
+[ ] 5.10 "Explorer" unlocks at level 5
+[ ] 5.11 "Maze Master" unlocks at level 10
+[ ] 5.12 "High Scorer" unlocks at 1000+ points
+[ ] 5.13 "No Dead Ends" unlocks on zero wall hits
+[ ] 5.14 AchievementPopup appears at top of screen with animation
+[ ] 5.15 Popup auto-dismisses after 4 seconds
+[ ] 5.16 "← Back" button returns to menu
+
+========================================================================
+SECTION 6: DAILY CHALLENGE (14 tests)
+========================================================================
+[ ] 6.1  Daily screen renders calendar week (Sun-Sat)
+[ ] 6.2  Current day highlighted with blue border
+[ ] 6.3  Completed days show ✓, incomplete show ○
+[ ] 6.4  Current streak and best streak displayed
+[ ] 6.5  Streak increments on daily completion
+[ ] 6.6  Best streak updates when current surpasses it
+[ ] 6.7  "Start Daily Maze" button active for incomplete day
+[ ] 6.8  Button disabled and shows "✓ Completed Today" after completion
+[ ] 6.9  Daily seed is date-based (same maze for all users on same day)
+[ ] 6.10 Score multiplier info (1.5×) displayed
+[ ] 6.11 "← Back" button returns to menu
+[ ] 6.12 Daily completion persists in localStorage
+[ ] 6.13 Calendar week resets at start of new week
+[ ] 6.14 markDailyComplete prevents double completion
+
+========================================================================
+SECTION 7: PAUSE DIALOG (10 tests)
+========================================================================
+[ ] 7.1  Pause overlay covers full screen with backdrop blur
+[ ] 7.2  Dialog shows current moves count
+[ ] 7.3  Dialog shows elapsed time (MM:SS format)
+[ ] 7.4  "Resume" button calls onResume and closes
+[ ] 7.5  "Restart" button calls onRestart
+[ ] 7.6  "Exit to Menu" button calls onExit
+[ ] 7.7  Dialog entrance animation (scale from 0.9)
+[ ] 7.8  Buttons have correct visual hierarchy (Resume = primary)
+[ ] 7.9  Game timer is paused while dialog is open
+[ ] 7.10 Dialog rendered above all game UI (z-50)
+
+========================================================================
+SECTION 8: CONFETTI (10 tests)
+========================================================================
+[ ] 8.1  Confetti does not render when active=false
+[ ] 8.2  Confetti renders 60 particles when active=true
+[ ] 8.3  Particles have random colors from 8-color palette
+[ ] 8.4  Particles animate outward with gravity-like trajectory
+[ ] 8.5  Particles fade to opacity 0 during animation
+[ ] 8.6  Confetti disappears after duration (default 3000ms)
+[ ] 8.7  pointer-events-none so confetti doesn't block interaction
+[ ] 8.8  Particles have mixed shapes (circle and rectangle)
+[ ] 8.9  Re-triggering active creates fresh particle set
+[ ] 8.10 No memory leaks (timeout cleared on unmount)
+
+========================================================================
+SECTION 9: CORE GAMEPLAY (22 tests)
+========================================================================
+[ ] 9.1  Maze generates with valid start and goal positions
+[ ] 9.2  Player can move UP/DOWN/LEFT/RIGHT using D-pad
+[ ] 9.3  Player cannot move through walls (wall collision)
+[ ] 9.4  Timer starts at configured time and counts down
+[ ] 9.5  Timer changes color at ≤60s warning threshold
+[ ] 9.6  Game ends (LOSE) when timer reaches 0
+[ ] 9.7  Game ends (WIN) when player reaches goal
+[ ] 9.8  Score = LEVEL_COMPLETE_BASE_SCORE + (timeRemaining × TIMER_SCORE_FACTOR)
+[ ] 9.9  Multi-round games: completing one maze loads next
+[ ] 9.10 Combo system: streak multiplier increases on consecutive solves
+[ ] 9.11 Combo max is 4× multiplier
+[ ] 9.12 Combo milestone every 3 consecutive solves
+[ ] 9.13 Sound: stepForward plays on valid move
+[ ] 9.14 Sound: wallHit plays on wall collision
+[ ] 9.15 Sound: pathFound plays on reaching junction
+[ ] 9.16 Sound: levelComplete plays on winning
+[ ] 9.17 Sound: gameOver plays on losing
+[ ] 9.18 Sound: timerWarning plays at threshold
+[ ] 9.19 Sound: uiClick plays on button interactions
+[ ] 9.20 Sound mute toggle works globally
+[ ] 9.21 HUD displays: level chip, timer chip, sound toggle, "Start Fresh"
+[ ] 9.22 PixiJS canvas renders maze walls, floor, player beacon, goal, junction arrows
+
+========================================================================
+SECTION 10: RESULT SCREEN & FLOW (10 tests)
+========================================================================
+[ ] 10.1  Win screen shows on successful maze completion
+[ ] 10.2  Fail screen shows on timer expiration
+[ ] 10.3  Win screen displays: score, time remaining, stars earned
+[ ] 10.4  Win screen triggers confetti animation
+[ ] 10.5  "Next Level" button advances to next level
+[ ] 10.6  Level unlock persists after winning
+[ ] 10.7  Stats update on game completion (win or lose)
+[ ] 10.8  Achievement check runs after every game end
+[ ] 10.9  Result screen accessible from /result route
+[ ] 10.10 Navigation from result back to menu works correctly
+
+========================================================================
+SECTION 11: ROUTING & INTEGRATION (10 tests)
+========================================================================
+[ ] 11.1  / route shows menu screen (home-page.tsx)
+[ ] 11.2  /demo route shows tutorial demo
+[ ] 11.3  /game route shows maze gameplay
+[ ] 11.4  /result route shows result screen
+[ ] 11.5  Phase state machine in home-page transitions correctly
+[ ] 11.6  MenuScreen → Instructions → Game flow works end-to-end
+[ ] 11.7  Back buttons return to correct previous phase
+[ ] 11.8  Browser back/forward doesn't break phase state
+[ ] 11.9  Deep linking to /game without prior setup is handled
+[ ] 11.10 All imports resolve correctly (no missing modules)
+
+========================================================================
+NOTES
+========================================================================
+- Backend supports: 5 boosters (TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO)
+- Backend has: achievement engine, combo engine, leaderboard (top 100)
+- Canvas rendering via PixiJS (maze-canvas.tsx)
+- State management via Zustand stores (live, demo, settings)
+- Animations use motion/react (NOT framer-motion)
+- Timer constants: START_TIMER=120s, TIMER_LOW_WARNING=60s
+- Maze grid: 15 cols × 10 rows × 40px cell size (default)
+- i18n via i18next for all user-facing strings
+- Daily challenge: date-seeded with 1.5× score multiplier
+========================================================================

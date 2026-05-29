@@ -1,0 +1,327 @@
+TRUE FALSE BLITZ - TEST CHECKLIST
+====================================
+Game: True False Blitz (Rapid-fire True/False under time pressure)
+Location: true-false-blitz/true-false-blitz-frontend/
+Date: 2025
+
+================================================================================
+SECTION 1: MENU SCREEN (12 tests)
+================================================================================
+
+[ ] 1.01  Menu renders on app load with title "⚡ True False Blitz"
+[ ] 1.02  Subtitle "Rapid-fire true or false — beat the clock!" visible
+[ ] 1.03  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.04  Buttons animate in sequentially (staggered x-axis entrance)
+[ ] 1.05  Clicking "Play" navigates to game phase
+[ ] 1.06  Clicking "Levels" navigates to level selector
+[ ] 1.07  Clicking "Daily Challenge" navigates to daily challenge screen
+[ ] 1.08  Clicking "Achievements" navigates to achievements screen
+[ ] 1.09  Clicking "Statistics" navigates to stats screen
+[ ] 1.10  Clicking "Settings" navigates to settings screen
+[ ] 1.11  Each button has correct gradient color
+[ ] 1.12  Buttons have press animation (scale 0.97 on tap)
+
+================================================================================
+SECTION 2: LEVEL SELECTOR (14 tests)
+================================================================================
+
+[ ] 2.01  Level selector renders with "Select Level" title
+[ ] 2.02  10 level tiles displayed in 5-column grid
+[ ] 2.03  Level 1 is unlocked by default
+[ ] 2.04  Levels 2-10 are locked by default
+[ ] 2.05  Unlocked levels show level number and star rating
+[ ] 2.06  Locked levels show 🔒 icon
+[ ] 2.07  Locked levels are not clickable (disabled)
+[ ] 2.08  Clicking unlocked level starts game
+[ ] 2.09  Back button returns to menu
+[ ] 2.10  Stars: ≥95% accuracy = 3★, ≥70% = 2★, >0% = 1★
+[ ] 2.11  Level progress persists in localStorage (tfblitz_levels)
+[ ] 2.12  Higher levels have faster displayTime and shorter timeLimit
+[ ] 2.13  Level tiles animate in with staggered delay
+[ ] 2.14  Description text "Higher levels = faster statements & shorter timer"
+
+================================================================================
+SECTION 3: DAILY CHALLENGE (13 tests)
+================================================================================
+
+[ ] 3.01  Daily challenge screen renders with "Daily Challenge" title
+[ ] 3.02  "Test your reflexes every day!" subtitle visible
+[ ] 3.03  Week calendar shows Sun-Sat with current day highlighted (indigo ring)
+[ ] 3.04  Completed days show green circle with "✓"
+[ ] 3.05  Incomplete days show gray circle with "·"
+[ ] 3.06  Current day shows "▶" marker
+[ ] 3.07  Current streak counter displays correctly (orange)
+[ ] 3.08  Best streak counter displays correctly (yellow)
+[ ] 3.09  "Start Daily Challenge" button active if not completed today
+[ ] 3.10  Button disabled and shows "✓ Completed Today" after completion
+[ ] 3.11  Clicking start navigates to game phase
+[ ] 3.12  Daily state persists in localStorage (tfblitz_daily)
+[ ] 3.13  Back button returns to menu
+
+================================================================================
+SECTION 4: ACHIEVEMENTS (12 tests)
+================================================================================
+
+[ ] 4.01  Achievements screen renders with title and unlock count (X/10)
+[ ] 4.02  All 10 achievements listed with icon, title, description
+[ ] 4.03  Unlocked achievements show full opacity with "✓"
+[ ] 4.04  Locked achievements at 50% opacity
+[ ] 4.05  Achievement items animate in with stagger
+[ ] 4.06  "First Game" unlocks after first completed game
+[ ] 4.07  "Perfect 10" unlocks for 10 correct in a row
+[ ] 4.08  "Speed Demon" unlocks for 20+ in under 30s
+[ ] 4.09  "Streak Master" unlocks for 15-statement streak
+[ ] 4.10  "Perfectionist" unlocks for 100% accuracy
+[ ] 4.11  "Blitz King" unlocks at Level 10
+[ ] 4.12  Back button returns to menu
+
+================================================================================
+SECTION 5: STATISTICS (11 tests)
+================================================================================
+
+[ ] 5.01  Stats screen renders with "Statistics" title
+[ ] 5.02  10 stat cards displayed in 2-column grid
+[ ] 5.03  Games Played counter accurate
+[ ] 5.04  High Score shows all-time best
+[ ] 5.05  Total Correct accumulates
+[ ] 5.06  Total Wrong accumulates
+[ ] 5.07  Total Missed accumulates
+[ ] 5.08  Best Streak tracks longest streak
+[ ] 5.09  Accuracy percentage calculated correctly
+[ ] 5.10  Stat cards animate in with stagger
+[ ] 5.11  Back button returns to menu
+
+================================================================================
+SECTION 6: SETTINGS (10 tests)
+================================================================================
+
+[ ] 6.01  Settings screen renders with "Settings" title
+[ ] 6.02  Sound toggle with "Enable feedback sounds" subtitle
+[ ] 6.03  Toggling sound switch updates visual state (indigo vs gray)
+[ ] 6.04  Volume slider visible with percentage display
+[ ] 6.05  Volume slider disabled when sound off (opacity 40%)
+[ ] 6.06  Theme selector: dark/light/system buttons
+[ ] 6.07  Active theme button highlighted in indigo
+[ ] 6.08  All settings persist in localStorage (tfblitz_settings)
+[ ] 6.09  Toggle animations smooth (spring physics)
+[ ] 6.10  Back button returns to menu
+
+================================================================================
+SECTION 7: INSTRUCTION SCREEN (8 tests)
+================================================================================
+
+[ ] 7.01  Instruction screen shows when game starts (idle phase)
+[ ] 7.02  Game icon displayed (indigo play button)
+[ ] 7.03  Title from translation (game.title)
+[ ] 7.04  Instructions text from translation
+[ ] 7.05  Numbered steps shown
+[ ] 7.06  "Start" button visible (emerald green)
+[ ] 7.07  Button shows loading state when pressed
+[ ] 7.08  Clicking start triggers API call (POST /game/start)
+
+================================================================================
+SECTION 8: PLAYING - STATEMENT DISPLAY (12 tests)
+================================================================================
+
+[ ] 8.01  Statement card appears with slide-up animation
+[ ] 8.02  Statement text displayed in large bold font (2xl/3xl)
+[ ] 8.03  Card has gray border by default
+[ ] 8.04  Correct answer: card border turns green with green bg tint
+[ ] 8.05  Wrong answer: card border turns red with red bg tint
+[ ] 8.06  Progress bar at bottom of card shrinks from 100%→0% over displayTimeMs
+[ ] 8.07  AnimatePresence handles enter/exit transitions (mode="wait")
+[ ] 8.08  Statement auto-advances after displayTimeMs (2000ms default)
+[ ] 8.09  30 statements per game (configurable via config.totalStatements)
+[ ] 8.10  Statements selected from seeded PRNG (mulberry32)
+[ ] 8.11  No duplicate statements in same game
+[ ] 8.12  Statements cover varied topics (science, geography, nature, math)
+
+================================================================================
+SECTION 9: PLAYING - ANSWER BUTTONS (8 tests)
+================================================================================
+
+[ ] 9.01  TRUE button (green) and FALSE button (red) displayed
+[ ] 9.02  Buttons large with uppercase text (2xl font, py-6)
+[ ] 9.03  whileTap scale animation (0.93)
+[ ] 9.04  Buttons disabled when phase ≠ 'playing'
+[ ] 9.05  Only one answer accepted per statement (answeredRef guard)
+[ ] 9.06  Keyboard: ArrowLeft or 'A' = TRUE
+[ ] 9.07  Keyboard: ArrowRight or 'D' = FALSE
+[ ] 9.08  Buttons side by side (flex gap-4)
+
+================================================================================
+SECTION 10: PLAYING - GAME HEADER (10 tests)
+================================================================================
+
+[ ] 10.01  Timer countdown shows seconds remaining (from timeLimitMs)
+[ ] 10.02  Timer turns red and pulses at ≤10 seconds
+[ ] 10.03  Question counter shows "X / total" (e.g., "5 / 30")
+[ ] 10.04  Streak counter with fire emoji displayed
+[ ] 10.05  Answered count shown ("Answered: N")
+[ ] 10.06  Timer decrements in real-time (100ms interval)
+[ ] 10.07  Game ends when timer reaches 0
+[ ] 10.08  Header elements aligned: left (question), center (timer), right (streak)
+[ ] 10.09  "Question" label above counter (xs text gray-400)
+[ ] 10.10  "Streak" label next to fire emoji
+
+================================================================================
+SECTION 11: SCORING LOGIC (12 tests)
+================================================================================
+
+[ ] 11.01  Correct: +pointsPerCorrect (10 default)
+[ ] 11.02  Wrong: -penaltyPerWrong (5 default)
+[ ] 11.03  Missed (no answer before advance): no points, counts in missedCount
+[ ] 11.04  Streak increments on consecutive correct answers
+[ ] 11.05  Streak resets to 0 on wrong answer
+[ ] 11.06  Streak bonus: ≥streakThreshold (3) correct in a row triggers bonus
+[ ] 11.07  Streak bonus per qualifying item: +streakBonus (5)
+[ ] 11.08  Final score = max(0, correct×10 - wrong×5 + streakBonus)
+[ ] 11.09  Score cannot go below 0
+[ ] 11.10  ScoreResult has: correctCount, wrongCount, missedCount, streakBonus, finalScore
+[ ] 11.11  All unanswered statements after time expires count as missed
+[ ] 11.12  Game ends when all statements answered OR timer reaches 0
+
+================================================================================
+SECTION 12: RESULT SCREEN (10 tests)
+================================================================================
+
+[ ] 12.01  Result screen shows on "finished" phase
+[ ] 12.02  Success icon (green checkmark) displayed
+[ ] 12.03  "Well Done!" title shown
+[ ] 12.04  Final score displayed (large 4xl font)
+[ ] 12.05  "SCORE" label below number
+[ ] 12.06  "Play Again" button visible
+[ ] 12.07  Clicking replay returns to menu (onReturnToMenu)
+[ ] 12.08  Result screen animates in (scale + opacity)
+[ ] 12.09  Confetti triggers if score ≥200
+[ ] 12.10  Score submitted to API (POST /game/submit)
+
+================================================================================
+SECTION 13: API INTEGRATION (10 tests)
+================================================================================
+
+[ ] 13.01  POST /game/start sends { stageId }
+[ ] 13.02  Response: gameSessionId, endTime, serverTime, config, seed received
+[ ] 13.03  Config updates game parameters (totalStatements, displayTimeMs, etc.)
+[ ] 13.04  Seed used for PRNG statement selection
+[ ] 13.05  POST /game/submit sends { gameSessionId, answers, clientScore }
+[ ] 13.06  Response: finalScore, status, correctCount, wrongCount, missedCount, streakBonus
+[ ] 13.07  Bearer token from URL param or sessionStorage attached to requests
+[ ] 13.08  Encryption interceptors applied (AES) when enabled
+[ ] 13.09  Error handling for API failures (error state in useGameSession)
+[ ] 13.10  Loading state shown during API calls
+
+================================================================================
+SECTION 14: STATEMENT BANK & PRNG (8 tests)
+================================================================================
+
+[ ] 14.01  60 statements available in bank
+[ ] 14.02  Statements are [text, isTrue] tuples
+[ ] 14.03  Mix of true and false statements
+[ ] 14.04  Seeded mulberry32 PRNG produces deterministic order
+[ ] 14.05  seededShuffle Fisher-Yates shuffle with PRNG
+[ ] 14.06  Statements selected without replacement (no duplicates)
+[ ] 14.07  Statement count configurable (config.totalStatements)
+[ ] 14.08  Covers general knowledge, science, geography, nature, math
+
+================================================================================
+SECTION 15: PAUSE DIALOG (8 tests)
+================================================================================
+
+[ ] 15.01  Pause dialog renders with "Game Paused" title
+[ ] 15.02  Three buttons: Resume, Restart, Quit to Menu
+[ ] 15.03  Backdrop blur and dark overlay (bg-black/60)
+[ ] 15.04  Resume continues game
+[ ] 15.05  Restart starts fresh game
+[ ] 15.06  Quit returns to menu (setAppPhase('menu'))
+[ ] 15.07  Dialog animates in (spring scale from 0.8)
+[ ] 15.08  Clicking backdrop resumes game
+
+================================================================================
+SECTION 16: CONFETTI (7 tests)
+================================================================================
+
+[ ] 16.01  Confetti triggers on high score (≥200 points)
+[ ] 16.02  65 particles spawn with varied colors (8 color palette)
+[ ] 16.03  Particles fall with gravity from top
+[ ] 16.04  Particles rotate during fall (360°)
+[ ] 16.05  Confetti stops after duration (3s default)
+[ ] 16.06  Doesn't block interactions (pointer-events-none)
+[ ] 16.07  Particles have varied drift and scale
+
+================================================================================
+SECTION 17: NAVIGATION & STATE MACHINE (10 tests)
+================================================================================
+
+[ ] 17.01  App starts at 'menu' phase
+[ ] 17.02  All menu → screen transitions work correctly
+[ ] 17.03  All "Back" buttons return to 'menu' phase
+[ ] 17.04  Game end → returns to menu (not window.location.reload)
+[ ] 17.05  AppPhase type: 'menu' | 'levels' | 'daily' | 'achievements' | 'stats' | 'settings' | 'game'
+[ ] 17.06  App.tsx renders GamePage from features/blitz/components/
+[ ] 17.07  ErrorBoundary wraps entire app
+[ ] 17.08  ThemeProvider wraps app
+[ ] 17.09  OfflineBanner visible at all phases
+[ ] 17.10  No router used (single-page phase switching)
+
+================================================================================
+SECTION 18: OFFLINE & ERROR HANDLING (6 tests)
+================================================================================
+
+[ ] 18.01  OfflineBanner shows when connection lost
+[ ] 18.02  ErrorBoundary catches render errors
+[ ] 18.03  API errors handled gracefully (useGameSession.error)
+[ ] 18.04  Loading states prevent double-clicks
+[ ] 18.05  Game fails gracefully if API unreachable
+[ ] 18.06  localStorage corruption handled (try/catch in all load functions)
+
+================================================================================
+SECTION 19: RESPONSIVE & VISUAL (8 tests)
+================================================================================
+
+[ ] 19.01  Statement card readable on small screens (min-h-[200px])
+[ ] 19.02  TRUE/FALSE buttons have adequate touch targets (py-6)
+[ ] 19.03  Timer visible and large on all screen sizes
+[ ] 19.04  Menu buttons have adequate touch targets
+[ ] 19.05  Dark theme applied consistently
+[ ] 19.06  Animations smooth on mobile (framer-motion)
+[ ] 19.07  Statement text responsive (text-2xl md:text-3xl)
+[ ] 19.08  Feedback colors clearly visible (green/red borders)
+
+================================================================================
+SECTION 20: PERFORMANCE & CLEANUP (7 tests)
+================================================================================
+
+[ ] 20.01  Timer interval cleaned up on unmount (clearTimers)
+[ ] 20.02  Auto-advance timeout cleaned up on unmount
+[ ] 20.03  Keyboard event listener removed on phase change
+[ ] 20.04  AnimatePresence prevents orphaned animations
+[ ] 20.05  answeredRef prevents double-answers per statement
+[ ] 20.06  No memory leaks from intervals/timeouts
+[ ] 20.07  Multiple rapid taps don't cause state corruption
+
+================================================================================
+TOTAL TESTS: 198
+================================================================================
+SECTIONS BREAKDOWN:
+- Menu Screen: 12
+- Level Selector: 14
+- Daily Challenge: 13
+- Achievements: 12
+- Statistics: 11
+- Settings: 10
+- Instruction Screen: 8
+- Statement Display: 12
+- Answer Buttons: 8
+- Game Header: 10
+- Scoring Logic: 12
+- Result Screen: 10
+- API Integration: 10
+- Statement Bank & PRNG: 8
+- Pause Dialog: 8
+- Confetti: 7
+- Navigation & State: 10
+- Offline & Error: 6
+- Responsive & Visual: 8
+- Performance & Cleanup: 7
+================================================================================

@@ -1,0 +1,372 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║        ZUBACO GAMING PLATFORM - MONITORING & OBSERVABILITY AUDIT                 ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: Logging, metrics, alerting, tracing, error tracking, dashboards         ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OBSERVABILITY SCORE: 22/100 (CRITICAL - FLYING BLIND IN PRODUCTION)
+
+The platform will be deployed with real money flowing through it, but has minimal
+ability to detect, diagnose, or respond to issues. Basic CloudWatch alarms exist
+in Terraform but there is NO application-level instrumentation, NO error tracking,
+NO distributed tracing, NO business metric dashboards, and NO incident response
+procedures. When (not if) a critical bug occurs in production, the team will have 
+no visibility into what happened.
+
+CURRENT STATE:
+  Structured Logging:          ❌ (NestJS Logger only - console output)
+  Log Aggregation:             ⚠️ (CloudWatch Logs configured in Terraform)
+  Metrics Collection:          ❌ (No Prometheus/StatsD/CloudWatch custom metrics)
+  Distributed Tracing:         ❌ (No OpenTelemetry/X-Ray)
+  Error Tracking:              ❌ (No Sentry/Bugsnag/Rollbar)
+  Alerting:                    ⚠️ (5 CloudWatch alarms → SNS topic)
+  Dashboards:                  ❌ (No Grafana/CloudWatch dashboards)
+  APM:                         ❌ (No New Relic/Datadog/Dynatrace)
+  Incident Response:           ❌ (No runbooks/PagerDuty/on-call)
+  Health Checks:               ❌ (No /health endpoint)
+  Business Metrics:            ❌ (Admin analytics is DB queries, not real-time)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: LOGGING ANALYSIS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 CURRENT LOGGING IMPLEMENTATION                                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ PLATFORM BACKEND:                                                               │
+│   Logger: NestJS built-in Logger (console-based)                               │
+│   Format: Plain text to stdout                                                 │
+│   Level: Not configurable (default: all)                                       │
+│   Structure: NONE (human-readable only)                                        │
+│                                                                                 │
+│ ADMIN BACKEND:                                                                  │
+│   Logger: NestJS Logger + LoggerMiddleware                                     │
+│   LoggerMiddleware output: "GET /users 200 1234 - Chrome 192.168.1.1 - 45ms"  │
+│   Not JSON-structured. Not machine-parseable.                                 │
+│                                                                                 │
+│ GAME BACKENDS:                                                                  │
+│   Logger: Same pattern as admin (LoggerMiddleware)                             │
+│   Each game has identical middleware.                                          │
+│                                                                                 │
+│ MOBILE APP:                                                                     │
+│   Logger: console.log / console.warn throughout                               │
+│   No crash reporting (no Crashlytics/Sentry)                                 │
+│   Firebase Analytics exists but is bare-bones (track events only)             │
+│                                                                                 │
+│ ISSUES:                                                                         │
+│                                                                                 │
+│ 1. NO STRUCTURED LOGGING (HIGH)                                                 │
+│    Logs are plain text. Cannot query: "show all errors from wallet service"    │
+│    Cannot correlate: "all logs for request X across services"                  │
+│    Cannot alert: "error rate > threshold"                                      │
+│                                                                                 │
+│ 2. NO REQUEST CORRELATION (HIGH)                                                │
+│    No request ID / trace ID passed between services.                           │
+│    When mobile calls platform, which calls game backend:                       │
+│    impossible to trace a single user journey.                                  │
+│                                                                                 │
+│ 3. SENSITIVE DATA IN LOGS (MEDIUM)                                              │
+│    LoggerMiddleware logs full request details.                                 │
+│    Potentially logging: JWT tokens, OTP codes, payment signatures.            │
+│    CloudWatch stores these for 7-30 days.                                     │
+│                                                                                 │
+│ 4. NO LOG LEVELS IN PRODUCTION (MEDIUM)                                         │
+│    Everything logged at same priority.                                         │
+│    No way to reduce verbosity without code changes.                           │
+│                                                                                 │
+│ 5. 22 SEPARATE LOG STREAMS (HIGH)                                               │
+│    Each ECS service → separate CloudWatch Log Group                           │
+│    No centralized view. Must check 22 log groups to diagnose issues.          │
+│                                                                                 │
+│ RECOMMENDED SOLUTION:                                                           │
+│   - Winston or Pino for structured JSON logging                               │
+│   - Correlation ID middleware (propagate X-Request-ID)                        │
+│   - Log levels: ERROR, WARN, INFO, DEBUG                                      │
+│   - Sensitive data masking (tokens, OTPs, card numbers)                       │
+│   - CloudWatch Insights for centralized querying                              │
+│   - OR: Ship to Grafana Loki / ELK stack for better search                   │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: METRICS & ALERTING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.1 EXISTING ALERTS (from infrastructure.tf)                                    │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ ✓ platform_cpu_high: CPU > 85% for 3 min → SNS                               │
+│ ✓ platform_memory_high: Memory > 90% for 3 min → SNS                         │
+│ ✓ rds_cpu_high: RDS CPU > 80% for 3 min → SNS                                │
+│ ✓ alb_5xx: 5xx errors > 50/min for 2 min → SNS                               │
+│ ✓ alb_latency: Avg latency > 2s for 3 min → SNS                              │
+│                                                                                 │
+│ SNS topic "alerts" exists. But:                                                │
+│ - No subscribers configured in Terraform                                      │
+│ - Who receives these alerts? Email? Slack? PagerDuty?                         │
+│ - No escalation policy (what if nobody responds in 5 min?)                    │
+│ - No severity differentiation                                                 │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.2 MISSING CRITICAL ALERTS                                                     │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ INFRASTRUCTURE (partially covered):                                             │
+│   ☐ Redis memory usage > 80%                                                  │
+│   ☐ Redis connection count > threshold                                        │
+│   ☐ RDS free storage < 10GB                                                   │
+│   ☐ RDS connection count > 60 (of 85 max)                                    │
+│   ☐ ECS task unhealthy (not just CPU)                                         │
+│   ☐ ECS desired count ≠ running count                                         │
+│   ☐ Certificate expiry < 30 days                                              │
+│                                                                                 │
+│ APPLICATION (ZERO coverage):                                                    │
+│   ☐ Payment failure rate > 5%                                                  │
+│   ☐ Deposit/withdrawal mismatch detected                                      │
+│   ☐ OTP send failure rate > 10%                                               │
+│   ☐ Authentication failure rate spike                                         │
+│   ☐ Anti-cheat critical flags > 10/hour                                       │
+│   ☐ Tournament score anomalies > threshold                                    │
+│   ☐ API error rate by endpoint > 1%                                           │
+│   ☐ Wallet balance negative (should never happen)                             │
+│   ☐ Razorpay webhook failure                                                  │
+│   ☐ Database transaction deadlocks                                            │
+│                                                                                 │
+│ BUSINESS (ZERO coverage):                                                       │
+│   ☐ Revenue drop > 50% vs previous day                                        │
+│   ☐ User registration drop > 80%                                              │
+│   ☐ DAU < threshold                                                           │
+│   ☐ Tournament with 0 registrations                                           │
+│   ☐ Withdrawal queue > 100 pending                                            │
+│   ☐ KYC queue backlog > 24 hours                                              │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.3 MISSING CUSTOM METRICS                                                      │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ The platform publishes ZERO custom metrics. Required:                          │
+│                                                                                 │
+│ Business Metrics:                                                               │
+│   - deposits_total (counter) - total deposits processed                        │
+│   - deposits_amount_sum (counter) - total ₹ deposited                         │
+│   - withdrawals_total (counter)                                                │
+│   - withdrawals_amount_sum (counter)                                           │
+│   - active_tournament_players (gauge)                                          │
+│   - game_sessions_active (gauge)                                               │
+│   - registrations_total (counter)                                              │
+│                                                                                 │
+│ Performance Metrics:                                                            │
+│   - api_request_duration_seconds (histogram) - per endpoint                    │
+│   - api_requests_total (counter) - per endpoint + status                      │
+│   - database_query_duration_seconds (histogram)                                │
+│   - redis_operation_duration_seconds (histogram)                               │
+│   - razorpay_api_duration_seconds (histogram)                                  │
+│                                                                                 │
+│ Error Metrics:                                                                  │
+│   - api_errors_total (counter) - per endpoint + error type                    │
+│   - payment_failures_total (counter) - per failure reason                     │
+│   - auth_failures_total (counter) - per failure type                          │
+│   - cheat_flags_total (counter) - per severity                                │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: ERROR TRACKING & CRASH REPORTING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.1 CURRENT STATE: ZERO ERROR TRACKING                                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ When an unhandled exception occurs in production:                              │
+│ 1. NestJS catches it                                                          │
+│ 2. Returns 500 to client                                                      │
+│ 3. Logs stack trace to stdout                                                 │
+│ 4. CloudWatch stores the log line                                             │
+│ 5. Nobody is notified                                                         │
+│ 6. No grouping, no trends, no frequency tracking                              │
+│                                                                                 │
+│ The team will NEVER KNOW about errors unless users report them.               │
+│                                                                                 │
+│ MOBILE APP:                                                                     │
+│ - No Crashlytics / Sentry integration                                        │
+│ - App crashes → user uninstalls → no feedback                                │
+│ - WebView errors (game frontends) are completely invisible                    │
+│ - console.warn() in analytics/biometric services → nowhere                   │
+│                                                                                 │
+│ REQUIRED: Sentry or Bugsnag integration across:                                │
+│   □ Platform backend                                                           │
+│   □ Admin backend                                                             │
+│   □ All 20 game backends                                                      │
+│   □ Mobile app (React Native Sentry SDK)                                      │
+│   □ Admin frontend (Next.js Sentry)                                           │
+│   □ All 20 game frontends (Vite Sentry plugin)                                │
+│                                                                                 │
+│ Estimated cost: Sentry Team plan $26/month (50K errors)                       │
+│ Value: Priceless for a financial platform.                                    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: HEALTH CHECKS & UPTIME
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 4.1 MISSING HEALTH CHECK ENDPOINTS                                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ NO /health or /readiness endpoints exist in any service.                       │
+│                                                                                 │
+│ ECS health check (via ALB) likely uses / or a default route.                  │
+│ If the app responds 200 but database is down → ALB thinks service healthy.    │
+│                                                                                 │
+│ REQUIRED ENDPOINTS:                                                             │
+│                                                                                 │
+│ GET /health/live (liveness - is the process alive?)                            │
+│   Returns: 200 if process is running                                          │
+│   Used by: ECS task health check                                              │
+│                                                                                 │
+│ GET /health/ready (readiness - can it serve traffic?)                          │
+│   Checks:                                                                      │
+│   - PostgreSQL connectivity (SELECT 1)                                        │
+│   - Redis connectivity (PING)                                                 │
+│   - Critical env vars present                                                 │
+│   Returns: 200 if all dependencies healthy, 503 if not                        │
+│   Used by: ALB target group health check                                      │
+│                                                                                 │
+│ GET /health/deep (full dependency check)                                       │
+│   Checks everything in /ready plus:                                           │
+│   - Razorpay API reachable                                                    │
+│   - SMS provider reachable                                                    │
+│   - S3 bucket accessible                                                      │
+│   - Certificate validity                                                      │
+│   Used by: Monitoring dashboards                                              │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 4.2 UPTIME MONITORING                                                           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ NO external uptime monitoring configured.                                      │
+│                                                                                 │
+│ If the entire AWS region goes down:                                            │
+│ - No alerts (CloudWatch is also down)                                         │
+│ - No status page for users                                                    │
+│ - No failover                                                                 │
+│                                                                                 │
+│ Required:                                                                       │
+│ □ External uptime monitor (UptimeRobot, Pingdom, Better Uptime)              │
+│ □ Public status page (status.zubaco.com)                                     │
+│ □ Multi-region health checks                                                 │
+│ □ SLA definition (99.9% = 8.77 hours downtime/year)                         │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 5: INCIDENT RESPONSE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 5.1 ZERO INCIDENT RESPONSE INFRASTRUCTURE                                       │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Missing entirely:                                                               │
+│ ☐ On-call rotation schedule                                                   │
+│ ☐ Escalation policies (15 min → team lead, 30 min → CTO)                     │
+│ ☐ Runbooks for common incidents                                               │
+│ ☐ Post-mortem process                                                         │
+│ ☐ Communication templates (user-facing)                                       │
+│ ☐ PagerDuty/OpsGenie integration                                             │
+│ ☐ Slack/Teams alerting channel                                                │
+│ ☐ War room procedures                                                        │
+│                                                                                 │
+│ CRITICAL RUNBOOKS NEEDED:                                                       │
+│                                                                                 │
+│ 1. "Database is down"                                                          │
+│    - Who to contact                                                           │
+│    - How to check RDS status                                                  │
+│    - Failover procedure (Multi-AZ automatic)                                  │
+│    - Data recovery if needed                                                  │
+│                                                                                 │
+│ 2. "Payment processing failed"                                                 │
+│    - Check Razorpay status page                                               │
+│    - Identify affected transactions                                           │
+│    - Manual reconciliation steps                                              │
+│    - User communication template                                              │
+│                                                                                 │
+│ 3. "Suspected fraud/cheating in active tournament"                             │
+│    - How to pause tournament                                                  │
+│    - Investigation steps                                                      │
+│    - User communication                                                       │
+│    - Prize distribution adjustment                                            │
+│                                                                                 │
+│ 4. "Security breach detected"                                                  │
+│    - Contain (rotate secrets, revoke tokens)                                  │
+│    - Assess (what data was accessed)                                          │
+│    - Report (CERT-IN within 6 hours per IT Act)                               │
+│    - Notify (users within 72 hours per DPDPA)                                │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 6: SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Component                         │ Score  │ Status
+──────────────────────────────────────────────────────
+Structured Logging                │ 15/100 │ Basic middleware only
+Log Aggregation                   │ 30/100 │ CloudWatch configured
+Custom Metrics                    │ 0/100  │ ZERO
+Distributed Tracing               │ 0/100  │ ZERO
+Error Tracking                    │ 0/100  │ ZERO (no Sentry)
+Alerting                          │ 30/100 │ 5 infra alarms, no app alerts
+Health Checks                     │ 0/100  │ No endpoints
+Dashboards                        │ 0/100  │ ZERO
+Uptime Monitoring                 │ 0/100  │ No external monitor
+Incident Response                 │ 0/100  │ No runbooks/on-call
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 22/100 │ FLYING BLIND
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                 END OF MONITORING & OBSERVABILITY AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

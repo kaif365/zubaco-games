@@ -1,0 +1,404 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║            ZUBACO GAMING PLATFORM - TESTING & QA STRATEGY AUDIT                  ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: Unit tests, integration tests, E2E tests, load tests, CI testing        ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TESTING MATURITY SCORE: 12/100 (CRITICAL - VIRTUALLY NO TEST COVERAGE)
+
+For a real-money gaming platform with 22 backend services, 20 game frontends,
+1 mobile app, and 1 admin panel, the testing infrastructure is catastrophically
+inadequate. The platform has ZERO unit tests for its core business logic 
+(authentication, wallet, tournaments, payments) and relies entirely on manual
+testing and TypeScript type-checking.
+
+KEY FINDINGS:
+  Platform Backend Tests:     0 files (ZERO)
+  Admin Backend Tests:        0 files (ZERO)
+  Mobile App Tests:           0 files (ZERO)
+  Admin Frontend Tests:       jest.config exists but 0 test files found
+  Game Backend Tests:         122 spec files (ONLY component - engine logic)
+  E2E Tests:                  0 files (ZERO)
+  Load/Performance Tests:     0 files (ZERO)
+  Integration Tests:          0 files (ZERO)
+  Security Tests:             0 files (ZERO)
+  CI Test Coverage:           TYPE-CHECK ONLY (no actual tests run)
+
+Total test coverage estimate: <5% of critical business logic
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: EXISTING TEST INFRASTRUCTURE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 WHAT EXISTS                                                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ GAME BACKENDS (122 spec files):                                                 │
+│ Each game has 6 test files in src/game/engine/__tests__/:                      │
+│   - scoreHistory.spec.ts (player stats computation)                            │
+│   - leaderboard.spec.ts (ranking logic)                                        │
+│   - dailyChallenge.spec.ts (daily challenge state)                             │
+│   - comboEngine.spec.ts (combo scoring)                                        │
+│   - boosterEngine.spec.ts (power-up logic)                                     │
+│   - achievementEngine.spec.ts (achievement unlocking)                          │
+│                                                                                 │
+│ These test PURE FUNCTIONS in the game engine layer.                            │
+│ Coverage: Game scoring logic ONLY.                                              │
+│ NOT covered: API endpoints, database operations, auth, validation.             │
+│                                                                                 │
+│ Test framework: Jest (via jest.config.ts in each game backend)                 │
+│ Quality: Good! Well-structured with proper assertions.                         │
+│ Example test verifies computePlayerStats() with edge cases.                    │
+│                                                                                 │
+│ CI PIPELINE ("test" job in platform-ci.yml):                                   │
+│   Step 1: npm ci                                                               │
+│   Step 2: npx prisma generate                                                 │
+│   Step 3: npx tsc --noEmit  ← THIS IS THE ONLY "TEST"                        │
+│   Step 4: npx prisma db push                                                  │
+│   Step 5: npm run build                                                        │
+│                                                                                 │
+│ The CI "test" job is actually just a BUILD job.                                │
+│ It verifies TypeScript compiles. NOTHING else.                                 │
+│ No `npm test` or `jest` command is ever executed.                              │
+│                                                                                 │
+│ JEST CONFIG (admin frontend):                                                   │
+│   File exists: frontend/jest.config.js                                         │
+│   But: No actual .test.tsx files found in frontend.                           │
+│   Config is likely from create-next-app boilerplate.                           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.2 WHAT DOESN'T EXIST (CRITICAL GAPS)                                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ ❌ PLATFORM BACKEND (0 tests for):                                              │
+│    - AuthService (OTP flow, Google/Apple OAuth, token refresh)                 │
+│    - WalletService (deposit, withdraw, balance operations)                     │
+│    - PaymentGatewayService (Razorpay integration)                             │
+│    - TournamentService (registration, scoring, elimination)                    │
+│    - AntiCheatService (anomaly detection, banning)                             │
+│    - SocialService (friends, referrals, challenges)                            │
+│    - EnergyService (lives system)                                              │
+│    - LeaderboardService (rankings)                                             │
+│    - KycService (document submission/approval)                                 │
+│    - BankDetailService (bank account management)                               │
+│                                                                                 │
+│ ❌ ADMIN BACKEND (0 tests for):                                                 │
+│    - Admin auth (login, session management)                                    │
+│    - User management (ban, update, search)                                     │
+│    - Tournament management (CRUD)                                              │
+│    - Analytics service (data aggregation)                                      │
+│    - Export service (CSV generation)                                           │
+│                                                                                 │
+│ ❌ MOBILE APP (0 tests for):                                                    │
+│    - Navigation flows                                                          │
+│    - WebView integration                                                       │
+│    - Auth state management                                                     │
+│    - API client layer                                                          │
+│    - Push notification handling                                                │
+│                                                                                 │
+│ ❌ ADMIN FRONTEND (0 tests for):                                                │
+│    - Component rendering                                                       │
+│    - Form validation                                                           │
+│    - API integration                                                           │
+│    - Auth flow                                                                 │
+│                                                                                 │
+│ ❌ E2E TESTS (0):                                                               │
+│    - User registration → deposit → play → withdraw flow                       │
+│    - Tournament lifecycle                                                      │
+│    - Admin operations                                                          │
+│                                                                                 │
+│ ❌ INTEGRATION TESTS (0):                                                       │
+│    - Platform ↔ Database                                                       │
+│    - Platform ↔ Redis                                                          │
+│    - Platform ↔ Razorpay                                                       │
+│    - Mobile ↔ Platform API                                                     │
+│    - Admin ↔ Platform DB                                                       │
+│                                                                                 │
+│ ❌ LOAD/PERFORMANCE TESTS (0):                                                  │
+│    - Concurrent user simulation                                                │
+│    - Leaderboard query performance                                             │
+│    - Tournament registration spike                                             │
+│    - Payment processing throughput                                             │
+│                                                                                 │
+│ ❌ SECURITY TESTS (0):                                                          │
+│    - OWASP ZAP / automated scanning                                           │
+│    - Rate limit verification                                                   │
+│    - Auth bypass attempts                                                      │
+│    - SQL injection probing                                                     │
+│    - Race condition testing                                                    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: RISK ASSESSMENT (UNTESTED CODE)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.1 FINANCIAL CODE WITHOUT TESTS                                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ The following code handles REAL MONEY and has ZERO test coverage:              │
+│                                                                                 │
+│ wallet.service.ts:                                                              │
+│   - deposit() → credits wallet (untested)                                     │
+│   - requestWithdrawal() → deducts balance (untested)                          │
+│   - deductEntryFee() → deducts with bonus priority (untested)                 │
+│   - creditPrize() → credits prize money (untested)                            │
+│   - creditReferralBonus() → adds bonus (untested)                             │
+│                                                                                 │
+│ payment-gateway.service.ts:                                                     │
+│   - createDepositOrder() → Razorpay API call (untested)                       │
+│   - verifyPayment() → signature verification (untested)                       │
+│   - handleWebhook() → webhook processing (untested)                           │
+│   - processWithdrawal() → payout processing (untested)                        │
+│                                                                                 │
+│ What a single bug in any of these functions costs:                             │
+│   - Double credit: ₹1,000+ per occurrence                                     │
+│   - Failed deduction: ₹100-₹10,000 per entry                                 │
+│   - Wrong signature verification: Entire deposit system compromised           │
+│                                                                                 │
+│ MINIMUM REQUIRED TESTS:                                                         │
+│   - Deposit credits correct amount                                            │
+│   - Deposit fails for amount < 10 or > 100000                                │
+│   - Withdrawal fails for insufficient balance                                 │
+│   - Withdrawal fails without KYC                                              │
+│   - Concurrent withdrawals don't overdraw (race condition test)               │
+│   - Entry fee deducts from bonus first                                        │
+│   - Signature verification rejects tampered signatures                        │
+│   - Webhook idempotency (same event processed once)                           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.2 AUTHENTICATION CODE WITHOUT TESTS                                           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ auth.service.ts:                                                                │
+│   - sendOtp() → OTP generation (untested)                                     │
+│   - verifyOtpAndLogin() → OTP verification + user creation (untested)         │
+│   - googleLogin() → Google OAuth (untested)                                   │
+│   - appleLogin() → Apple OAuth (untested)                                     │
+│   - refreshTokens() → Token rotation (untested)                               │
+│   - logout() → Token revocation (untested)                                    │
+│   - linkAccount() → Account linking (untested)                                │
+│                                                                                 │
+│ token.service.ts:                                                               │
+│   - generateTokenPair() → JWT generation (untested)                           │
+│   - verifyRefreshToken() → Token verification (untested)                      │
+│   - revokeRefreshToken() → Token invalidation (untested)                      │
+│                                                                                 │
+│ What a bug in auth causes:                                                     │
+│   - Login bypass: Complete account takeover                                   │
+│   - Token leak: All user sessions compromised                                 │
+│   - Failed revocation: Logged-out users still have access                     │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.3 TOURNAMENT/SCORING CODE WITHOUT TESTS                                       │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ tournament.service.ts:                                                          │
+│   - registerForSeason() → Registration flow (untested)                        │
+│   - startTournamentGame() → Game initialization (untested)                    │
+│   - submitTournamentResult() → Score recording (untested)                     │
+│   - assignCohort() → Cohort assignment (untested)                             │
+│                                                                                 │
+│ elimination.service.ts:                                                         │
+│   - eliminateBottom() → Elimination logic (untested)                          │
+│   - calculateRankings() → Final rankings (untested)                           │
+│                                                                                 │
+│ What a bug in tournaments causes:                                              │
+│   - Wrong player eliminated → legal dispute + ₹ loss                          │
+│   - Wrong prize distribution → financial + legal liability                    │
+│   - Score recording error → tournament integrity compromised                  │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: RECOMMENDED TESTING STRATEGY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.1 TEST PYRAMID FOR ZUBACO                                                     │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│                    ╱╲                                                           │
+│                   ╱ E2E╲  (10-20 critical flows)                               │
+│                  ╱──────╲                                                       │
+│                 ╱Integration╲  (50-100 tests)                                  │
+│                ╱──────────────╲                                                 │
+│               ╱   Unit Tests    ╲  (500+ tests)                                │
+│              ╱════════════════════╲                                              │
+│                                                                                 │
+│ UNIT TESTS (Priority 1):                                                        │
+│   Framework: Jest + @nestjs/testing                                            │
+│   Target: All service classes                                                  │
+│   Mocking: Prisma (prisma-mock), Redis (ioredis-mock)                         │
+│   Coverage target: 80% for financial code, 60% for other services             │
+│                                                                                 │
+│ INTEGRATION TESTS (Priority 2):                                                 │
+│   Framework: Jest + supertest + testcontainers                                 │
+│   Target: API endpoints with real database                                    │
+│   Database: Postgres testcontainer (fresh per test suite)                      │
+│   Coverage target: All endpoints with auth + validation                       │
+│                                                                                 │
+│ E2E TESTS (Priority 3):                                                         │
+│   Framework: Playwright (web) + Detox (mobile)                                │
+│   Target: Critical user flows                                                 │
+│   Flows: Registration, Deposit, Game Play, Withdrawal                         │
+│                                                                                 │
+│ LOAD TESTS (Priority 4):                                                        │
+│   Framework: k6 (by Grafana)                                                  │
+│   Target: 1000 concurrent users, tournament registration spike                │
+│   Metrics: p95 latency, error rate, throughput                                │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.2 CRITICAL TEST SCENARIOS (MUST HAVE BEFORE LAUNCH)                           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ FINANCIAL:                                                                      │
+│   □ Deposit: correct amount credited                                           │
+│   □ Deposit: minimum/maximum enforced                                          │
+│   □ Deposit: signature verification (valid + invalid)                          │
+│   □ Deposit: double-credit prevented (concurrent verify + webhook)            │
+│   □ Withdrawal: balance check                                                 │
+│   □ Withdrawal: KYC required                                                  │
+│   □ Withdrawal: concurrent requests handled (race condition)                  │
+│   □ Entry fee: correct deduction from bonus first                             │
+│   □ Entry fee: fails if insufficient total balance                            │
+│   □ Prize: correct credit amount                                              │
+│   □ Referral bonus: credited once only                                        │
+│                                                                                 │
+│ AUTHENTICATION:                                                                 │
+│   □ OTP: generated and stored correctly                                        │
+│   □ OTP: verification with correct/incorrect code                             │
+│   □ OTP: expiry after 5 minutes                                               │
+│   □ OTP: max attempts (5) enforced                                            │
+│   □ JWT: access token contains correct claims                                 │
+│   □ JWT: expired token rejected                                               │
+│   □ JWT: refresh token rotation works                                         │
+│   □ JWT: revoked refresh token rejected                                       │
+│   □ Logout: token invalidated                                                 │
+│   □ Logout-all: all sessions invalidated                                      │
+│                                                                                 │
+│ TOURNAMENT:                                                                     │
+│   □ Registration: creates entry correctly                                      │
+│   □ Registration: rejects duplicate                                            │
+│   □ Registration: respects max_players                                         │
+│   □ Game start: creates session with server seed                              │
+│   □ Game start: rejects if already played                                     │
+│   □ Score submit: records correctly                                            │
+│   □ Score submit: rejects invalid session                                     │
+│   □ Elimination: correct players eliminated (bottom %)                        │
+│   □ Rankings: correct ordering                                                 │
+│                                                                                 │
+│ ANTI-CHEAT:                                                                     │
+│   □ Impossible score: flagged                                                  │
+│   □ Timing anomaly: flagged                                                   │
+│   □ Statistical outlier: flagged                                              │
+│   □ Auto-ban: triggers at 3 critical flags                                    │
+│                                                                                 │
+│ SOCIAL:                                                                         │
+│   □ Friend request: creates pending                                            │
+│   □ Friend accept: both sides see friendship                                  │
+│   □ Challenge: both players see correct challenge                             │
+│   □ Referral: bonus credited on first use                                     │
+│   □ Referral: rejected for second use                                         │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.3 CI PIPELINE IMPROVEMENTS                                                    │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ CURRENT CI (platform-ci.yml):                                                   │
+│   ✓ Checkout                                                                   │
+│   ✓ Setup Node 22                                                              │
+│   ✓ npm ci                                                                     │
+│   ✓ Prisma generate                                                           │
+│   ✗ tsc --noEmit (called "test" but isn't)                                    │
+│   ✓ Prisma db push                                                            │
+│   ✓ npm run build                                                              │
+│   ✗ NO actual test execution                                                  │
+│   ✗ NO coverage report                                                        │
+│   ✗ NO security scanning                                                      │
+│   ✗ NO linting                                                                │
+│                                                                                 │
+│ REQUIRED CI PIPELINE:                                                           │
+│   1. Lint (ESLint)                                                             │
+│   2. Type check (tsc --noEmit)                                                │
+│   3. Unit tests (jest --coverage)                                             │
+│   4. Integration tests (with postgres + redis services)                       │
+│   5. Coverage gate (fail if < 60%)                                            │
+│   6. Security audit (npm audit, Snyk, or Trivy)                              │
+│   7. Build                                                                     │
+│   8. Docker build + scan (Trivy)                                              │
+│   9. Deploy (if all pass)                                                     │
+│                                                                                 │
+│ ESTIMATED EFFORT TO REACH MINIMUM VIABLE TEST COVERAGE:                        │
+│   Unit tests for financial services: 2-3 days                                 │
+│   Unit tests for auth services: 1-2 days                                      │
+│   Unit tests for tournament services: 2-3 days                                │
+│   Integration tests for API endpoints: 3-5 days                              │
+│   E2E test setup + 10 flows: 3-5 days                                        │
+│   CI pipeline enhancement: 1 day                                              │
+│   ────────────────────────────────────                                         │
+│   Total: 12-19 developer days                                                  │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Component                         │ Score  │ Status
+──────────────────────────────────────────────────────
+Platform Backend Unit Tests       │ 0/100  │ ZERO tests
+Admin Backend Unit Tests          │ 0/100  │ ZERO tests
+Mobile App Tests                  │ 0/100  │ ZERO tests
+Admin Frontend Tests              │ 0/100  │ Config only, no tests
+Game Engine Unit Tests            │ 70/100 │ 122 specs, good quality
+Integration Tests                 │ 0/100  │ ZERO tests
+E2E Tests                         │ 0/100  │ ZERO tests
+Load/Performance Tests            │ 0/100  │ ZERO tests
+Security Tests                    │ 0/100  │ ZERO tests
+CI Pipeline Testing               │ 10/100 │ Type-check only
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 12/100 │ EFFECTIVELY UNTESTED
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                    END OF TESTING & QA AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

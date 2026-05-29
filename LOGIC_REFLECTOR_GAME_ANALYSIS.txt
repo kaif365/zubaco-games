@@ -1,0 +1,227 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    LOGIC REFLECTOR — FULL GAME ANALYSIS
+═══════════════════════════════════════════════════════════════════════════════
+
+Game: Logic Reflector (Laser Puzzle)
+Genre: Logic / Puzzle / Laser-reflection
+Platform: Web (React 19 + Vite + TypeScript + TailwindCSS)
+Date: 2025
+
+───────────────────────────────────────────────────────────────────────────────
+ 1. GAME CONCEPT
+───────────────────────────────────────────────────────────────────────────────
+
+Logic Reflector is a laser-beam puzzle game. The player places mirror blocks,
+splitters, and blockers on a grid to redirect one or more laser beams from 
+emitters to hit all target nodes. The game is timed and scored — completing
+levels faster and with fewer moves earns higher scores.
+
+Core mechanic: Place reflective pieces (mirrors /, \, splitters +, blockers ■,
+reflect-blocks □) on empty grid cells to guide the laser from emitters to
+targets. The laser simulation runs in real-time, visually tracing beam paths
+with bounces and splits.
+
+───────────────────────────────────────────────────────────────────────────────
+ 2. EXISTING FRONTEND STRUCTURE
+───────────────────────────────────────────────────────────────────────────────
+
+Stack: React 19 + Vite + TypeScript + TailwindCSS + i18next + React Query
+Entry: src/main.tsx → App.tsx → AppProviders → AppRouter → GamePage
+Auth: Dev-session token auto-obtained on startup
+Routing: Has router (GamePage, LevelEditorPage, NotFoundPage)
+
+Components (src/features/game/components/):
+  • GameContainer.tsx — Master orchestrator (themes, phases, auth, recovery)
+  • GameBoard.tsx — Grid renderer (cells, placed blocks, laser beams, drag/drop)
+  • GameCell.tsx — Individual cell (emitter icon, target icon, placed block)
+  • LaserBeam.tsx — SVG beam path animation
+  • Toolbar.tsx — Block palette (reflect-block, mirror-fwd, mirror-bwd, splitter, blocker)
+  • HUD.tsx — Level counter + dots + quit button
+  • DemoFlow.tsx — Tutorial/demo sequence with pre-built boards
+
+Hooks (src/features/game/hooks/):
+  • useGameSession.ts — Full game state machine (phases: idle→loading→level-opening→playing→level-clearing→loading-next→calculating_result→completed→error)
+  • useLevelPrefetch.ts — Pre-fetches next level from API
+  • useMoveSubmission.ts — Batched move submission to backend
+
+Engine (src/game/):
+  • laserEngine.ts — Ray-casting physics (reflect, split, block, exit detection)
+
+Data (src/features/game/data/):
+  • levels.ts — Local fallback levels (grid definitions)
+  • demoData.ts — Demo boards for tutorial
+
+Audio (src/audio/):
+  • soundRegistry.ts — 7 sounds: mirrorPlace, beamHit, beamMiss, puzzleSolve, levelComplete, hint, uiClick
+  • AudioManager.ts, AudioProvider.tsx, useAudio.ts
+
+Micro-screens (src/micro-screens/):
+  • GameInstructionsScreen.tsx — Pre-game instructions with stage theming
+  • GameInstructionsSkeleton.tsx — Loading skeleton
+  • GameResultScreen.tsx — Success/Failure result with score breakdown
+
+Types (src/types/logic-reflector.ts):
+  • Direction, CellType, BlockType, ServerCell, PlacedBlock, AvailableBlock
+  • GameLevel, GameSession, GameMove, GameScoreboard, LevelScore
+  • GameStatus enum (STARTED=1, ENDED=2, EXPIRED=3, RESULT_PROCESSING=4, MANUALLY_ENDED=5)
+
+───────────────────────────────────────────────────────────────────────────────
+ 3. BACKEND ENGINE (NestJS + Restate)
+───────────────────────────────────────────────────────────────────────────────
+
+Location: logic-reflector-backend/src/game/engine/
+
+  • achievementEngine.ts — 10 achievements:
+    FIRST_WIN, STREAK_5, STREAK_10, PERFECT_GAME, SPEED_DEMON,
+    PERSISTENCE (50 games), LEVEL_5, LEVEL_10, HIGH_SCORER (1000pts), NO_MISTAKES
+  
+  • boosterEngine.ts — 5 boosters:
+    TIME_FREEZE (5s), HINT (×2/game), SKIP (×1/game), DOUBLE_POINTS (10s), UNDO (×2/game)
+  
+  • comboEngine.ts — Streak multiplier:
+    +0.25× per 3-streak milestone, max 4.0×, bonus = streak × 10 × multiplier
+  
+  • dailyChallenge.ts — Date-seeded (SHA-256), level scales with day of week
+  
+  • leaderboard.ts — Ranked scores (top 100, around-user view)
+  
+  • scoreHistory.ts — Historical score tracking
+
+───────────────────────────────────────────────────────────────────────────────
+ 4. EXISTING GAME FLOW (Current State)
+───────────────────────────────────────────────────────────────────────────────
+
+Current flow:
+  Auth Loading → Skeleton → Instructions Screen → [Demo Flow] → Playing → Result
+
+Phases managed by useGameSession:
+  idle → loading → level-opening → playing → level-clearing → loading-next → 
+  calculating_result → completed
+
+The GameContainer handles:
+  ✅ Auth (dev-token auto-auth)
+  ✅ Auto-resume (persisted session recovery)
+  ✅ Offline detection + retry modal
+  ✅ Demo flow (tutorial boards)
+  ✅ Stage theming (7 stages with eclipse glow)
+  ✅ Timer (countdown with urgent state at ≤15s)
+  ✅ Level progression (multi-level per session)
+  ✅ Score calculation via backend
+  ✅ Result screen (success/failure with score)
+  ✅ Toolbar drag-and-drop for block placement
+  ✅ Laser beam real-time simulation
+
+───────────────────────────────────────────────────────────────────────────────
+ 5. GOLD STANDARD COMPLIANCE ANALYSIS
+───────────────────────────────────────────────────────────────────────────────
+
+ALREADY IMPLEMENTED:
+  ✅ Tutorial / Demo Flow (pre-built boards teaching mechanics)
+  ✅ Instructions Screen (stage-themed, "Play Now" + "Learn How to Play")
+  ✅ Playing state with HUD (level counter, timer, toolbar)
+  ✅ Result screen (Success/Failure with score, completed/total levels)
+  ✅ Timer with urgency indicator (≤15s)
+  ✅ Laser simulation engine (reflect, split, block)
+  ✅ Toolbar with drag-and-drop block placement
+  ✅ Stage theming (7 color themes)
+  ✅ Auto-resume / session recovery
+  ✅ Offline handling
+  ✅ Audio system (7 sounds registered)
+  ✅ Error boundary + alert system
+  ✅ i18n support
+
+MISSING FROM GOLD STANDARD:
+  ❌ Menu Screen (Play / Levels / Daily / Achievements / Stats / Settings)
+  ❌ Level Selector (visual grid with stars, unlock progression)
+  ❌ Settings Screen (sound toggle, volume, theme)
+  ❌ Stats Screen (games played, wins, streaks, scores, etc.)
+  ❌ Achievements Screen (10 badges with unlock state)
+  ❌ Daily Challenge Screen (calendar, date-seeded puzzle)
+  ❌ Pause Dialog (resume / restart / exit)
+  ❌ Combo display in HUD (×N multiplier)
+  ❌ Confetti celebration on level complete
+  ❌ Star rating system (per level)
+  ❌ Local persistence (level unlock, stars, stats, achievements, settings)
+
+NOTE: This game is MORE COMPLEX than previous games. It already has a very 
+sophisticated GameContainer with auth, session recovery, stage themes, demo 
+flow, and multi-level progression. The Gold Standard additions must integrate 
+WITH the existing flow rather than replacing it. The Menu/Levels/Daily screens 
+serve as a "pre-game layer" before the existing Instructions→Playing→Result flow.
+
+───────────────────────────────────────────────────────────────────────────────
+ 6. SIMILAR GAMES (Research — Verified from Google Play Store)
+───────────────────────────────────────────────────────────────────────────────
+
+1. Lazors (Pyrosphere) — 10M+ downloads, 4.4★ (110K reviews)
+   URL: play.google.com/store/apps/details?id=net.pyrosphere.lazors
+   • Guide laser beams to targets using mirrors and light-bending blocks
+   • Multiple block types: reflect, obstruct, split, refract, teleport
+   • Daily Puzzle — brand-new challenge every day
+   • Themes — customize visual style
+   • Hints system (earned free, limited use)
+   • Level packs with progressive difficulty
+   • Elegant minimalist UI, no timer pressure
+   • Offline play
+
+2. Laser: Relaxing and Satisfying (Infinity Games) — 10M+ downloads, 4.3★ (107K reviews)
+   URL: play.google.com/store/apps/details?id=com.tapanywhere.laseroverload
+   • Rotate mirrors to charge all batteries with laser beams
+   • 2,000+ handcrafted levels (easy meditation → hard challenge)
+   • Daily Zen Wheel — spin for rewards and fresh backgrounds
+   • Cloud save & cross-device sync
+   • Build a glowing city — progress visualization
+   • No move limits, restart anytime
+   • Ambient sound & haptics, customizable backgrounds/beams
+   • Available on PC via Google Play Games
+
+3. Laser Puzzle (VnS Game Studio) — 10K+ downloads, 4.2★ (70 reviews)
+   URL: play.google.com/store/apps/details?id=com.vns.laserpuzzle
+   • Position mirrors to redirect beams and unlock keys
+   • Progressive challenge — complexity increases per chapter
+   • New features per chapter: obstacles, colour gates, rotating cannons
+   • Easy controls accessible for all skill levels
+   • "Highly addictive and challenging" (user reviews)
+
+Key features from similar games incorporated:
+  ✅ Daily Challenge (from Lazors + Laser: Relaxing)
+  ✅ Multiple block types (reflect, split, block — matches Lazors)
+  ✅ Level progression with unlocking (from all 3 games)
+  ✅ Themes/customization (from Lazors + Laser: Relaxing)
+  ✅ Hints system (from Lazors — backend already has HINT booster)
+  ✅ Offline-friendly (localStorage persistence)
+  ✅ Progress visualization via stars/achievements
+  ✅ No-pressure option alongside timed mode
+
+───────────────────────────────────────────────────────────────────────────────
+ 7. IMPLEMENTATION PLAN
+───────────────────────────────────────────────────────────────────────────────
+
+New components to create in src/features/game/components/:
+
+  1. MenuScreen.tsx — 6 buttons (Play, Levels, Daily, Achievements, Stats, Settings)
+  2. LevelSelector.tsx — 10+ levels grid, stars, unlock progression
+  3. Settings.tsx — Sound toggle, volume slider, theme selection
+  4. StatsScreen.tsx — 10 stat categories with persistence
+  5. Achievements.tsx — 10 badges + popup notification
+  6. DailyChallenge.tsx — Calendar + date-seeded daily puzzle
+  7. PauseDialog.tsx — Resume / Restart / Exit with game info
+  8. Confetti.tsx — 60-particle celebration animation
+  9. GamePage.tsx (REWRITE) — Add menu layer BEFORE existing GameContainer flow
+
+Enhanced existing components:
+  10. HUD.tsx — Add combo display, moves counter, mute button, pause button
+
+Integration approach:
+  The existing GameContainer is very sophisticated and handles the actual gameplay
+  (auth → instructions → playing → result). Rather than rewriting it, we'll create
+  a new "app shell" layer in GamePage.tsx that manages the meta-game (menu, levels,
+  daily, achievements, stats, settings) and only renders GameContainer when the 
+  user transitions to "playing" phase.
+
+Star Rating:
+  3★ = Solved using optimal (minimum) number of blocks
+  2★ = Solved using optimal + 1 blocks  
+  1★ = Solved (any number of blocks)
+
+═══════════════════════════════════════════════════════════════════════════════

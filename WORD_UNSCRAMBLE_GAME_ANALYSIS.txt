@@ -1,0 +1,172 @@
+WORD UNSCRAMBLE - GAME ANALYSIS
+==================================
+Game: Word Unscramble
+Location: word-unscramble/word-unscramble-frontend/
+Date: 2025
+
+================================================================================
+1. ARCHITECTURE OVERVIEW
+================================================================================
+
+Entry: main.tsx → App.tsx → GamePage (features/unscramble/components/)
+Pattern: ErrorBoundary → ThemeProvider → OfflineBanner + GamePage
+NO router used. Single page application with phase-based rendering.
+
+Provider Stack:
+  ErrorBoundary
+    ThemeProvider
+      OfflineBanner
+      GamePage
+
+Key directories:
+  src/
+    App.tsx                        — Root component
+    components/                    — Shared: ErrorBoundary, InstructionScreen, OfflineBanner, ResultScreen
+    features/unscramble/           — Core game logic
+      components/                  — GameHeader, GameOverScreen, GamePage, LetterTile, WordDisplay
+      engine/                      — random.ts, scorer.ts, wordBank.ts
+      hooks/                       — useGameSession.ts, useUnscramble.ts
+      save-progress/               — saveProgressOutbox.ts, saveProgressTypes.ts
+    hooks/                         — useAudio.ts, useSocket.ts, useTheme.tsx
+    services/                      — crypto.ts, httpClient.ts, socketClient.ts
+    types/                         — game.ts
+    i18n/                          — Internationalization
+    audio/                         — Sound files
+    styles/                        — globals.css
+
+================================================================================
+2. GAME MECHANICS
+================================================================================
+
+Game Type: Word unscrambling puzzle with time pressure
+Flow: Instruction → API Start → Playing (words cycle) → Finished (result)
+
+Phases (useUnscramble): 'idle' | 'playing' | 'finished'
+
+Gameplay:
+  - 15 scrambled words displayed one at a time
+  - Each word has a per-word timer (wordTimeMs = 6000ms)
+  - Global timer counts down from timeLimitMs (90000ms = 90s)
+  - Player taps scrambled letter tiles to spell the word
+  - Correct order auto-advances to next word immediately
+  - Wrong order (all tiles used but incorrect) resets selection
+  - Word auto-advances when per-word timer expires (counted as unsolved)
+  - Game ends when global timer hits 0 OR all words attempted
+  - Keyboard: Type letters to select tiles, Backspace to deselect last
+
+Word Bank:
+  - 108 words total (4-8 letters): 30×4-letter, 30×5-letter, 30×6-letter, 24×7-letter, 18×8-letter
+  - Common English words, easy to recognize
+  - Seeded PRNG (mulberry32) shuffles bank and selects
+  - scrambleWord ensures scrambled ≠ original (up to 10 attempts)
+
+Scoring (scorer.ts):
+  - Solved word: +pointsPerWord (15)
+  - Time bonus: seconds saved per word × timeBonusPerSecond (1)
+  - Final = wordsSolved × 15 + timeBonus
+  - No penalty for unsolved words
+
+StageConfig (from API):
+  {
+    totalWords: 15,
+    wordTimeMs: 6000,
+    timeLimitMs: 90000,
+    pointsPerWord: 15,
+    timeBonusPerSecond: 1
+  }
+
+================================================================================
+3. API INTEGRATION
+================================================================================
+
+Base URL: VITE_API_BASE_URL (default http://localhost:3010)
+Auth: Bearer token from URL param or sessionStorage
+
+Endpoints:
+  POST /game/start  { stageId }
+    → { gameSessionId, endTime, serverTime, config, seed }
+  
+  POST /game/submit  { gameSessionId, answers, clientScore }
+    → { finalScore, status, wordsSolved, wordsTotal, timeBonus }
+
+Encryption: Request/response encrypted via AES (VITE_ENCRYPTION_ENABLED, VITE_ENCRYPTION_KEY)
+
+================================================================================
+4. STATE MANAGEMENT
+================================================================================
+
+- useUnscramble: Main game state (phase, words, currentIndex, answers, score, timers, selectedIndices, currentBuilt)
+- useGameSession: API session management (loading, error, startGame, submitResult)
+- useTheme: Theme context (dark/light/system)
+- Timers: setInterval for global countdown, setTimeout for per-word auto-advance
+- Refs: globalTimerRef, wordTimerRef, wordStartRef, gameStartRef
+
+================================================================================
+5. COMPONENTS
+================================================================================
+
+GamePage.tsx:
+  - Orchestrates game flow
+  - Renders InstructionScreen (idle) → Playing UI → ResultScreen (finished)
+  - Keyboard support (letter keys select tiles, Backspace deselects)
+  - Auto-starts after seed received, auto-submits on finish
+  - onReplay: window.location.reload() ← NEEDS CHANGE
+
+InstructionScreen.tsx (shared):
+  - Game icon, title, instructions from i18n
+  - "Start" button with loading state
+
+ResultScreen.tsx (shared):
+  - Score display, success/fail icon, stats grid
+  - "Play Again" button
+
+GameHeader.tsx:
+  - Global timer (pulsing red at ≤10s)
+  - Word counter (X / total)
+  - Per-word progress bar (blue shrinks over wordTimeMs)
+  - Solved counter (green)
+
+LetterTile.tsx:
+  - Individual letter button (indigo when available, gray when selected)
+  - whileTap scale animation
+  - Disabled when selected (opacity 0.3, scale 0.8)
+
+WordDisplay.tsx:
+  - Target slots showing built letters
+  - Empty slots = gray border, filled = green border
+  - Backspace button appears when letters selected
+  - Scale animation on letter placement
+
+GameOverScreen.tsx:
+  - Score breakdown (unused — ResultScreen used instead)
+
+================================================================================
+6. INTEGRATION PLAN
+================================================================================
+
+1. Create Gold Standard components in src/features/unscramble/components/:
+   - MenuScreen.tsx, LevelSelector.tsx, Settings.tsx, StatsScreen.tsx
+   - Achievements.tsx, DailyChallenge.tsx, PauseDialog.tsx, Confetti.tsx
+
+2. Rewrite GamePage.tsx with appPhase state machine:
+   - Extract current game logic into UnscrambleGame inner component
+   - Add onReturnToMenu prop
+   - Replace window.location.reload() with onReturnToMenu()
+   - Wrap all Gold Standard screens + UnscrambleGame in switch
+
+3. App.tsx: No changes needed (already renders GamePage from same path)
+
+Key Change: GamePage's ResultScreen onReplay uses window.location.reload()
+→ Replace with onReturnToMenu callback that sets appPhase to 'menu'
+
+================================================================================
+7. THEME & STYLING
+================================================================================
+
+- TailwindCSS with dark theme as default
+- Theme stored in localStorage (zubaco_theme)
+- Color palette: indigo (primary/tiles), green (solved/correct), red (backspace), gray (bg)
+- Framer-motion for tile animations and transitions
+- Mobile-first responsive (w-14/h-14 md:w-16/h-16)
+
+================================================================================

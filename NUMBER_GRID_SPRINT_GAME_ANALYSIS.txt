@@ -1,0 +1,167 @@
+========================================================================
+NUMBER GRID SPRINT – GAME ANALYSIS
+========================================================================
+Version: 1.0
+Location: zubaco-games-repo/zubaco-games/number-grid-sprint/
+
+========================================================================
+1. GAME CONCEPT
+========================================================================
+Number Grid Sprint is a memory-recall speed game. A grid of cells
+(e.g., 6×6) is presented. Numbers are hidden across the grid and
+periodically "pulse" (reveal) in random groups for a brief moment.
+The player must memorize the revealed values, then tap cells and
+enter the correct number. The goal: fill the entire grid with correct
+values before time runs out. Scoring rewards correctness + speed.
+
+Core loop:
+  1. Grid generated with unique values 1..N (deterministic via seed)
+  2. Cells reveal in rotating batches (every hideIntervalMs, show
+     ~25% of cells for revealDurationMs)
+  3. Player taps a cell → number pad appears → enters guessed value
+  4. Timer counts down → game ends when all cells filled OR time expires
+  5. Score = correctCells × pointsPerCorrect + timeBonus
+
+========================================================================
+2. FRONTEND ARCHITECTURE
+========================================================================
+Stack: React 19 + Vite + TypeScript + TailwindCSS 3.4 + Framer Motion
+State: Custom hooks (useState + useCallback + useRef), NO Zustand
+Routing: None — single GamePage component with phase state machine
+
+App.tsx:
+  ErrorBoundary → ThemeProvider → OfflineBanner → GamePage
+
+Phases (useGrid hook):
+  idle → filling → finished
+
+Components:
+  • GamePage.tsx      — Main orchestrator (phases, API calls)
+  • GridCell.tsx      — Single cell (revealed/selected/filled states)
+  • NumberPad.tsx     — Number input buttons (1..totalCells)
+  • GameHeader.tsx    — Timer, filled count, hints text
+  • GameOverScreen.tsx — Score breakdown + replay button
+
+Hooks:
+  • useGrid.ts        — Game state machine (grid, reveal cycle, answers)
+  • useGameSession.ts — API calls (POST /game/start, POST /game/submit)
+
+Engine:
+  • gridGenerator.ts  — Deterministic grid + reveal schedule (Mulberry32)
+  • scorer.ts         — Score = correct × 10 + (seconds × 2)
+  • random.ts         — Mulberry32 PRNG
+
+Audio (8 sounds):
+  numberTap, numberCorrect, numberWrong, combo,
+  levelComplete, gameOver, timerWarning, uiClick
+
+========================================================================
+3. BACKEND ENGINE
+========================================================================
+NestJS with standard engines:
+  • levelConfig.ts     — 10 levels: L1(4×4, 60s, 1.0×) → L10(8×8, 30s, 3.5×)
+  • achievementEngine  — 10 achievements (standard pattern)
+  • boosterEngine      — 5 boosters: TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+  • comboEngine        — Streak multiplier (max 4×, milestone every 3)
+  • dailyChallenge     — SHA-256 seeded, bonusMultiplier 1.5+
+  • leaderboard        — Top 100
+  • scoreHistory       — Score tracking
+  • timingAnalyzer     — Anti-cheat timing analysis
+  • gridGenerator      — Server-side grid gen (same algo)
+  • scorer             — Server-side score verification
+
+Level Progression:
+  L1:  4×4 grid, 60s, ×1.0
+  L2:  4×4 grid, 55s, ×1.2
+  L3:  5×5 grid, 50s, ×1.4
+  L4:  5×5 grid, 48s, ×1.6
+  L5:  5×5 grid, 45s, ×1.8
+  L6:  6×6 grid, 42s, ×2.0
+  L7:  6×6 grid, 40s, ×2.3
+  L8:  7×7 grid, 38s, ×2.6
+  L9:  7×7 grid, 35s, ×3.0
+  L10: 8×8 grid, 30s, ×3.5
+
+========================================================================
+4. GAME MECHANICS DETAIL
+========================================================================
+Grid Generation:
+  - Values 1..gridSize² placed via Fisher-Yates shuffle (seeded)
+  - Each cell has { row, col, value }
+  - Deterministic: same seed = same grid
+
+Reveal Schedule:
+  - Total intervals = timeLimitMs / hideIntervalMs
+  - Each interval reveals ~25% of cells (totalCells/4)
+  - Reveal lasts revealDurationMs, then hides
+  - Offset seed (seed + 7919) for schedule
+
+Player Interaction:
+  - Tap cell → cell highlighted (blue border)
+  - Number pad shows values 1..totalCells
+  - Submit value → stored in playerAnswers Map
+  - Can overwrite previously entered values
+  - When all cells filled → auto-finish
+  - "Submit Early" button available at any time
+
+Scoring (Frontend):
+  - correctCells × pointsPerCorrect (default 10)
+  - timeBonus = floor(secondsRemaining × timeBonusMultiplier (default 2))
+  - finalScore = cellScore + timeBonus
+
+Default Config:
+  - gridSize: 6 (36 cells)
+  - revealDurationMs: 1000 (1s flash)
+  - hideIntervalMs: 3000 (new batch every 3s)
+  - timeLimitMs: 120000 (2 min)
+  - pointsPerCorrect: 10
+  - timeBonusMultiplier: 2
+
+========================================================================
+5. SIMILAR INTERNET GAMES (FEATURES TO ADD)
+========================================================================
+1. Memory Matrix (Lumosity) — Grid memory, progressive difficulty
+2. Simon Says — Sequential pattern recall
+3. Number Sequence Flash — Numbers flash briefly, recall order
+4. Brain Workshop N-Back — Working memory with position recall
+5. Human Benchmark Number Memory — Digits that flash then hide
+
+Key features from similar games:
+  • Progressive difficulty (grid grows, reveal shrinks)
+  • Combo/streak visual feedback for consecutive correct
+  • Life/mistake system (3 strikes before penalty)
+  • Partial credit for adjacent numbers
+  • Power-ups: freeze timer, reveal cell, extra time
+  • Daily challenge with leaderboard
+  • Statistics tracking (accuracy %, avg time, best scores)
+  • Tutorial/onboarding for first-time players
+  • Haptic feedback on mobile
+  • Accessibility: high contrast mode, larger cells
+
+========================================================================
+6. GOLD STANDARD COMPONENTS NEEDED
+========================================================================
+Currently missing (same pattern as other games):
+  1. MenuScreen        — Main menu with Play/Levels/Daily/etc
+  2. LevelSelector     — 10-level grid with stars + unlock
+  3. Settings          — Sound, volume, theme toggles
+  4. StatsScreen       — Games played, accuracy, streaks, etc
+  5. Achievements      — 10 achievements + unlock popup
+  6. DailyChallenge    — Calendar week + streak + date-seeded
+  7. PauseDialog       — Pause overlay with resume/restart/exit
+  8. Confetti          — Particle celebration on level complete
+
+Integration: Add appPhase state machine in GamePage.tsx wrapping
+existing game flow (like all other games in this platform).
+
+========================================================================
+7. TECHNICAL NOTES
+========================================================================
+- Uses `framer-motion` (NOT motion/react)
+- TailwindCSS class-based styling
+- i18next for localization
+- Save progress outbox pattern (offline resilience)
+- httpClient service for API calls
+- Audio: AudioManager + AudioProvider + soundRegistry pattern
+- Types in src/types/game.ts (CellData, CellAnswer, StageConfig, etc.)
+========================================================================

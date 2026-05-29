@@ -1,0 +1,343 @@
+================================================================================
+ZUBACO DOCKER CONFIGURATION — COMPREHENSIVE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior DevOps / Container Security Review
+Component: Docker Configuration (Dockerfiles + docker-compose.yml + nginx)
+Files: docker-compose.yml, docker/Dockerfile.game-backend,
+       docker/Dockerfile.game-frontend, docker/nginx.conf,
+       zubaco-platform/Dockerfile, admin-panel/backend/Dockerfile,
+       admin-panel/frontend/Dockerfile, + 11 game-specific Dockerfiles
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Docker configuration consists of:
+- docker-compose.yml: Local development stack (Postgres, Redis, platform,
+  admin-backend, admin-frontend)
+- docker/Dockerfile.game-backend: Shared template for game backends (NestJS)
+- docker/Dockerfile.game-frontend: Shared template for game frontends (Vite)
+- docker/nginx.conf: Shared nginx config for SPA serving
+- Individual Dockerfiles in platform + admin + some games
+
+KEY FINDINGS:
+- docker-compose.yml has HARDCODED JWT SECRETS in plaintext
+- Admin backend uses Bun runtime while everything else uses Node.js
+- Admin frontend Dockerfile copies .next but project uses output:'export'
+- Node.js version mismatch (Dockerfiles use node:20, CI uses node:22)
+- No .dockerignore files found
+- Non-root user only in admin Dockerfiles
+
+TOTAL ISSUES: 13 (2 Critical, 3 High, 5 Medium, 3 Low)
+
+DOCKER SCORE: 55/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+MODULE: SECURITY — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-SEC-01: JWT Secrets Hardcoded in docker-compose.yml               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Secret Exposure                                                    │
+│ File: docker-compose.yml (lines 45-46)                                       │
+│                                                                              │
+│ JWT_ACCESS_SECRET: zubaco-access-secret-change-in-production-min-32         │
+│ JWT_REFRESH_SECRET: zubaco-refresh-secret-change-in-production-min-32       │
+│                                                                              │
+│ These secrets are committed to the repository in PLAINTEXT. Even though     │
+│ the name says "change-in-production", if docker-compose is accidentally     │
+│ used in staging/production (common mistake), these weak secrets are used.   │
+│                                                                              │
+│ ALSO: The platform backend code has fallback defaults matching these.       │
+│ Anyone can forge JWTs for any user.                                          │
+│                                                                              │
+│ FIX: Use .env file (gitignored) or docker-compose.override.yml.            │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-SEC-02: Database Password "postgres" Hardcoded                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Secret Exposure                                                    │
+│ File: docker-compose.yml (lines 7-8, 43)                                     │
+│                                                                              │
+│ POSTGRES_PASSWORD: postgres                                                  │
+│ DATABASE_URL: postgresql://postgres:postgres@postgres:5432/zubaco_platform  │
+│                                                                              │
+│ For local dev, weak passwords are tolerable. But this is committed to       │
+│ source and docker-compose is often copied to servers.                       │
+│                                                                              │
+│ FIX: Use ${POSTGRES_PASSWORD:-postgres} with .env file.                     │
+│                                                                              │
+│ Priority Score: 5/10 (dev-only, but risky if copied)                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-SEC-03: Platform + Game Dockerfiles Run as Root                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Container Security                                                 │
+│ Files: zubaco-platform/Dockerfile, docker/Dockerfile.game-backend            │
+│                                                                              │
+│ No USER directive. Containers run as root. If an attacker exploits the     │
+│ app (e.g., via prototype pollution → RCE), they get root inside the       │
+│ container, enabling container escape on unpatched kernels.                  │
+│                                                                              │
+│ Admin Dockerfiles DO have USER appuser — inconsistency.                    │
+│                                                                              │
+│ FIX: Add `RUN addgroup -S app && adduser -S app -G app` + `USER app`      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-SEC-04: No .dockerignore Files                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Build Security                                                     │
+│ Files: All Dockerfile directories                                            │
+│                                                                              │
+│ No .dockerignore found. COPY . . in admin frontend Dockerfile copies:      │
+│ - .env files (secrets)                                                       │
+│ - .git directory (full history)                                              │
+│ - node_modules (bloated image, may override npm ci)                         │
+│ - test files, docs, etc.                                                     │
+│                                                                              │
+│ FIX: Add .dockerignore with: node_modules, .git, .env*, *.md, test/        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: CORRECTNESS — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-CORR-01: Admin Frontend Dockerfile Wrong for output:'export'      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Build Error                                                        │
+│ File: admin-panel/frontend/Dockerfile                                        │
+│                                                                              │
+│ Dockerfile copies:                                                           │
+│   COPY --from=builder /app/.next ./.next                                    │
+│   CMD ["npm", "start"]                                                       │
+│                                                                              │
+│ But the admin frontend uses Next.js with output: 'export' (static build).  │
+│ `npm run build` produces /app/out/ directory, NOT .next/.                   │
+│ `npm start` runs next start (needs a Node.js server), but output:'export'  │
+│ generates static HTML — needs nginx, not next start.                       │
+│                                                                              │
+│ This Dockerfile will produce a BROKEN image.                                 │
+│                                                                              │
+│ FIX: Use nginx base image and COPY --from=builder /app/out/ to nginx       │
+│ html directory (like the game frontend Dockerfile does).                    │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-CORR-02: Admin Backend Uses Bun, Everything Else Uses Node.js     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Runtime Inconsistency                                              │
+│ File: admin-panel/backend/Dockerfile                                         │
+│                                                                              │
+│ FROM oven/bun:latest — admin backend runs on Bun runtime.                   │
+│ Platform + all games use node:20-alpine.                                    │
+│ CI pipeline uses node:22 for building.                                      │
+│                                                                              │
+│ Issues:                                                                       │
+│ - Bun's Node.js compatibility is not 100% (NestJS edge cases)              │
+│ - No version pinning (oven/bun:latest is non-deterministic)                │
+│ - Different debugging, profiling, monitoring tools needed                    │
+│ - `bun install` vs `npm ci` dependency resolution differs                  │
+│                                                                              │
+│ FIX: Standardize on Node.js 22-alpine for all services, or explicitly      │
+│ document and test Bun compatibility.                                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-CORR-03: Node.js Version Mismatch (Docker 20 vs CI 22)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Version Mismatch                                                   │
+│ Files: All Dockerfiles using node:20-alpine                                  │
+│                                                                              │
+│ Dockerfiles: node:20-alpine                                                  │
+│ CI pipeline: node 22                                                         │
+│ Local dev: node v24.16.0                                                     │
+│                                                                              │
+│ Three different Node.js versions. "Works on my machine" guaranteed.         │
+│                                                                              │
+│ FIX: Standardize on node:22-alpine everywhere.                               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: BUILD OPTIMIZATION — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-OPT-01: Production Image Includes Full node_modules               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Image Size                                                         │
+│ Files: admin-panel/backend/Dockerfile, admin-panel/frontend/Dockerfile       │
+│                                                                              │
+│ Admin backend: COPY --from=builder /app/node_modules ./node_modules         │
+│ Copies ALL dependencies (including devDependencies built by `bun install`). │
+│                                                                              │
+│ Admin frontend: COPY --from=builder /app/node_modules ./node_modules        │
+│ node_modules not needed for static HTML serving.                            │
+│                                                                              │
+│ Platform Dockerfile does it right: RUN npm ci --omit=dev                    │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-OPT-02: Admin Frontend Dockerfile Uses npm install, Not npm ci    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Deterministic Builds                                               │
+│ File: admin-panel/frontend/Dockerfile                                        │
+│                                                                              │
+│ RUN npm install — non-deterministic, may resolve different versions.        │
+│ All other Dockerfiles correctly use npm ci.                                 │
+│                                                                              │
+│ FIX: Use npm ci --legacy-peer-deps                                           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-OPT-03: No Image Version Pinning (FROM node:alpine)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Deterministic Builds                                               │
+│ File: admin-panel/frontend/Dockerfile                                        │
+│                                                                              │
+│ FROM node:alpine — no version tag. Could be Node 20, 22, or 24.           │
+│ oven/bun:latest — similar issue.                                            │
+│                                                                              │
+│ FIX: Pin to specific versions: node:22-alpine, oven/bun:1.2                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: docker-compose — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-COMP-01: NODE_ENV=production in Local Dev Compose                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Configuration                                                      │
+│ File: docker-compose.yml (line 47)                                           │
+│                                                                              │
+│ Platform service has NODE_ENV: production. This disables dev features       │
+│ (detailed errors, hot reload if configured) in local development.          │
+│                                                                              │
+│ FIX: Set NODE_ENV: development in docker-compose.yml                        │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-COMP-02: No Game Services in docker-compose                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Completeness                                                       │
+│ File: docker-compose.yml                                                     │
+│                                                                              │
+│ docker-compose only has: postgres, redis, platform, admin-backend,          │
+│ admin-frontend. None of the 20 game backends/frontends are included.       │
+│ Developers cannot run full stack locally.                                   │
+│                                                                              │
+│ FIX: Add a docker-compose.games.yml override or template.                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DOCK-COMP-03: version: '3.8' Deprecated                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Configuration                                                      │
+│ File: docker-compose.yml (line 1)                                            │
+│                                                                              │
+│ Docker Compose V2 ignores the version field. It generates a warning.        │
+│                                                                              │
+│ FIX: Remove the version line entirely.                                       │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. POSITIVE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ Multi-stage builds in all Dockerfiles (smaller production images)
+✓ Alpine base images for reduced attack surface
+✓ Platform Dockerfile: npm ci --omit=dev (no devDependencies in prod)
+✓ Health checks on platform + game backend containers
+✓ Admin backend: non-root USER appuser
+✓ docker-compose: service health checks with depends_on conditions
+✓ Shared Dockerfile templates for games (DRY)
+✓ nginx.conf has security headers (X-Frame-Options, X-Content-Type-Options)
+✓ Static asset caching with immutable headers (1 year)
+✓ Gzip compression enabled
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Multi-stage Builds:               80/100 (good separation)
+- Security:                         35/100 (root user, hardcoded secrets)
+- Correctness:                      40/100 (wrong admin frontend Dockerfile)
+- Build Determinism:                45/100 (version mismatches, npm install)
+- Image Optimization:               55/100 (alpine, but full node_modules)
+- Local Dev Experience:             60/100 (compose works, no games)
+- Nginx Config:                     75/100 (security headers, caching, gzip)
+
+═══════════════════════════════════════
+OVERALL DOCKER SCORE: 55/100
+═══════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. PRIORITY ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: FIX BROKEN BUILDS
+  □ Fix admin frontend Dockerfile (use nginx + /out/ directory)
+  □ Move secrets to .env file (gitignored)
+  □ Standardize Node.js version (22-alpine everywhere)
+
+PHASE 2: SECURITY
+  □ Add non-root USER to all Dockerfiles
+  □ Add .dockerignore to all build contexts
+  □ Pin all base image versions
+
+PHASE 3: OPTIMIZATION
+  □ Use npm ci --omit=dev in admin backend production stage
+  □ Standardize on Node.js or document Bun choice
+
+================================================================================
+END OF AUDIT — ZUBACO DOCKER CONFIGURATION
+================================================================================

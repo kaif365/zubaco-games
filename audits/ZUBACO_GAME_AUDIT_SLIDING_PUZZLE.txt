@@ -1,0 +1,914 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #17: SLIDING PUZZLE (15-Puzzle / Image Sliding Tiles)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Classic sliding puzzle — an image is split into tiles, one blank.
+          Player slides adjacent tiles into the blank to reconstruct the image.
+          Multiple rounds per session with timer. Memorize phase shows the
+          solved image before shuffling.
+Stack: NestJS 11 + Prisma 7 + Restate (durable execution) + Redis + BullMQ +
+       Zod + SNS (backend), React 19 + Vite 6 + CSS transitions + i18n +
+       Web Audio (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Sliding Puzzle is the SECOND most sophisticated game in the ZUBACO platform,
+sharing the Restate durable execution architecture with Sequence Recall. It
+implements a classic 15-puzzle mechanic with image content, a memorize phase,
+multi-round level progression, and server-authoritative move validation.
+
+The architecture is production-grade: Restate Virtual Object manages state,
+moves are submitted in batches (every 5s) and replayed server-side with
+adjacency validation. Boards are stored in the database with pre-computed
+solvable shuffles (verified via O(n log n) inversion counting). No seed or
+shuffle algorithm is sent to the client — the server provides shuffled
+tile positions directly.
+
+The frontend has professional polish: gather-to-center → scatter animation
+for tile shuffling, stable DOM order (preventing CSS transition snaps),
+sound system with 5 audio cues + volume controls, memorize overlay with
+countdown, session recovery on refresh, offline detection, and a mutation
+barrier ensuring sequential API calls.
+
+Main issues: .env committed, all-or-nothing scoring (0 points for partial
+completion), HMAC/WS fallback secrets, and CORS '*' default.
+
+TOTAL ISSUES: 25 (2 Critical, 4 High, 10 Medium, 9 Low)
+
+RELEASE READINESS SCORE: 76/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: .env committed with JWT_SECRET + ENCRYPTION_KEY
+           JWT_SECRET=dev-jwt-secret-min-32-chars-here
+           ENCRYPTION_KEY=0123456789abcdef...
+
+BLOCKER-2: HMAC guard uses fallback 'dev-hmac-secret' + WebSocket gateway
+           uses 'dev-secret' when JWT_SECRET env var is missing.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (14 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env Committed with Production-Critical Secrets                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env                                                                   │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL=postgresql://zubaco:zubaco_dev_2024@localhost:5432/zubaco     │
+│   JWT_SECRET=dev-jwt-secret-min-32-chars-here                                │
+│   ENCRYPTION_KEY=0123456789abcdef0123456789abcdef...                          │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Two Fallback Secrets in Guards                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: src/common/guards/hmac.guard.ts (line 18),                            │
+│        src/ws/game.gateway.ts (line 37)                                      │
+│                                                                              │
+│ Code:                                                                        │
+│   hmac.guard.ts:   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret'│
+│   game.gateway.ts: const secret = process.env.JWT_SECRET || 'dev-secret';    │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 65-72)                                               │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: CORS Defaults to '*' When CORS_ORIGINS Not Set                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 45-50)                                               │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: All-or-Nothing Scoring (0 for Partial Completion)                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Design                                                        │
+│ File: src/game/utils/score.util.ts (line 17-22)                              │
+│                                                                              │
+│ Code:                                                                        │
+│   export function calculateRoundScore(                                       │
+│     completed: boolean, correctPieces, totalPieces, maxScore                 │
+│   ): number {                                                                │
+│     void correctPieces; void totalPieces; // UNUSED!                         │
+│     if (completed) return maxScore;                                          │
+│     return 0;                                                                │
+│   }                                                                          │
+│                                                                              │
+│ Description: Player gets ZERO points unless the puzzle is FULLY solved.      │
+│ A 4x4 puzzle where 14/15 tiles are correct scores 0. The function           │
+│ receives correctPieces and totalPieces but explicitly IGNORES them.          │
+│                                                                              │
+│ This is extremely frustrating for players who run out of time with           │
+│ a nearly-complete puzzle. Consider partial scoring:                           │
+│   partialScore = Math.floor(maxScore * (correctPieces / totalPieces))       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: VERY HIGH frustration                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: Anti-Cheat is Post-Finalization Fire-and-Forget                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line ~540)                                   │
+│                                                                              │
+│ Code:                                                                        │
+│   this.runAntiCheatOnFinalize(session, scoredBoards);                        │
+│                                                                              │
+│ Description: Anti-cheat runs asynchronously after commit. No retry           │
+│ mechanism if it fails. Also, what does it check? The method name             │
+│ suggests it exists but details are not in the main game.service.ts.          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Dead Engine Modules (6 Files)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts, boosterEngine.ts,               │
+│        comboEngine.ts, dailyChallenge.ts, leaderboard.ts, scoreHistory.ts    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Raw SQL with String Interpolation in excludeClause               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/game/game.service.ts (pickBoardWithPieces, line ~283)              │
+│                                                                              │
+│ Code:                                                                        │
+│   Prisma.raw(excludeIds.map((id) => `'${id}'`).join(','))                   │
+│                                                                              │
+│ Description: Uses Prisma.raw to interpolate UUIDs. MITIGATED by UUID         │
+│ regex validation:                                                            │
+│   const UUID_RE = /^[0-9a-f]{8}-...-[0-9a-f]{12}$/i;                       │
+│   if (excludeIds.some(id => !UUID_RE.test(id))) throw;                       │
+│                                                                              │
+│ The UUID validation prevents SQL injection. However, best practice is        │
+│ to use parameterized queries even with validated input.                      │
+│                                                                              │
+│ Priority Score: 3/10 (mitigated by strict UUID regex)                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: No Maximum Move Count Limit                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: DoS                                                                │
+│ File: src/game/game-session.restate.ts (submitMoves handler)                 │
+│                                                                              │
+│ Description: While moves are submitted in batches, there's no explicit       │
+│ cap on total moves per session. A bot could submit thousands of moves.       │
+│                                                                              │
+│ MITIGATED: Session has time limit (expiryAtMs), so there's a natural         │
+│ upper bound. Also, Restate state grows, but each move is small.             │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: No Rate Limiting on submitMoves Endpoint                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: DoS                                                                │
+│ File: game.controller.ts                                                     │
+│                                                                              │
+│ MITIGATED: Restate serializes per Virtual Object key.                        │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Board Shuffles Pre-Stored in DB (Not Runtime-Generated)          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Design / Anti-Cheat                                           │
+│ File: src/game/game.service.ts (pickBoardWithPieces)                         │
+│                                                                              │
+│ Description: Shuffles are stored in board_shuffles table (pre-generated).    │
+│ A random shuffle is picked per board. If the set of shuffles is small,       │
+│ a player who repeats the stage could memorize solutions.                     │
+│                                                                              │
+│ MITIGATED: usedBoardIds excludes previously used boards within a session.    │
+│ Cross-session repetition depends on DB board pool size.                      │
+│                                                                              │
+│ Priority Score: 3/10 (depends on content pool size)                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Time Bonus Only for FULLY Completed Games                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Design                                                        │
+│ File: src/game/game.service.ts (finalizeAndCommit, line ~458)                │
+│                                                                              │
+│ Code:                                                                        │
+│   const timeBonus = finalStatus === GAME_SESSION_STATUS.ENDED                │
+│     ? calculateTimeBonus(...) : 0;                                           │
+│                                                                              │
+│ Description: Time bonus is 0 unless ALL rounds solved (ENDED status).        │
+│ Combined with all-or-nothing round scoring, a player who solves 4/5          │
+│ rounds gets round scores but no time bonus. This is acceptable design        │
+│ but very punishing.                                                          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: pickBoardWithPieces Uses OFFSET for Random Selection             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ File: src/game/game.service.ts (line ~285)                                   │
+│                                                                              │
+│ Description: Uses COUNT + random OFFSET for board selection. OFFSET          │
+│ with large tables can be slow (O(offset) scan). For small board pools        │
+│ this is fine. For thousands of boards, use keyset pagination.                │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Restate Operational Dependency                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Operations                                                         │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (11 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: VITE_ENCRYPTION_KEY in Client Bundle                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM (conditional — only when VITE_ENCRYPTION_ENABLED=true)      │
+│ Category: Security                                                           │
+│ File: src/app/config/appConfig.ts (line 49-50)                               │
+│                                                                              │
+│ Note: .env.example has VITE_ENCRYPTION_ENABLED=true and placeholder key.     │
+│ In production, the real key would be exposed in bundle.                      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: autoSolve Function Exposed in Production                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat / Debug Leak                                            │
+│ File: src/features/game/hooks/useGameSession.ts (UseGameSessionReturn)       │
+│                                                                              │
+│ Description: The hook exports `autoSolve: () => void` which instantly        │
+│ sets the board to solved state. While this is a client-side operation         │
+│ (server validates moves), it means a player can trigger the solved           │
+│ visual and then the endBoard call will check if isSolved(pieces) — but       │
+│ the server's pieces state won't be solved unless valid moves were made.      │
+│                                                                              │
+│ Actually safe: server tracks its own pieces state in Restate. AutoSolve      │
+│ only updates the LOCAL pieces — when endBoard is called, server checks       │
+│ its own copy which is still unsolved. Score = 0.                             │
+│                                                                              │
+│ However, confusing for the player (shows "solved" visually but scores 0).    │
+│ Should be gated behind a dev/debug flag.                                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Auth Token in localStorage (XSS Risk)                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts                                             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: No Haptic Feedback on Tile Slide                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GameContainer.tsx                                                      │
+│                                                                              │
+│ Description: Sound plays on tile moves (whoosh + wrongStep), but no          │
+│ vibration. Physical sliding-tile toys have tactile feedback.                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: No Move Counter Display                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GameContainer.tsx                                                      │
+│                                                                              │
+│ Description: Players solving puzzles optimize for minimum moves.             │
+│ Not showing the move count means no "par" comparison, no optimization        │
+│ incentive. The data exists (moves are tracked) but not displayed.            │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: No Partial Progress Indicator                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GameContainer.tsx                                                      │
+│                                                                              │
+│ Description: Player doesn't know how many tiles are in correct position.     │
+│ A "14/16 correct" indicator would show progress and motivate.               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: No Accessibility (Keyboard Controls)                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: GameBoard.tsx                                                          │
+│                                                                              │
+│ Description: Tiles are buttons (good!) but no keyboard arrow-key control     │
+│ for moving the blank position. Standard sliding puzzle keyboards use         │
+│ arrow keys to slide tiles.                                                   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Share Results                                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: GameContainer.tsx                                                      │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: Source Maps Likely Shipped                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: VITE_FILE_UPLOAD_API_KEY in Bundle                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/app/config/appConfig.ts (line 45)                                  │
+│                                                                              │
+│ Description: fileUpload.apiKey is exposed in the client bundle.              │
+│ Likely for direct CDN uploads. Should be server-proxied.                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: FLUSH_INTERVAL_MS = 5000 (Potential Move Loss)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Data Integrity                                                     │
+│ File: src/features/game/hooks/useMoveSubmission.ts (line 8)                  │
+│                                                                              │
+│ Description: Moves are flushed every 5 seconds. If the app crashes or        │
+│ network drops between flushes, up to 5s of moves could be lost.             │
+│                                                                              │
+│ MITIGATED: Each move is persisted to localStorage immediately                │
+│ (storage.appendPendingMove). Session recovery hydrates from there.          │
+│                                                                              │
+│ Priority Score: 2/10 (well mitigated)                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND Performance:
+
+1. Restate Virtual Object: Sequential per-session — consistent, no races.
+2. Move Replay: O(n) per batch — each move checked against blank adjacency.
+   For realistic game sessions (50-200 moves), negligible.
+3. Board Selection: COUNT + OFFSET query — O(offset) but pools are small.
+4. Finalization: Single transaction for all boards + moves. Bulk createMany.
+5. Solvability Check: O(n log n) merge sort inversion counting. Excellent.
+6. Anti-Cheat: Async post-commit. Zero gameplay latency impact.
+7. Snapshot Verification: Post-commit COUNT queries for integrity.
+
+FRONTEND Performance:
+
+1. CSS Transitions: Tile movement via transform3d (GPU-accelerated).
+   No JavaScript animation loop — the browser handles interpolation.
+2. Stable DOM Order: Prevents React DOM moves that skip CSS transitions.
+   This is a CLEVER optimization unique to this game.
+3. Image Preloading: Board images loaded before display. No FOUC.
+4. useMemo: slotMap, stableOrder, gridKeys — prevents recalculation.
+5. Move Batching: 5s interval flush reduces API calls dramatically.
+   A 100-move game = ~20 flushes instead of 100 individual calls.
+6. Board Prefetch: Next board loaded while player solves current.
+7. Mutation Barrier: Sequential promise chain prevents race conditions.
+
+VERDICT: EXCELLENT performance. CSS transitions + stable DOM order +
+move batching = smooth 60fps gameplay with minimal API load. The gather-
+scatter animation is particularly impressive (pure CSS choreography).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+EXCELLENT UX Decisions:
+✓ Memorize overlay — shows solved image with countdown before shuffling
+✓ Gather-to-center → scatter animation (professional reveal)
+✓ Sound system with 5 distinct cues (background, tap, whoosh, wrong, success)
+✓ Volume controls (music + SFX) with localStorage persistence
+✓ Round progress dots (visual round tracking)
+✓ Timer with countdown display
+✓ Session recovery on page refresh (exact state preserved)
+✓ Offline detection with retry modal
+✓ Image-based tiles (beautiful real images, not numbers!)
+✓ Optional number overlay (enableNumbers) for easier solving
+✓ Solved reveal animation (tiles reveal full image)
+✓ Level complete burst animation
+✓ Demo mode (practice without timer)
+✓ Stage themes with configurable colors
+✓ Responsive grid (fills parent container)
+✓ Shimmer skeleton while image loads
+✓ Wrong move sound feedback (immediate auditory cue)
+✓ Ghost grid lines (subtle visual guide)
+
+UX PROBLEMS:
+
+1. All-or-Nothing Scoring
+   - 14/16 tiles correct = 0 points
+   - FRUSTRATION LEVEL: EXTREME
+
+2. No Move Counter
+   - Players can't optimize their strategy
+   - FRUSTRATION LEVEL: MEDIUM
+
+3. No Correct Tiles Indicator
+   - "Am I making progress?" — player can't tell programmatically
+   - FRUSTRATION LEVEL: MEDIUM
+
+4. No Hint System
+   - Stuck players have no recourse (common in puzzle games)
+   - FRUSTRATION LEVEL: HIGH (for casual players)
+
+5. No Haptic Feedback
+   - Physical sliding tiles vibrate — digital should too
+   - FRUSTRATION LEVEL: LOW
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features ALREADY IMPLEMENTED:
+✓ Sound system with volume controls
+✓ Memorize phase
+✓ Session recovery
+✓ Offline detection
+✓ Demo mode
+✓ i18n
+✓ Multi-round progression
+✓ Timer
+✓ Image-based content
+✓ Animations (gather, scatter, reveal, burst)
+✓ Board prefetch
+
+Still Missing:
+1.  [!] Partial scoring (correctPieces/totalPieces ratio)
+2.  [!] Move counter display
+3.  [!] Correct tiles progress indicator
+4.  [ ] Hint system (highlight next correct move)
+5.  [ ] Haptic feedback
+6.  [ ] Keyboard controls (arrow keys)
+7.  [ ] Share results
+8.  [ ] Personal best comparison
+9.  [ ] Undo last move
+10. [ ] "Peek" at solved image during play (limited uses)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add move counter (top HUD, alongside timer)
+2. Add "X/16 correct" progress indicator
+3. Implement partial scoring (proportional to correct tiles)
+4. Add haptic on tile slide (short buzz)
+5. Add "Peek" button (shows solved image for 1 second, limited uses)
+6. Add keyboard controls (arrow keys move blank)
+7. Add undo button (last move only, deducts points)
+8. Confetti/particle burst on round complete
+9. Personal best moves comparison
+10. Add tile snap-into-place sound when correct position reached
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Add partial scoring (change calculateRoundScore to use ratio)
+2. Add move counter display
+3. Add correct tiles indicator
+4. Add haptic feedback
+5. Add keyboard arrow controls
+6. Gate autoSolve behind dev flag
+7. Add share button on results
+8. Remove VITE_FILE_UPLOAD_API_KEY from client
+
+Backend:
+1. Remove .env + fallback secrets
+2. Gate Swagger behind NODE_ENV
+3. Fix CORS to throw on missing in production
+4. Implement partial scoring
+5. Remove dead engine modules
+6. Add move count limit (prevent DoS)
+7. Consider parameterized queries for excludeClause
+8. Add retry/dead-letter for anti-cheat
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Anti-Cheat
+- NO seed/algorithm sent to client (board shuffles come from DB!)
+- Server validates adjacency for every move
+- Server maintains authoritative pieces state
+- Even if client calls "autoSolve", server pieces remain unsolved
+- Anti-cheat score: 85/100 (EXCELLENT — no client-side exploitation!)
+
+Attack Surface 2: Secrets
+- .env committed (JWT + ENCRYPTION_KEY + DB)
+- Two fallback secrets (HMAC guard + WS gateway)
+- Severity: CRITICAL
+
+Attack Surface 3: SQL Injection
+- Raw SQL in pickBoardWithPieces uses Prisma.raw
+- MITIGATED: UUID regex validation before interpolation
+- Severity: LOW (properly mitigated)
+
+Attack Surface 4: DoS
+- No explicit move count limit
+- Restate serializes per session (natural throttle)
+- MITIGATED: Time limit bounds total possible moves
+- Severity: LOW
+
+OVERALL SECURITY POSTURE:
+The anti-cheat design is the BEST in the platform for this game because
+board shuffles are stored in the database — the client has no algorithm
+to reverse or exploit. Server validates every move's adjacency. The only
+vulnerabilities are the standard infrastructure secrets.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Positive" - 7/10
+
+POSITIVE:
+"Beautiful images — much better than numbered tiles!"
+"The memorize phase before shuffling is a great touch."
+"Sound effects make each slide satisfying."
+"Recovered my game after my phone went to sleep — impressive!"
+"The shuffle animation is so smooth — gather, scatter!"
+"Multiple rounds with different difficulty levels keep it fresh."
+
+NEGATIVE:
+"I had 14/16 tiles correct when time ran out — ZERO points?! Are you kidding?"
+"No move counter — how am I supposed to improve?"
+"No way to peek at the image during the puzzle? I forgot what it looks like!"
+"No undo button — one wrong move and I have to fix it manually."
+"Higher difficulty 5x5 is basically impossible in the time limit."
+"No hint when I'm stuck — just staring at the puzzle frustrated."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "14/16 correct = 0 points!!" — All-or-nothing scoring (#1 complaint!)
+2. "How many moves have I made?" — No move counter
+3. "Am I even making progress?" — No correct-tiles indicator
+4. "I forgot what the image looks like!" — No peek function
+5. "Can't undo!" — No undo last move
+6. "Stuck for 2 minutes, no help!" — No hint system
+7. "No vibration on my phone!" — Missing haptic
+8. "Can't share my score!" — No share
+9. "5x5 is too hard with only 60s!" — Difficulty balance
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ 15-puzzle is a PROVEN mechanic (130+ years of existence!)
+✓ Image content makes each puzzle unique and beautiful
+✓ "Memorize first" adds a memory challenge on top of logic
+✓ Satisfying click-slide feel with audio
+✓ Progressive difficulty (3x3 → 4x4 → 5x5 across rounds)
+✓ Timer adds urgency without panic
+✓ Multi-round keeps engagement (one puzzle isn't enough)
+✓ "Aha!" moment when the last pieces fall into place
+✓ Smooth CSS transitions feel physical and premium
+✓ Reveal animation creates a reward moment
+
+Flow State Enablers:
+✓ Simple rules (slide adjacent tile into blank)
+✓ Immediate visual feedback (tile moves)
+✓ Audio confirmation (whoosh)
+✓ Clear progress (image becoming recognizable)
+✓ Increasing difficulty per round (3x3 → harder)
+✓ Timer creates focus
+✓ No complex decisions (limited moves possible)
+✓ Physical action (tapping) maintains engagement
+
+WHY THIS GAME WORKS:
+The 15-puzzle is one of the oldest and most enduring puzzle games. Adding
+real images transforms it from an abstract number exercise into an engaging
+visual challenge. The memorize phase adds a memory dimension that makes it
+more than just a pure logic puzzle.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. ALL-OR-NOTHING SCORING
+   - "I got 0 points for 14/16 correct" = rage quit = never return
+   - This is the #1 churn driver
+
+2. NO SHARE
+   - "I solved a 5x5 puzzle in 45 moves!" = great share content
+   - Not implemented
+
+3. NO PEEK / HINT
+   - Stuck players quit instead of sharing the challenge
+
+4. NO MOVE COUNTER
+   - "Personal best: 32 moves" = competitive engagement
+   - Without it, no optimization loop
+
+5. NO COMPARISON
+   - "You solved it in 45 moves. Average is 62." = social incentive
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     85/100 (Restate, clean separation, typed)
+- Security:                         40/100 (.env, fallback secrets, CORS)
+- Performance:                      90/100 (CSS transitions, move batching)
+- Game Logic & Correctness:         70/100 (all-or-nothing scoring hurts)
+- UX & Polish:                      75/100 (sound! memorize! but no hint/peek)
+- Anti-Cheat:                       90/100 (BEST IN PLATFORM — DB shuffles!)
+- Accessibility:                    35/100 (no keyboard, but has i18n)
+- Retention & Engagement:           60/100 (0-point rounds cause churn)
+- Error Handling:                   80/100 (session recovery, offline modal)
+- Production Readiness:             65/100 (dev secrets, autoSolve exposed)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 76/100
+═══════════════════════════════════════
+
+VERDICT: PROFESSIONAL POLISH, PUNISHING SCORING
+The architecture and UX polish are production-grade (Restate, CSS transitions,
+sound, memorize overlay, session recovery). The anti-cheat is the strongest
+in the platform because board shuffles come from DB, not algorithms. The
+SINGLE BIGGEST FIX needed is changing calculateRoundScore to award partial
+credit — players getting 0 for 14/16 correct will rage-quit permanently.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL FIXES (0.5 day)
+  □ Remove .env from repo + add to .gitignore
+  □ Remove HMAC + WS gateway fallback secrets
+  □ Gate Swagger behind NODE_ENV
+  □ Fix CORS to reject '*' in production
+  □ Gate autoSolve behind dev flag
+
+PHASE 2: SCORING FIX (2 hours)
+  □ Change calculateRoundScore to award partial credit:
+    return Math.floor(maxScore * (correctPieces / totalPieces))
+  □ This single change transforms player experience!
+
+PHASE 3: UX IMPROVEMENTS (1 day)
+  □ Add move counter display in HUD
+  □ Add correct-tiles progress indicator ("14/16 ✓")
+  □ Add haptic on tile slide
+  □ Add "Peek" button (shows image for 1s, 3 uses max)
+  □ Add keyboard arrow controls
+
+PHASE 4: POLISH (0.5 day)
+  □ Add share button on results screen
+  □ Add personal best moves comparison
+  □ Add undo last move (optional, deducts penalty)
+  □ Add hint button (highlights tile closest to correct)
+  □ Remove VITE_FILE_UPLOAD_API_KEY from client
+
+PHASE 5: CODE QUALITY (0.5 day)
+  □ Remove dead engine modules
+  □ Add move count limit
+  □ Wire leaderboard (by moves OR by score)
+  □ Remove VITE_ENCRYPTION_KEY exposure
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Implement partial scoring (correctPieces / totalPieces × maxScore)
+    Effort: 10 min (one line!) | Impact: Eliminates #1 frustration source
+    ROI: ∞ (literally one line of code changes the entire player experience)
+
+#2  Remove .env + fallback secrets
+    Effort: 30 min | Impact: Prevents auth bypass
+    ROI: ∞ (security)
+
+#3  Add move counter in HUD
+    Effort: 30 min | Impact: Enables optimization gameplay loop
+    ROI: 8x
+
+#4  Add correct-tiles progress indicator
+    Effort: 1 hour | Impact: "Am I making progress?" feedback
+    ROI: 7x
+
+#5  Add "Peek" button (shows solved image for 1 second, limited uses)
+    Effort: 1 hour | Impact: Unstick casual players
+    ROI: 7x
+
+#6  Gate Swagger + fix CORS
+    Effort: 15 min | Impact: Production hardening
+    ROI: ∞ (security)
+
+#7  Add haptic on tile slide
+    Effort: 20 min | Impact: Physical feedback = satisfaction
+    ROI: 5x
+
+#8  Add keyboard arrow controls
+    Effort: 1 hour | Impact: Accessibility + desktop experience
+    ROI: 5x
+
+#9  Add share button ("Solved 5x5 in 38 moves!")
+    Effort: 1 hour | Impact: Virality driver
+    ROI: 5x
+
+#10 Gate autoSolve behind dev/debug flag
+    Effort: 5 min | Impact: Prevents player confusion
+    ROI: 4x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND — SECOND-BEST IN PLATFORM:
+✓ RESTATE VIRTUAL OBJECT: Durable execution, exactly-once semantics
+✓ NO CLIENT-SIDE ALGORITHM: Board shuffles stored in DB — zero exploitation
+✓ SERVER MOVE VALIDATION: Each move checked for blank adjacency
+✓ SOLVABILITY GUARANTEE: O(n log n) inversion counting + parity fix
+✓ DEDUPLICATION: Both within-batch and across-batch (state-based)
+✓ STALE MOVE FILTERING: Moves before lastMoveAt are discarded
+✓ FUTURE TIMESTAMP DETECTION: Prevents clock manipulation
+✓ GRACE PERIOD: SUBMIT_MOVES_EXPIRY_GRACE_SECONDS allows late flushes
+✓ INTEGER OVERFLOW PROTECTION: assertPersistableInt for all numeric fields
+✓ IDEMPOTENT FINALIZATION: Checks if already terminal before writing
+✓ POST-COMMIT VERIFICATION: Counts boards and moves to verify integrity
+✓ BOARD EXCLUSION: usedBoardIds prevents repeat boards within session
+✓ LEVEL-BASED PROGRESSION: Admin-configurable levels from DB
+✓ DEMO MODE: Practice boards tracked per user
+✓ TRANSACTION-BASED: Single $transaction for all finalization writes
+✓ SNS ANTI-CHEAT: Published after finalization
+✓ ZOD VALIDATION: DTOs validated with Zod (not class-validator)
+✓ ENCRYPTION INTERCEPTOR: Server-side AES payload encryption
+✓ API VERSIONING: /api/v1/ prefix
+
+FRONTEND — PROFESSIONAL QUALITY:
+✓ CSS TRANSITIONS + STABLE DOM ORDER: Prevents "snap" effect during
+  piece movement. Renders tiles in fixed pieceIndex order so DOM nodes
+  never move — only transform changes → transitions fire reliably.
+✓ GATHER-TO-CENTER → SCATTER: Professional shuffle animation
+  (solved → gather → scatter to shuffled positions)
+✓ SOUND SYSTEM: 5 audio cues (background loop, tap, whoosh, wrong, success)
+  with separate music/SFX volume sliders persisted to localStorage
+✓ MEMORIZE OVERLAY: Shows solved image with countdown bar before shuffle
+✓ SESSION RECOVERY: Full state persisted to localStorage (pieces, phase,
+  pending moves). Exact resumption on page refresh.
+✓ OFFLINE DETECTION: Modal appears when connection drops, retry on reconnect
+✓ MUTATION BARRIER: Promise chain guarantees submitMoves → endBoard →
+  nextBoard never run concurrently (prevents race conditions)
+✓ MOVE BATCHING: 5s auto-flush + immediate localStorage persistence
+✓ BOARD PREFETCH: Next board loaded while player solves current
+✓ IMAGE PRELOADING: Board images loaded before display (no FOUC)
+✓ SHIMMER SKELETON: Loading state while image downloads
+✓ i18n: All text via react-i18next
+✓ ROUND PROGRESS DOTS: Visual round tracking
+✓ REVEAL OVERLAY: Animated reveal when puzzle solved
+✓ LEVEL COMPLETE BURST: Celebration animation
+✓ FORFEIT OPTION: Player can end game early
+✓ STAGE THEMES: Configurable color schemes per stage
+✓ RETRYABLE AUTH: Transparent token refresh on 401
+
+GAME DESIGN:
+✓ 15-puzzle = universally known mechanic (130+ years!)
+✓ Image content = each puzzle is unique and beautiful
+✓ Memorize phase = adds memory dimension to logic puzzle
+✓ Multi-round = sustained engagement
+✓ Level progression = increasing difficulty (3x3 → 5x5)
+✓ Time bonus = rewards speed
+✓ Demo mode = risk-free practice
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1  (Arrows):             58/100
+  Game #2  (Block Fill):         62/100
+  Game #3  (Colour Sorting):     61/100
+  Game #4  (Flash Spot):         56/100
+  Game #5  (Infinity Loop):      59/100
+  Game #6  (Live Route Builder): 48/100 ← LOWEST
+  Game #7  (Logic Reflector):    72/100
+  Game #8  (Maze Navigation):    58/100
+  Game #9  (Memory Card Match):  68/100
+  Game #10 (Memory Groups):      45/100
+  Game #11 (Number Grid Sprint): 62/100
+  Game #12 (Object Placement):   60/100
+  Game #13 (Pattern Survival):   52/100
+  Game #14 (Rapid Category Sort):66/100
+  Game #15 (Reflex Endurance):   62/100
+  Game #16 (Sequence Recall):    78/100 ← HIGHEST
+  Game #17 (Sliding Puzzle):     76/100
+
+UNIQUE STRENGTHS OF THIS GAME:
+★ BEST anti-cheat in platform (DB shuffles, not client-side algorithm!)
+★ ONLY game with image-based content (real photos/artwork)
+★ ONLY game with CSS transition-based tile animation
+★ ONLY game with stable DOM order optimization
+★ ONLY game with memorize-before-shuffle mechanic
+★ ONLY game with mutation barrier for API call sequencing
+★ ONLY game with gather-to-center animation
+
+vs Sequence Recall (78/100):
+- SAME: Restate architecture
+- SAME: Session recovery
+- SAME: i18n
+- BETTER: Anti-cheat (no seed sent — DB shuffles)
+- BETTER: Sound system quality (volume controls!)
+- WORSE: Scoring (all-or-nothing = frustrating)
+- WORSE: No per-move validation (batched instead)
+- COMPARABLE: Polish level (both have animations)
+
+================================================================================
+END OF AUDIT — GAME #17: SLIDING PUZZLE
+================================================================================

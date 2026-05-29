@@ -1,0 +1,1633 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #2: BLOCK FILL (Flow Puzzle)
+================================================================================
+Audit Date: May 23, 2026
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Path-drawing puzzle — connect color pairs, fill entire grid
+Stack: NestJS + Restate + Prisma (backend), React + Phaser 4 + Vite (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Block Fill is an excellent flow-path puzzle game with strong engineering:
+- Restate durable execution for session state (same pattern as Arrows)
+- Pure functional game engine (flowEngine.ts) — testable and correct
+- Autosave outbox with replay for crash resilience
+- Server-authoritative timer sync
+- Board pre-fetching for instant transitions
+- Thorough path/solution validation server-side
+
+However, the same systemic security issues from the platform appear here:
+hardcoded fallback secrets, exposed encryption keys, and client-trust gaps.
+Additionally, the frontend has a monolithic component problem and the game
+logic is potentially exploitable via forged timestamps.
+
+TOTAL ISSUES: 55 (6 Critical, 11 High, 16 Medium, 22 Low)
+
+RELEASE READINESS SCORE: 62/100
+(Better than Arrows due to superior game engine, still blocked by security)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: .env with real secrets in repository
+BLOCKER-2: Hardcoded fallback HMAC secret ('dev-hmac-secret')
+BLOCKER-3: Encryption key exposed in client JS bundle (VITE_ prefix)
+BLOCKER-4: Client timestamps trusted for anti-cheat time validation
+BLOCKER-5: In-memory rate limiter bypassed in multi-pod deployment
+BLOCKER-6: Dev-session endpoint potentially available in production
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env File Committed With Real Secrets                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env (root of block-fill-backend)                                      │
+│                                                                              │
+│ Description:                                                                 │
+│   The .env file exists in the repo with:                                     │
+│   - JWT_SECRET=dev-jwt-secret-min-32-chars-here                              │
+│   - ENCRYPTION_KEY=0123456789abcdef...                                       │
+│   - DATABASE_URL=postgresql://zubaco:zubaco_dev_2024@localhost:5432/zubaco   │
+│                                                                              │
+│   If committed to version control, all environments sharing these            │
+│   credentials are compromised. Even as a "dev" file, it sets a               │
+│   dangerous precedent and may be copied to production verbatim.              │
+│                                                                              │
+│ Exploit Scenario:                                                            │
+│   1. Clone the repository                                                    │
+│   2. Read .env file                                                          │
+│   3. Use JWT_SECRET to forge tokens for any user                             │
+│   4. Full access to all user accounts and game sessions                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   1. Remove .env from version control: git rm --cached .env                  │
+│   2. Ensure .gitignore blocks .env (verify it's actually being ignored)      │
+│   3. Rotate ALL secrets immediately                                          │
+│   4. Use .env.example with placeholder values only                           │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Complete platform compromise if repo is exposed               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Hardcoded Fallback HMAC Secret                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts (line 18)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';                │
+│   If HMAC_SECRET env var is unset in any environment, all signed             │
+│   requests can be forged using the known fallback value.                     │
+│                                                                              │
+│ Note: env.validation.ts only errors in NODE_ENV=production. Dev/staging      │
+│   environments are still vulnerable to request forgery.                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove fallback entirely. Throw on startup if missing regardless of env.   │
+│   const secret = process.env.HMAC_SECRET;                                    │
+│   if (!secret) throw new Error('HMAC_SECRET required');                       │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Admin API requests forged → board manipulation, score reset   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: JWT Secret Without Minimum Entropy Enforcement                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/config/env.config.ts (line 111)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   jwtSecret: getEnvVar('JWT_SECRET') — no length/complexity validation.      │
+│   The default in .env is 'dev-jwt-secret-min-32-chars-here' which is a       │
+│   dictionary-based phrase, not cryptographic randomness.                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Validate: if (jwtSecret.length < 32) throw 'JWT_SECRET too short';         │
+│   Provide generation guidance: openssl rand -base64 48                       │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Token forgery via brute-force on weak secrets                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: In-Memory IP Rate Limiter (Bypassed at Scale)                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security / DoS                                                     │
+│ File: src/hardening/ip-rate-limiter.middleware.ts (line 14)                   │
+│                                                                              │
+│ Description:                                                                 │
+│   private readonly store = new Map<string, RateEntry>();                      │
+│   In multi-instance deployment: attacker gets N × maxRequests per window.    │
+│   The Map is NEVER cleaned up — entries for every IP persist forever.        │
+│   This is both a bypass AND an unbounded memory leak.                        │
+│                                                                              │
+│ Memory Leak Calculation:                                                     │
+│   Each entry ≈ 100 bytes. 1M unique IPs = 100MB leaked memory.              │
+│   No TTL cleanup. Map grows monotonically until OOM.                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Option A: Remove entirely, rely on @nestjs/throttler with Redis store      │
+│   Option B: Add TTL cleanup (setInterval to prune expired entries)           │
+│   Option C: Use a proper LRU cache (lru-cache package) with maxSize          │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: DDoS succeeds, all players experience outage                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Client Timestamps Trusted for Anti-Cheat Time Validation         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (lines 670-680)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Time-based cheat detection checks path.timeStamp which is submitted        │
+│   by the client (z.string().datetime({ offset: true }) in DTO).              │
+│   A cheater submits moves with fake timestamps before gameEndedAt to         │
+│   bypass the timeout check, while actually solving offline.                  │
+│                                                                              │
+│ Exploit Scenario:                                                            │
+│   1. Start game session (120-second timer starts server-side)                │
+│   2. Take 300 seconds to solve the puzzle offline                            │
+│   3. Submit all moves with timestamps < gameEndedAt                          │
+│   4. Server accepts because timestamps "look valid"                          │
+│   5. Perfect score despite exceeding time limit                              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Record server-received-at time for each submission.                        │
+│   Reject submissions where server-received-at > session expiry.              │
+│   Use client timestamps only for move ordering/analytics.                    │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Cheaters dominate leaderboards with "impossible" times        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: WebSocket Gateway Has No Authentication                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/game/game.gateway.ts (lines 10-15)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   WebSocket gateway at namespace 'realtime' with cors: { origin: true }.     │
+│   No handleConnection authentication. No JWT validation on connect.          │
+│   Currently only returns stub messages, but any handler added later          │
+│   inherits zero auth — a ticking time bomb.                                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add handleConnection() with JWT verification.                              │
+│   Disconnect unauthenticated sockets immediately.                            │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Currently low (stubs only), HIGH when features are added      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: CORS Wildcard With Credentials in Production                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 36-40)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   Default CORS: ['*'] + credentials: true                                    │
+│   Browsers block this combination per spec, BUT proxy/gateway layers         │
+│   may strip CORS headers and rewrite, making the backend think               │
+│   everything is fine while enabling CSRF from any domain.                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove ['*'] fallback. Require explicit CORS_ORIGINS.                      │
+│   In dev: use localhost origins explicitly.                                   │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: CSRF attacks steal session cookies from any website           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: @@unique([userId, stageId]) Prevents Replaying Stages            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: prisma/schema.prisma (line 88)                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   One session per user per stage EVER. Code handles duplicate key by         │
+│   reusing existing session, but once COMPLETED/EXPIRED the user is           │
+│   permanently locked out of that stage.                                      │
+│                                                                              │
+│ Business Impact:                                                             │
+│   - Tournaments with multiple seasons: impossible                            │
+│   - Practice mode: impossible                                                │
+│   - "Try again" button: non-functional                                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   @@unique([userId, stageId, seasonId]) or remove unique constraint          │
+│   and enforce "one active session" in code only.                             │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Players can never replay content                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Anti-Cheat Runs Fire-and-Forget (Results May Be Lost)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 1055)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   this.runAntiCheatOnFinalize(session, boards); // No await                  │
+│   Anti-cheat detection is asynchronous with no await. If process crashes     │
+│   or Restate handler completes before Promise settles, cheat flags are       │
+│   silently lost. The .catch() swallows errors.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Either await the anti-cheat (blocking finalization until checked)           │
+│   OR enqueue to BullMQ (already available) for reliable async processing     │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Cheaters escape detection due to race condition               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: FOR UPDATE Row Lock Used as DoS Vector                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/game/game.service.ts (lines 2090-2100)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   lockSession uses SELECT ... FOR UPDATE. Combined with 20-second            │
+│   transaction timeout, a malicious user can call complete-board              │
+│   repeatedly to hold row locks, blocking all concurrent operations           │
+│   on the same session.                                                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add per-user concurrency limiter (max 1 in-flight request per session).    │
+│   OR use optimistic locking with version checks.                             │
+│   OR reduce transaction timeout to 5 seconds.                                │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Self-DoS or grief attacks on shared resources                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Unbounded playedBoards Query                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/game/game.service.ts (lines 1185-1195)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   Fetches ALL historical session boards for a user+level without limit.      │
+│   Active players who've played hundreds of games: thousands of rows           │
+│   returned, consuming memory and DB bandwidth.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add take: 100 (only recent boards matter for diversity algorithm).         │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Slow board selection for veteran players                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Swagger UI Exposed in Production                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 60-65)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   Swagger docs mounted at /api/docs unconditionally regardless of            │
+│   NODE_ENV. Exposes full API surface for reconnaissance.                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   if (config.nodeEnv !== 'production') { setupSwagger(app); }                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Indirect — helps attackers map attack surface                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: SaveProgressDto Missing paths Array Max Length                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Validation / DoS                                                   │
+│ File: src/game/dto/save-progress.dto.ts (line 17)                            │
+│                                                                              │
+│ Description:                                                                 │
+│   z.array(SavedPathSchema) with .min(1) but no .max()                        │
+│   Client can submit thousands of paths → expensive validation +              │
+│   N database upserts in persistSnapshot.                                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   .max(50) — maximum possible color pairs per board                          │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Server slowdown from oversized payloads                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: PathPointSchema Missing Coordinate Bounds                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Validation                                                         │
+│ File: src/game/dto/save-progress.dto.ts (lines 4-7)                          │
+│                                                                              │
+│ Description:                                                                 │
+│   row: z.number().int() and col: z.number().int() — no min/max.              │
+│   Negative values and huge numbers pass DTO validation.                      │
+│   Engine catches out-of-bounds later but processing still occurs.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   .min(0).max(20) or derive from max grid size in config                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Wasted processing on invalid data                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: persistSnapshot Upserts Paths Sequentially                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/game/game.service.ts (lines 2015-2040)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   for (const path of sortedPaths) { await prisma.path.upsert(...); }         │
+│   Sequential upserts for each color path. N round-trips per save.            │
+│   Sort prevents deadlocks (good!) but still slow.                            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Batch via createMany + raw UPDATE, or use Prisma's $transaction            │
+│   with createManyAndReturn for bulk operations.                              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Slightly slower autosave response                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: version Field Not Used for Optimistic Concurrency                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Data Integrity                                                     │
+│ File: src/game/dto/save-progress.dto.ts (line 20)                            │
+│                                                                              │
+│ Description:                                                                 │
+│   DTO accepts version: z.number().int().min(0).optional()                    │
+│   But saveProgressInState never checks it against current state.             │
+│   A stale client can overwrite newer progress data.                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Reject if submitted version < current board version in Restate state.      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Progress overwritten by stale tab/request                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: Admin Board Endpoints Lack Additional Security Layers            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/admin/board/board.controller.ts (lines 29-30)                      │
+│                                                                              │
+│ Description:                                                                 │
+│   Admin CRUD uses only SessionGuard with ADMIN role check.                   │
+│   ApiKeyGuard and HmacGuard are registered globally but only activate        │
+│   with explicit decorators (@RequireApiKey(), @VerifyHmac()).                 │
+│   Admin write endpoints lack defense-in-depth.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add @VerifyHmac() to admin mutation endpoints (create, update, delete).    │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Indirect — admin account compromise has wider blast radius    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-18: Six Dead Engine Files Never Integrated                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Maintainability                                                    │
+│ Files: src/game/engine/achievementEngine.ts, boosterEngine.ts,               │
+│        comboEngine.ts, dailyChallenge.ts, leaderboard.ts, scoreHistory.ts    │
+│                                                                              │
+│ Description:                                                                 │
+│   Six engine files with achievement, booster, combo, daily challenge,        │
+│   leaderboard, and score history logic — none are imported or used.          │
+│   Scaffolded templates taking up mental space and bundle size.               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove or move to draft/ branch. Don't ship unused code.                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+│ Player Impact: None directly; slows development                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-19: Decryption Middleware Skips ALL /api Paths (Self-Defeating)       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic Bug                                                          │
+│ File: src/crypto/decryption.middleware.ts (lines 56-62)                      │
+│                                                                              │
+│ Description:                                                                 │
+│   shouldSkip() returns true for paths starting with '/api'.                  │
+│   Since main.ts sets global prefix 'api', ALL routes become /api/v1/...      │
+│   The decryption middleware NEVER decrypts any game request.                 │
+│   The entire encryption layer is effectively disabled for the API.           │
+│                                                                              │
+│ Impact Assessment:                                                           │
+│   If encryption is a security requirement → CRITICAL gap                     │
+│   If intentional (HTTPS is sufficient) → remove the middleware entirely      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Either remove /api from skip list and use @SkipEncryption() selectively,   │
+│   OR remove the middleware entirely if HTTPS is the transport security.      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Encryption theatre — false sense of protection                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-20: getSessionContext Queries Board Separately (N+1 Pattern)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/game/game.service.ts (lines 1780-1815)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   First fetches session + sessionBoards, then separately queries Board.      │
+│   Every saveProgress/completeBoard/getCurrentBoard call pays the penalty.    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use include: { board: true } in sessionBoards query.                       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Extra 2-5ms latency per game action                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-21: endGame DB Flow Uses Wrong Status (COMPLETED vs MANUALLY_ENDED)  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic / Analytics                                                  │
+│ File: src/game/game.service.ts (line 1320)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Legacy endGame path marks session as COMPLETED instead of                  │
+│   MANUALLY_ENDED. The Restate-backed path correctly uses MANUALLY_ENDED.     │
+│   Analytics can't distinguish user-quit vs auto-complete in DB-only flow.    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Change to GAME_SESSION_STATUS.MANUALLY_ENDED in legacy path.               │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: None directly; corrupts analytics data                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-22: console.log in Production Bootstrap                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Operations                                                         │
+│ File: src/main.ts (lines 78-79)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   Raw console.log instead of structured Pino logger.                         │
+│   Bypasses log pipeline, can't be filtered in production.                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-23: Level Score Based on String Name Matching                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Fragility                                                          │
+│ File: src/game/game.service.ts (lines 100-104)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   LEVEL_SCORE_WEIGHTS: Record<string, number> = { easy: 20, medium: 30,      │
+│   hard: 40 }. Score depends on level.name being exactly one of these.        │
+│   "BEGINNER" or "Easy " (trailing space) falls to default 20.               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use level.difficultyScore from DB schema, or strict enum validation.       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Admin error causes incorrect scoring                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-24: Math.random() for Board Shuffle (Predictable)                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Fairness                                                           │
+│ File: src/game/game.service.ts (line 2590)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Board selection randomness uses Math.random() which is predictable.        │
+│   Determined cheater could predict upcoming boards.                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use crypto.randomInt() for fairness-critical randomness.                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+│ Player Impact: Minimal; competitive integrity concern                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-25: SecurityHeadersMiddleware Defined But Not Applied                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/common/middleware/security-headers.middleware.ts                    │
+│                                                                              │
+│ Description:                                                                 │
+│   Middleware defined and imported via HardeningModule but never applied      │
+│   in AppModule.configure(). Security headers (X-Frame-Options, CSP,          │
+│   HSTS) are never sent.                                                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add to consumer chain in AppModule configure() method.                     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Clickjacking, content injection possible                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-26: Solver maxPaths = 2000 May Timeout on Complex Boards             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ File: src/game/utils/block-fill-solver.ts (line 92)                          │
+│                                                                              │
+│ Description:                                                                 │
+│   DFS solver enumerates up to 2000 paths per pair. On larger grids           │
+│   (10×10+), this could be slow. Only used for admin validation.              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+│ Player Impact: None; admin-only endpoint                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-27: PrismaService Disables SSL Certificate Verification              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/common/prisma/prisma.service.ts (line 73)                          │
+│                                                                              │
+│ Description:                                                                 │
+│   ssl: { rejectUnauthorized: false } — vulnerable to MITM between           │
+│   app server and database.                                                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Set rejectUnauthorized: true in production with proper CA certs.           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Indirect; data interception risk                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-28: Redundant Rate Limiting Mechanisms                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│ Files: @nestjs/throttler (global) + IpRateLimiterMiddleware (in-memory)      │
+│                                                                              │
+│ Description:                                                                 │
+│   Two overlapping rate limiters. Throttler is Redis-backed (proper).         │
+│   IP middleware is process-local (broken at scale). Confusing to maintain.   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove IpRateLimiterMiddleware. Keep only @nestjs/throttler.               │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Encryption Key Exposed in Client JS Bundle                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/app/config/env.ts (line 37)                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   VITE_GAME_PAYLOAD_ENCRYPTION_KEY is a VITE_-prefixed env var.              │
+│   All VITE_ vars are embedded verbatim in the production JS bundle.          │
+│   Anyone can extract the AES-256-GCM key from browser DevTools → Sources.   │
+│   The entire encryption layer provides zero actual protection.               │
+│                                                                              │
+│ Exploit Scenario:                                                            │
+│   1. Open browser DevTools on the game                                       │
+│   2. Search JS bundle for the key string                                     │
+│   3. Use key to decrypt/forge complete-board requests                        │
+│   4. Submit perfect scores with forged payloads                              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove client-side encryption entirely (rely on HTTPS).                    │
+│   OR use server-issued per-session keys with asymmetric crypto.              │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Cheat tools trivially forge perfect scores                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Security Hardening Harms UX (DevTools/Copy Blocking)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security / UX                                                      │
+│ File: src/utils/security.ts (lines 1-100)                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   disableDevTools() and disableCopyAndSelection() called unconditionally.    │
+│   Blocks Ctrl+C/Ctrl+A globally — breaks accessibility.                     │
+│   Doesn't actually prevent DevTools (browser flags, extensions, USB debug).  │
+│   NOT gated behind clientSecurityEnabled flag.                               │
+│   Return values (cleanup functions) are never captured in main.tsx.          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove entirely. Zero security value, negative UX value.                   │
+│   If kept: gate behind clientSecurityEnabled and don't block Ctrl+C.         │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Accessibility users can't select text; power users annoyed    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Dev Session Endpoint Used in Production Path                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/app/api/authApi.ts (lines 30-44)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   ensureDevSession() calls /user/auth/dev-session which creates              │
+│   sessions without real credentials. If backend doesn't disable this         │
+│   endpoint in production, any player can impersonate any stage.              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Backend must disable dev-session in production.                            │
+│   Frontend should gate call behind: if (import.meta.env.DEV)                 │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Score manipulation, leaderboard poisoning                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: localStorage.clear() Nukes ALL App Data on Completion            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Logic Bug                                                          │
+│ File: src/features/flow-puzzle/components/FlowPuzzleGameShell.tsx            │
+│       (lines 258-265)                                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   When session returns COMPLETED status, code calls:                         │
+│   window.localStorage.clear()                                                │
+│   This destroys ALL localStorage for the domain — other games'               │
+│   progress, preferences, analytics state, auth tokens, everything.           │
+│                                                                              │
+│ Reproduction Steps:                                                          │
+│   1. Play Block Fill to completion                                           │
+│   2. Check localStorage for other games on same domain                       │
+│   3. Everything is gone                                                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Only clear block-fill-specific keys:                                       │
+│   clearOutbox(); clearActiveSessionId(); clearAuthSession();                 │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Other games' progress destroyed; auth tokens lost             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: Monolithic Component with 30+ State Variables                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/features/flow-puzzle/components/FlowPuzzleGameShell.tsx             │
+│                                                                              │
+│ Description:                                                                 │
+│   ~800 lines, 30+ useState, 10+ useEffect.                                  │
+│   Manages session lifecycle, autosave, prefetch, restore, animations,        │
+│   and UI state in a single component. Every state change triggers            │
+│   full reconciliation of the entire tree.                                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Extract: useSessionLifecycle, useStageTransitions, useBoardAdvance         │
+│   Use useReducer for interconnected state machine.                           │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Jank on low-end mobile devices                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Win Advancement async Not Cancellation-Safe                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Race Condition                                                     │
+│ File: src/features/flow-puzzle/components/FlowPuzzleGameShell.tsx             │
+│       (lines 413-550)                                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   useEffect on game.winSummary calls advance() with multiple awaits.         │
+│   If component unmounts during awaits (user exits, error, level change),     │
+│   stale closures execute against outdated state.                             │
+│   No AbortController or mounted-check.                                       │
+│                                                                              │
+│ Player Impact:                                                               │
+│   Double-advancing, skipped boards, or ghost board loads.                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add cancelled flag: let cancelled = false; return () => { cancelled = true }│
+│   Guard each await continuation with if (cancelled) return;                  │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Boards skipped or double-loaded on exit during transition     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: Canvas Textures Regenerated on Every Resize                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/features/flow-puzzle/phaser/scenes/FlowPuzzleScene.ts              │
+│       (lines 100-112)                                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   setBoardSize destroys ALL hex node sprites and textures, then redraw()     │
+│   recreates them. On mobile: keyboard open/close, scroll bar, rotation       │
+│   all trigger resize events. Each one = full scene rebuild.                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Only regenerate when cellSize actually changes (compare with previous).    │
+│   Debounce resize handler with 200ms delay.                                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Frame drops and flicker during resize on mobile               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: Client Timer Drifts Between Server Syncs                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Game Logic                                                    │
+│ File: src/features/flow-puzzle/components/GameTimer.tsx (lines 37-44)        │
+│                                                                              │
+│ Description:                                                                 │
+│   GameTimer runs its own setTimeout decrements (1s each).                    │
+│   useSessionTimeSync polls every 15 seconds.                                 │
+│   Between syncs, displayed time drifts up to 2 seconds.                      │
+│   If onExpire fires from local timer before server confirms →                │
+│   premature game end.                                                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Display sessionTimerSeconds directly from server sync.                     │
+│   Only fire onExpire from sync callback, not local countdown.                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Game ends 1-2 seconds early; timer inconsistency              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: No Haptic Feedback on Mobile Touch                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Feel                                                          │
+│ File: Entire touch handling chain                                            │
+│                                                                              │
+│ Description:                                                                 │
+│   No navigator.vibrate() on path connection, path complete,                  │
+│   board solve, or error states. The game is primarily mobile-touch           │
+│   but provides zero tactile feedback.                                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Path complete: navigator.vibrate?.(50)                                     │
+│   Board solve: navigator.vibrate?.([100, 50, 100])                           │
+│   Invalid move: navigator.vibrate?.(10)                                      │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Game feels less satisfying than native puzzle competitors     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: No Progress Indicator (Round X of Y)                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/flow-puzzle/components/PlayingStageView.tsx (lines 80-100)│
+│                                                                              │
+│ Description:                                                                 │
+│   Players see only "Level {number}" and timer. No indication of how          │
+│   many rounds remain. totalActualRounds is available in metadata but         │
+│   never displayed.                                                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Show "Round X / Y" using meta.requestedActualRound and                     │
+│   meta.totalActualRounds.                                                    │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Can't pace strategy; uncertainty about game length            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: Timer Interval at 100ms Causes Unnecessary Re-renders            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/features/flow-puzzle/hooks/useFlowGame.ts (lines 67-78)           │
+│                                                                              │
+│ Description:                                                                 │
+│   setElapsedMs fires every 100ms. Displayed as "M:SS" (second granularity). │
+│   90% of state updates produce no visible change but trigger React           │
+│   reconciliation 10× per second.                                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use 1000ms interval. Or only setElapsedMs when displayed second changes.   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Wasted CPU cycles, reduced battery life on mobile             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: visualViewport Event Listeners Not Properly Cleaned Up           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Memory Leak                                                        │
+│ File: src/features/flow-puzzle/components/PhaserFlowBoard.tsx (lines 131-145)│
+│                                                                              │
+│ Description:                                                                 │
+│   Three separate ResizeObserver + event listener setups with overlapping     │
+│   concerns. Cleanup may reference different viewport instance.               │
+│   Minor leak on repeated mount/unmount cycles.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Consolidate into one resize-handling effect. Store viewport reference.     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Memory grows slowly over session; eventual slowdown           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: calculateScore Trivially Exploitable                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic / Security                                              │
+│ File: src/features/flow-puzzle/engine/flowEngine.ts (lines 356-360)          │
+│                                                                              │
+│ Description:                                                                 │
+│   Score = timeLimit − elapsedSeconds                                         │
+│   With encryption key exposed (F-01), player submits elapsedMs = 0           │
+│   for maximum score. Even without key: if server trusts client timer.        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Server MUST compute score from server-side timestamps.                     │
+│   Client calculateScore only for local display (preview).                    │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Leaderboard manipulation with trivial effort                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: Encryption Fallback Silently Stores Plaintext                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/utils/secureStorage.ts (lines 95-105)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   If writeEncrypted fails, catch block falls back to plain                   │
+│   localStorage.setItem(storageKey, value) — storing auth tokens and          │
+│   session data in plaintext with NO indication to the user or logging.       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Log warning. Never silently store auth tokens in plaintext.                │
+│   Either throw or use a non-persistent in-memory fallback only.              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Auth tokens exposed if Web Crypto unavailable                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: No Error Boundary Wrapping the Game                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Error Recovery                                                     │
+│ File: App.tsx (game route)                                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   No <ErrorBoundary> component. If Phaser scene throws or render error       │
+│   occurs in FlowPuzzleGameShell, the entire app white-screens.              │
+│   No recovery path — user must hard-refresh and potentially loses progress.  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Wrap game shell in ErrorBoundary with "Something went wrong — tap to       │
+│   retry" fallback UI that destroys/recreates the game.                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Unrecoverable blank screen on any runtime error               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: Full Phaser 4 Engine for Simple 2D Grid Drawing                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bundle Size                                                        │
+│ File: package.json                                                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Phaser 4 (~1.5MB gzipped) is bundled, but only Graphics, Image,           │
+│   Tweens, and basic input are used. An SVG-based FlowBoard.tsx               │
+│   already exists that could replace the Phaser implementation.               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Consider using Canvas2D/SVG approach from FlowBoard.tsx.                   │
+│   Or tree-shake Phaser if v4 supports modular imports.                       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Slow initial load on 3G connections                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: Generator Dead Code in App.tsx                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/app/App.tsx (lines 28-90)                                          │
+│                                                                              │
+│ Description:                                                                 │
+│   6 state variables and 4 handler functions for level generator UI           │
+│   live in top-level App. Generator route is commented out. Dead code.        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: Security Functions Return Cleanup That's Never Called             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/main.tsx (lines 17-18)                                             │
+│                                                                              │
+│ Description:                                                                 │
+│   disableDevTools() and disableCopyAndSelection() return teardown            │
+│   callbacks. main.tsx calls them without capturing return values.             │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: pointerToCoord Returns Coord for Disabled Cells                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ File: src/features/flow-puzzle/phaser/scenes/FlowPuzzleScene.ts              │
+│       (lines 455-470)                                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   Returns coord regardless of isCellEnabled. Engine blocks it anyway         │
+│   but wastes cycles checking against disabled cells per tap.                 │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: No lang Attribute Update for Hindi i18n                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Accessibility                                                      │
+│ File: index.html                                                             │
+│                                                                              │
+│ Description:                                                                 │
+│   <html lang="en"> hardcoded. App supports Hindi but document.lang           │
+│   never updated. Screen readers announce Hindi as English.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Update document.documentElement.lang when i18n.language changes.           │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+│ Player Impact: Hindi users get incorrect screen reader pronunciation         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: API Error Banner Auto-Closes After Only 2 Seconds                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/components/shared/ApiErrorBanner.tsx (line 3)                      │
+│                                                                              │
+│ Description:                                                                 │
+│   API_ERROR_AUTO_CLOSE_MS = 2000. Most users can't read errors in            │
+│   2 seconds, especially in non-native language.                              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Increase to 5-8 seconds. Or don't auto-close error toasts.                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Users miss error context; can't report bugs                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-22: Mock Level Data Shipped in Production Bundle                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Bundle Size                                                        │
+│ File: src/features/flow-puzzle/hooks/useFlowGame.ts (line 56)               │
+│                                                                              │
+│ Description:                                                                 │
+│   flowLevelPacks imported from data/mockLevels.ts. In production,            │
+│   backend provides all levels. Mock data is dead weight in bundle.           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Gate behind: if (import.meta.env.DEV) { ... }                              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-23: No Undo/Redo for Path Drawing                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Game interaction layer                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Players can only backtrack by re-tracing. No "shake to undo" or            │
+│   undo button — standard in mobile puzzle games.                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Store path history stack. Add undo button or shake gesture.                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Frustration on wrong path commits; slower gameplay            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-24: No Sound on Win/Level-Complete                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Game Feel / Polish                                                 │
+│ File: Sound registry                                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   soundRegistry only has pathPickUp and pathRelease.                         │
+│   No celebration sound on puzzle solve or level complete.                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add levelComplete and roundWin SFX entries.                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Muted reward feedback; less satisfying completion             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-25: Tailwind Content Doesn't Include micro-screens/                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Build                                                              │
+│ File: tailwind.config.ts (line 5)                                            │
+│                                                                              │
+│ Description:                                                                 │
+│   content: ['./index.html', './src/**/*.{ts,tsx}']                           │
+│   Doesn't include ./micro-screens/**/*.{ts,tsx}.                             │
+│   If micro-screens use Tailwind classes, they'll be purged.                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add './micro-screens/**/*.{ts,tsx}' to content array.                      │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Broken styling in instruction/result screens                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-26: Offline Retry Button Does Nothing                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/components/shared/OfflineStatusModal.tsx (line 44)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   handleRetry closes modal but window.location.reload() is commented out.   │
+│   Nothing actually retries the failed operation.                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Uncomment reload() or re-trigger the failed operation.                     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Modal closes, game stays broken                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-27: Admin API Called Without Auth From Game Client                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/features/flow-puzzle/api/stageContent.api.ts                       │
+│                                                                              │
+│ Description:                                                                 │
+│   stageContentApi.getStageContent fetches from admin panel API directly      │
+│   without authorization header. Exposes internal management data.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Proxy through game service backend with read-only access.                  │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+│ Player Impact: Least-privilege violation; minor information exposure          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Bottlenecks (sorted by impact):
+
+1. FlowPuzzleGameShell Re-Render Storm (30+ useState)
+   - Every autosave tick, timer update, animation frame → full reconciliation
+   - On low-end Android: potential frame budget exceeded
+   - Fix: useReducer + component splitting
+
+2. Timer at 100ms Interval (10× Re-renders Per Second)
+   - setElapsedMs fires 10 times per second
+   - Only needs to fire once per second for display
+   - Fix: 1000ms interval
+
+3. Canvas Texture Regeneration on Resize
+   - Mobile keyboard, rotation, scroll → multiple resize events
+   - Each one destroys/recreates ALL sprites
+   - Fix: Debounce + cellSize comparison
+
+4. Sequential Path Upserts (Backend)
+   - N database round-trips per save for N color paths
+   - Under high player count: significant DB load
+   - Fix: Batch upsert
+
+5. Unbounded playedBoards Query (Backend)
+   - Veteran players: thousands of historical rows fetched
+   - Fix: take: 100
+
+6. Full Phaser 4 Bundle (~1.5MB gzipped)
+   - Only uses Graphics, Image, Tweens, Input
+   - Fix: Consider Canvas2D/SVG approach
+
+ESTIMATED FRAME BUDGET USAGE:
+- Idle: ~3ms/frame (excellent)
+- Path drawing: ~6ms/frame (good)
+- Timer tick (100ms): ~2ms overhead 10×/sec (wasteful)
+- Board transition: ~50ms spike (acceptable)
+- Resize event: ~100-300ms (bad on mobile)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Clean grid rendering with clear color endpoints
+✓ Path auto-trims when overlapping (smart backtrack behavior)
+✓ Board card-flip animation on level transition (satisfying)
+✓ Pre-fetch next board at 20% coverage (instant transition feel)
+✓ Session restore on page refresh (no lost progress)
+✓ Visual feedback when path connects (color fills)
+✓ Timer always visible
+✓ Instructions/demo before first game
+✓ Auto-save with outbox pattern (crash resilient)
+
+UX PROBLEMS:
+
+1. No Round Progress Indicator
+   - "How many boards left?" — players don't know
+   - Can't pace strategy or excitement
+   - FRUSTRATION LEVEL: MEDIUM
+
+2. No Haptic Feedback
+   - Touch puzzle game without tactile response
+   - Feels "flat" compared to native competitors
+   - FRUSTRATION LEVEL: LOW-MEDIUM
+
+3. localStorage.clear() on Completion
+   - Nuclear option destroys all app data
+   - Other games on same domain lose progress
+   - FRUSTRATION LEVEL: VERY HIGH (if noticed)
+
+4. Error Banner Only 2 Seconds
+   - Users can't read error messages
+   - Can't screenshot or report bugs
+   - FRUSTRATION LEVEL: MEDIUM
+
+5. Offline Retry Does Nothing
+   - Modal closes, game stays broken
+   - User thinks they retried but nothing happened
+   - FRUSTRATION LEVEL: HIGH
+
+6. Timer Drift (Up to 2 seconds)
+   - Game might end "early" from player perspective
+   - Especially frustrating in last 5 seconds
+   - FRUSTRATION LEVEL: HIGH (when it matters)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features that players will EXPECT but are missing:
+
+1.  [ ] Replay functionality (blocked by unique constraint)
+2.  [ ] Undo button / shake-to-undo
+3.  [ ] Clear entire board button (reset all paths)
+4.  [ ] Hint system (show one correct path segment)
+5.  [ ] Round progress: "Board 2 of 5"
+6.  [ ] Sound on win/complete
+7.  [ ] Haptic feedback on touch
+8.  [ ] Color blind mode (patterns/shapes on endpoints)
+9.  [ ] Practice mode (unlimited time)
+10. [ ] Difficulty selector
+11. [ ] Leaderboard view within game
+12. [ ] Share score button
+13. [ ] Pause button
+14. [ ] Error boundary with retry
+15. [ ] Landscape orientation support
+16. [ ] Tutorial "hint" animation for first-time players
+17. [ ] Combo/streak system (engines exist but unused)
+18. [ ] Achievement system (engine exists but unused)
+19. [ ] Daily challenges (engine exists but unused)
+20. [ ] Path animation (draw trail follows finger smoothly)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add path "flow" animation (smooth trail following finger)
+2. Add particle burst when all cells filled (board complete)
+3. Add "Perfect!" celebration for fast completions
+4. Add subtle pulse on unconnected endpoints (visual hint)
+5. Add gentle color gradient on connected paths (instead of flat fill)
+6. Add countdown animation for last 10 seconds (pulsing timer)
+7. Add board-complete jingle (separate from level-complete)
+8. Add smooth zoom/scale transition between board sizes
+9. Add idle animation on endpoints (subtle bounce) after 3s
+10. Add streak counter animation when completing boards quickly
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Backend:
+1. Remove in-memory IP rate limiter (use Redis-backed throttler only)
+2. Add .max(50) to paths array in SaveProgressDto
+3. Add .min(0).max(20) to PathPoint coordinates
+4. Batch path upserts (replace sequential loop with createMany)
+5. Add take: 100 to playedBoards query
+6. Include board data in sessionBoards query (eliminate N+1)
+7. Run anti-cheat before score commit (or enqueue to BullMQ)
+8. Gate Swagger behind NODE_ENV !== 'production'
+9. Apply SecurityHeadersMiddleware in consumer chain
+10. Remove 6 dead engine files
+
+Frontend:
+1. Split FlowPuzzleGameShell into sub-hooks/components
+2. Change timer interval from 100ms to 1000ms
+3. Debounce resize handler + compare cellSize
+4. Add AbortController to advance() async chain
+5. Fix localStorage.clear() → clear only game-specific keys
+6. Remove mock level imports from production
+7. Add error boundary around game shell
+8. Gate dev-session behind import.meta.env.DEV
+9. Remove disableDevTools / disableCopyAndSelection
+10. Add micro-screens to Tailwind content config
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Secret Management
+- Risk: .env in repo with real secrets
+- Risk: HMAC fallback to 'dev-hmac-secret'
+- Risk: JWT secret without entropy validation
+- Severity: CRITICAL (misconfiguration → full compromise)
+
+Attack Surface 2: Client-Side Encryption
+- Risk: AES key in JS bundle (VITE_ prefix)
+- Risk: Encryption middleware skips all /api paths
+- Risk: Secure storage falls back to plaintext silently
+- Severity: HIGH (encryption provides no real protection)
+
+Attack Surface 3: Time-Based Anti-Cheat
+- Risk: Client-supplied timestamps trusted for validation
+- Risk: Anti-cheat runs fire-and-forget (results can be lost)
+- Severity: HIGH (cheaters bypass time restrictions)
+
+Attack Surface 4: Rate Limiting
+- Risk: In-memory store bypassed in multi-pod deployment
+- Risk: No WebSocket rate limiting
+- Risk: FOR UPDATE locks as DoS amplifier
+- Severity: HIGH (DDoS effective against distributed deployment)
+
+Attack Surface 5: Dev Endpoints
+- Risk: dev-session creates sessions without credentials
+- Risk: Swagger exposed in production
+- Severity: MEDIUM (if properly gated on backend)
+
+OVERALL SECURITY POSTURE:
+Backend architecture is STRONG (Restate, solution validation, deadlock prevention).
+The main risks are configuration/deployment-related — fixable without redesign.
+The client-side encryption is pure theatre and should be removed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Positive" - 7.0/10
+
+POSITIVE REVIEWS WOULD SAY:
+"Really satisfying path-drawing mechanic. Feels good when the grid fills up."
+"Love the card-flip animation between boards — smooth transitions."
+"Never lost progress even when my phone died. Good auto-save!"
+"The puzzle difficulty is well-balanced. Not too easy, not unfair."
+"Fast loading between boards. No annoying waits."
+
+NEGATIVE REVIEWS WOULD SAY:
+"My timer showed 0 and ended the game when I still had 2 seconds left."
+"Can't replay a level I already finished? Why?"
+"No undo button??? I have to retrace manually every time???"
+"Completing a game erased my progress in OTHER games. WTF?"
+"The retry button when offline does literally nothing."
+"No way to know how many boards I have left."
+"Blocks right-click and text selection. What are they hiding?"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Top 10 player complaints (predicted):
+
+1. "Can't replay levels" — Unique constraint preventing re-entry
+2. "Timer ended early" — Client timer drift, 1-2 seconds off
+3. "No undo button" — Manual retrace is tedious
+4. "How many rounds left?" — No progress indicator
+5. "Game deleted my other app data" — localStorage.clear() nuclear
+6. "Retry button doesn't work" — Offline modal does nothing
+7. "No satisfaction on winning" — Missing win sound/haptics
+8. "Blocks right-click" — Security measures annoying power users
+9. "Error message disappeared too fast" — 2-second auto-close
+10. "Can't tell which colors are which" — No color blind mode
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Satisfying "fill" mechanic — watching grid complete is rewarding
+✓ Path overlap/trim logic — feels smart, not punishing
+✓ Visual clarity — colors are distinct, grid is clean
+✓ Time pressure adds excitement without being stressful
+✓ Multi-board progression keeps variety high
+✓ Board-flip animation creates anticipation
+✓ Pre-fetching means zero wait between boards
+✓ Skill-based — pattern recognition improves with practice
+✓ Quick sessions (2-3 min) — perfect for mobile
+
+Flow State Enablers:
+✓ Immediate visual feedback on path drawing
+✓ Clear goal (fill all cells, connect all pairs)
+✓ Escalating challenge (larger grids, more colors)
+✓ Smooth path rendering (finger follows trail)
+✓ Auto-trim on overlap (no "stuck" states)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. NO REPLAY = NO "ONE MORE TRY" LOOP
+   - Core addiction mechanic of puzzle games
+   - "I can solve it faster this time!" requires replay
+   - Currently: play once, locked out forever
+
+2. NO SHARE FEATURE
+   - Can't share completion time or screenshot
+   - No "Challenge a friend" link
+   - No social proof mechanism
+
+3. NO DAILY PUZZLE
+   - Engine exists but unused
+   - Daily hooks = guaranteed 24-hour return cycle
+   - "Come back tomorrow" = retention gold
+
+4. NO COMBO/STREAK SYSTEM
+   - No consecutive-solve bonuses
+   - No "7-day streak!" badge
+   - No social pressure to maintain streak
+
+5. NO PROGRESSION OUTSIDE SESSIONS
+   - No XP, no unlockables, no cosmetics
+   - No reason to return after completing available stages
+   - No long-term goal
+
+6. NO UNDO = FRUSTRATION
+   - Wrong path → tedious manual retrace
+   - Reduces "fun per minute" ratio
+   - Players quit instead of redoing work
+
+7. NO SATISFACTION SIGNALS
+   - No win sound, no haptics, no celebration
+   - Solving feels anticlimactic
+   - No dopamine reward → no addiction loop
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     88/100 (Restate, pure engine, outbox pattern)
+- Security:                         35/100 (.env committed, fallback secrets)
+- Performance:                      65/100 (monolith component, 100ms timer)
+- Game Logic & Correctness:         75/100 (solid engine, but no replays)
+- UX & Polish:                      60/100 (pre-fetch is great, missing progress)
+- Anti-Cheat:                       55/100 (exists but client timestamps trusted)
+- Accessibility:                    35/100 (no color blind, blocks copy/select)
+- Retention & Engagement:           40/100 (unused engines, no share, no replay)
+- Error Handling:                   45/100 (no error boundary, broken retry)
+- Production Readiness:             50/100 (.env, swagger exposed, dead code)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 62/100
+═══════════════════════════════════════
+
+VERDICT: NOT READY FOR PUBLIC LAUNCH
+Fix security issues + localStorage.clear() + enable replays + add progress indicator = 78/100
+Then shippable as MVP.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: SECURITY (Do FIRST — 1-2 days)
+  □ Remove .env from repo, rotate all secrets
+  □ Remove HMAC fallback secret (crash on missing)
+  □ Enforce JWT_SECRET minimum entropy (≥32 random chars)
+  □ Remove in-memory rate limiter (keep Redis-backed throttler)
+  □ Add JWT auth to WebSocket gateway
+  □ Fix CORS: require explicit origins
+  □ Remove disableDevTools() and disableCopyAndSelection()
+  □ Remove client-side encryption key from bundle
+  □ Gate dev-session behind NODE_ENV check
+
+PHASE 2: GAME LOGIC (2-3 days)
+  □ Fix unique constraint to allow replays (add seasonId)
+  □ Use server-side timestamps for time validation (not client)
+  □ Await anti-cheat (or enqueue to BullMQ)
+  □ Fix localStorage.clear() → clear only game-specific keys
+  □ Fix timer to use server sync directly (not local countdown)
+  □ Add .max(50) to paths array DTO
+
+PHASE 3: UX & STABILITY (2-3 days)
+  □ Add round progress indicator: "Board X/Y"
+  □ Add error boundary around game shell
+  □ Fix offline retry button (actually reload/retry)
+  □ Increase error banner auto-close to 5+ seconds
+  □ Add AbortController to advance() async chain
+  □ Add undo button for path drawing
+
+PHASE 4: PERFORMANCE (1-2 days)
+  □ Split FlowPuzzleGameShell into sub-components
+  □ Change timer interval from 100ms to 1000ms
+  □ Debounce resize handler + cellSize comparison
+  □ Batch path upserts on backend
+  □ Add take: 100 to playedBoards query
+  □ Remove mock level data from production bundle
+
+PHASE 5: POLISH (2-3 days)
+  □ Add haptic feedback on path complete and board solve
+  □ Add win/complete sound effects
+  □ Add particle celebration on board complete
+  □ Add countdown pulse for last 10 seconds
+  □ Add color blind mode (patterns on endpoints)
+  □ Add micro-screens to Tailwind content config
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ranked by (Player Impact × Effort Efficiency):
+
+#1  Remove .env from repo + rotate all secrets
+    Effort: 30 minutes | Impact: Prevents total security breach
+    ROI: ∞ (non-negotiable)
+
+#2  Fix localStorage.clear() → clear only game-specific keys
+    Effort: 15 minutes | Impact: Prevents destroying other games' data
+    ROI: ∞ (data destruction bug)
+
+#3  Allow game replays (fix unique constraint)
+    Effort: 1 hour | Impact: Unlocks core retention loop
+    ROI: 10x (biggest player-facing improvement)
+
+#4  Remove HMAC/JWT fallback secrets
+    Effort: 15 minutes | Impact: Eliminates auth bypass
+    ROI: 10x (trivial fix, massive security improvement)
+
+#5  Add round progress indicator ("Board X/Y")
+    Effort: 30 minutes | Impact: Players can pace their strategy
+    ROI: 8x
+
+#6  Fix timer to use server sync (prevent premature expiry)
+    Effort: 1 hour | Impact: Eliminates "timer ended early" complaints
+    ROI: 7x
+
+#7  Add undo button for path drawing
+    Effort: 2 hours | Impact: Major QoL for all players
+    ROI: 6x
+
+#8  Add error boundary + proper recovery
+    Effort: 1 hour | Impact: No more unrecoverable white screens
+    ROI: 5x
+
+#9  Add haptic + sound feedback on win
+    Effort: 1 hour | Impact: Game feels 2x more rewarding
+    ROI: 5x
+
+#10 Enable daily challenge system (wire existing engine)
+    Effort: 4 hours | Impact: 24-hour return loop → retention multiplier
+    ROI: 4x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+What's WELL DONE in this game (credit where due):
+
+BACKEND:
+✓ Restate for session state → exactly-once semantics, natural expiry
+✓ AsyncLocalStorage + Proxy for transparent transactions — elegant
+✓ Multi-signal anti-cheat (fast-click, uniform-timing, impossible-solve)
+✓ Zod DTO validation on all endpoints — runtime type safety
+✓ Board selection fairness (least-recently-played first + shuffle)
+✓ Deadlock prevention (sorting paths by color before persistence)
+✓ Idempotent progress saves (moveId deduplication)
+✓ Solution validation: adjacency, self-intersection, overlap, bounds, coverage
+✓ Admin board dependency checks before deletion
+✓ Structured error codes for i18n compatibility
+
+FRONTEND:
+✓ Pure functional flowEngine.ts — testable, deterministic
+✓ Autosave outbox with replay + version tracking — crash-resilient
+✓ Server-authoritative timer sync (polls every 15s)
+✓ Board pre-fetch at 20% coverage — zero perceived latency
+✓ Board card-flip transition animation — polished feel
+✓ Full session/board restore on page refresh
+✓ Clean Phaser/React separation via controller interface
+✓ Secure storage with in-memory cache + encrypted persistence
+✓ i18n support (English + Hindi)
+✓ Good TypeScript strictness and type definitions
+
+The FOUNDATION is excellent — better than most indie puzzle games.
+The issues are almost entirely:
+1. Deployment/configuration security (fixable in hours)
+2. Missing polish features (fixable in days)
+3. One nuclear bug (localStorage.clear) — 15-minute fix
+
+Fix the security + localStorage.clear + enable replays, and this game
+is ready for a confident soft launch.
+
+================================================================================
+COMPARISON WITH GAME #1 (ARROWS)
+================================================================================
+
+Block Fill vs Arrows:
+- Better game engine (pure functional, testable vs imperative Phaser-heavy)
+- Better crash resilience (autosave outbox vs none)
+- Better perceived performance (pre-fetch vs nothing)
+- Same security issues (shared codebase patterns)
+- Unique issue: localStorage.clear() nuclear bug
+- Missing: Arrows has more audio feedback, Block Fill has none
+
+================================================================================
+END OF AUDIT — GAME #2: BLOCK FILL
+================================================================================

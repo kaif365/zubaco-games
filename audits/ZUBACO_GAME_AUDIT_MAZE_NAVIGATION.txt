@@ -1,0 +1,1379 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #8: MAZE NAVIGATION (Path Finding Puzzle)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Maze navigation — find the path from start to end through
+          procedurally generated mazes, scored on path efficiency + time
+Stack: NestJS 11 + Prisma 7 + Restate + Redis + BullMQ + Socket.IO (backend),
+       React 19 + Vite 6 + Zustand + PixiJS + TailwindCSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Maze Navigation is a procedurally generated maze game with server-side move
+validation. The backend generates mazes using seeded DFS, validates each move
+against the grid, and scores based on path efficiency (optimal/actual moves).
+
+The architecture reuses the Restate Virtual Object pattern for session
+management, which is excellent for concurrency. Server-side move validation
+means clients can't teleport through walls.
+
+CRITICAL ANTI-CHEAT FLAW: The server sends the FULL maze grid AND the
+shortestPathLength to the client. A bot can trivially run BFS on the received
+grid to compute the optimal path and navigate it perfectly, achieving maximum
+scores every time while passing all server-side checks.
+
+TOTAL ISSUES: 54 (6 Critical, 10 High, 21 Medium, 17 Low)
+
+RELEASE READINESS SCORE: 58/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Full maze grid + shortestPathLength sent to client (bot exploit)
+BLOCKER-2: .env with JWT secret + DB credentials committed to repo
+BLOCKER-3: WS Gateway uses fallback 'dev-secret' for JWT verification
+BLOCKER-4: HMAC Guard fallback 'dev-hmac-secret'
+BLOCKER-5: VITE_ENCRYPTION_KEY exposed in client bundle
+BLOCKER-6: Demo timer never counts down (frontend timer bug)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (26 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env With JWT Secret + DB Credentials Committed                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env (lines 1-5)                                                       │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL=postgresql://zubaco:zubaco_dev_2024@localhost:5432/zubaco      │
+│   JWT_SECRET=dev-jwt-secret-min-32-chars-here                                │
+│   ENCRYPTION_KEY=0123456789abcdef...                                         │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: WS Gateway Fallback Secret 'dev-secret'                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (line 37)                                       │
+│                                                                              │
+│ Code:                                                                        │
+│   const secret = process.env.JWT_SECRET || 'dev-secret';                     │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: HMAC Guard Fallback Secret 'dev-hmac-secret'                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts (line 18)                              │
+│                                                                              │
+│ Code:                                                                        │
+│   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';                │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Full Maze Grid + shortestPathLength Sent to Client               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (MazeResponse interface)                      │
+│                                                                              │
+│ Response includes:                                                           │
+│   mazeGrid: number[][]    ← FULL maze layout                               │
+│   shortestPathLength: number  ← OPTIMAL path length                        │
+│                                                                              │
+│ Description:                                                                 │
+│   The client receives the ENTIRE maze grid AND the shortest path length.     │
+│   A bot can:                                                                 │
+│   1. Parse mazeGrid (0=path, 1=wall)                                         │
+│   2. Run BFS from (startRow,startCol) to (endRow,endCol)                     │
+│   3. Navigate the optimal path exactly                                       │
+│   4. Achieve shortestPathLength moves = 100% efficiency = 1000 score         │
+│   5. All server-side validation passes (moves are valid!)                    │
+│                                                                              │
+│   The bot is UNDETECTABLE because it makes the same valid moves              │
+│   a skilled player would make — just faster.                                 │
+│                                                                              │
+│ Exploit:                                                                     │
+│   const grid = response.mazeGrid;                                            │
+│   const path = BFS(grid, start, end);                                        │
+│   for (const move of path) await submitMove(move);                           │
+│   // Perfect score every time, passes all validation                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Option A: Don't send full grid. Use "fog of war" — only reveal cells       │
+│   within N steps of player position. Send visible cells on each move.        │
+│   Option B: Keep full grid but add behavioral analysis:                      │
+│   - Minimum move interval (human can't move faster than 100ms)               │
+│   - Path variance analysis (perfect BFS every time = suspicious)             │
+│   - Backtrack detection (humans make mistakes, bots don't)                   │
+│   Option C: Remove shortestPathLength from response.                         │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Bot-dominated leaderboard                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: No Move Rate Limiting (Bot Speed Advantage)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (move handling)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   No minimum time between moves. A bot can submit moves at network           │
+│   speed (~5ms per move), completing a 50-move maze in 250ms.                 │
+│   Combined with B-04 (full grid visible), this is devastating.              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add minimum inter-move delay (100-150ms). Flag sessions that              │
+│   consistently move at superhuman speed.                                     │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: No Maximum Moves Limit Per Maze                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/game/game.service.ts (move handling)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   No cap on how many moves a player can make per maze. A malicious           │
+│   client could submit millions of moves (back-and-forth), growing            │
+│   the moves array unboundedly in Restate state + DB.                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Cap at rows*cols*4 moves (generous upper bound). Reject after.             │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Server memory exhaustion                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: WebSocket join-session No Ownership Check                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Any authenticated user can join ANY session room. Receives real-time       │
+│   events (move updates, scores) for other players.                           │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: In-Memory Rate Limiter — Unbounded Growth                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/ip-rate-limiter.middleware.ts                             │
+│                                                                              │
+│ Description:                                                                 │
+│   Map<string, RateEntry> never cleaned up. DDoS from rotating IPs → OOM.   │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Metrics Endpoint Exposed Without Auth                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/common/metrics/ (metrics controller)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   /api/v1/metrics publicly accessible. Reveals request counts, latency,      │
+│   game session stats.                                                        │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: BFS Uses Array as Queue (O(n²) for Large Mazes)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/game/utils/maze-generator.ts (computeShortestPath)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   queue.shift() is O(n) on arrays. For a 41×41 maze (1681 cells),           │
+│   BFS does ~1681 shifts → O(n²) total = ~2.8M operations.                  │
+│   Called on every maze start to compute shortestPathLength.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use a proper queue (linked list, circular buffer, or deque).               │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Latency spike on larger mazes                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Redis KEYS Command Used                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/http-cache/ or src/redis/redis.service.ts                          │
+│                                                                              │
+│ Description:                                                                 │
+│   KEYS command blocks Redis event loop for all clients.                      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Dead Engine Modules (6 Files Never Used)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts                                  │
+│        src/game/engine/boosterEngine.ts                                      │
+│        src/game/engine/comboEngine.ts                                        │
+│        src/game/engine/dailyChallenge.ts                                     │
+│        src/game/engine/leaderboard.ts                                        │
+│        src/game/engine/scoreHistory.ts                                       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: CORS Falls Back to Allow-All                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts                                                 │
+│                                                                              │
+│ Code: origin: process.env.CORS_ORIGINS?.split(',') || '*'                    │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts                                                            │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: No Backtrack Detection (Anti-Cheat Gap)                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts                                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Server validates moves are legal but doesn't detect patterns:              │
+│   - Zero backtracks (inhuman for difficult mazes)                            │
+│   - Perfect BFS path every time (statistical impossibility)                  │
+│   - Superhuman move timing (no minimum delay)                                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Track: backtrack_count, move_intervals, perfect_path_streak.               │
+│   Flag accounts that consistently achieve 100% efficiency.                   │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: Scoring Allows Perfect 1000 Too Easily                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Design                                                        │
+│ File: src/game/utils/score.util.ts                                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Score = Math.min(1, shortestPathLength / moveCount) * 1000                 │
+│   If player follows BFS path exactly → score = 1000 every time.            │
+│   Combined with B-04 (grid exposed), perfect scores are trivial.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add diminishing returns: efficiency^2 scaling, or factor in time.          │
+│   Or use relative ranking (percentile-based scoring).                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: Redundant Redis Connections                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Architecture                                                       │
+│ Files: feature-flags, http-cache, redis.service, queue, etc.                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-18: Session Cleanup Processor Likely No-Op                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Incomplete Implementation                                          │
+│ File: src/queue/ (processors)                                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-19: Default Stage Config Auto-Provisioning Risk                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Architecture                                                       │
+│ File: src/game/game.service.ts (provisionDefaultStageConfig)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   If stageConfig is missing, the game auto-creates one with ALL levels.      │
+│   This means any arbitrary stageId creates a valid game config.              │
+│   Could be exploited for unintended access to levels.                        │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-20: Delete Previous Session on New Game Start                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Data Integrity                                                     │
+│ File: src/game/game.service.ts (createGameSession)                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Starting a new game DELETES the previous finalized session                 │
+│   (including all moves, cheat flags, scores). This destroys                  │
+│   historical data and audit trails.                                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Keep old sessions. Only prevent duplicate active sessions.                 │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-21: Stale Session Deletion Logic Inverted                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic Bug                                                          │
+│ File: src/game/game.service.ts (createGameSession, line ~297)                │
+│                                                                              │
+│ Description:                                                                 │
+│   The query looks for sessions NOT in (STARTED, RESULT_PROCESSING):          │
+│   status: { notIn: [STARTED, RESULT_PROCESSING] }                            │
+│   This means it deletes ENDED/EXPIRED sessions. But what about sessions      │
+│   in unusual states? The logic seems inverted — should delete stale          │
+│   active sessions, not finalized ones.                                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-22: SSL/TLS Disabled for Database Connection                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: DATABASE_URL in .env (no ?sslmode=require)                             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-23: SQS Consumer No Graceful Shutdown                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│ File: src/aws/sqs.service.ts                                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-24: Missing Database Indexes                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ File: prisma/schema.prisma                                                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-25: Env Validation Only Strict in Production                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Configuration                                                      │
+│ File: src/common/config/env.config.ts                                        │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-26: connectedUsers Map Potential Memory Leak                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Memory Leak                                                        │
+│ File: src/ws/game.gateway.ts                                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (28 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: VITE_ENCRYPTION_KEY Exposed in Client Bundle                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: config / appConfig                                                     │
+│                                                                              │
+│ Description:                                                                 │
+│   AES-256-GCM key baked into JS bundle. Anyone can decrypt API payloads      │
+│   to extract maze grid data (though grid is already sent in cleartext in     │
+│   the response structure, making this doubly pointless).                     │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Demo Timer Never Counts Down (Stuck at Initial Value)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Game Logic                                                         │
+│ File: Demo/timer component                                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   The demo mode timer displays but never decrements. Players in demo         │
+│   mode have infinite time. The timer useEffect has a dependency or           │
+│   state update issue that prevents countdown.                                │
+│                                                                              │
+│ Player Impact: Demo feels broken. Timer shows but doesn't move.              │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Client-Side Score Calculation Fallback                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: Game session/store                                                     │
+│                                                                              │
+│ Description:                                                                 │
+│   If server doesn't return a score, client falls back to computing           │
+│   score locally. This local score may be displayed to user or used           │
+│   in state management, creating inconsistency.                               │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Auth Token in localStorage (XSS Accessible)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: services/auth or store                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Token stored in localStorage or module variable accessible to scripts.     │
+│                                                                              │
+│ Mitigation: Acceptable for mobile WebView.                                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: PixiJS Canvas Never Destroyed on Unmount (WebGL Leak)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Memory Leak / Performance                                          │
+│ File: Maze rendering component (PixiJS)                                      │
+│                                                                              │
+│ Description:                                                                 │
+│   PixiJS Application/Stage created but never destroyed when component        │
+│   unmounts. WebGL contexts are limited (typically 8-16 per page).            │
+│   After navigating away and back multiple times, the game crashes with       │
+│   "Too many active WebGL contexts" error.                                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   In useEffect cleanup: app.destroy(true, { children: true, texture: true }) │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Game crashes after repeated navigation                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Dead Maze Generator Code in Frontend                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security / Dead Code                                               │
+│ File: src/ (maze generation utility)                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   A copy of the maze generation algorithm exists in the frontend.            │
+│   If used, it reveals the generation logic. If unused, it's dead code        │
+│   that increases bundle size and reveals server internals.                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove server-side algorithms from client bundle.                          │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: Source Maps Shipped to Production                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: vite.config.ts (no sourcemap: false)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Source maps in production expose the full source code, making it           │
+│   trivial to find the encryption key, understand game logic, and             │
+│   reverse-engineer anti-cheat measures.                                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   build: { sourcemap: false } (or 'hidden' for error tracking)               │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Haptic Feedback on Movement                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: UX / Game Feel                                                     │
+│ File: Maze movement handling                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   No vibration or sound on:                                                  │
+│   - Successful move                                                          │
+│   - Wall collision (should feel "blocked")                                   │
+│   - Reaching the end                                                         │
+│   - Picking up keys/items                                                    │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Movement feels disconnected from the game world               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: Swipe Sensitivity Issues on Mobile                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Mobile UX                                                          │
+│ File: Swipe/touch handler                                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   Swipe detection thresholds may be too sensitive or not sensitive            │
+│   enough. No directional dead-zone to prevent diagonal misinterpretation.    │
+│   No visual swipe direction indicator.                                       │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Frequent wrong-direction movements                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: External CDN Audio Files                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Reliability                                                        │
+│ File: Audio/sound loading                                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   Audio files loaded from external CDN. If CDN is down or slow, sounds       │
+│   don't load. No fallback to programmatic Web Audio API.                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: Stale Closure in Move Handler                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bug                                                                │
+│ File: Game state/move submission hook                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   Move submission callback may capture stale state due to React closure      │
+│   semantics. Rapid moves can submit with outdated position data.             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use useRef for mutable position state or functional setState updates.      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Occasionally moves from wrong position                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: Silent Error Redirects                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Router/error handling                                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   API errors silently redirect to home/error page with no message.           │
+│   Player doesn't know what went wrong.                                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Confusing — game navigates away without explanation           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: No Fog of War (Full Maze Visible)                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Design / Anti-Cheat                                           │
+│ File: Maze renderer                                                          │
+│                                                                              │
+│ Description:                                                                 │
+│   Entire maze is visible from the start. This:                               │
+│   1. Removes exploration/discovery element                                   │
+│   2. Allows players to trace path visually before moving                     │
+│   3. Enables trivial bot pathfinding (grid already exposed)                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Option A: Fog of war (reveal cells within N radius of player)              │
+│   Option B: Mini-map showing only explored areas                             │
+│   Option C: Keep full view but add time pressure that makes                  │
+│   visual pre-planning less effective                                         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Less engaging (no exploration feel)                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: No Wall Collision Feedback                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Movement handler                                                       │
+│                                                                              │
+│ Description:                                                                 │
+│   Swiping into a wall = nothing happens. No shake animation, no sound,       │
+│   no visual indicator. Player doesn't know if swipe was detected.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add subtle camera shake or red flash on wall collision.                    │
+│   navigator.vibrate(10) for haptic.                                          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Unclear if input registered                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: No Path Trail Visualization                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: Maze renderer                                                          │
+│                                                                              │
+│ Description:                                                                 │
+│   Player's path through the maze is not visible. In maze games,              │
+│   seeing where you've been is essential to avoid revisiting areas.           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Color visited cells differently (breadcrumb trail).                        │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Players get lost, revisit dead ends repeatedly                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: No Accessibility Support                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: Game components                                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   - No aria-labels on game canvas                                            │
+│   - No keyboard arrow key support (only swipe)                               │
+│   - No screen reader support                                                 │
+│   - Color-only differentiation (walls vs paths)                              │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: Re-render Overhead from Zustand Store                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: Store/game state                                                       │
+│                                                                              │
+│ Description:                                                                 │
+│   Zustand store may trigger re-renders on every move if not properly         │
+│   using selectors or shallow equality checks.                                │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: No D-Pad Alternative for Swipe Controls                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Input handling                                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   Only swipe input available. Some players prefer on-screen D-pad            │
+│   buttons for precise maze navigation. No settings to choose.                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add optional D-pad overlay as alternative input method.                    │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Players who struggle with swipe precision can't play well     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: No Minimap for Large Mazes                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: UI components                                                          │
+│                                                                              │
+│ Description:                                                                 │
+│   For larger mazes (31×31, 41×41), the full maze may not fit on screen.     │
+│   No minimap or zoom functionality to see overall position.                  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: No Move Counter Display                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: HUD / UI                                                               │
+│                                                                              │
+│ Description:                                                                 │
+│   No visible move counter. Player doesn't know their efficiency              │
+│   relative to optimal path.                                                  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: No Retina/HiDPI Rendering                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Visual Quality                                                     │
+│ File: PixiJS canvas setup                                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   Canvas may not account for devicePixelRatio, causing blurry maze           │
+│   rendering on high-DPI mobile screens.                                      │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-22: No Score Animation / Celebration                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: Result screen                                                          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-23: Unstyled 404 Page                                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: pages/NotFound                                                         │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-24: Layout Thrashing on Resize                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ File: Canvas resize handler                                                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-25: No Keyboard Arrow Key Support (Desktop)                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Accessibility                                                      │
+│ File: Input handling                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-26: No Optimal Path Shown After Completion                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Result/end screen                                                      │
+│                                                                              │
+│ Description:                                                                 │
+│   After completing a maze, player doesn't see the optimal path.              │
+│   This is a learning opportunity missed.                                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: No way to learn from mistakes                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-27: No Undo / Go Back Feature                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Game flow                                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   Player can't undo last move. Must manually navigate backwards.             │
+│   Standard in many maze games.                                               │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-28: No i18n Implementation Visible                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: i18n                                                               │
+│ File: src/locales/                                                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Locales directory exists but unclear if fully wired.                        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Bottlenecks (sorted by impact):
+
+1. WebGL Context Leak (PixiJS Not Destroyed)
+   - After 8-16 navigations, game crashes (context limit hit)
+   - Fix: app.destroy(true) in useEffect cleanup
+
+2. BFS Queue Uses Array.shift() — O(n²)
+   - 41×41 maze = 1681 cells, up to 1681 shifts
+   - Each shift is O(n) → total O(n²) = ~2.8M operations
+   - Fix: Use proper queue data structure
+
+3. Full Grid Sent Over Network
+   - 41×41 grid = 1681 cells × 4 bytes = ~6.7KB per maze
+   - Not huge, but adds up with multiple rounds
+   - Fix: Compress or send incrementally
+
+4. In-Memory Rate Limiter (Backend)
+   - Map grows unbounded
+   - Fix: Periodic cleanup or Redis-backed
+
+5. Zustand Re-renders on Every Move
+   - If store structure isn't optimized with selectors
+   - Fix: Use shallow equality or slice-based selectors
+
+ESTIMATED PERFORMANCE PROFILE:
+- Maze generation (server): ~5ms for 41×41 (DFS is O(cells))
+- BFS shortest path (server): ~10-15ms for 41×41 (with shift inefficiency)
+- Network per move: ~50-100ms RTT
+- PixiJS rendering: <1ms per frame (static grid, moving sprite)
+- Main bottleneck: Network latency per move, WebGL leak over time
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ PixiJS for smooth canvas rendering (better than DOM for maze)
+✓ Swipe controls (natural for mobile)
+✓ Zustand for state management (clean, predictable)
+✓ Server-validated moves (can't walk through walls)
+✓ Batched move submission (reduces network overhead)
+✓ Input deduplication (prevents double-moves)
+
+UX PROBLEMS:
+
+1. No Path Trail / Breadcrumbs (MAJOR)
+   - Player can't see where they've been
+   - In mazes, this causes repeated dead-end visits
+   - FRUSTRATION LEVEL: HIGH
+
+2. No Wall Collision Feedback
+   - Swipe into wall = nothing happens
+   - "Did my swipe register? Is the game frozen?"
+   - FRUSTRATION LEVEL: HIGH
+
+3. No Haptic/Audio Feedback
+   - Move, collision, reach-end — all silent
+   - FRUSTRATION LEVEL: MEDIUM
+
+4. Swipe Sensitivity Issues
+   - No directional dead-zone
+   - Diagonal swipes misinterpreted
+   - No alternative D-pad input
+   - FRUSTRATION LEVEL: HIGH (for some players)
+
+5. Full Maze Visible (No Exploration)
+   - Entire maze shown from start
+   - Reduces tension/discovery
+   - Players just trace path visually
+   - FRUSTRATION LEVEL: LOW (but less engaging)
+
+6. No Move Counter
+   - Players don't know their efficiency
+   - No incentive to optimize during play
+   - FRUSTRATION LEVEL: LOW
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features that maze game players EXPECT:
+
+1.  [!] Path trail / breadcrumb visualization
+2.  [!] Wall collision feedback (shake/sound/haptic)
+3.  [!] Fog of war or progressive reveal option
+4.  [ ] D-pad alternative to swipe
+5.  [ ] Sound effects (move, collision, complete)
+6.  [ ] Haptic feedback
+7.  [ ] Move counter display
+8.  [ ] Optimal path shown after completion
+9.  [ ] Minimap for large mazes
+10. [ ] Keyboard support (desktop)
+11. [ ] Zoom/pan for large mazes
+12. [ ] Collectibles/keys in maze (already have unlock mechanic)
+13. [ ] Difficulty selection (maze size)
+14. [ ] Daily challenge mode
+15. [ ] Path replay animation
+16. [ ] Ghost race (compete against own best path)
+17. [ ] Maze rotation/tilt controls (gyroscope option)
+18. [ ] Undo last move button
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Color-coded path trail (fades from bright to dim as you move away)
+2. Wall "bump" animation (player sprite bounces off)
+3. Camera follow with smooth lerp on large mazes
+4. Particle trail behind player sprite
+5. Celebration animation when reaching exit (confetti, scale-up)
+6. "Speed run" timer display with milliseconds
+7. Ghost overlay showing previous best path
+8. Progressive maze reveal animation at start (walls "drawing" in)
+9. Sound: footsteps on move, thud on wall, chime on exit
+10. Smooth sprite animation between cells (not teleporting)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Destroy PixiJS on unmount (WebGL leak fix — CRITICAL)
+2. Fix demo timer countdown
+3. Remove dead maze generator from frontend bundle
+4. Disable source maps in production
+5. Add path trail visualization
+6. Add wall collision feedback
+7. Add D-pad alternative input
+8. Use Zustand selectors for movement-only state
+
+Backend:
+1. Remove shortestPathLength from client response
+2. Implement fog of war (only send visible cells within radius)
+3. Add move rate limiting (minimum 100ms between moves)
+4. Add max moves cap per maze
+5. Replace BFS queue.shift() with proper queue
+6. Remove fallback secrets
+7. Remove .env from VCS
+8. Add behavioral anti-cheat (backtrack analysis)
+9. Remove dead engine modules
+10. Don't delete previous sessions (keep history)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Secret Management
+- .env committed (JWT + DB + encryption key)
+- WS fallback 'dev-secret'
+- HMAC fallback 'dev-hmac-secret'
+- Severity: CRITICAL
+
+Attack Surface 2: Anti-Cheat (PRIMARY WEAKNESS)
+- FULL maze grid sent to client → bot computes optimal path
+- shortestPathLength sent → bot knows exact target
+- No move rate limiting → bot navigates instantly
+- No behavioral analysis → perfect paths undetected
+- Moves are validated but BOT MOVES ARE VALID MOVES
+- Source maps expose all game logic
+- Maze generation algorithm in client bundle
+- Severity: CRITICAL (WORST anti-cheat gap for this game type)
+
+Attack Surface 3: WebSocket
+- join-session has no ownership check
+- Fallback secret enables WS auth bypass
+- Severity: HIGH
+
+Attack Surface 4: Resource Exhaustion
+- No max moves limit (unbounded array growth)
+- In-memory rate limiter (OOM under DDoS)
+- PixiJS context leak (client-side crash)
+- Severity: HIGH
+
+OVERALL SECURITY POSTURE:
+Server-side move VALIDATION is excellent (can't walk through walls).
+But server-side SCORING is defeated by full grid exposure. The bot
+can make perfectly valid moves along the BFS-optimal path. Unlike
+Logic Reflector (where the physics runs server-side and client can't
+fake solutions), this game essentially gives the answer to the client.
+
+Anti-cheat comparison:
+- Logic Reflector: Server runs physics → client can't cheat → STRONG
+- Maze Navigation: Full grid sent to client → bot computes BFS → WEAK
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mixed" - 5.5/10
+
+POSITIVE REVIEWS WOULD SAY:
+"Clean, fast maze generation. Mazes are always different."
+"Smooth pixel rendering with PixiJS."
+"Responsive swipe controls (when they work)."
+"Good scoring system — rewards efficiency."
+"Server validates moves so no wall hacking."
+
+NEGATIVE REVIEWS WOULD SAY:
+"No breadcrumbs?! I keep going in circles!"
+"I swipe right and it goes up. Fix the sensitivity!"
+"Zero sound. Zero vibration. Zero feedback."
+"The entire maze is visible. Where's the exploration?"
+"I can SEE the path. Just trace it with my finger. Too easy."
+"Leaderboard is all bots with perfect scores."
+"Game crashed after playing for 5 minutes" (WebGL leak)
+"Give me arrow buttons! Swipe is imprecise for mazes!"
+"No move counter? How efficient am I?"
+"The timer in demo mode doesn't even work!"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Top 10 player complaints (predicted):
+
+1. "No breadcrumbs! I keep revisiting dead ends!" — Path trail missing
+2. "Swipe sensitivity is broken" — Diagonal misinterpretation
+3. "No sound or vibration at all!" — Silent game
+4. "Game crashed after a while" — WebGL context leak
+5. "I can see the whole maze — just trace the path" — Too easy
+6. "Bots everywhere on leaderboard!" — Grid exposed = easy bot
+7. "No arrow buttons option!" — Swipe-only is frustrating
+8. "Hit a wall and NOTHING happened" — No collision feedback
+9. "Demo timer doesn't move!" — Timer bug
+10. "Where's my efficiency score?" — No move counter during play
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Quick sessions (individual mazes take 15-60 seconds)
+✓ Progressive difficulty (larger mazes in later rounds)
+✓ Efficiency scoring creates optimization challenge
+✓ Procedurally generated = infinite replay value
+✓ Deterministic seeded generation (fair competition)
+✓ Unlock/key mechanic adds puzzle layer
+✓ Time bonus incentivizes speed + accuracy balance
+
+Flow State Enablers:
+✓ Clear goal (start → end)
+✓ Immediate visual progress (position changes)
+✓ Quick iteration (new maze on completion)
+✓ Scaling challenge (larger/more complex mazes)
+✓ Skill ceiling (path efficiency optimization)
+
+What Would Amplify Fun:
+- Path trail (reduces frustration of dead ends)
+- Fog of war (adds exploration/tension)
+- Sound effects (movement becomes tactile)
+- Ghost race (compete against yourself)
+- Collectibles in maze (optional challenge paths)
+- Speed run mode (just time, not efficiency)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. FULL MAZE VISIBLE = TOO EASY
+   - Players can trace the path visually before moving
+   - No exploration, no surprise, no tension
+   - "I just drew a line from start to end. Boring."
+   - Removes the core appeal of maze games (discovery)
+
+2. BOT-DOMINATED LEADERBOARD
+   - Full grid exposed = trivial BFS bot
+   - Perfect scores achievable programmatically
+   - Honest players can't compete
+   - "Why bother if bots always win?"
+
+3. NO SOUND = NO IMMERSION
+   - Maze games need atmosphere (footsteps, ambient)
+   - Silent movement feels disconnected
+   - No satisfaction on completion
+
+4. SWIPE-ONLY CONTROLS
+   - Imprecise for grid-based movement
+   - Diagonal misinterpretation frustrates
+   - No alternative input method
+   - "I SWIPED RIGHT! WHY DID IT GO UP?!"
+
+5. NO BREADCRUMB TRAIL
+   - Core QoL feature for maze games
+   - Without it, players revisit dead ends
+   - Increases frustration, doesn't increase challenge
+   - "I've been here before... I think"
+
+6. NO SOCIAL/SHARE
+   - Can't share "I solved this 41×41 maze in 50 moves!"
+   - No daily challenge
+   - No replay to watch/share
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     70/100 (Restate, Zustand, PixiJS, batching)
+- Security:                         30/100 (fallback secrets, exposed key)
+- Performance:                      50/100 (WebGL leak, BFS inefficiency)
+- Game Logic & Correctness:         65/100 (move validation solid, timer bug)
+- UX & Polish:                      35/100 (no trail, no feedback, swipe issues)
+- Anti-Cheat:                       25/100 (full grid exposed = trivial bot)
+- Accessibility:                    20/100 (no keyboard, no ARIA, swipe-only)
+- Retention & Engagement:           40/100 (no exploration feel, no progression)
+- Error Handling:                   50/100 (silent redirects, no error messages)
+- Production Readiness:             55/100 (source maps shipped, dead code)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 58/100
+═══════════════════════════════════════
+
+VERDICT: SOLID FOUNDATION, BUT ANTI-CHEAT IS FUNDAMENTALLY FLAWED
+The server-side move validation architecture is good, but sending the full
+maze grid to the client completely defeats the purpose. A bot can compute
+the optimal path in milliseconds and achieve perfect scores while passing
+all validation checks. The game also lacks basic maze QoL (breadcrumbs,
+wall feedback, sound) that players expect.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL FIXES (1-2 days)
+  □ Fix WebGL context leak (destroy PixiJS on unmount)
+  □ Fix demo timer countdown
+  □ Remove shortestPathLength from client response
+  □ Add minimum move interval (100ms) server-side
+  □ Add max moves cap per maze (rows*cols*4)
+  □ Remove fallback secrets
+  □ Remove .env from VCS
+
+PHASE 2: ANTI-CHEAT (2-3 days)
+  □ Implement fog of war (only send visible cells within radius)
+  □ Add behavioral analysis (backtrack ratio, timing patterns)
+  □ Remove maze generator from frontend bundle
+  □ Disable source maps in production
+  □ Add move velocity tracking (flag superhuman speed)
+  □ Flag accounts with 100% efficiency across multiple mazes
+
+PHASE 3: UX ESSENTIALS (1-2 days)
+  □ Add breadcrumb trail (visited cells colored differently)
+  □ Add wall collision feedback (shake + haptic + sound)
+  □ Add D-pad alternative input
+  □ Add sound effects (move, collision, complete)
+  □ Add move counter display
+  □ Fix swipe sensitivity (add dead-zone for diagonals)
+
+PHASE 4: ENGAGEMENT (1-2 days)
+  □ Add fog of war visual effect
+  □ Show optimal path after maze completion
+  □ Add smooth sprite movement animation
+  □ Add completion celebration
+  □ Add ghost race (against previous best)
+  □ Add keyboard support (arrow keys)
+
+PHASE 5: HARDENING (0.5 day)
+  □ Fix BFS queue (proper data structure)
+  □ Add periodic cleanup to rate limiter
+  □ Remove dead engine modules (6 files)
+  □ Don't delete previous sessions
+  □ Add WS session ownership validation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ranked by (Player Impact × Effort Efficiency):
+
+#1  Fix WebGL context leak (destroy PixiJS)
+    Effort: 15 minutes | Impact: Game stops crashing
+    ROI: ∞ (GAME CRASHES WITHOUT THIS)
+
+#2  Add breadcrumb path trail
+    Effort: 1 hour | Impact: Eliminates #1 player frustration
+    ROI: 10x (color visited cells, massive UX improvement)
+
+#3  Implement fog of war
+    Effort: 3-4 hours | Impact: Adds exploration + defeats bots
+    ROI: 8x (solves anti-cheat AND makes game more engaging)
+
+#4  Remove shortestPathLength from response
+    Effort: 5 minutes | Impact: Bots can't confirm optimal path
+    ROI: 7x (trivial fix, meaningful anti-cheat improvement)
+
+#5  Add wall collision feedback (shake + haptic)
+    Effort: 30 minutes | Impact: Movement becomes tactile
+    ROI: 7x (clear feedback prevents "is my swipe broken?" confusion)
+
+#6  Remove fallback secrets
+    Effort: 30 minutes | Impact: Prevents auth bypass
+    ROI: ∞ (non-negotiable security)
+
+#7  Add D-pad alternative input
+    Effort: 1-2 hours | Impact: Precise control for frustrated players
+    ROI: 6x (alternative for swipe-haters)
+
+#8  Add sound effects
+    Effort: 1 hour | Impact: Game becomes immersive
+    ROI: 5x (Web Audio API footstep, thud, chime)
+
+#9  Add move rate limiting (server)
+    Effort: 30 minutes | Impact: Bots can't navigate instantly
+    ROI: 5x (simple delay check, meaningful anti-cheat)
+
+#10 Fix swipe sensitivity (dead-zone)
+    Effort: 30 minutes | Impact: No more wrong-direction moves
+    ROI: 5x (add 15° dead-zone on diagonals)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+What's WELL DONE in this game:
+
+BACKEND:
+✓ Seeded DFS maze generation (deterministic, reproducible)
+✓ Server-side move validation (can't walk through walls)
+✓ BFS shortest path computation (correct scoring baseline)
+✓ Restate Virtual Objects for session state (concurrency-safe)
+✓ Efficiency-based scoring formula (rewards optimal play)
+✓ Time bonus system (speed matters)
+✓ Session expiry via Restate (reliable timer)
+✓ Maze unlock/key mechanic (adds puzzle layer)
+✓ computeFinalSeed (server+client seed derivation for fairness)
+✓ Default stage config auto-provisioning (game always starts)
+
+FRONTEND:
+✓ PixiJS for canvas rendering (hardware-accelerated)
+✓ Zustand for state management (lightweight, predictable)
+✓ Batched move submission (reduces network overhead)
+✓ Input deduplication (prevents double-moves from fast swipes)
+✓ Swipe gesture recognition (natural mobile input)
+✓ Clean component architecture (pages, components, hooks)
+✓ Localization directory structure (i18n-ready)
+✓ Mock game API for offline development
+
+GAME CONCEPT:
+✓ Procedural generation = infinite replay value
+✓ Efficiency scoring encourages optimization
+✓ Time bonus creates speed/accuracy tradeoff
+✓ Multiple difficulty levels (maze sizes)
+✓ Unlock mechanic adds depth to basic maze
+✓ Quick sessions (15-60 seconds per maze)
+✓ Multi-round structure (sustained engagement)
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1 (Arrows):            58/100
+  Game #2 (Block Fill):        62/100
+  Game #3 (Colour Sorting):    61/100
+  Game #4 (Flash Spot):        56/100
+  Game #5 (Infinity Loop):     59/100
+  Game #6 (Live Route Builder): 48/100
+  Game #7 (Logic Reflector):   72/100 ← HIGHEST
+  Game #8 (Maze Navigation):   58/100
+
+vs Logic Reflector (72/100):
+- Worse: Anti-cheat (full grid exposed vs server-authoritative physics)
+- Worse: No session recovery, no offline persistence
+- Better: More engaging input (swipe movement vs drag-drop)
+- Same: Platform security (fallback secrets)
+- Same: No sound/haptics
+
+vs Live Route Builder (48/100):
+- Better: Server validates every move (can't teleport)
+- Better: More complete game flow
+- Same: Full graph/grid exposed to client
+- Same: No anti-cheat behavioral analysis
+
+MAZE NAVIGATION UNIQUE ISSUES (not found in other games):
+★ Full maze grid + shortest path sent to client (trivial bot)
+★ WebGL context leak (PixiJS not destroyed on unmount)
+★ Demo timer never counts down
+★ No breadcrumb trail (core maze QoL missing)
+★ Swipe-only input (no D-pad alternative)
+★ Previous sessions deleted on new game start (data loss)
+★ Maze generator in frontend bundle (reveals algorithm)
+★ Source maps shipped to production
+
+MAZE NAVIGATION UNIQUE STRENGTHS:
+★ PixiJS canvas rendering (hardware-accelerated, smooth)
+★ Seeded DFS maze generation (correct, deterministic)
+★ Server-side move validation per move (not just end-state)
+★ Efficiency scoring (optimal/actual moves × 1000)
+★ Input deduplication (prevents rapid-fire issues)
+★ Batched move submission (network-efficient)
+★ Unlock/key mechanic (puzzle within puzzle)
+
+================================================================================
+END OF AUDIT — GAME #8: MAZE NAVIGATION
+================================================================================

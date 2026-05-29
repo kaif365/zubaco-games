@@ -1,0 +1,1257 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #20: WORD UNSCRAMBLE (Letter Rearrangement Puzzle)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Anagram puzzle — scrambled letter tiles appear, player taps letters
+          in correct order to spell the original word. Per-word timer auto-
+          advances if not solved. Global session timer. Time bonus for speed.
+Stack: NestJS 11 + Prisma 7 + Restate Durable Execution + BullMQ + Zod +
+       nestjs-zod + Encryption + HMAC + API Key Guard (backend),
+       React 19 + Vite 6 + Framer Motion + i18n + Tailwind CSS (frontend)
+Architecture: Hybrid — direct REST (start/submit) + Restate virtual objects
+              for session state + expiry scheduling. Seed-based word generation.
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Word Unscramble is a letter-tile anagram game where players see a word's
+letters shuffled randomly and must tap them in the correct order to spell
+the original word. Each word has a per-word timer (6 seconds default);
+if not solved in time, it auto-advances to the next word. The game has a
+global session timer, and points are awarded for correct words plus a time
+bonus for solving quickly.
+
+ARCHITECTURE HIGHLIGHTS:
+This game uses the HYBRID Restate architecture — combining direct REST
+endpoints (game.service.ts) with Restate virtual objects (game-session.object.ts)
+for durable session state and automatic expiry scheduling. This is the most
+sophisticated architecture in the game suite, matching Games #16 (Sequence
+Recall) and #17 (Sliding Puzzle).
+
+The AppModule is the MOST COMPREHENSIVE across all 20 games:
+  - HardeningModule, SecretsModule, TracingModule, HttpCacheModule
+  - AuditModule, CircuitBreakerModule, IdempotencyModule
+  - FeatureFlagsModule, ShutdownModule, QueueModule
+  - RedisModule, CryptoModule, MetricsModule
+  - API Key Guard + HMAC Guard + Throttler Guard (TRIPLE auth!)
+  - Encryption + Decryption middleware
+  - Correlation ID middleware
+  - Timeout + Response + Metrics interceptors
+
+GAME DESIGN ANALYSIS:
+Word Unscramble is a GENUINELY FUN mechanic. Unlike True/False (binary guess)
+or Speed Type Answer (free-form typing), this game requires SPATIAL PATTERN
+RECOGNITION: seeing "EAGL" and recognizing it's "EAGLE" requires visual
+word-form knowledge that's intrinsically engaging. The tap-to-build mechanic
+creates satisfying feedback (letters fill slots → word completion → next!).
+
+KEY INNOVATION vs previous games:
+  - Server VERIFIES the tap order (selectedOrder) against the word
+  - Server re-generates words from seed and checks builtWord === word.word
+  - Wrong tap order → solved: false overridden by server (anti-cheat!)
+  - Client-side "wrong = reset" (all selections cleared, try again)
+
+CRITICAL FLAW (same as #18/#19): Word bank (128 words) hardcoded and
+DUPLICATED identically in frontend and backend. All original words visible
+in client JS bundle. However, this is LESS exploitable than True/False
+because knowing the word doesn't help you tap faster — you still need the
+physical dexterity to tap letters in order under time pressure.
+
+UNIQUE BUG FOUND: maxWordLength defined per level but NEVER USED in word
+generation. Level 1 (maxWordLength: 5) can still show 8-letter words
+like "ABSOLUTE". This breaks difficulty progression entirely.
+
+TOTAL ISSUES: 25 (2 Critical, 4 High, 11 Medium, 8 Low)
+
+RELEASE READINESS SCORE: 63/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: .env committed with NAMED JWT_SECRET in plaintext
+           JWT_SECRET="zubaco-word-unscramble-jwt-secret-2025"
+           This is a game-specific named secret (not a generic dev placeholder).
+
+BLOCKER-2: Fallback secrets in THREE locations with THREE DIFFERENT values:
+           - session.guard.ts: process.env.JWT_SECRET || 'fallback-secret'
+           - game.gateway.ts: process.env.JWT_SECRET || 'dev-secret'
+           - app.config.ts: process.env.JWT_SECRET || 'dev-secret-word-unscramble'
+           Inconsistent fallbacks = different code paths accept different tokens.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (14 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env Committed with NAMED JWT_SECRET                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env                                                                   │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/word_unscramble"│
+│   JWT_SECRET="zubaco-word-unscramble-jwt-secret-2025"                        │
+│   PORT=3012                                                                  │
+│                                                                              │
+│ This is a NAMED, game-specific secret. If this matches the production value  │
+│ (and the naming pattern suggests it might be the actual production secret),  │
+│ anyone with repo access can forge JWT tokens.                                │
+│                                                                              │
+│ NOTE: env.validation.ts marks JWT_SECRET as required=true but only enforces  │
+│ in production. In dev, it warns but continues. The .env supplies it, so the  │
+│ warning never fires, masking the problem.                                    │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Three Fallback Secrets (Three DIFFERENT Values)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: session.guard.ts (line 12), game.gateway.ts (line 37),                │
+│        app.config.ts (line 3)                                                │
+│                                                                              │
+│ Code:                                                                        │
+│   session.guard.ts: jwt.verify(... process.env.JWT_SECRET || 'fallback-secret')│
+│   game.gateway.ts:  jwt.verify(... process.env.JWT_SECRET || 'dev-secret')   │
+│   app.config.ts:    process.env.JWT_SECRET || 'dev-secret-word-unscramble'   │
+│                                                                              │
+│ THREE DIFFERENT fallback strings. If JWT_SECRET is unset:                    │
+│ - HTTP guard uses 'fallback-secret'                                          │
+│ - WebSocket gateway uses 'dev-secret'                                        │
+│ - App config uses 'dev-secret-word-unscramble'                               │
+│ A token signed with one fallback WON'T verify in the others!                 │
+│                                                                              │
+│ This means: if JWT_SECRET env var is missing, WebSocket auth and HTTP auth   │
+│ use DIFFERENT secrets, so a valid HTTP token is rejected by WebSocket and    │
+│ vice versa. Silent failure. Extremely hard to debug.                         │
+│                                                                              │
+│ FIX: Remove ALL fallbacks. Use appConfig.jwtSecret everywhere, and throw    │
+│ if undefined. The production check in app.config.ts already does this for   │
+│ production, but dev should also refuse to start without it.                  │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: Word Bank Hardcoded (128 Words) — Duplicated in Frontend         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Design / Content / Anti-Cheat                                 │
+│ Files: src/game/engine/wordBank.ts (backend, 128 words)                      │
+│        src/features/unscramble/engine/wordBank.ts (frontend, identical)      │
+│                                                                              │
+│ 128 English words hardcoded (30x 4-letter, 30x 5-letter, 30x 6-letter,      │
+│ 24x 7-letter, 18x 8-letter). At 15 words per session, a player exhausts     │
+│ ALL content in ~9 sessions. At 5 words per session (level 1), ~26 sessions.  │
+│                                                                              │
+│ MITIGATING FACTORS vs True/False Blitz:                                      │
+│ - Knowing the word doesn't bypass the TAP mechanic (still need dexterity)   │
+│ - 128 words > 60 statements (True/False) or 30 questions (Speed Type)       │
+│ - Word variety (4-8 letters) creates natural difficulty progression          │
+│                                                                              │
+│ STILL NEEDS: 500+ words for production, DB-driven, categorized by           │
+│ difficulty (word length + word familiarity).                                 │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: maxWordLength Defined Per Level But NEVER USED                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic Bug                                                     │
+│ Files: src/game/engine/levelConfig.ts, src/game/game.service.ts,             │
+│        src/game/engine/wordBank.ts                                           │
+│                                                                              │
+│ Level config defines maxWordLength per level:                                │
+│   Level 1: maxWordLength=5 (should only show 4-5 letter words)              │
+│   Level 5: maxWordLength=7                                                   │
+│   Level 10: maxWordLength=12                                                 │
+│                                                                              │
+│ BUT: game.service.ts only passes timeLimitMs and wordCount to config:        │
+│   if (levelParams) {                                                         │
+│     config.timeLimitMs = levelParams.timeLimitMs;                            │
+│     config.totalWords = levelParams.wordCount;                               │
+│   }                                                                          │
+│   // maxWordLength is NEVER passed to generateWords!                         │
+│                                                                              │
+│ AND: generateWords(seed, count) takes NO maxWordLength parameter.            │
+│ It randomly shuffles ALL 128 words and picks the first `count`.              │
+│                                                                              │
+│ RESULT: Level 1 players (intended for 4-5 letter words) can get             │
+│ "KEYBOARD" (8 letters) or "ABSOLUTE" (8 letters). Level 10 players          │
+│ (intended for 12-letter words) might get "FIRE" (4 letters).                │
+│                                                                              │
+│ This DESTROYS difficulty progression. The level system is cosmetic only.     │
+│                                                                              │
+│ FIX: Pass maxWordLength to generateWords, filter WORD_BANK by length        │
+│ before shuffling: const eligible = WORD_BANK.filter(w => w.length <=        │
+│ maxWordLength). Also add minWordLength per level for proper banding.         │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Swagger Exposed Unconditionally                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 50-57)                                              │
+│                                                                              │
+│ Swagger UI at /api/docs available in ALL environments including production.  │
+│ Exposes full API schema, DTO structures, endpoint names.                     │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: Seed Sent to Client in startGame Response                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 57)                                     │
+│                                                                              │
+│ Code:                                                                        │
+│   return { gameSessionId, endTime, serverTime, config, seed, ... }          │
+│                                                                              │
+│ Computed seed sent to client so it can derive the same word sequence.        │
+│ Combined with word bank in client bundle, a bot can pre-compute all          │
+│ words instantly and know the exact tap order needed.                         │
+│                                                                              │
+│ HOWEVER: Even with pre-computed answers, the bot still needs to:            │
+│ 1. Render the UI (or simulate it)                                           │
+│ 2. Tap letters in order at realistic speed                                  │
+│ 3. Pass timing analysis thresholds (500ms avg for this game)                │
+│                                                                              │
+│ A sophisticated bot can easily do all three.                                 │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: scoreMultiplier Returned but Never Applied                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic Bug                                                          │
+│ File: src/game/game.service.ts (line 59), src/game/engine/scorer.ts          │
+│                                                                              │
+│ startGame returns scoreMultiplier (1.0 to 3.5 per level), but               │
+│ calculateScore() NEVER applies it. Server score = wordsSolved *             │
+│ pointsPerWord + timeBonus. The multiplier has ZERO effect.                  │
+│                                                                              │
+│ This means: Level 10 (3.5x multiplier) gives the same score formula as     │
+│ Level 1 (1.0x). Higher levels are HARDER (more words, less time) but        │
+│ give NO EXTRA REWARD. This punishes advanced players.                        │
+│                                                                              │
+│ FIX: finalScore = Math.round((wordsSolved * pointsPerWord + timeBonus)      │
+│      * config.scoreMultiplier)                                               │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Dead Engine Modules (6 Files, ~500 Lines)                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts (~100 lines)                     │
+│        src/game/engine/boosterEngine.ts (~80 lines)                          │
+│        src/game/engine/comboEngine.ts                                        │
+│        src/game/engine/dailyChallenge.ts                                     │
+│        src/game/engine/leaderboard.ts                                        │
+│        src/game/engine/scoreHistory.ts                                       │
+│                                                                              │
+│ + 6 test files in __tests__/ for these dead modules.                         │
+│ None are imported by game.service.ts or any other production file.           │
+│ Standard boilerplate copied across ALL 20 games.                             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: CORS Falls Back to `true` in Non-Production                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 37-40)                                              │
+│                                                                              │
+│ Code:                                                                        │
+│   const corsOrigins = process.env.CORS_ORIGINS?.split(',').filter(Boolean);  │
+│   if (process.env.NODE_ENV === 'production' && (!corsOrigins || ...length))  │
+│     throw new Error('CORS_ORIGINS is required in production');               │
+│   app.enableCors({ origin: corsOrigins && corsOrigins.length > 0            │
+│     ? corsOrigins : true, ... });                                            │
+│                                                                              │
+│ GOOD: Throws in production if CORS_ORIGINS missing.                          │
+│ BAD: Falls back to `true` (allow any origin) in staging/dev.                │
+│                                                                              │
+│ Also: WebSocket gateway has separate CORS:                                   │
+│   cors: { origin: process.env.CORS_ORIGINS?.split(',') || '*' }             │
+│ This falls back to '*' (string) which is a different behavior than           │
+│ `true` (boolean). Inconsistent.                                              │
+│                                                                              │
+│ Priority Score: 3/10 (mitigated by production check)                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Server Generates Both Seeds (Not Client-Contributed)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Design                                                             │
+│ File: src/game/game.service.ts (lines 43-44)                                 │
+│                                                                              │
+│ Code:                                                                        │
+│   const serverSeed = crypto.randomBytes(16).toString('hex');                 │
+│   const clientSeed = crypto.randomBytes(8).toString('hex'); // server-gen'd!│
+│   const nonce = Math.floor(Math.random() * 100000); // also server!         │
+│                                                                              │
+│ "clientSeed" is server-generated. The purpose of a client seed is for       │
+│ the CLIENT to contribute entropy. Since the server controls both seeds,     │
+│ the server can theoretically rig word selection. HOWEVER: this is actually  │
+│ BETTER for anti-cheat (client can't choose a favorable seed).               │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Timing Analyzer Threshold Too Low (500ms for Word Unscramble)    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 107)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   analyzeInputTiming(timestamps, { minAvgResponseMs: 500 })                 │
+│                                                                              │
+│ 500ms average is too LOW for word unscramble. Unlike True/False (tap         │
+│ one button), unscrambling a 6-letter word requires:                          │
+│   - Recognizing the word (~500ms alone)                                      │
+│   - Tapping 6 letters in order (~200ms each = 1200ms)                        │
+│   - Total: ~1700ms minimum for 6-letter words                                │
+│                                                                              │
+│ A human solving 15 words averaging 500ms per word submission is              │
+│ EXTREMELY suspicious but would pass this check.                              │
+│                                                                              │
+│ RECOMMENDED: minAvgResponseMs: 1500 for this game type.                      │
+│                                                                              │
+│ NOTE: The analyzer checks inter-answer GAPS, not total time per word.        │
+│ Since answers include timestamps, the gap between consecutive word           │
+│ completions should be much higher than 500ms for genuine play.               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: CheatFlags Saved but Never Acted On                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (lines 122-133)                               │
+│                                                                              │
+│ Cheat flags are persisted to DB and published via events, but the session   │
+│ status is just 'flagged'. No score quarantine, no automatic review queue,   │
+│ no score adjustment. Flagged scores remain visible and usable.              │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: Restate InFlightSession Stores Empty Seeds                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/restate/game-session.object.ts (lines 41-51)                       │
+│                                                                              │
+│ Code:                                                                        │
+│   const session: InFlightSession = {                                         │
+│     ...                                                                      │
+│     serverSeed: '',  // empty!                                               │
+│     clientSeed: '',  // empty!                                               │
+│     nonce: 0,        // wrong!                                               │
+│   };                                                                         │
+│                                                                              │
+│ The Restate state object stores empty strings for serverSeed/clientSeed      │
+│ and 0 for nonce. These are available from the startGame result but not       │
+│ extracted. If the session is resumed via Restate, the seeds are lost.        │
+│ The finalSeed IS stored correctly, so word generation still works, but       │
+│ the individual seeds are unrecoverable for audit purposes.                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: env.validation.ts Defaults CORS_ORIGINS to '*'                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/config/env.validation.ts (line 11)                                 │
+│                                                                              │
+│ Code:                                                                        │
+│   { key: 'CORS_ORIGINS', required: false, defaultValue: '*', ... }          │
+│                                                                              │
+│ Even though main.ts has a production check, env.validation.ts actively       │
+│ SETS CORS_ORIGINS='*' if missing. This could mask the production check       │
+│ if validation runs before CORS setup.                                        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (11 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Word Bank Duplicated in Client Bundle (128 Words Visible)        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat / Design                                                │
+│ File: src/features/unscramble/engine/wordBank.ts                             │
+│                                                                              │
+│ All 128 words visible in production JS bundle. DevTools → Sources →          │
+│ search "ELEPHANT" → see the full word bank.                                  │
+│                                                                              │
+│ MITIGATED vs True/False & Speed Type:                                        │
+│ - Knowing the WORD doesn't bypass the TAP MECHANIC                           │
+│ - Player still needs to physically tap 4-8 letters in correct order          │
+│ - Time pressure still applies (6s per word)                                  │
+│ - Pattern recognition is the FUN PART (not the knowing)                      │
+│                                                                              │
+│ A player who memorizes all 128 words gains advantage in RECOGNITION          │
+│ speed but still can't avoid the physical tapping. This is by far the         │
+│ LEAST exploitable word-in-bundle scenario of the three text games.           │
+│                                                                              │
+│ Still, the server shouldn't need the client to have the word bank.           │
+│ An alternative: server sends the scrambled letters directly (no seed).       │
+│                                                                              │
+│ Priority Score: 4/10 (lower than T/F and Speed Type due to tap mechanic)     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: VITE_ENCRYPTION_KEY in Client Bundle                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 4)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || '';          │
+│                                                                              │
+│ AES-256-GCM encryption key baked into client JavaScript. Any user can        │
+│ extract it and decrypt/encrypt API traffic. The encryption layer provides    │
+│ zero actual security — it's obfuscation, not protection.                     │
+│                                                                              │
+│ NOTE: The .env file doesn't set VITE_ENCRYPTION_KEY, so encryption is       │
+│ currently DISABLED (key is ''). The encryption code exists but is dormant.   │
+│                                                                              │
+│ Priority Score: 3/10 (dormant, but architecture is flawed)                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Auth Token from URL Query String                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (lines 13-17)                               │
+│                                                                              │
+│ Code:                                                                        │
+│   const token = params.get('token') || sessionStorage.getItem('auth_token');│
+│   if (token) { config.headers.Authorization = `Bearer ${token}`;            │
+│     sessionStorage.setItem('auth_token', token); }                          │
+│                                                                              │
+│ Token from URL appears in browser history, server access logs, and          │
+│ Referer headers. Should be extracted from URL, stored, then removed          │
+│ from the address bar using history.replaceState().                           │
+│                                                                              │
+│ POSITIVE: Uses sessionStorage (clears on tab close), not localStorage.      │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: No Sound Effects                                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│                                                                              │
+│ No audio feedback at all. Word Unscramble NEEDS:                             │
+│ - Letter tap sound (satisfying "click" per tile)                             │
+│ - Word solved chime (success!)                                               │
+│ - Wrong order buzz (letters reset)                                           │
+│ - Auto-advance "whoosh" (time expired, next word)                            │
+│ - Final 10-second countdown tick                                             │
+│ - Game over fanfare                                                          │
+│                                                                              │
+│ The letter-tap mechanic is ESPECIALLY suited for sound — each tap should     │
+│ have a satisfying "thunk" that builds anticipation as the word forms.        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: No Visual Feedback for Wrong Word Order                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/unscramble/hooks/useUnscramble.ts (line 132)              │
+│                                                                              │
+│ When all letters are selected in wrong order:                                │
+│   return { ...prev, selectedIndices: [], currentBuilt: '' };                │
+│                                                                              │
+│ The selection just silently resets. No red flash, no shake animation,        │
+│ no "Wrong!" text. Player might think they mis-tapped. There should be:      │
+│ 1. Screen shake / vibration                                                  │
+│ 2. Red flash on the word display slots                                       │
+│ 3. Brief "Wrong order!" overlay text                                         │
+│ 4. Then reset after 300ms delay (not instant)                                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: window.location.reload() for Replay                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/unscramble/components/GamePage.tsx (line 86)              │
+│                                                                              │
+│ Code:                                                                        │
+│   <ResultScreen ... onReplay={() => window.location.reload()} />             │
+│                                                                              │
+│ Full page reload to replay. Loses state, flashes white, re-downloads         │
+│ resources. Should reset local state and call startGame() again.              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: GameOverScreen Component Exists but Is UNUSED                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Dead Code                                                     │
+│ File: src/features/unscramble/components/GameOverScreen.tsx                   │
+│                                                                              │
+│ A detailed game over screen exists with:                                     │
+│   - Final Score (large green number)                                         │
+│   - Words Solved (X / Y)                                                     │
+│   - Time Bonus (+N)                                                          │
+│   - Play Again button                                                        │
+│   - Framer Motion animations                                                 │
+│                                                                              │
+│ But GamePage.tsx uses the GENERIC ResultScreen instead, which only shows     │
+│ score + success icon. The custom GameOverScreen is MORE informative and      │
+│ should replace ResultScreen.                                                 │
+│                                                                              │
+│ FIX: Replace ResultScreen with GameOverScreen. 10-minute change, huge        │
+│ UX improvement.                                                              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Session Recovery / Progress Persistence                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: useUnscramble.ts                                                       │
+│                                                                              │
+│ Page refresh = all progress lost. Even though Restate preserves server       │
+│ state and can resume sessions, the client has no way to reconnect to an     │
+│ existing session. The buildResumeResponse method exists but there's no      │
+│ client-side "resume" flow.                                                   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: Word Timer Progress Bar Hardcodes 6-Second Divisor               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX Bug                                                             │
+│ File: src/features/unscramble/components/GameHeader.tsx (line 34)            │
+│                                                                              │
+│ Code:                                                                        │
+│   style={{ width: `${(wordSec / 6) * 100}%` }}                              │
+│                                                                              │
+│ Hardcodes divisor of 6 (seconds) for progress bar width. If config          │
+│ changes wordTimeMs to 8000 (8 seconds), the bar will overflow >100%.        │
+│ Should use: (wordTimeRemainingMs / config.wordTimeMs) * 100                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: No Haptic Feedback on Letter Tap                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/features/unscramble/components/LetterTile.tsx                      │
+│                                                                              │
+│ Letter tiles are the PRIMARY interaction — tapping 4-8 tiles per word.       │
+│ On mobile, each tap should trigger a short vibration (10ms) for physical     │
+│ confirmation. The word-complete moment should trigger a longer vibration.    │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: Backspace Button Shows "?" Instead of ← Icon                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX / Encoding                                                      │
+│ File: src/features/unscramble/components/WordDisplay.tsx (line 26)           │
+│                                                                              │
+│ Code:                                                                        │
+│   <motion.button ...>?</motion.button>                                       │
+│                                                                              │
+│ The backspace/undo button shows a "?" character. This appears to be an       │
+│ encoding issue — likely intended to be a ← or ⌫ Unicode character that      │
+│ got corrupted. Players won't know this button means "undo last letter".     │
+│                                                                              │
+│ FIX: Replace with proper icon:                                               │
+│   <svg><!-- backspace/delete icon --></svg>  or  ⌫                          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND Performance:
+1. Two endpoints (start + submit). Minimal per-request computation.
+2. Word generation: O(n) Fisher-Yates shuffle of 128 items. Trivial.
+3. Answer verification: O(words) loop, each does map+join. Trivial.
+4. Score calculation: O(words) loop. Trivial.
+5. Timing analysis: O(n) gap computation. Trivial.
+6. DB writes: createMany for inputs + cheatFlags + updateMany session. Batch.
+7. Restate: HTTP/2 gRPC calls for session object. Adds ~5-10ms latency.
+8. DB config lookup: findUnique per start + submit. Index on stageId. Fast.
+
+FRONTEND Performance:
+1. Framer Motion animations on LetterTile: whileTap + scale transitions. GPU.
+2. WordDisplay slot animations: scale bounce on letter placement. Lightweight.
+3. Global timer: setInterval(100ms). Standard approach.
+4. Word timer: setTimeout per word (6s). No overhead.
+5. State updates per letter tap: single setState call. React batches.
+6. No images, no canvas, no WebGL. Pure DOM elements.
+
+MEMORY:
+- 128 words in memory (string array) = negligible (~2KB)
+- Per-word state: selectedIndices array (max 8 items) = negligible
+- Answers array: grows to max 15 objects = negligible
+
+VERDICT: EXCELLENT performance. Zero optimization needed. The game is
+inherently lightweight — text rendering + button taps. Everything is
+instant and smooth.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+EXCELLENT UX Decisions:
+✓ LETTER TILES: Large (56x56 / 64x64px), rounded, indigo, shadow — premium!
+✓ WORD DISPLAY SLOTS: Green border when filled, subtle scale animation
+✓ TAP FEEDBACK: whileTap={{ scale: 0.9 }} — instant physical feedback
+✓ SELECTED STATE: Tile grays out (bg-gray-700, opacity 0.3) — clear
+✓ BACKSPACE BUTTON: Red, appears only when letters are selected
+✓ KEYBOARD SUPPORT: Physical keyboard letters + Backspace work!
+✓ GAME HEADER: Word counter, global timer, solved count — all visible
+✓ PER-WORD PROGRESS BAR: Blue bar shrinks as word timer runs down
+✓ GLOBAL TIMER: Bold, pulsing red in last 10 seconds
+✓ AUTO-ADVANCE: Word skipped if not solved in time (records unsolved)
+✓ AUTO-SUBMIT: Finished phase triggers submitResult automatically
+✓ INSTRUCTION SCREEN: Clear start flow
+✓ ERROR BOUNDARY: Catches crashes
+✓ OFFLINE BANNER: Shows offline status
+✓ i18n: Internationalization support
+✓ THEME: Dark/light/system
+✓ Framer Motion: All transitions are animated
+
+UX PROBLEMS:
+
+1. No Sound
+   - Tile taps are SILENT. A physical-feeling game with no audio = uncanny
+   - Missing: tile click, word solved, wrong order, countdown, game over
+   - FRUSTRATION LEVEL: MEDIUM (game FEELS incomplete without sound)
+
+2. Wrong Order = Silent Reset
+   - All letters selected in wrong order → instantly reset to empty
+   - No indication of WHY. No red flash, no shake, no "Wrong!" text
+   - Player might think they accidentally tapped wrong or there's a bug
+   - FRUSTRATION LEVEL: HIGH
+
+3. Backspace Button Shows "?"
+   - Should be ← or ⌫ icon
+   - Players won't know what this button does
+   - FRUSTRATION LEVEL: LOW-MEDIUM
+
+4. Generic Result Screen (Not Game-Specific)
+   - GameOverScreen.tsx shows words solved + time bonus breakdown
+   - ResultScreen only shows score number + success icon
+   - FRUSTRATION LEVEL: LOW (but missed engagement opportunity)
+
+5. Page Reload for Replay
+   - Breaks flow state completely
+   - FRUSTRATION LEVEL: LOW
+
+6. No Haptic on Tile Tap
+   - Tapping 5-8 tiles per word × 15 words = 75-120 taps with no vibration
+   - Physical games need physical feedback
+   - FRUSTRATION LEVEL: LOW
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPLEMENTED:
+✓ Letter tile tap-to-build mechanic
+✓ Backspace (undo last letter)
+✓ Keyboard support (letter keys + Backspace)
+✓ Auto-advance on word timeout
+✓ Global timer + per-word timer
+✓ Time bonus scoring
+✓ Server-side answer verification (selectedOrder → builtWord check!)
+✓ Seed-based deterministic word generation
+✓ Timing analysis anti-cheat
+✓ Score divergence detection
+✓ Cheat flag persistence + event publishing
+✓ Restate durable execution (session state + expiry scheduling)
+✓ DB-configurable stage settings
+✓ Level system (1-10 with time/wordCount progression)
+✓ Zod DTO validation (nestjs-zod, .max(50) on answers)
+✓ Encryption interceptor + HMAC guard + API key guard
+✓ Error boundary + Offline banner + i18n + Theme
+✓ Framer Motion animations throughout
+✓ Auto-submit on game end
+✓ Atomic session update (updateMany WHERE status='active')
+✓ Event publishing (game completed + cheat flagged)
+✓ Throttler guard (30 req / 60s)
+✓ Correlation ID middleware
+
+MISSING:
+1. [!!] maxWordLength filtering in word generation (LEVEL BUG)
+2. [!] Sound effects (tile click, solved, wrong, countdown)
+3. [!] Wrong-order visual feedback (shake/flash/text)
+4. [ ] Backspace icon (currently shows "?")
+5. [ ] Use GameOverScreen instead of generic ResultScreen
+6. [ ] Session recovery (client-side resume flow)
+7. [ ] Smooth replay (without page reload)
+8. [ ] Haptic feedback on tile tap
+9. [ ] Hint system (reveal one letter position)
+10. [ ] Score multiplier application
+11. [ ] Word categories (animals, science, geography...)
+12. [ ] Share results
+13. [ ] Personal best comparison
+14. [ ] Drag-to-reorder alternative input method
+15. [ ] Streak tracking (consecutive words solved)
+16. [ ] Solved word animation (letters glow → word appears → next)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. ADD SOUND: Tile click (crisp), word solved (chime), wrong (buzz),
+   countdown (tick), game over (fanfare)
+2. WRONG ORDER FEEDBACK: Red flash on word display, screen shake (CSS
+   keyframes or Framer Motion), "Wrong!" text overlay, 300ms delay then reset
+3. FIX BACKSPACE ICON: Replace "?" with ⌫ SVG icon or Unicode character
+4. SOLVED WORD ANIMATION: Letters glow green → brief word display → smooth
+   transition to next word (currently instant)
+5. USE GAMEOVER SCREEN: Swap ResultScreen for GameOverScreen (already built!)
+6. ADD HAPTIC: navigator.vibrate(10) on each tile tap, vibrate(50) on solve
+7. ADD STREAK COUNTER: Track consecutive solved words, display with fire emoji
+8. CONFETTI on completion: All words solved → confetti particle effect
+9. WORD REVEAL on timeout: When auto-advancing, briefly show the correct word
+   ("It was: ELEPHANT") before moving on
+10. ADD HINT BUTTON: Reveal one correct letter position (costs 5 points)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Architecture (Required):
+1. FIX maxWordLength: Filter word bank by level's maxWordLength before
+   shuffling. Add minWordLength per level for proper difficulty banding:
+     Level 1: 4-5 letters | Level 5: 4-7 letters | Level 10: 4-8+ letters
+2. Move word bank to PostgreSQL with admin CRUD (500+ words)
+3. Remove word bank from frontend (server sends scrambled letters directly)
+4. Apply scoreMultiplier: finalScore *= levelConfig.scoreMultiplier
+5. Remove .env + all fallback secrets (throw on missing)
+6. Gate Swagger behind NODE_ENV
+
+Backend Fixes:
+7. Increase timing threshold to 1500ms avg (word unscramble is slower)
+8. Act on cheat flags (quarantine scores)
+9. Store actual seeds in Restate state (not empty strings)
+10. Remove dead engine modules + their tests (12 files)
+11. Fix env.validation CORS_ORIGINS default ('*' → remove default)
+
+Frontend Fixes:
+12. Add sound system (6 cues: tap, solved, wrong, advance, countdown, over)
+13. Add wrong-order visual feedback (shake + red flash + text)
+14. Fix backspace icon ("?" → ⌫)
+15. Use GameOverScreen instead of generic ResultScreen
+16. Fix word timer progress bar hardcoded divisor (6 → dynamic)
+17. Add haptic feedback on tile tap
+18. Implement smooth replay (reset state, don't reload)
+19. Add session recovery (resume from Restate state)
+20. Remove URL token from address bar after extraction
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Word Bank in Client Bundle
+- ALL 128 words visible in production JavaScript bundle
+- Combined with seed (also sent to client), attacker can pre-compute
+  entire word sequence for any session
+- MITIGATION: Knowing the word doesn't help tap faster (still need
+  physical interaction). Anti-cheat score: 40/100
+
+Attack Surface 2: Automated Perfect Scores
+- Bot script: receive seed → compute words → simulate tap orders with
+  realistic timing → submit with fabricated timestamps
+- MITIGATION: Server VERIFIES selectedOrder against word (good!)
+  - builtWord = a.selectedOrder.map(i => word.scrambled[i]).join('')
+  - Must match word.word exactly
+  - Timing analysis: 500ms avg threshold (too low, should be 1500ms)
+- A SMART bot: add random delays (1-3s per word), use correct orders
+  → undetectable with current checks
+- Missing: variance analysis, standard deviation check, per-letter
+  timing (should check individual tap intervals, not just word-level)
+
+Attack Surface 3: Secrets
+- .env committed with NAMED JWT_SECRET
+- Three different fallback secrets across files
+- Severity: CRITICAL
+
+Attack Surface 4: Restate Admin
+- Restate endpoint on separate port (RESTATE_ENDPOINT_PORT)
+- If exposed, attackers can call clearState, expireSession directly
+- No authentication on Restate handlers
+- Severity: MEDIUM (if port is exposed)
+
+OVERALL SECURITY POSTURE:
+The BEST backend infrastructure of all 20 games (triple auth: session +
+API key + HMAC, encryption, hardening module, secrets module, audit module).
+BUT undermined by: .env in repo, fallback secrets, word bank in bundle.
+The infrastructure is enterprise-grade; the secrets management is amateur.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Positive" - 6.3/10
+
+POSITIVE:
+"Really satisfying to tap the letters and watch the word form!"
+"The time pressure per word is perfect — not too fast, not too slow."
+"Love the keyboard support. So much faster with physical keys."
+"Clean UI, nice color scheme. The tiles feel premium."
+"Solved 12 out of 15 — hooked me into replaying immediately."
+"Auto-advance keeps the pace — no waiting around."
+"Different word lengths keep it interesting."
+
+NEGATIVE:
+"Where are the sound effects? Tapping letters with no sound feels wrong."
+"I spelled the word wrong and everything just... disappeared? No feedback."
+"The backspace button shows a question mark. What?"
+"Level 1 gave me KEYBOARD (8 letters). Aren't easy levels supposed to be short?"
+"Same words after a few games. Need more variety."
+"Had to reload the whole page to play again. Annoying."
+"No vibration on my phone. Each tap needs a little buzz."
+"The game over screen is boring. Just a number. Tell me what I did well!"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "No sound!" — Tile tapping NEEDS audio feedback
+2. "Wrong answer just resets silently!" — No feedback on incorrect order
+3. "What does the ? button do?" — Backspace icon broken
+4. "Level 1 gave me an 8-letter word!" — maxWordLength not enforced
+5. "Same words every time!" — 128 words, exhausted quickly
+6. "Full page reload to play again!" — Clunky replay
+7. "No vibration!" — Mobile tapping without haptic
+8. "Just a score number at the end" — Generic result screen
+9. "I want a hint!" — No hint system
+10. "The word disappeared before I could see what it was!" — No reveal on timeout
+11. "When the word timer runs out, there's no warning!" — No urgent countdown
+12. "My streak was going! Why no streak counter?" — No streak display
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ PATTERN RECOGNITION: Seeing jumbled letters and recognizing words is
+  an INNATELY SATISFYING cognitive skill. It activates the same brain
+  pathways as puzzles, crosswords, and Wordle.
+✓ BUILD-UP MECHANIC: Tapping letters one by one, watching slots fill,
+  then the word completing = micro-dopamine per tap + macro-dopamine on solve
+✓ PHYSICAL INTERACTION: Unlike True/False (one tap) or Speed Type (keyboard),
+  this requires SEQUENTIAL TAPPING — each letter is a deliberate choice
+✓ VARIED DIFFICULTY: 4-letter words (instant recognition) vs 8-letter words
+  (need to think) creates natural difficulty variance within each session
+✓ TIME PRESSURE: 6 seconds per word = enough to think but not enough to be slow
+✓ WORD FAMILIARITY: Using common English words means players feel smart
+  when they solve quickly ("I KNEW that was DRAGON!")
+✓ KEYBOARD POWER-UP: Desktop players discover keyboard shortcut → feel like
+  they've found a secret → typing words instead of tapping = speed boost
+
+Flow State Enablers:
+✓ Clear input → output loop (tap → letter appears → word forms → next)
+✓ Immediate visual feedback (tiles gray out, slots fill, green borders)
+✓ Optimal challenge curve (4-8 letter words mix easy and hard)
+✓ Auto-advance prevents stalling (maintains pace)
+✓ Session length (90 seconds) = perfect for mobile attention spans
+
+WHY THIS GAME IS THE BEST TEXT-BASED GAME IN THE SUITE:
+- Speed Type Answer: Typing on mobile is painful, no visual satisfaction
+- True/False Blitz: Binary choice = no depth, 50% guess rate
+- Word Unscramble: Spatial + cognitive + physical = triple engagement
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. NO SOUND
+   - Viral games have SATISFYING audio (letterpress click, Wordle keyboard)
+   - Silent tapping = no ASMR-like satisfaction = not share-worthy
+   - Sound is 50% of the viral equation for tactile games
+
+2. ONLY 128 WORDS
+   - Content exhausted in ~9 sessions
+   - No novelty = no retention = no sharing
+
+3. NO SHARE
+   - "Solved 14/15 in 47 seconds! 🔤" = perfect share content
+   - Wordle's success was built on shareable emoji grids
+   - Not implemented
+
+4. BROKEN DIFFICULTY CURVE
+   - maxWordLength not enforced = Level 1 feels like Level 10
+   - New players get 8-letter words → frustrated → quit
+   - Proper onboarding (easy → hard) is critical for retention
+
+5. WRONG ORDER = CONFUSION
+   - Silent reset when wrong = players think the game is bugged
+   - "Is this broken?" → uninstall
+   - Need clear "Wrong! Try again" feedback
+
+6. NO HINT SYSTEM
+   - Players stuck on a scrambled word → timer runs out → frustration
+   - A hint (reveal one letter position) costs points but enables progress
+   - Without hints, stuck = wasted time = negative emotion
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     75/100 (Restate + comprehensive modules!)
+- Security:                         30/100 (.env + fallbacks + word bundle)
+- Performance:                      95/100 (nothing to be slow about)
+- Game Logic & Correctness:         55/100 (maxWordLength bug, multiplier unused)
+- UX & Polish:                      50/100 (good tiles, no sound, no wrong feedback)
+- Anti-Cheat:                       45/100 (order verification good, threshold low)
+- Accessibility:                    55/100 (keyboard + i18n, no haptic, broken icon)
+- Retention & Engagement:           40/100 (128 words, no hints, no streaks)
+- Error Handling:                   60/100 (boundary, offline, auto-submit, no recovery)
+- Production Readiness:             50/100 (dev secrets, swagger, dead code)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 63/100
+═══════════════════════════════════════
+
+VERDICT: BEST TEXT-BASED GAME, NEEDS POLISH AND CONTENT
+Word Unscramble has the BEST core mechanic of the three text games (#18, #19,
+#20). The tap-to-build letter mechanic is genuinely engaging. The backend is
+the most sophisticated (Restate + triple auth + hardening + audit), and the
+server-side selectedOrder verification is the STRONGEST anti-cheat across all
+text games. However, the maxWordLength bug breaks difficulty progression,
+the silent wrong-order reset confuses players, and the lack of sound effects
+removes 50% of the game feel. Fix the level bug, add sound, add wrong-order
+feedback, and this becomes a 75+ game easily.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL FIXES (0.5 day)
+  □ Remove .env from repo + add to .gitignore
+  □ Remove all three fallback secrets (throw on missing JWT_SECRET)
+  □ Gate Swagger behind NODE_ENV !== 'production'
+  □ Fix maxWordLength: pass to generateWords, filter bank by level
+
+PHASE 2: GAME LOGIC (0.5 day)
+  □ Apply scoreMultiplier in calculateScore
+  □ Add minWordLength per level for proper difficulty banding
+  □ Increase timing threshold to 1500ms avg
+  □ Move word bank to PostgreSQL with admin CRUD
+  □ Add 500+ words categorized by length and difficulty
+  □ Remove word bank from frontend bundle
+
+PHASE 3: UX CRITICAL (1 day)
+  □ Add wrong-order feedback (red flash + shake + "Wrong!" text)
+  □ Add sound effects (6 cues: tap, solved, wrong, advance, tick, fanfare)
+  □ Fix backspace icon ("?" → ⌫ SVG)
+  □ Use GameOverScreen instead of generic ResultScreen
+  □ Fix word timer progress bar hardcoded divisor
+
+PHASE 4: UX POLISH (0.5 day)
+  □ Add haptic feedback on tile tap + word solve
+  □ Implement smooth replay (no page reload)
+  □ Add solved word animation (glow → display → transition)
+  □ Add word reveal on timeout ("It was: ELEPHANT")
+  □ Remove URL token from address bar
+
+PHASE 5: ENGAGEMENT (1 day)
+  □ Add hint system (reveal one letter position, costs 5 points)
+  □ Add streak counter (consecutive words solved)
+  □ Add share button with emoji grid
+  □ Add personal best comparison
+  □ Add session recovery (resume from Restate state)
+  □ Remove dead engine modules + tests (12 files)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Fix maxWordLength filtering in word generation
+    Effort: 30 min | Impact: Fixes BROKEN difficulty progression
+    ROI: ∞ (game is fundamentally broken without this)
+
+#2  Remove .env + fallback secrets
+    Effort: 30 min | Impact: Prevents auth bypass with KNOWN secret
+    ROI: ∞ (security)
+
+#3  Add wrong-order visual feedback (shake + red flash)
+    Effort: 1 hour | Impact: Eliminates "is this broken?" confusion
+    ROI: 10x
+
+#4  Add sound effects (tile click, solved, wrong, countdown)
+    Effort: 2 hours | Impact: Transforms game from "form" to "game"
+    ROI: 8x
+
+#5  Fix backspace icon ("?" → ⌫)
+    Effort: 5 min | Impact: Players know what the button does
+    ROI: 20x (5 min for real improvement)
+
+#6  Use GameOverScreen (already built!)
+    Effort: 10 min | Impact: Shows words solved + time bonus breakdown
+    ROI: 15x (already exists, just swap the component)
+
+#7  Gate Swagger behind NODE_ENV
+    Effort: 5 min | Impact: Production hardening
+    ROI: ∞ (security)
+
+#8  Apply scoreMultiplier in calculateScore
+    Effort: 15 min | Impact: Higher levels reward more points
+    ROI: 8x
+
+#9  Fix word timer progress bar divisor (6 → dynamic)
+    Effort: 5 min | Impact: Progress bar works for any wordTimeMs config
+    ROI: 10x
+
+#10 Add haptic feedback on tile tap
+    Effort: 15 min | Impact: Physical feedback for 75-120 taps per game
+    ROI: 5x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE OBSERVATIONS — WHAT WORD UNSCRAMBLE DOES RIGHT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND — MOST COMPREHENSIVE INFRASTRUCTURE OF ALL 20 GAMES:
+✓ RESTATE DURABLE EXECUTION: Virtual objects for session state + auto-expiry
+  - game-session.object.ts with startGame, expireSession, clearState handlers
+  - game-expiry.service.ts with scheduled delayed expiry
+  - Graceful fallback: runs without Restate if port not set
+  - EADDRINUSE handling: warns and continues without Restate
+✓ TRIPLE AUTHENTICATION: SessionGuard + ApiKeyGuard + HmacGuard
+  - Most games only have SessionGuard. This has ALL THREE.
+✓ COMPREHENSIVE MODULE SET: 18 modules imported into AppModule:
+  - HardeningModule, SecretsModule, TracingModule, HttpCacheModule
+  - AuditModule, CircuitBreakerModule, IdempotencyModule
+  - FeatureFlagsModule, ShutdownModule, QueueModule, RedisModule
+  - CryptoModule, MetricsModule, EventsModule, HealthModule
+  - GameModule, RestateModule, WsModule, AppLoggerModule
+✓ SERVER-SIDE ORDER VERIFICATION: The STRONGEST anti-cheat of text games
+  - builtWord = a.selectedOrder.map(i => word.scrambled[i]).join('')
+  - Verifies tap order actually produces the correct word
+  - Overrides client's solved claim if order doesn't match
+✓ TIMING ANALYSIS: Checks inter-answer gaps for bot detection
+✓ SCORE DIVERGENCE: Flags client/server score mismatches
+✓ CHEAT FLAG PERSISTENCE: Saves reasons to DB, publishes events
+✓ DB-CONFIGURABLE: Stage settings from Configuration table
+✓ LEVEL SYSTEM: 10 levels with time/wordCount progression
+✓ INPUT VALIDATION: .max(50) on answers array (prevents DoS)
+✓ ATOMIC SESSION UPDATE: updateMany WHERE status='active'
+✓ EVENT PUBLISHING: Game completed + cheat flagged + score anomaly
+✓ ENVIRONMENT VALIDATION: Comprehensive env.validation.ts with schema
+✓ PRODUCTION FAIL-FAST: Missing critical vars → throw in production
+✓ ENCRYPTION: AES-256-GCM encryption interceptor + middleware
+
+FRONTEND — BEST TILE-BASED INTERACTION IN THE SUITE:
+✓ LETTER TILES: Premium feel (indigo, rounded, shadow, hover states)
+✓ WORD DISPLAY SLOTS: Green border fills, scale animation on letter placement
+✓ TAP FEEDBACK: Framer Motion whileTap={{ scale: 0.9 }} — instant physical
+✓ SELECTED STATE: Clear visual distinction (grayed out, 30% opacity)
+✓ KEYBOARD SUPPORT: Type letters on physical keyboard! + Backspace!
+✓ AUTO-ADVANCE: Word auto-skips on timeout (not stuck forever)
+✓ AUTO-SUBMIT: phase === 'finished' triggers score submission
+✓ GAME HEADER: Compact, all info visible (word #, timer, solved count)
+✓ PER-WORD TIMER: Blue progress bar (visual urgency)
+✓ GLOBAL TIMER: Pulsing red in last 10 seconds (panic mode!)
+✓ i18n + Theme + ErrorBoundary + OfflineBanner (full infra)
+✓ Framer Motion on EVERYTHING (tiles, slots, screens, buttons)
+
+GAME DESIGN — GENUINELY ENGAGING MECHANIC:
+✓ Pattern recognition = innately satisfying cognitive skill
+✓ Sequential tapping = physical engagement beyond binary choice
+✓ Varied word lengths = natural difficulty within sessions
+✓ Build-up mechanic = micro-dopamine per letter + macro on solve
+✓ Time pressure creates focus without panic (6s is generous)
+✓ Keyboard discovery = "power-up" feeling for desktop players
+✓ Common English words = players feel smart when they solve fast
+
+WORD BANK — BETTER THAN PREVIOUS TEXT GAMES:
+✓ 128 words (vs 60 statements in True/False, 30 questions in Speed Type)
+✓ 4 size categories (4, 5, 6, 7, 8 letters) — natural difficulty banding
+✓ All recognizable English words (no obscure vocabulary)
+✓ Good variety within categories (animals, nature, objects, abstract)
+
+================================================================================
+COMPARISON WITH ALL 20 GAMES — FINAL STANDINGS
+================================================================================
+
+COMPLETE SCORES:
+  Game #1  (Arrows):             58/100
+  Game #2  (Block Fill):         62/100
+  Game #3  (Colour Sorting):     61/100
+  Game #4  (Flash Spot):         56/100
+  Game #5  (Infinity Loop):      59/100
+  Game #6  (Live Route Builder): 48/100
+  Game #7  (Logic Reflector):    72/100
+  Game #8  (Maze Navigation):    58/100
+  Game #9  (Memory Card Match):  68/100
+  Game #10 (Memory Groups):      45/100
+  Game #11 (Number Grid Sprint): 62/100
+  Game #12 (Object Placement):   60/100
+  Game #13 (Pattern Survival):   52/100
+  Game #14 (Rapid Category Sort):66/100
+  Game #15 (Reflex Endurance):   62/100
+  Game #16 (Sequence Recall):    78/100 ← HIGHEST
+  Game #17 (Sliding Puzzle):     76/100
+  Game #18 (Speed Type Answer):  42/100 ← LOWEST
+  Game #19 (True False Blitz):   55/100
+  Game #20 (Word Unscramble):    63/100
+
+PLATFORM AVERAGE: 60.15/100
+MEDIAN: 61/100
+RANGE: 42-78/100
+
+TOP 5 GAMES:
+  1. Sequence Recall:    78/100 (Restate, strongest anti-cheat, best UX)
+  2. Sliding Puzzle:     76/100 (Restate, inversion check, polished)
+  3. Logic Reflector:    72/100 (unique mechanic, solid implementation)
+  4. Memory Card Match:  68/100 (classic game, well-executed)
+  5. Rapid Category Sort:66/100 (engaging drag mechanic)
+
+BOTTOM 5 GAMES:
+  16. Flash Spot:        56/100 (thin mechanic, repetitive)
+  17. True False Blitz:  55/100 (good engine, bad content strategy)
+  18. Pattern Survival:  52/100 (complex but frustrating)
+  19. Live Route Builder:48/100 (over-engineered, underwhelming play)
+  20. Memory Groups:     45/100 (confusing UX, poor feedback)
+  LAST. Speed Type Answer: 42/100 (typing on mobile, no sound, finishGame bug)
+
+WORD UNSCRAMBLE RANK: #6 out of 20 (above average)
+
+vs True False Blitz (#19, 55/100):
+  BETTER: Stronger anti-cheat (order verification vs binary choice)
+  BETTER: More content (128 words vs 60 statements)
+  BETTER: More engaging mechanic (sequential tapping vs single tap)
+  BETTER: Restate architecture (vs simple REST)
+  BETTER: Triple auth (vs single SessionGuard)
+  WORSE:  No streak system (True/False has one)
+  WORSE:  No penalty system (True/False has wrong penalties)
+  WORSE:  maxWordLength bug (True/False has no equivalent bug)
+  SAME:   No sound, no haptic, page reload replay
+  NET: +8 points (55 → 63)
+
+vs Speed Type Answer (#18, 42/100):
+  BETTER: +21 points! Tap mechanic >> typing on mobile
+  BETTER: Server order verification >> no verification
+  BETTER: 128 words >> 30 questions
+  BETTER: Restate >> no Restate
+  BETTER: Triple auth >> single guard
+  BETTER: Auto-submit works >> finishGame bug
+  BETTER: Keyboard support >> no keyboard support
+  NET: +21 points (42 → 63)
+
+================================================================================
+CROSS-PLATFORM COMMON ISSUES (Confirmed across ALL 20 games)
+================================================================================
+
+These issues appear in EVERY SINGLE GAME in the suite:
+
+1. .env committed with JWT_SECRET (CRITICAL) — ALL 20 games
+2. Fallback secrets in session.guard.ts / game.gateway.ts (CRITICAL) — ALL 20
+3. Swagger exposed unconditionally (HIGH) — ALL 20 games
+4. Dead engine modules (6 files) never imported (MEDIUM) — ALL 20 games
+5. CORS falls back to permissive in non-production (MEDIUM) — ALL 20 games
+6. No haptic feedback (LOW-MEDIUM) — 19/20 games
+7. window.location.reload() for replay (MEDIUM) — ~18/20 games
+8. GameOverScreen/custom result exists but unused (~10/20 games)
+
+RECOMMENDATION: Fix these at the TEMPLATE level before fixing individual games.
+Create a shared game-template repo with:
+  - .env.example (no .env checked in)
+  - Centralized JWT config (no fallbacks)
+  - Swagger gated behind NODE_ENV
+  - No dead engine modules
+  - Proper CORS (no wildcard fallback)
+  - Smooth replay hook (no page reload)
+  - Sound system hook
+  - Haptic utility
+
+================================================================================
+END OF AUDIT — GAME #20: WORD UNSCRAMBLE (FINAL GAME)
+================================================================================
+
+ALL 20 GAME AUDITS COMPLETE.
+
+AUDIT SUMMARY:
+  Total Games Audited: 20/20
+  Total Issues Found: ~500+ across all games
+  Critical Issues: ~40 (primarily .env + fallback secrets)
+  Average Score: 60.15/100
+  Highest: Sequence Recall (78/100)
+  Lowest: Speed Type Answer (42/100)
+  Games Above 70: 3 (Sequence Recall, Sliding Puzzle, Logic Reflector)
+  Games Below 50: 3 (Speed Type Answer, Live Route Builder, Memory Groups)
+
+The platform has solid ARCHITECTURE (NestJS + Prisma + Restate for advanced
+games) but consistently lacks POLISH (no sound, no haptic, no session recovery)
+and has UNIVERSAL SECURITY ISSUES (.env committed, fallback secrets, Swagger
+exposed). The game MECHANICS are diverse and creative — 20 genuinely different
+games is impressive. The path to production: fix template-level issues first,
+then polish individual games starting from the top-5 highest-scoring ones.
+
+================================================================================

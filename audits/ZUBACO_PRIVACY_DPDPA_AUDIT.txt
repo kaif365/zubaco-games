@@ -1,0 +1,305 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║      ZUBACO GAMING PLATFORM - PRIVACY & DATA PROTECTION (DPDPA) AUDIT           ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: DPDPA 2023 compliance, PII handling, consent, data rights               ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PRIVACY COMPLIANCE SCORE: 8/100 (CRITICAL - CATASTROPHIC NON-COMPLIANCE)
+
+India's Digital Personal Data Protection Act 2023 (DPDPA) imposes obligations
+on every platform processing personal data of Indian citizens. Zubaco collects
+highly sensitive data (phone, Aadhaar, PAN, bank accounts) with ZERO compliance
+measures. Penalties under DPDPA: up to ₹250 crore ($30M) per violation.
+
+This platform currently:
+  ❌ Has no privacy policy
+  ❌ Collects data without explicit consent
+  ❌ Stores Aadhaar/PAN in plaintext (no encryption at field level)
+  ❌ Has no data export mechanism (Right to Access)
+  ❌ Has no data deletion mechanism (Right to Erasure)
+  ❌ Has no breach notification procedure
+  ❌ Retains data indefinitely (no retention policy)
+  ❌ Processes children's data without guardian consent
+  ❌ No Data Protection Officer designated
+  ❌ No consent management system
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: PERSONAL DATA INVENTORY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 PII DATA COLLECTED                                                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Data Category       │ Field              │ Encrypted? │ Sensitivity │ Purpose   │
+│ ─────────────────────────────────────────────────────────────────────────────  │
+│ Phone Number        │ User.phone_number  │ ❌ Plain   │ HIGH        │ Auth/OTP  │
+│ Email Address       │ User.email         │ ❌ Plain   │ MEDIUM      │ Comms     │
+│ Full Name           │ User.full_name     │ ❌ Plain   │ MEDIUM      │ Profile   │
+│ Date of Birth       │ User.date_of_birth │ ❌ Plain   │ HIGH        │ Age check │
+│ Profile Photo       │ User.profile_pic_url│ ❌ Plain  │ LOW         │ Social    │
+│ Aadhaar Number      │ KycDocument.doc_number│ ❌ Plain│ CRITICAL   │ KYC       │
+│ PAN Number          │ KycDocument.doc_number│ ❌ Plain│ CRITICAL   │ KYC       │
+│ Aadhaar Image       │ KycDocument.doc_url│ ❌ S3 URL  │ CRITICAL   │ KYC       │
+│ PAN Image           │ KycDocument.doc_url│ ❌ S3 URL  │ CRITICAL   │ KYC       │
+│ Bank Account No.    │ BankDetail.account_number│ ❌ Plain│ CRITICAL│ Withdrawal│
+│ IFSC Code           │ BankDetail.ifsc_code│ ❌ Plain  │ HIGH       │ Withdrawal│
+│ Bank Name           │ BankDetail.bank_name│ ❌ Plain  │ LOW        │ Display   │
+│ UPI ID              │ BankDetail.upi_id  │ ❌ Plain   │ HIGH        │ Withdrawal│
+│ Device Info         │ FCM tokens         │ ❌ Plain   │ LOW         │ Push      │
+│ IP Address          │ Logs (implicit)    │ ❌ Plain   │ MEDIUM      │ Security  │
+│ Game Play History   │ GameSession        │ N/A        │ LOW         │ Analytics │
+│ Transaction History │ Transaction        │ N/A        │ HIGH        │ Financial │
+│ Location (state)    │ Inferred from IP   │ N/A        │ MEDIUM      │ Compliance│
+│                                                                                 │
+│ CRITICAL: Aadhaar, PAN, and Bank Account numbers stored in PLAINTEXT.          │
+│ These are the most sensitive identifiers in India.                             │
+│ Aadhaar leakage = identity theft risk for millions.                           │
+│                                                                                 │
+│ REQUIRED: Field-level encryption (AES-256-GCM) for:                           │
+│   - doc_number (Aadhaar/PAN)                                                  │
+│   - account_number                                                            │
+│   - phone_number (after OTP verification)                                     │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.2 KYC DOCUMENT STORAGE                                                        │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Aadhaar and PAN card images are stored on S3.                                  │
+│                                                                                 │
+│ Current protections:                                                           │
+│   ✅ S3 bucket is private (not publicly accessible)                           │
+│   ✅ Accessed via pre-signed URLs                                             │
+│   ❌ No server-side encryption with customer-managed keys                     │
+│   ❌ No access logging (who viewed which document)                            │
+│   ❌ No lifecycle policy (documents kept forever)                             │
+│   ❌ No geo-restriction (data can be accessed from any region)               │
+│   ❌ Admin can view any user's KYC docs without audit trail                  │
+│                                                                                 │
+│ LEGAL REQUIREMENT (DPDPA Section 8):                                           │
+│   Data must be retained only as long as necessary.                            │
+│   After KYC verification, the IMAGE is no longer needed.                     │
+│   Only the verification STATUS should be retained.                            │
+│                                                                                 │
+│ RECOMMENDATION:                                                                 │
+│   After verification → delete source images                                   │
+│   Store only: doc_type, masked_number (XXXX-XXXX-1234), verified=true         │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: DPDPA COMPLIANCE GAPS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ DPDPA Requirement              │ Status │ Gap Description                       │
+│ ─────────────────────────────────────────────────────────────────────────────  │
+│ Notice (Section 5)             │ ❌     │ No privacy notice shown at signup     │
+│ Consent (Section 6)            │ ❌     │ No consent mechanism exists           │
+│ Purpose Limitation (Section 4) │ ❌     │ No stated data processing purposes   │
+│ Data Minimization              │ ⚠️     │ Collects DOB, full name (needed?)    │
+│ Right to Access (Section 11)   │ ❌     │ No data export endpoint              │
+│ Right to Correction (S.12)     │ ⚠️     │ Profile edit exists (partial)        │
+│ Right to Erasure (Section 13)  │ ❌     │ No account deletion endpoint         │
+│ Data Portability               │ ❌     │ No export in machine-readable format │
+│ Breach Notification (S.8(6))   │ ❌     │ No breach detection or notification  │
+│ Children's Data (Section 9)    │ ❌     │ No age verification, no guardian flow│
+│ Data Fiduciary Obligations     │ ❌     │ No DPO, no DPIA conducted            │
+│ Cross-border Transfer (S.16)   │ ⚠️     │ Data stays in ap-south-1 (okay)     │
+│ Grievance Mechanism (S.13(2))  │ ❌     │ No data-related grievance system     │
+│ Retention Limitation           │ ❌     │ Infinite retention, no cleanup       │
+│ Security Safeguards (S.8(4))   │ ❌     │ PII unencrypted at rest             │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.1 CONSENT MANAGEMENT - COMPLETELY ABSENT                                      │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ DPDPA requires:                                                                 │
+│   - Clear, specific consent for each purpose of data processing               │
+│   - Consent must be freely given, informed, and unambiguous                   │
+│   - Users must be able to withdraw consent at any time                        │
+│   - Record of consent must be maintained                                      │
+│                                                                                 │
+│ Current implementation:                                                         │
+│   - User signs up → data collected immediately                                │
+│   - No terms of service shown                                                 │
+│   - No privacy policy presented                                               │
+│   - No consent checkbox or explicit agreement                                 │
+│   - No consent records stored                                                 │
+│   - No way to withdraw consent                                                │
+│                                                                                 │
+│ WHAT'S NEEDED:                                                                  │
+│   1. Consent collection during signup (accept T&C + Privacy Policy)           │
+│   2. Granular consent for KYC, marketing, analytics                           │
+│   3. Consent record table: user_id, purpose, consented_at, withdrawn_at       │
+│   4. Consent withdrawal API endpoint                                          │
+│   5. Re-consent mechanism when policy changes                                 │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.2 CHILDREN'S DATA - NO PROTECTION                                             │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ DPDPA Section 9: Processing children's data (under 18) requires               │
+│ verifiable parental/guardian consent. Must not:                                │
+│   - Track or target children for advertising                                  │
+│   - Cause harm to the child                                                   │
+│   - Process data likely to cause harm                                         │
+│                                                                                 │
+│ GAMBLING LAW: In most Indian states, skill-gaming platforms must              │
+│ verify users are 18+.                                                         │
+│                                                                                 │
+│ Current implementation:                                                         │
+│   - date_of_birth field exists in User model                                  │
+│   - NO enforcement of minimum age at registration                             │
+│   - NO age verification at deposit/entry-fee payment                         │
+│   - NO guardian consent flow                                                  │
+│   - A 12-year-old can register, deposit money, and play                      │
+│                                                                                 │
+│ LEGAL RISK: Extremely high. Allowing minors to participate in                 │
+│ real-money gaming is illegal in virtually all Indian jurisdictions.            │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.3 DATA RETENTION - INFINITE                                                   │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ No data is EVER deleted. Schema uses soft-delete (deleted_at timestamp)       │
+│ but even that is only on the User model.                                      │
+│                                                                                 │
+│ Data                    │ Current Retention │ Recommended Max      │ Justification│
+│ ─────────────────────────────────────────────────────────────────────────────  │
+│ OTP codes               │ 5 min (Redis TTL) │ ✅ Correct           │ Auth         │
+│ Refresh tokens          │ Forever           │ 30 days max          │ Session      │
+│ Game sessions           │ Forever           │ 2 years              │ Dispute      │
+│ Transactions            │ Forever           │ 8 years (financial)  │ Tax/legal    │
+│ KYC documents (images)  │ Forever           │ Delete after verify  │ Minimization │
+│ User profiles (active)  │ Forever           │ While active         │ Service      │
+│ User profiles (deleted) │ Forever (soft)    │ 30 days then purge   │ DPDPA        │
+│ Bank details            │ Forever           │ Until withdrawal done│ Operational  │
+│ Cheat flags             │ Forever           │ 1 year               │ Anti-fraud   │
+│ Push notification tokens│ Forever           │ Until logout         │ Comms        │
+│ Referral codes          │ Forever           │ 1 year inactive      │ Marketing    │
+│ Tournament results      │ Forever           │ 5 years              │ Competition  │
+│                                                                                 │
+│ IMPLEMENTATION NEEDED:                                                          │
+│   - Cron job for data cleanup (run nightly)                                   │
+│   - Cascade delete on user hard-delete                                        │
+│   - KYC image deletion after successful verification                          │
+│   - Expired token cleanup                                                     │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: DATA SUBJECT RIGHTS (NOT IMPLEMENTED)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.1 RIGHT TO ACCESS (Data Export)                                               │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Endpoint needed: GET /users/me/data-export                                    │
+│ Format: JSON or PDF containing all personal data                              │
+│ Must include: Profile, transactions, game history, KYC status                 │
+│ Response time: 72 hours (per DPDPA)                                           │
+│                                                                                 │
+│ CURRENT: ❌ Does not exist                                                     │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.2 RIGHT TO ERASURE (Account Deletion)                                         │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Endpoint needed: DELETE /users/me                                              │
+│ Must: Delete/anonymize all personal data                                      │
+│ Exceptions: Financial records (8yr legal retention)                            │
+│ Timeline: 30 days max                                                         │
+│ Apple App Store REQUIRES account deletion for approval.                       │
+│ Google Play REQUIRES account deletion for approval.                           │
+│                                                                                 │
+│ CURRENT: ❌ Does not exist                                                     │
+│ Only soft-delete (admin can set deleted_at) - data remains.                  │
+│                                                                                 │
+│ APP STORE RISK: App will be REJECTED without account deletion.               │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: THIRD-PARTY DATA SHARING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Data shared with third parties (without user awareness):                        │
+│                                                                                 │
+│ Service         │ Data Shared              │ Consent │ DPA in Place            │
+│ ─────────────────────────────────────────────────────────────────────────────  │
+│ Razorpay        │ Phone, email, amount     │ ❌      │ ❌ (need DPA)           │
+│ MSG91/Twilio    │ Phone number             │ ❌      │ ❌                      │
+│ Firebase        │ Device ID, app usage     │ ❌      │ ❌                      │
+│ Google OAuth    │ Email, name              │ Implicit│ ❌                      │
+│ Apple OAuth     │ Email                    │ Implicit│ ❌                      │
+│ AWS (hosting)   │ All data (processor)     │ ❌      │ AWS DPA exists (use it)│
+│                                                                                 │
+│ DPA = Data Processing Agreement                                                │
+│ DPDPA requires DPAs with all processors handling personal data.               │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 5: SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Component                         │ Score  │ Status
+──────────────────────────────────────────────────────
+Privacy Policy                    │ 0/100  │ Does not exist
+Consent Management                │ 0/100  │ Not implemented
+Field-Level Encryption            │ 0/100  │ PII in plaintext
+Data Subject Rights               │ 0/100  │ No export/delete
+Data Retention Policy             │ 0/100  │ Infinite retention
+Children's Data Protection        │ 0/100  │ No age enforcement
+Breach Notification               │ 0/100  │ No detection/process
+Third-Party DPAs                  │ 10/100 │ AWS DPA available
+Data Minimization                 │ 30/100 │ Collects what's needed (mostly)
+Cross-Border Compliance           │ 60/100 │ Data in India region
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 8/100  │ CATASTROPHIC NON-COMPLIANCE
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                END OF PRIVACY & DATA PROTECTION AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

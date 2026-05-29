@@ -1,0 +1,618 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║         ZUBACO GAMING PLATFORM - LEGAL & REGULATORY COMPLIANCE AUDIT             ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: Indian gaming law, RBI, DPDPA, GST, IT Act, State laws, App Stores      ║
+║  Jurisdiction: India (primary), with notes for global expansion                  ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+COMPLIANCE SCORE: 8/100 (CRITICAL - PLATFORM CANNOT LEGALLY OPERATE)
+
+Zubaco is a real-money online gaming platform operating in India. This brings it
+under the jurisdiction of MULTIPLE regulatory frameworks, ALL of which have been
+completely ignored in the current implementation. Launching this platform in its
+current state would constitute multiple criminal offenses under Indian law.
+
+LEGAL RISK ASSESSMENT:
+  Criminal liability:      YES (underage gambling, tax evasion)
+  Civil liability:         YES (data breaches, consumer disputes)
+  Regulatory action:       YES (RBI, MEITY, GST violations)
+  Platform shutdown risk:  HIGH (state gaming bans)
+  App store rejection:     CERTAIN (Play Store/App Store policies)
+
+REGULATORY FRAMEWORKS APPLICABLE:
+  1. Public Gambling Act, 1867 (as amended by states)
+  2. Information Technology Act, 2000
+  3. Digital Personal Data Protection Act, 2023 (DPDPA)
+  4. Income Tax Act (Section 115BBJ - TDS on online gaming)
+  5. GST Act (28% on online gaming from Oct 2023)
+  6. RBI Payment Aggregator guidelines
+  7. FEMA (if any foreign investment involved)
+  8. Consumer Protection Act, 2019
+  9. State-specific gaming regulations
+  10. Google Play / Apple App Store policies
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: SKILL vs GAMBLING CLASSIFICATION
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 THE CRITICAL LEGAL QUESTION                                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Indian law distinguishes between:                                               │
+│ - Games of SKILL: Legal in most states (rummy, chess, fantasy sports)          │
+│ - Games of CHANCE: Illegal gambling (slots, dice, lottery)                     │
+│                                                                                 │
+│ Supreme Court precedent (State of Andhra Pradesh v. K. Satyanarayana):         │
+│ "If a game is PREDOMINANTLY skill-based, it is not gambling."                  │
+│                                                                                 │
+│ ZUBACO'S GAMES - Classification Analysis:                                      │
+│                                                                                 │
+│ CLEARLY SKILL-BASED (Safe):                                                    │
+│   ✓ Sliding Puzzle - Pure logic, no randomness                                │
+│   ✓ Maze Navigation - Spatial reasoning                                       │
+│   ✓ Word Unscramble - Vocabulary skill                                        │
+│   ✓ Speed Type Answer - Typing/knowledge skill                                │
+│   ✓ Infinity Loop - Pure logic                                                │
+│   ✓ Block Fill - Spatial reasoning                                            │
+│                                                                                 │
+│ PREDOMINANTLY SKILL (Likely safe):                                              │
+│   ~ Sequence Recall - Memory skill with random sequences                      │
+│   ~ Memory Card Matching - Memory skill with random card placement            │
+│   ~ Flash Spot - Visual attention with random placement                       │
+│   ~ Colour Sorting - Logic with random initial state                          │
+│   ~ Arrows - Reaction time with random directions                             │
+│   ~ Pattern Survival - Pattern recognition                                    │
+│   ~ Logic Reflector - Logic puzzle                                            │
+│                                                                                 │
+│ POTENTIALLY PROBLEMATIC:                                                        │
+│   ⚠ True/False Blitz - Random questions, some luck in guessing                │
+│   ⚠ Reflex Endurance - Heavily timing-dependent                               │
+│   ⚠ Number Grid Sprint - Random number placement                              │
+│   ⚠ Rapid Category Sort - Random item generation                              │
+│                                                                                 │
+│ KEY ISSUE: For tournament play with real money at stake, the platform          │
+│ must be able to PROVE that outcomes are predominantly skill-determined.        │
+│ This requires:                                                                 │
+│ - Statistical analysis showing skilled players consistently win                │
+│ - Same game configuration for all tournament participants                     │
+│ - Mathematical proof of skill dominance (published)                           │
+│ - Legal opinion from gaming law specialist (₹2-5 lakh cost)                   │
+│                                                                                 │
+│ CURRENT STATUS: ZERO legal analysis performed. No skill certification.        │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.2 STATE-SPECIFIC BANS (CRITICAL)                                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Even for skill-based games, these states have BANNED or RESTRICTED              │
+│ real-money online gaming:                                                       │
+│                                                                                 │
+│ BANNED (complete prohibition):                                                  │
+│   ✗ Andhra Pradesh - AP Gaming Act (Amendment) 2020                           │
+│   ✗ Telangana - Telangana Gaming Act, 1974 (Amendment 2017)                   │
+│   ✗ Tamil Nadu - TN Prohibition of Online Gambling Act, 2022                  │
+│     (partially struck down but re-enacted)                                    │
+│   ✗ Karnataka - Karnataka Police (Amendment) Act 2021                         │
+│     (partially struck down by High Court, uncertain status)                   │
+│                                                                                 │
+│ RESTRICTED (specific rules):                                                    │
+│   ⚠ Assam - Online betting banned                                             │
+│   ⚠ Odisha - Specific restrictions on stake-based games                       │
+│   ⚠ Sikkim - Requires license for online gaming                               │
+│   ⚠ Meghalaya - Amusement Facilities Act restrictions                         │
+│   ⚠ Nagaland - Requires license under Nagaland Act                            │
+│   ⚠ Goa - Online gaming requires casino license                               │
+│                                                                                 │
+│ CURRENT PLATFORM STATUS:                                                        │
+│ - NO geo-fencing by state                                                      │
+│ - NO state-based access restriction                                           │
+│ - NO user location verification                                               │
+│ - NO terms limiting access from banned states                                 │
+│ - IP/GPS check not implemented                                                │
+│                                                                                 │
+│ CONSEQUENCE: Operating in banned states = criminal offense.                    │
+│ Penalties: Up to 2 years imprisonment + ₹5,000-₹1,00,000 fine per offense.   │
+│                                                                                 │
+│ REQUIRED IMPLEMENTATION:                                                        │
+│ - Phone number area code verification (Indian numbers start with state codes) │
+│ - GPS/IP-based geo-fencing at registration and each login                     │
+│ - Block tournament entry from restricted states                               │
+│ - VPN detection (popular among users trying to bypass)                        │
+│ - Terms of Service clearly listing excluded states                            │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: TAX COMPLIANCE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.1 TDS ON ONLINE GAMING WINNINGS (Section 115BBJ)                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ LAW: Finance Act 2023 introduced Section 115BBJ                                │
+│ EFFECTIVE: April 1, 2023                                                       │
+│ RATE: 30% TDS on NET WINNINGS                                                  │
+│                                                                                 │
+│ NET WINNINGS CALCULATION:                                                       │
+│   Net Winnings = Withdrawals + Closing Balance - Deposits (in FY)             │
+│                                                                                 │
+│ TDS TIMING:                                                                     │
+│   - At time of each withdrawal (if net winnings are positive)                 │
+│   - At end of financial year (March 31) for remaining balance                 │
+│                                                                                 │
+│ EXAMPLE:                                                                        │
+│   User deposits ₹10,000 in April 2026                                         │
+│   Wins ₹5,000 in tournaments                                                  │
+│   Balance: ₹12,000 (net of entry fees)                                        │
+│   Requests withdrawal of ₹8,000                                               │
+│                                                                                 │
+│   Net winnings at withdrawal = ₹8,000 + 0 - ₹10,000 = -₹2,000               │
+│   TDS = NIL (net winnings negative)                                            │
+│                                                                                 │
+│   Later wins more. Balance: ₹15,000                                           │
+│   Requests withdrawal of ₹15,000                                              │
+│   Cumulative: ₹23,000 withdrawn + ₹0 balance - ₹10,000 deposits = ₹13,000    │
+│   Previous TDS: ₹0                                                            │
+│   TDS on this withdrawal: ₹13,000 × 30% = ₹3,900                             │
+│   User receives: ₹15,000 - ₹3,900 = ₹11,100                                  │
+│                                                                                 │
+│ PLATFORM OBLIGATIONS:                                                           │
+│   ☐ Deduct TDS from each withdrawal/year-end                                  │
+│   ☐ Deposit TDS with government within 30 days (challan 281)                  │
+│   ☐ File 26QC quarterly (TDS return)                                          │
+│   ☐ Issue Form 16C to each user (TDS certificate)                             │
+│   ☐ Report on Form 61B if user doesn't have PAN (higher TDS 30% vs 30%)      │
+│   ☐ PAN collection mandatory for all users with positive net winnings         │
+│                                                                                 │
+│ CURRENT IMPLEMENTATION: ████████████ ZERO                                      │
+│   - No TDS calculation logic                                                  │
+│   - No deposit tracking per financial year                                    │
+│   - No PAN collection requirement                                             │
+│   - No Form 16C generation                                                    │
+│   - No quarterly filing system                                                │
+│                                                                                 │
+│ PENALTY FOR NON-COMPLIANCE:                                                     │
+│   - Interest: 1.5% per month on unpaid TDS                                   │
+│   - Penalty: Equal to TDS amount (Section 271C)                               │
+│   - Prosecution: Up to 7 years imprisonment (Section 276B)                    │
+│   - Disallowance of expense (Section 40(a)(i))                                │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.2 GST ON ONLINE GAMING (28%)                                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ GST Council (50th Meeting, July 2023):                                         │
+│ "28% GST on full face value of bets placed in online gaming"                  │
+│                                                                                 │
+│ INTERPRETATION (CBIC Circular):                                                 │
+│ - GST on deposit amount at time of deposit                                    │
+│ - Not on individual game entries (amended interpretation)                     │
+│ - Applied at first point of entry of money into platform                      │
+│                                                                                 │
+│ CALCULATION:                                                                    │
+│   User deposits ₹100                                                           │
+│   GST = ₹100 × 28/128 = ₹21.87 (inclusive method)                            │
+│   OR                                                                           │
+│   GST = ₹100 × 28% = ₹28 (exclusive method)                                  │
+│                                                                                 │
+│   Industry practice: GST is on deposits, platform absorbs or adds to amount.  │
+│                                                                                 │
+│ PLATFORM OBLIGATIONS:                                                           │
+│   ☐ GST Registration (mandatory - online gaming is specified service)         │
+│   ☐ GSTIN display on all invoices                                             │
+│   ☐ Tax invoice for each deposit                                              │
+│   ☐ Monthly GSTR-1 (outward supply)                                          │
+│   ☐ Monthly GSTR-3B (summary + payment)                                      │
+│   ☐ Annual GSTR-9 (annual return)                                            │
+│   ☐ E-invoicing if turnover > ₹5 crore                                       │
+│                                                                                 │
+│ CURRENT IMPLEMENTATION: ████████████ ZERO                                      │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: RBI & PAYMENT REGULATIONS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.1 PAYMENT AGGREGATOR (PA) GUIDELINES                                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ RBI guidelines for PAs (March 2020, updated 2022):                             │
+│                                                                                 │
+│ APPLICABILITY: Zubaco holds customer funds in wallets.                          │
+│ This MAY classify it as a Payment Aggregator requiring RBI license.            │
+│                                                                                 │
+│ HOWEVER: Since Zubaco uses Razorpay (licensed PA), and wallet is               │
+│ "prepaid" (loaded via Razorpay), it may fall under "marketplace model"        │
+│ exemption. But this needs LEGAL OPINION from an RBI compliance lawyer.        │
+│                                                                                 │
+│ KEY REQUIREMENTS IF PA LICENSE NEEDED:                                          │
+│   ☐ Net worth ≥ ₹15 crore (by March 2024) → ₹25 crore (by March 2025)       │
+│   ☐ KYC of merchants (N/A for gaming)                                         │
+│   ☐ Data localization (all data in India)                                     │
+│   ☐ PCI-DSS compliance                                                        │
+│   ☐ Nodal account with scheduled bank                                         │
+│   ☐ Board-approved information security policy                                │
+│   ☐ Annual system audit by CERT-IN empaneled auditor                          │
+│                                                                                 │
+│ REGARDLESS OF PA LICENSE:                                                       │
+│   ☐ Anti-Money Laundering (AML) compliance                                   │
+│   ☐ KYC for transactions > ₹10,000                                           │
+│   ☐ Suspicious Transaction Reports (STRs) to FIU                             │
+│   ☐ No credit card for gaming deposits (RBI 2022 circular)                    │
+│   ☐ Transaction limits for non-KYC users                                     │
+│                                                                                 │
+│ CURRENT STATUS: ZERO compliance with any RBI guideline.                        │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.2 ANTI-MONEY LAUNDERING (AML/CFT)                                             │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Prevention of Money Laundering Act, 2002 (PMLA):                               │
+│ Online gaming platforms handling real money are "reporting entities"            │
+│ under PMLA (MoF notification, March 2023).                                    │
+│                                                                                 │
+│ OBLIGATIONS:                                                                    │
+│   ☐ Appoint Principal Officer and Designated Director                         │
+│   ☐ Implement Customer Due Diligence (CDD)                                   │
+│   ☐ File Suspicious Transaction Reports (STRs) with FIU-India                 │
+│   ☐ Cash Transaction Reports (CTRs) for transactions > ₹10 lakh              │
+│   ☐ Maintain records for 5 years                                              │
+│   ☐ Risk-based approach to customer categorization                            │
+│   ☐ Enhanced due diligence for high-risk customers                            │
+│   ☐ Training for staff on AML/CFT                                            │
+│                                                                                 │
+│ RED FLAGS to monitor:                                                           │
+│   - Multiple accounts from same device/IP                                     │
+│   - Rapid deposit-withdraw cycles (no gaming activity)                        │
+│   - Large deposits from multiple payment methods                              │
+│   - Deposits immediately followed by withdrawal requests                      │
+│   - Multiple accounts transferring to same bank account                       │
+│                                                                                 │
+│ CURRENT PLATFORM: ZERO AML controls.                                           │
+│ A money launderer could:                                                       │
+│ 1. Create 100 accounts (no device fingerprint)                                │
+│ 2. Deposit ₹9,999 each (below KYC threshold)                                 │
+│ 3. "Win" tournaments (client-trusted scores)                                  │
+│ 4. Withdraw "clean" money to bank accounts                                    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: APP STORE COMPLIANCE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 4.1 GOOGLE PLAY STORE - REAL MONEY GAMING POLICY                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Google Play's Real Money Gaming (RMG) policy for India (effective 2023):       │
+│                                                                                 │
+│ REQUIREMENTS:                                                                   │
+│   ☐ Complete application form for RMG eligibility                             │
+│   ☐ Registered company in India                                               │
+│   ☐ Compliance with local laws (state-by-state)                              │
+│   ☐ Geo-fencing for banned states                                             │
+│   ☐ Age verification (18+ with document proof)                                │
+│   ☐ KYC before any withdrawal                                                │
+│   ☐ Responsible gaming features:                                              │
+│     - Self-exclusion option                                                   │
+│     - Deposit limits (user-configurable)                                      │
+│     - Session time reminders                                                  │
+│     - Cooling-off periods                                                     │
+│     - Links to addiction helplines                                            │
+│   ☐ Prominent display of:                                                     │
+│     - "This game involves real money"                                         │
+│     - Odds/probability of winning                                             │
+│     - Terms & Conditions                                                      │
+│     - Privacy Policy                                                          │
+│   ☐ Cannot target users under 18 in any marketing                            │
+│   ☐ Annual compliance audit                                                  │
+│                                                                                 │
+│ CURRENT ZUBACO STATUS vs REQUIREMENTS:                                         │
+│                                                                                 │
+│   RMG eligibility application:       ☐ Not filed                              │
+│   Geo-fencing:                       ☐ Not implemented                        │
+│   Age verification:                  ☐ Not implemented                        │
+│   Responsible gaming:                ☐ Zero features                          │
+│   Self-exclusion:                    ☐ Not implemented                        │
+│   Deposit limits (user-set):         ☐ Not implemented                        │
+│   Session reminders:                 ☐ Not implemented                        │
+│   Real-money warning:                ☐ Not displayed                          │
+│   Terms & Conditions:                ☐ Don't exist                            │
+│   Privacy Policy:                    ☐ Doesn't exist                          │
+│                                                                                 │
+│ VERDICT: App WILL BE REJECTED by Google Play. 100% certain.                   │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 4.2 APPLE APP STORE - GUIDELINE 3.1.1 (IN-APP PURCHASE)                        │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Apple's Guidelines for Real-Money Gaming:                                      │
+│                                                                                 │
+│ Guideline 3.1.1: If app charges real money for entries/stakes,                 │
+│ payments must go through Apple's IAP (30% commission) OR                       │
+│ app must be a "reader" app with external payment link.                         │
+│                                                                                 │
+│ EXCEPTION for India: Apple announced (2024) that real-money skill              │
+│ gaming apps in India can use external payment (Razorpay) without IAP.         │
+│ But requires:                                                                  │
+│   ☐ Separate application to Apple                                             │
+│   ☐ Compliance with local gambling laws                                       │
+│   ☐ Age gate (13+ with parental consent, 18+ for RMG)                        │
+│   ☐ Responsible gaming disclosures                                            │
+│   ☐ Government-issued license if applicable                                  │
+│                                                                                 │
+│ CURRENT STATUS: Not prepared for App Store submission.                         │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 5: DATA PROTECTION & PRIVACY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 5.1 DIGITAL PERSONAL DATA PROTECTION ACT (DPDPA) 2023                           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ DPDPA came into effect and applies to ALL data fiduciaries processing          │
+│ personal data of Indian citizens.                                              │
+│                                                                                 │
+│ ZUBACO COLLECTS (from schema analysis):                                        │
+│ - Phone numbers (personal data)                                                │
+│ - Email addresses (personal data)                                              │
+│ - Display names (personal data)                                                │
+│ - Aadhaar numbers (sensitive personal data!)                                   │
+│ - PAN numbers (sensitive personal data)                                        │
+│ - Bank account numbers (financial data)                                        │
+│ - UPI IDs (financial data)                                                     │
+│ - Device information (personal data)                                           │
+│ - IP addresses (via logs - personal data)                                      │
+│ - Game activity history (behavioral data)                                      │
+│ - Financial transaction history (sensitive)                                    │
+│ - KYC document photos (biometric-adjacent)                                    │
+│ - Location data (if implemented for geo-fencing)                              │
+│                                                                                 │
+│ DPDPA REQUIREMENTS:                                                             │
+│                                                                                 │
+│ 1. CONSENT (Section 6):                                                        │
+│    ☐ Clear, specific consent before collecting personal data                  │
+│    ☐ Separate consent for each purpose                                        │
+│    ☐ Easy withdrawal of consent                                               │
+│    ☐ Consent in clear, plain language                                         │
+│    CURRENT: No consent mechanism. Data collected without asking.              │
+│                                                                                 │
+│ 2. NOTICE (Section 5):                                                          │
+│    ☐ What data is collected                                                   │
+│    ☐ Purpose of collection                                                    │
+│    ☐ How to exercise rights                                                   │
+│    ☐ How to file complaints                                                   │
+│    CURRENT: No privacy notice. No terms of service.                           │
+│                                                                                 │
+│ 3. PURPOSE LIMITATION (Section 4):                                              │
+│    ☐ Use data only for stated purpose                                         │
+│    ☐ Delete when purpose is fulfilled                                         │
+│    CURRENT: No data retention policy. Data kept forever.                      │
+│                                                                                 │
+│ 4. DATA PRINCIPAL RIGHTS (Section 11-14):                                       │
+│    ☐ Right to access personal data                                            │
+│    ☐ Right to correction                                                      │
+│    ☐ Right to erasure ("right to be forgotten")                               │
+│    ☐ Right to nominate (in case of death/incapacity)                         │
+│    CURRENT: No data export. No deletion endpoint. Soft-delete only.           │
+│                                                                                 │
+│ 5. CHILDREN'S DATA (Section 9):                                                 │
+│    ☐ Verifiable consent from parent/guardian for users under 18               │
+│    ☐ No behavioral tracking of children                                       │
+│    ☐ No targeted advertising to children                                      │
+│    CURRENT: No age verification. Children can register freely.                │
+│                                                                                 │
+│ 6. DATA BREACH NOTIFICATION (Section 8):                                        │
+│    ☐ Notify Data Protection Board within 72 hours of breach                   │
+│    ☐ Notify affected data principals                                          │
+│    CURRENT: No breach detection system. No notification process.              │
+│                                                                                 │
+│ PENALTY: Up to ₹250 crore per violation.                                       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 6: RESPONSIBLE GAMING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 6.1 REQUIRED RESPONSIBLE GAMING FEATURES                                        │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Both App Stores and MeitY's proposed guidelines require:                       │
+│                                                                                 │
+│ MANDATORY FEATURES (None implemented):                                          │
+│                                                                                 │
+│ 1. SELF-EXCLUSION MECHANISM                                                     │
+│    ☐ User can self-exclude for 24h / 7 days / 30 days / permanent             │
+│    ☐ During exclusion: cannot deposit, cannot enter tournaments               │
+│    ☐ Cannot reverse exclusion before period ends                              │
+│    ☐ Immediate effect (no "cool down" to reverse)                             │
+│                                                                                 │
+│ 2. DEPOSIT LIMITS                                                               │
+│    ☐ User-configurable daily/weekly/monthly deposit caps                      │
+│    ☐ Lowering limit: immediate effect                                         │
+│    ☐ Raising limit: 48-hour cooling period                                    │
+│    ☐ Default limits for new users                                             │
+│                                                                                 │
+│ 3. SESSION TIME LIMITS                                                          │
+│    ☐ Reminders at 1 hour of continuous play                                   │
+│    ☐ Forced break after 3 hours                                               │
+│    ☐ Display total time played in session                                     │
+│    ☐ Daily play time limit option                                             │
+│                                                                                 │
+│ 4. LOSS LIMITS                                                                  │
+│    ☐ User can set maximum loss per day/week                                   │
+│    ☐ Auto-exclude when limit reached                                          │
+│    ☐ Warning at 80% of limit                                                  │
+│                                                                                 │
+│ 5. REALITY CHECKS                                                               │
+│    ☐ Pop-up showing net position every 30 minutes                             │
+│    ☐ Display: "You have deposited ₹X and won/lost ₹Y this session"           │
+│    ☐ Cannot be dismissed for 5 seconds                                        │
+│                                                                                 │
+│ 6. INFORMATION & SUPPORT                                                        │
+│    ☐ Link to gambling addiction helpline                                       │
+│    ☐ Information about odds of winning                                        │
+│    ☐ FAQ about responsible gaming                                             │
+│    ☐ Self-assessment questionnaire                                            │
+│                                                                                 │
+│ CURRENT IMPLEMENTATION: ████████████ ZERO features                              │
+│                                                                                 │
+│ This alone will get the app REJECTED from stores and potentially               │
+│ invite regulatory action.                                                      │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 7: REQUIRED LEGAL DOCUMENTS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Documents that MUST exist before launch (NONE currently exist):                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ ☐ Terms of Service / Terms & Conditions                                        │
+│   - User eligibility (18+, Indian resident, excluded states)                  │
+│   - Account rules (one per person, no multi-accounting)                       │
+│   - Fair play policy                                                           │
+│   - Intellectual property rights                                               │
+│   - Limitation of liability                                                    │
+│   - Dispute resolution mechanism                                              │
+│   - Termination conditions                                                    │
+│                                                                                 │
+│ ☐ Privacy Policy                                                                │
+│   - What data is collected and why                                            │
+│   - How data is processed and stored                                          │
+│   - Third parties with whom data is shared                                    │
+│   - User rights under DPDPA                                                   │
+│   - Data retention periods                                                    │
+│   - Cookie policy                                                             │
+│   - Contact information for data protection officer                           │
+│                                                                                 │
+│ ☐ Refund & Cancellation Policy                                                  │
+│   - When refunds are available                                                │
+│   - How long refunds take                                                     │
+│   - Non-refundable items (tournament entries after play)                      │
+│   - Consumer Protection Act compliance                                        │
+│                                                                                 │
+│ ☐ Responsible Gaming Policy                                                     │
+│   - Available tools (self-exclusion, limits)                                  │
+│   - Addiction resources                                                       │
+│   - Underage gaming prevention                                                │
+│                                                                                 │
+│ ☐ Anti-Fraud & Fair Play Policy                                                 │
+│   - What constitutes cheating                                                 │
+│   - Consequences (ban, balance forfeiture)                                    │
+│   - Appeal process                                                            │
+│                                                                                 │
+│ ☐ KYC Policy                                                                    │
+│   - Why KYC is required                                                       │
+│   - What documents are accepted                                               │
+│   - How documents are stored/processed                                        │
+│   - Timeframe for verification                                                │
+│                                                                                 │
+│ ☐ Grievance Redressal Policy                                                    │
+│   - Contact details of Grievance Officer (mandatory under IT Act)             │
+│   - Response timeframe (72 hours under IT Act)                                │
+│   - Escalation process                                                        │
+│                                                                                 │
+│ ☐ Game Rules                                                                    │
+│   - Rules for each of 20 games                                                │
+│   - Scoring methodology                                                       │
+│   - Tournament structure                                                      │
+│   - Elimination criteria                                                      │
+│   - Tiebreaker rules                                                          │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 8: COMPLIANCE SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Category                          │ Score  │ Status
+──────────────────────────────────────────────────────
+Skill Classification              │ 0/100  │ No legal opinion
+State Geo-fencing                 │ 0/100  │ Not implemented
+TDS Compliance                    │ 0/100  │ Zero implementation
+GST Compliance                    │ 0/100  │ Zero implementation
+RBI/AML Compliance                │ 0/100  │ Zero implementation
+Age Verification                  │ 0/100  │ Not implemented
+DPDPA Compliance                  │ 5/100  │ Soft-delete exists, nothing else
+Responsible Gaming                │ 0/100  │ Zero features
+App Store Readiness               │ 5/100  │ App exists, nothing else
+Legal Documents                   │ 0/100  │ None exist
+Consumer Protection               │ 10/100 │ Basic refund type exists
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 8/100  │ CANNOT LEGALLY OPERATE
+
+IMMEDIATE ACTIONS REQUIRED (before any launch):
+  1. Engage gaming law attorney (₹5-10 lakh retainer)
+  2. Obtain legal opinion on skill classification
+  3. Register GST
+  4. Implement TDS infrastructure
+  5. Create all legal documents
+  6. Implement geo-fencing
+  7. Implement age verification
+  8. Apply for Google Play RMG program
+  9. Implement responsible gaming features
+  10. Appoint Grievance Officer
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                 END OF LEGAL & REGULATORY COMPLIANCE AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
