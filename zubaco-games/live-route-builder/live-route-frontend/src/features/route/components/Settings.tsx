@@ -2,8 +2,6 @@ import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 
 interface SettingsState {
-  soundEnabled: boolean;
-  volume: number;
   theme: string;
 }
 
@@ -20,7 +18,7 @@ function loadSettings(): SettingsState {
     const raw = localStorage.getItem('live-route-settings');
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { soundEnabled: true, volume: 0.5, theme: 'blue' };
+  return { theme: 'blue' };
 }
 
 function saveSettings(s: SettingsState): void {
@@ -60,43 +58,6 @@ export function Settings({ onBack }: SettingsProps) {
         animate={{ opacity: 1, y: 0 }}
         className="flex-1 space-y-6 max-w-sm mx-auto w-full"
       >
-        {/* Sound Toggle */}
-        <div className="flex items-center justify-between rounded-xl bg-slate-800/60 p-4">
-          <div>
-            <p className="text-sm font-medium text-white">Sound Effects</p>
-            <p className="text-xs text-slate-400">Connection and UI sounds</p>
-          </div>
-          <button
-            onClick={() => update({ soundEnabled: !settings.soundEnabled })}
-            className={`relative h-7 w-12 rounded-full transition-colors ${
-              settings.soundEnabled ? 'bg-blue-500' : 'bg-slate-600'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
-                settings.soundEnabled ? 'translate-x-5' : 'translate-x-0.5'
-              }`}
-            />
-          </button>
-        </div>
-
-        {/* Volume Slider */}
-        <div className="rounded-xl bg-slate-800/60 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-medium text-white">Volume</p>
-            <p className="text-xs text-slate-400">{Math.round(settings.volume * 100)}%</p>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={settings.volume}
-            onChange={(e) => update({ volume: Number(e.target.value) })}
-            className="w-full accent-blue-500"
-          />
-        </div>
-
         {/* Theme Selector */}
         <div className="rounded-xl bg-slate-800/60 p-4">
           <p className="text-sm font-medium text-white mb-3">Color Theme</p>

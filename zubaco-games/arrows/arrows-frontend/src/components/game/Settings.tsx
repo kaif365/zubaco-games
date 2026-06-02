@@ -1,4 +1,3 @@
-import { useAudio } from '@/hooks/useAudio';
 import { useState } from 'react';
 
 interface SettingsProps {
@@ -6,17 +5,9 @@ interface SettingsProps {
 }
 
 export function Settings({ onClose }: SettingsProps) {
-  const { isEnabled, setEnabled } = useAudio();
-  const [soundOn, setSoundOn] = useState(isEnabled());
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>(
     (localStorage.getItem('arrowgame_theme') as any) || 'dark'
   );
-
-  const toggleSound = () => {
-    const next = !soundOn;
-    setSoundOn(next);
-    setEnabled(next);
-  };
 
   const changeTheme = (t: 'dark' | 'light' | 'system') => {
     setTheme(t);
@@ -31,30 +22,6 @@ export function Settings({ onClose }: SettingsProps) {
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
-        </button>
-      </div>
-
-      {/* Sound */}
-      <div className="flex items-center justify-between p-4 bg-gray-800/60 rounded-xl">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center">
-            <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-            </svg>
-          </div>
-          <div>
-            <div className="text-sm font-medium text-white">Sound Effects</div>
-            <div className="text-xs text-gray-400">Game sounds and feedback</div>
-          </div>
-        </div>
-        <button
-          onClick={toggleSound}
-          className={`relative w-11 h-6 rounded-full transition-colors ${soundOn ? 'bg-amber-500' : 'bg-gray-600'}`}
-        >
-          <div
-            className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"
-            style={{ left: soundOn ? '22px' : '2px' }}
-          />
         </button>
       </div>
 

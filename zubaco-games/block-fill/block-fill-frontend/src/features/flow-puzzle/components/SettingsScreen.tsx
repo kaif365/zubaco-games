@@ -1,7 +1,6 @@
-import { ArrowLeft, Volume2, VolumeX, Vibrate, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Vibrate, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useAudio } from '@/audio';
 import { useState } from 'react';
 
 interface SettingsScreenProps {
@@ -9,7 +8,6 @@ interface SettingsScreenProps {
 }
 
 export function SettingsScreen({ onBack }: SettingsScreenProps) {
-  const audio = useAudio();
   const [vibration, setVibration] = useState(() => {
     try {
       return localStorage.getItem('blockfill_vibration') !== 'false';
@@ -57,21 +55,6 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
         </div>
 
         <div className="space-y-3">
-          {/* Sound Toggle */}
-          <button
-            type="button"
-            onClick={() => audio.toggleMuted()}
-            className="flex w-full items-center justify-between rounded-[1.5rem] border border-white/8 bg-white/5 px-5 py-4 transition-colors hover:bg-white/8"
-          >
-            <div className="flex items-center gap-3">
-              {audio.muted ? <VolumeX size={20} className="text-slate-400" /> : <Volume2 size={20} className="text-cyan-300" />}
-              <span className="text-sm font-medium text-white">Sound Effects</span>
-            </div>
-            <div className={`h-6 w-11 rounded-full transition-colors ${audio.muted ? 'bg-slate-600' : 'bg-cyan-400'}`}>
-              <div className={`mt-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${audio.muted ? 'translate-x-0.5' : 'translate-x-[1.375rem]'}`} />
-            </div>
-          </button>
-
           {/* Vibration Toggle */}
           <button
             type="button"

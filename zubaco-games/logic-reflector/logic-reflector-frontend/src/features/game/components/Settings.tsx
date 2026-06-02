@@ -3,8 +3,6 @@ import { useState, useEffect } from 'react';
 // ─── Types & Storage ─────────────────────────────────────────────────────────
 
 interface SettingsData {
-  soundEnabled: boolean;
-  volume: number;
   theme: 'dark' | 'light';
 }
 
@@ -15,7 +13,7 @@ function loadSettings(): SettingsData {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { soundEnabled: true, volume: 80, theme: 'dark' };
+  return { theme: 'dark' };
 }
 
 function saveSettings(data: SettingsData): void {
@@ -50,34 +48,6 @@ export function Settings({ onBack }: SettingsProps) {
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center max-w-sm mx-auto w-full space-y-6">
-        {/* Sound Toggle */}
-        <div className="w-full flex items-center justify-between rounded-xl bg-slate-800/80 px-5 py-4">
-          <span className="text-sm font-medium text-white">Sound Effects</span>
-          <button
-            onClick={() => setSettings((s) => ({ ...s, soundEnabled: !s.soundEnabled }))}
-            className={`w-12 h-7 rounded-full transition-colors ${settings.soundEnabled ? 'bg-purple-600' : 'bg-slate-600'}`}
-          >
-            <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform mx-1 ${settings.soundEnabled ? 'translate-x-5' : ''}`} />
-          </button>
-        </div>
-
-        {/* Volume Slider */}
-        <div className="w-full rounded-xl bg-slate-800/80 px-5 py-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-white">Volume</span>
-            <span className="text-xs text-slate-400">{settings.volume}%</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={settings.volume}
-            onChange={(e) => setSettings((s) => ({ ...s, volume: Number(e.target.value) }))}
-            disabled={!settings.soundEnabled}
-            className="w-full h-2 rounded-full bg-slate-600 appearance-none cursor-pointer accent-purple-500 disabled:opacity-40"
-          />
-        </div>
-
         {/* Theme Toggle */}
         <div className="w-full flex items-center justify-between rounded-xl bg-slate-800/80 px-5 py-4">
           <span className="text-sm font-medium text-white">Dark Theme</span>
