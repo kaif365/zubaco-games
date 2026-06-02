@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useTheme } from '@/hooks/useTheme';
 
 // ─── Types & Storage ─────────────────────────────────────────────────────────
 
 interface SettingsData {
   soundEnabled: boolean;
   volume: number;
-  theme: 'dark' | 'light';
 }
 
 const STORAGE_KEY = 'maze-navigation-settings';
@@ -16,7 +14,7 @@ function loadSettings(): SettingsData {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { soundEnabled: true, volume: 80, theme: 'dark' };
+  return { soundEnabled: true, volume: 80 };
 }
 
 function saveSettings(data: SettingsData): void {
@@ -35,7 +33,6 @@ interface SettingsProps {
 
 export function Settings({ onBack }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsData>(loadSettings);
-  const { setTheme: applyTheme } = useTheme();
 
   useEffect(() => {
     saveSettings(settings);
@@ -78,17 +75,6 @@ export function Settings({ onBack }: SettingsProps) {
             disabled={!settings.soundEnabled}
             className="w-full h-2 rounded-full bg-slate-600 appearance-none cursor-pointer accent-blue-500 disabled:opacity-40"
           />
-        </div>
-
-        {/* Theme Toggle */}
-        <div className="w-full flex items-center justify-between rounded-xl bg-slate-800/80 px-5 py-4">
-          <span className="text-sm font-medium text-white">Dark Theme</span>
-          <button
-            onClick={() => { const next = settings.theme === 'dark' ? 'light' : 'dark'; setSettings((s) => ({ ...s, theme: next })); applyTheme(next); }}
-            className={`w-12 h-7 rounded-full transition-colors ${settings.theme === 'dark' ? 'bg-blue-600' : 'bg-slate-600'}`}
-          >
-            <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform mx-1 ${settings.theme === 'dark' ? 'translate-x-5' : ''}`} />
-          </button>
         </div>
       </div>
     </div>

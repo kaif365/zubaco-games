@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useTheme } from '@/hooks/useTheme';
 
 interface SettingsProps {
   onBack: () => void;
@@ -11,7 +10,6 @@ const STORAGE_KEY = 'tfblitz_settings';
 interface SettingsState {
   soundEnabled: boolean;
   volume: number;
-  theme: 'dark' | 'light' | 'system';
 }
 
 function loadSettings(): SettingsState {
@@ -19,7 +17,7 @@ function loadSettings(): SettingsState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { soundEnabled: true, volume: 80, theme: 'dark' };
+  return { soundEnabled: true, volume: 80 };
 }
 
 function saveSettings(s: SettingsState) {
@@ -28,7 +26,6 @@ function saveSettings(s: SettingsState) {
 
 export function Settings({ onBack }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsState>(loadSettings);
-  const { setTheme: applyTheme } = useTheme();
 
   useEffect(() => {
     saveSettings(settings);
@@ -85,26 +82,6 @@ export function Settings({ onBack }: SettingsProps) {
                 disabled={!settings.soundEnabled}
                 className="w-full accent-indigo-500 disabled:opacity-40"
               />
-            </div>
-          </div>
-
-          {/* Theme */}
-          <div className="bg-gray-800 rounded-xl p-4">
-            <div className="text-sm font-semibold text-white mb-3">Theme</div>
-            <div className="grid grid-cols-3 gap-2">
-              {(['dark', 'light', 'system'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => { setSettings((s) => ({ ...s, theme: t })); applyTheme(t); }}
-                  className={`py-2 rounded-lg text-xs font-medium capitalize transition-all ${
-                    settings.theme === t
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
             </div>
           </div>
         </div>

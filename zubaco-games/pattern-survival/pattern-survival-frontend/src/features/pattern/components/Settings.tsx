@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useTheme } from '@/hooks/useTheme';
 
 interface Props {
   onBack: () => void;
@@ -11,7 +10,6 @@ const STORAGE_KEY = 'pattern-survival-settings';
 interface SettingsData {
   soundEnabled: boolean;
   volume: number;
-  darkMode: boolean;
 }
 
 function loadSettings(): SettingsData {
@@ -19,7 +17,7 @@ function loadSettings(): SettingsData {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { soundEnabled: true, volume: 80, darkMode: true };
+  return { soundEnabled: true, volume: 80 };
 }
 
 function saveSettings(s: SettingsData) {
@@ -28,13 +26,11 @@ function saveSettings(s: SettingsData) {
 
 export function Settings({ onBack }: Props) {
   const [settings, setSettings] = useState<SettingsData>(loadSettings);
-  const { setTheme: applyTheme } = useTheme();
 
   const update = (patch: Partial<SettingsData>) => {
     const next = { ...settings, ...patch };
     setSettings(next);
     saveSettings(next);
-    if ('darkMode' in patch) applyTheme(next.darkMode ? 'dark' : 'light');
   };
 
   return (
@@ -63,14 +59,6 @@ export function Settings({ onBack }: Props) {
             disabled={!settings.soundEnabled}
             onChange={(e) => update({ volume: Number(e.target.value) })}
             className="w-full accent-purple-500 disabled:opacity-40" />
-        </div>
-
-        <div className="flex items-center justify-between bg-gray-800 rounded-xl px-4 py-3">
-          <span className="font-medium">🌙 Dark Mode</span>
-          <button onClick={() => update({ darkMode: !settings.darkMode })}
-            className={`w-12 h-6 rounded-full relative transition-colors ${settings.darkMode ? 'bg-purple-500' : 'bg-gray-600'}`}>
-            <motion.div animate={{ x: settings.darkMode ? 24 : 2 }} className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow" />
-          </button>
         </div>
       </motion.div>
     </div>

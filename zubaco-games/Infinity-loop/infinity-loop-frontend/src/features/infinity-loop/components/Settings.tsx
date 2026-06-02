@@ -2,34 +2,27 @@
 
 import { motion } from "motion/react";
 import { useState, useEffect } from "react";
-import { useTheme } from "@/hooks/useTheme";
 
 interface SettingsProps {
   readonly onBack: () => void;
 }
 
 interface SettingsState {
-  theme: string;
   darkMode: boolean;
 }
 
-const THEMES = [
-  { id: "emerald", label: "Emerald", color: "#10b981" },
-  { id: "violet", label: "Violet", color: "#8b5cf6" },
-  { id: "cyan", label: "Cyan", color: "#22d3ee" },
-  { id: "rose", label: "Rose", color: "#f43f5e" },
-  { id: "amber", label: "Amber", color: "#f59e0b" },
-];
-
 function loadSettings(): SettingsState {
   if (typeof window === "undefined") {
-    return { theme: "emerald", darkMode: false };
+    return { darkMode: false };
   }
   try {
     const raw = localStorage.getItem("infinity-loop-settings");
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { darkMode: parsed.darkMode ?? false };
+    }
   } catch { /* ignore */ }
-  return { theme: "emerald", darkMode: false };
+  return { darkMode: false };
 }
 
 function saveSettings(s: SettingsState): void {
@@ -38,18 +31,13 @@ function saveSettings(s: SettingsState): void {
 
 export function Settings({ onBack }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsState>(loadSettings);
-  const { setTheme: applyTheme } = useTheme();
 
   useEffect(() => {
     saveSettings(settings);
   }, [settings]);
 
   const update = (partial: Partial<SettingsState>) => {
-    setSettings((prev) => {
-      const next = { ...prev, ...partial };
-      if ('darkMode' in partial) applyTheme(next.darkMode ? 'dark' : 'light');
-      return next;
-    });
+    setSettings((prev) => ({ ...prev, ...partial }));
   };
 
   return (
@@ -71,26 +59,6 @@ export function Settings({ onBack }: SettingsProps) {
         animate={{ opacity: 1, y: 0 }}
         className="flex-1 space-y-6 max-w-sm mx-auto w-full"
       >
-        {/* Theme Selector */}
-        <div className="rounded-xl bg-slate-800/60 p-4">
-          <p className="text-sm font-medium text-white mb-3">Color Theme</p>
-          <div className="flex gap-3">
-            {THEMES.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => update({ theme: t.id })}
-                className={`h-8 w-8 rounded-full border-2 transition-all ${
-                  settings.theme === t.id
-                    ? "border-white scale-110"
-                    : "border-transparent scale-100"
-                }`}
-                style={{ backgroundColor: t.color }}
-                title={t.label}
-              />
-            ))}
-          </div>
-        </div>
-
         {/* Dark Mode Toggle */}
         <div className="flex items-center justify-between rounded-xl bg-slate-800/60 p-4">
           <div>

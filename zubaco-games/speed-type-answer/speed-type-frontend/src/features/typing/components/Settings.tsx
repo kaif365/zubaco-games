@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useTheme } from '@/hooks/useTheme';
 
 interface SettingsState {
   soundEnabled: boolean;
   volume: number;
-  theme: 'dark' | 'light' | 'system';
 }
 
 interface SettingsProps {
@@ -22,7 +20,7 @@ function loadSettings(): SettingsState {
       if (typeof parsed === 'object' && parsed !== null) return parsed as SettingsState;
     }
   } catch {}
-  return { soundEnabled: true, volume: 80, theme: 'dark' };
+  return { soundEnabled: true, volume: 80 };
 }
 
 function saveSettings(s: SettingsState) {
@@ -31,7 +29,6 @@ function saveSettings(s: SettingsState) {
 
 export function Settings({ onBack }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsState>(loadSettings);
-  const { setTheme: applyTheme } = useTheme();
 
   useEffect(() => {
     saveSettings(settings);
@@ -87,28 +84,6 @@ export function Settings({ onBack }: SettingsProps) {
             onChange={(e) => setSettings((prev) => ({ ...prev, volume: Number(e.target.value) }))}
             className="w-full h-2 rounded-full appearance-none bg-gray-700 disabled:opacity-40 accent-indigo-500"
           />
-        </motion.div>
-
-        <motion.div
-          className="p-4 rounded-xl bg-white/5"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
-          <div className="text-white font-medium mb-3">Theme</div>
-          <div className="flex gap-2">
-            {(['dark', 'light', 'system'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => { setSettings((prev) => ({ ...prev, theme: t })); applyTheme(t); }}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
-                  settings.theme === t ? 'bg-indigo-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
         </motion.div>
       </div>
     </div>

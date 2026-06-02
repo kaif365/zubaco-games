@@ -1,15 +1,12 @@
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
 import { GamePage } from './features/pattern/components/GamePage';
-import { ThemeProvider } from './hooks/useTheme';
 
 export default function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider>
-        <OfflineBanner />
-        <GamePage />
-      </ThemeProvider>
+      <OfflineBanner />
+      <GamePage />
     </ErrorBoundary>
   );
 }

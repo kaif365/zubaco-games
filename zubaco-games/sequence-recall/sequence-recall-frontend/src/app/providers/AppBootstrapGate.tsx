@@ -7,7 +7,6 @@ import { appConfig } from '@app/config/appConfig';
 import { useAuthGate } from '@hooks/useAuthGate';
 
 import { QueryProvider } from './QueryProvider';
-import { ThemeProvider } from './ThemeProvider';
 import { ToastProvider } from './ToastProvider';
 
 interface AppBootstrapGateProps {
@@ -27,9 +26,7 @@ export function AppBootstrapGate({ children }: AppBootstrapGateProps) {
 
   return (
     <QueryProvider>
-      <ThemeProvider>
-        <ToastProvider>{children}</ToastProvider>
-      </ThemeProvider>
+      <ToastProvider>{children}</ToastProvider>
     </QueryProvider>
   );
 }
