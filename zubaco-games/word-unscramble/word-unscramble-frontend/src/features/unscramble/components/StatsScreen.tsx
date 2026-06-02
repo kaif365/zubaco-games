@@ -18,6 +18,7 @@ interface GameStats {
   longestWordSolved: number;
   totalScore: number;
   perfectGames: number;
+  recentScores: number[];
 }
 
 function loadStats(): GameStats {
@@ -36,7 +37,20 @@ function loadStats(): GameStats {
     longestWordSolved: 0,
     totalScore: 0,
     perfectGames: 0,
+    recentScores: [],
   };
+}
+
+export function updateStats(update: { score: number; wordsSolved: number; wordsAttempted: number; perfect: boolean }) {
+  const stats = loadStats();
+  stats.gamesPlayed++;
+  stats.wordsSolved += update.wordsSolved;
+  stats.wordsAttempted += update.wordsAttempted;
+  stats.highScore = Math.max(stats.highScore, update.score);
+  stats.totalScore += update.score;
+  if (update.perfect) stats.perfectGames++;
+  stats.recentScores = [update.score, ...(stats.recentScores || [])].slice(0, 20);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
 }
 
 export function StatsScreen({ onBack }: StatsScreenProps) {
@@ -83,6 +97,28 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
           ))}
         </div>
       </div>
+
+      {stats.recentScores && stats.recentScores.length > 1 && (
+        <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
+          <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
+          <div className="flex items-end gap-1 h-16">
+            {stats.recentScores.slice(0, 15).map((s, idx) => {
+              const max = Math.max(...stats.recentScores, 1);
+              const height = Math.max(4, (s / max) * 100);
+              return (
+                <motion.div
+                  key={idx}
+                  className="flex-1 bg-indigo-500 rounded-t"
+                  style={{ height: `${height}%` }}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${height}%` }}
+                  transition={{ delay: idx * 0.05 }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

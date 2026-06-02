@@ -25,7 +25,8 @@ function loadStats(): PatternStats {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { gamesPlayed: 0, bestRound: 0, totalRounds: 0, perfectGames: 0, bestStreak: 0, highestLevel: 0, fastGames: 0, totalTimeSec: 0, highScore: 0, avgRounds: 0 };
+  return { gamesPlayed: 0, bestRound: 0, totalRounds: 0, perfectGames: 0, bestStreak: 0, highestLevel: 0, fastGames: 0, totalTimeSec: 0, highScore: 0, avgRounds: 0     recentScores: [],
+  };
 }
 
 export function updateStats(patch: Partial<PatternStats> & { addTimeSec?: number }) {
@@ -40,6 +41,7 @@ export function updateStats(patch: Partial<PatternStats> & { addTimeSec?: number
   stats.bestStreak = Math.max(stats.bestStreak, rest.bestStreak ?? 0);
   stats.highestLevel = Math.max(stats.highestLevel, rest.highestLevel ?? 0);
   stats.avgRounds = stats.gamesPlayed > 0 ? Math.round(stats.totalRounds / stats.gamesPlayed) : 0;
+  stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
 }
 
@@ -88,6 +90,28 @@ export function StatsScreen({ onBack }: Props) {
           </motion.div>
         ))}
       </div>
+    
+      {stats.recentScores && stats.recentScores.length > 1 && (
+        <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
+          <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
+          <div className="flex items-end gap-1 h-16">
+            {stats.recentScores.slice(0, 15).map((s, idx) => {
+              const max = Math.max(...stats.recentScores, 1);
+              const height = Math.max(4, (s / max) * 100);
+              return (
+                <motion.div
+                  key={idx}
+                  className="flex-1 bg-indigo-500 rounded-t"
+                  style={{ height: `${height}%` }}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${height}%` }}
+                  transition={{ delay: idx * 0.05 }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

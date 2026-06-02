@@ -12,7 +12,7 @@ import { MenuScreen } from './MenuScreen';
 import { LevelSelector } from './LevelSelector';
 import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { Achievements } from './Achievements';
-import { StatsScreen } from './StatsScreen';
+import { StatsScreen, updateStats } from './StatsScreen';
 import { Settings } from './Settings';
 import { PauseDialog } from './PauseDialog';
 import { Confetti } from './Confetti';
@@ -36,6 +36,7 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
 
   const game = useUnscramble(config, seed);
   const { play } = useAudio();
+  const statsSavedRef = useRef(false);
 
   const handleStart = useCallback(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -123,6 +124,16 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
 
   // Finished
   if (game.phase === 'finished' && game.score) {
+    if (!statsSavedRef.current) {
+      statsSavedRef.current = true;
+      updateStats({
+        score: game.score.finalScore,
+        wordsSolved: game.score.wordsSolved,
+        wordsAttempted: config.totalWords,
+        perfect: game.score.wordsSolved === config.totalWords,
+        timeMs: config.timeLimitMs - game.timeRemainingMs,
+      });
+    }
     const isPerfect = game.score.wordsSolved === config.totalWords;
     return (
       <>

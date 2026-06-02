@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import { ArrowLeft, Trophy, Clock, Target, Flame } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,6 +12,7 @@ interface StatsData {
   totalMoves: number;
   currentStreak: number;
   longestStreak: number;
+  recentScores: number[];
 }
 
 const STATS_KEY = 'blockfill_stats';
@@ -28,7 +30,22 @@ function loadStats(): StatsData {
     totalMoves: 0,
     currentStreak: 0,
     longestStreak: 0,
+    recentScores: [],
   };
+}
+
+export function updateStats(update: { won: boolean; timeSec: number; moves: number }) {
+  const stats = loadStats();
+  stats.gamesPlayed++;
+  if (update.won) { stats.gamesWon++; stats.currentStreak++; } else { stats.currentStreak = 0; }
+  stats.longestStreak = Math.max(stats.longestStreak, stats.currentStreak);
+  stats.totalTimeSec += update.timeSec;
+  if (update.won && (stats.bestTimeSec === 0 || update.timeSec < stats.bestTimeSec)) stats.bestTimeSec = update.timeSec;
+  stats.totalMoves += update.moves;
+  // Use moves as a "score" proxy (lower is better, so invert for bar chart)
+  const score = update.won ? Math.max(1, 1000 - update.moves * 10) : 0;
+  stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
+  localStorage.setItem(STATS_KEY, JSON.stringify(stats));
 }
 
 interface StatsScreenProps {
@@ -97,6 +114,28 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
             </div>
           ))}
         </div>
+
+        {stats.recentScores && stats.recentScores.length > 1 && (
+          <div className="rounded-[1.5rem] border border-white/8 bg-white/5 px-5 py-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-400 mb-3">Recent Scores</p>
+            <div className="flex items-end gap-1 h-16">
+              {stats.recentScores.slice(0, 15).map((s, idx) => {
+                const max = Math.max(...stats.recentScores, 1);
+                const height = Math.max(4, (s / max) * 100);
+                return (
+                  <motion.div
+                    key={idx}
+                    className="flex-1 bg-indigo-500 rounded-t"
+                    style={{ height: `${height}%` }}
+                    initial={{ height: 0 }}
+                    animate={{ height: `${height}%` }}
+                    transition={{ delay: idx * 0.05 }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

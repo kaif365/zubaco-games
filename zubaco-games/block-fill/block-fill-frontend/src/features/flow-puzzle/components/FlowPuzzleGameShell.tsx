@@ -40,6 +40,7 @@ import { InstructionsLobbyScreen } from '@/features/flow-puzzle/components/Instr
 import { PlayingStageView } from '@/features/flow-puzzle/components/PlayingStageView';
 import { DemoPlayView } from '@/features/flow-puzzle/components/DemoPlayView';
 import { GameResultOverlay } from '@/features/flow-puzzle/components/GameResultOverlay';
+import { updateStats } from '@/features/flow-puzzle/components/StatsScreen';
 import { markDailyComplete } from '@/features/flow-puzzle/components/DailyChallenge';
 import { useDemoLevels } from '@/hooks/useDemoLevels';
 import { AuthGateScreen } from '@/components/shared/AuthGateScreen';
@@ -99,6 +100,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
   const [flipPhase, setFlipPhase] = useState<FlipPhase>('idle');
   const levelCompleteBurstTimerRef = useRef<number | null>(null);
   const sessionTimerExpiredHandledRef = useRef(false);
+  const statsSavedRef = useRef(false);
   const [isAutoRestarting, setIsAutoRestarting] = useState(false);
   // Holds the latest handleSessionTimerExpire so onSync can call it when remaining===0
   // without a TypeScript "used before declared" error (handler is defined later in file).
@@ -117,6 +119,14 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
   const { contentByStage: stageContentByStage, isLoading: isStageContentLoading } = useStageContent(
     { enabled: gameConfig !== null },
   );
+
+  // Save recent score for bar chart
+  useEffect(() => {
+    if (stageState === 'end' && finalScore !== null && !statsSavedRef.current) {
+      statsSavedRef.current = true;
+      updateStats({ won: isGameSuccess, timeSec: sessionTimerSeconds, moves: completedRounds });
+    }
+  }, [stageState, finalScore, isGameSuccess, completedRounds]);
 
   const playLevelCompleteEffect = useCallback(() => {
     if (levelCompleteBurstTimerRef.current !== null) {

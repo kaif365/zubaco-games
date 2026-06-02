@@ -12,6 +12,7 @@ interface Stats {
   totalTimePlayed: number;
   perfectGames: number;
   highestLevel: number;
+  recentScores: number[];
 }
 
 interface StatsScreenProps {
@@ -39,6 +40,7 @@ function loadStats(): Stats {
     totalTimePlayed: 0,
     perfectGames: 0,
     highestLevel: 0,
+      recentScores: [],
   };
 }
 
@@ -88,6 +90,28 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
           </motion.div>
         ))}
       </div>
+    
+      {stats.recentScores && stats.recentScores.length > 1 && (
+        <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
+          <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
+          <div className="flex items-end gap-1 h-16">
+            {stats.recentScores.slice(0, 15).map((s, idx) => {
+              const max = Math.max(...stats.recentScores, 1);
+              const height = Math.max(4, (s / max) * 100);
+              return (
+                <motion.div
+                  key={idx}
+                  className="flex-1 bg-indigo-500 rounded-t"
+                  style={{ height: `${height}%` }}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${height}%` }}
+                  transition={{ delay: idx * 0.05 }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -104,5 +128,6 @@ export function updateStats(correctTaps: number, wrongTaps: number, streak: numb
   stats.highestLevel = Math.max(stats.highestLevel, level);
   if (wrongTaps === 0) stats.perfectGames += 1;
 
+  stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
 }

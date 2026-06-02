@@ -12,7 +12,7 @@ import { MenuScreen } from './MenuScreen';
 import { LevelSelector } from './LevelSelector';
 import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { Achievements } from './Achievements';
-import { StatsScreen } from './StatsScreen';
+import { StatsScreen, updateStats } from './StatsScreen';
 import { Settings } from './Settings';
 import { PauseDialog } from './PauseDialog';
 import { Confetti } from './Confetti';
@@ -35,6 +35,7 @@ function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; is
   const [seed, setSeed] = useState<number | null>(null);
   const { loading, error, startGame: startSession, submitResult } = useGameSession();
   const [gameSessionId, setGameSessionId] = useState<string | null>(null);
+  const statsSavedRef = useRef(false);
 
   const blitz = useBlitz(config, seed);
   const { play } = useAudio();
@@ -104,6 +105,18 @@ function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; is
 
   // Game Over
   if (blitz.phase === 'finished' && blitz.score) {
+    if (!statsSavedRef.current) {
+      statsSavedRef.current = true;
+      updateStats({
+        score: blitz.score.finalScore,
+        correct: blitz.answers.filter(a => a.correct).length,
+        wrong: blitz.answers.filter(a => !a.correct).length,
+        streak: blitz.streak,
+        statementsAnswered: blitz.answers.length,
+        streakBonus: 0,
+        timeMs: config.timeLimitMs - blitz.timeRemainingMs,
+      });
+    }
     return (
       <>
         <Confetti active={blitz.score.finalScore >= 200} />

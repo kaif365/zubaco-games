@@ -13,6 +13,7 @@ export interface GameStats {
   fastCompletions: number;
   totalTimePlayed: number; // seconds
   highestScore: number;
+  recentScores: number[];
 }
 
 const STORAGE_KEY = 'live-route-stats';
@@ -37,6 +38,7 @@ function createEmptyStats(): GameStats {
     fastCompletions: 0,
     totalTimePlayed: 0,
     highestScore: 0,
+      recentScores: [],
   };
 }
 
@@ -54,6 +56,7 @@ export function updateStats(update: Partial<GameStats> & { addEdges?: number; ad
   if (update.fastCompletions !== undefined) stats.fastCompletions = update.fastCompletions;
   if (update.addTime) stats.totalTimePlayed += update.addTime;
   if (update.highestScore !== undefined && update.highestScore > stats.highestScore) stats.highestScore = update.highestScore;
+  stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
   return stats;
 }
@@ -110,6 +113,28 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
           ))}
         </div>
       </div>
+    
+      {stats.recentScores && stats.recentScores.length > 1 && (
+        <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
+          <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
+          <div className="flex items-end gap-1 h-16">
+            {stats.recentScores.slice(0, 15).map((s, idx) => {
+              const max = Math.max(...stats.recentScores, 1);
+              const height = Math.max(4, (s / max) * 100);
+              return (
+                <motion.div
+                  key={idx}
+                  className="flex-1 bg-indigo-500 rounded-t"
+                  style={{ height: `${height}%` }}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${height}%` }}
+                  transition={{ delay: idx * 0.05 }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

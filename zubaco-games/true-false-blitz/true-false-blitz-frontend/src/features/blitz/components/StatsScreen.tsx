@@ -18,6 +18,7 @@ interface GameStats {
   avgAccuracy: number;
   totalStreakBonus: number;
   fastestGame: number;
+  recentScores: number[];
 }
 
 function loadStats(): GameStats {
@@ -36,7 +37,25 @@ function loadStats(): GameStats {
     avgAccuracy: 0,
     totalStreakBonus: 0,
     fastestGame: 0,
+    recentScores: [],
   };
+}
+
+export function updateStats(update: { score: number; correct: number; wrong: number; streak: number; statementsAnswered: number; streakBonus: number; timeMs: number }) {
+  const stats = loadStats();
+  stats.gamesPlayed++;
+  stats.totalCorrect += update.correct;
+  stats.totalWrong += update.wrong;
+  stats.totalMissed += Math.max(0, update.statementsAnswered - update.correct - update.wrong);
+  stats.highScore = Math.max(stats.highScore, update.score);
+  stats.bestStreak = Math.max(stats.bestStreak, update.streak);
+  stats.totalStatementsAnswered += update.statementsAnswered;
+  stats.totalStreakBonus += update.streakBonus;
+  const totalAttempts = stats.totalCorrect + stats.totalWrong;
+  stats.avgAccuracy = totalAttempts > 0 ? Math.round((stats.totalCorrect / totalAttempts) * 100) : 0;
+  if (update.timeMs > 0 && (stats.fastestGame === 0 || update.timeMs < stats.fastestGame)) stats.fastestGame = Math.round(update.timeMs / 1000);
+  stats.recentScores = [update.score, ...(stats.recentScores || [])].slice(0, 20);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
 }
 
 export function StatsScreen({ onBack }: StatsScreenProps) {
@@ -83,6 +102,28 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
           ))}
         </div>
       </div>
+
+      {stats.recentScores && stats.recentScores.length > 1 && (
+        <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
+          <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
+          <div className="flex items-end gap-1 h-16">
+            {stats.recentScores.slice(0, 15).map((s, idx) => {
+              const max = Math.max(...stats.recentScores, 1);
+              const height = Math.max(4, (s / max) * 100);
+              return (
+                <motion.div
+                  key={idx}
+                  className="flex-1 bg-indigo-500 rounded-t"
+                  style={{ height: `${height}%` }}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${height}%` }}
+                  transition={{ delay: idx * 0.05 }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
