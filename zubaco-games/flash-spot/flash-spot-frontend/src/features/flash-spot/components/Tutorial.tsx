@@ -83,7 +83,7 @@ export function Tutorial({ onComplete }: TutorialProps) {
           onClick={handleNext}
           className="rounded-xl bg-game-accent px-8 py-3 text-sm font-semibold text-white shadow-lg"
         >
-          {step < STEPS.length - 1 ? 'Next' : "Let's Play!"}
+          {step < STEPS.length - 1 ? 'Next' : 'Start'}
         </button>
       </div>
     </div>

@@ -120,7 +120,7 @@ export function Tutorial({ onComplete }: TutorialProps) {
           className="flex-1 py-3 rounded-xl bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
           whileTap={{ scale: 0.97 }}
         >
-          {step < STEPS.length - 1 ? 'Next' : "Let's Play!"}
+          {step < STEPS.length - 1 ? 'Next' : 'Start'}
         </motion.button>
       </div>
     </motion.div>

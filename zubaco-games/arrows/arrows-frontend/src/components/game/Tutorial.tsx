@@ -32,7 +32,7 @@ export function Tutorial({ onComplete }: TutorialProps) {
         onClick={onComplete}
         className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-all mt-2"
       >
-        Got it! Let's Play
+        Start
       </button>
     </div>
   );
