@@ -8,7 +8,7 @@ import { LevelSelector } from '@/components/game/LevelSelector';
 import { Settings } from '@/components/game/Settings';
 import { Achievements, checkAndUnlockAchievements, getAchievementById } from '@/components/game/Achievements';
 import { StatsScreen, updateStats } from '@/components/game/StatsScreen';
-import { DailyChallenge } from '@/components/game/DailyChallenge';
+import { DailyChallenge, hasDoneToday, markDailyDone } from '@/components/game/DailyChallenge';
 import { Tutorial } from '@/components/game/Tutorial';
 import { Confetti } from '@/components/game/Confetti';
 import { LEVELS } from '@/lib/game/levels';
@@ -32,6 +32,7 @@ function hasSeenTutorial(): boolean {
 export default function ArrowGamePage() {
   const [screen, setScreen] = useState<Screen>(hasSeenTutorial() ? 'menu' : 'tutorial');
   const [currentLevel, setCurrentLevel] = useState(0);
+  const [isDaily, setIsDaily] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [achievementPopup, setAchievementPopup] = useState<string | null>(null);
 
@@ -49,6 +50,12 @@ export default function ArrowGamePage() {
       const levelNum = state.levelIndex + 1;
       updateStats(true, state.score, levelNum, state.maxStreak);
       setUnlockedLevel(levelNum + 1);
+
+      // Mark daily as done if applicable
+      if (isDaily) {
+        markDailyDone(state.score);
+        setIsDaily(false);
+      }
 
       // Check achievements
       const stats = JSON.parse(localStorage.getItem('arrowgame_stats') || '{}');
@@ -71,6 +78,7 @@ export default function ArrowGamePage() {
     } else if (state.status === 'gameover' && screen === 'playing') {
       play('incorrect');
       updateStats(false, 0, state.levelIndex + 1, state.maxStreak);
+      setIsDaily(false);
       setTimeout(() => setScreen('result'), 800);
     }
   }, [state.status]);
@@ -85,6 +93,7 @@ export default function ArrowGamePage() {
 
   const handleStartLevel = useCallback((index: number) => {
     setCurrentLevel(index);
+    setIsDaily(false);
     gotoLevel(index);
     play('start');
     setScreen('playing');
@@ -162,7 +171,7 @@ export default function ArrowGamePage() {
             </button>
             <button onClick={() => setScreen('daily')}
               className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-xl transition-all">
-              📅 Daily Challenge
+              📅 Daily Challenge {hasDoneToday() && '✓'}
             </button>
             <div className="grid grid-cols-3 gap-2">
               <button onClick={() => setScreen('achievements')}
@@ -202,7 +211,13 @@ export default function ArrowGamePage() {
 
       {/* DAILY */}
       {screen === 'daily' && (
-        <DailyChallenge onPlay={handleStartLevel} onClose={() => setScreen('menu')} />
+        <DailyChallenge onPlay={(lvl) => {
+          setCurrentLevel(lvl);
+          setIsDaily(true);
+          gotoLevel(lvl);
+          play('start');
+          setScreen('playing');
+        }} onClose={() => setScreen('menu')} />
       )}
 
       {/* PLAYING */}
