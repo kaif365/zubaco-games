@@ -15,6 +15,8 @@ export function useRouteGame() {
   const revealRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const configRef = useRef<GameConfig | null>(null);
   const startTimeRef = useRef(0);
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   const startGame = useCallback((seed: number, config: GameConfig) => {
     const allNodes = generateNodes(seed, config);
@@ -34,6 +36,7 @@ export function useRouteGame() {
     }, config.nodeIntervalMs);
 
     timerRef.current = setInterval(() => {
+      if (isPausedRef.current) return;
       const elapsed = Date.now() - startTimeRef.current;
       const remaining = Math.max(0, config.timeLimitMs - elapsed);
       setTimeLeft(remaining);
@@ -63,6 +66,22 @@ export function useRouteGame() {
   }, []);
 
   useEffect(() => { return () => { clearInterval(timerRef.current); clearInterval(revealRef.current); }; }, []);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && status === 'playing') {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        startTimeRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [status]);
 
   return { nodes, visibleNodes, edges, status, score, timeLeft, startGame, connectNode, endGame };
 }

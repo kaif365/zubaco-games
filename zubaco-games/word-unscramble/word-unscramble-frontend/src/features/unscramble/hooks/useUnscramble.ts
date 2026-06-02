@@ -34,6 +34,8 @@ export function useUnscramble(config: StageConfig | null, seed: number | null) {
   const wordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wordStartRef = useRef<number>(0);
   const gameStartRef = useRef<number>(0);
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   const clearTimers = useCallback(() => {
     if (globalTimerRef.current) { clearInterval(globalTimerRef.current); globalTimerRef.current = null; }
@@ -103,6 +105,7 @@ export function useUnscramble(config: StageConfig | null, seed: number | null) {
 
     // Global countdown
     globalTimerRef.current = setInterval(() => {
+      if (isPausedRef.current) return;
       const elapsed = Date.now() - gameStartRef.current;
       const remaining = Math.max(0, config.timeLimitMs - elapsed);
       const wordElapsed = Date.now() - wordStartRef.current;
@@ -190,6 +193,23 @@ export function useUnscramble(config: StageConfig | null, seed: number | null) {
       return { ...prev, selectedIndices: newSelected, currentBuilt: newBuilt };
     });
   }, []);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && state.phase === 'playing') {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        gameStartRef.current += pauseDuration;
+        wordStartRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [state.phase]);
 
   useEffect(() => { return () => clearTimers(); }, [clearTimers]);
 

@@ -16,6 +16,8 @@ export function useMemoryGroups() {
   const configRef = useRef<GameConfig | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const startTimeRef = useRef(0);
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   const startGame = useCallback((seed: number, config: GameConfig) => {
     configRef.current = config;
@@ -34,6 +36,7 @@ export function useMemoryGroups() {
       setPhase('play');
       startTimeRef.current = Date.now();
       timerRef.current = setInterval(() => {
+        if (isPausedRef.current) return;
         const elapsed = Date.now() - startTimeRef.current;
         const remaining = Math.max(0, config.timeLimitMs - elapsed);
         setTimeLeft(remaining);
@@ -62,6 +65,22 @@ export function useMemoryGroups() {
   }, [selectedWords, submittedGroups]);
 
   useEffect(() => { return () => { clearInterval(timerRef.current); }; }, []);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && phase === 'play') {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        startTimeRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [phase]);
 
   return { phase, shuffledWords, selectedWords, submittedGroups, score, timeLeft, startGame, toggleWord, submitGroup };
 }

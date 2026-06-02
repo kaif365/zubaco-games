@@ -12,6 +12,8 @@ export function useGameTimer({ durationMs, onExpire }: UseGameTimerOptions) {
   const startTimeRef = useRef<number>(0);
   const onExpireRef = useRef(onExpire);
   onExpireRef.current = onExpire;
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   const start = useCallback(() => {
     startTimeRef.current = Date.now();
@@ -30,6 +32,7 @@ export function useGameTimer({ durationMs, onExpire }: UseGameTimerOptions) {
     if (!isRunning) return;
 
     intervalRef.current = setInterval(() => {
+      if (isPausedRef.current) return;
       const elapsed = Date.now() - startTimeRef.current;
       const remaining = Math.max(0, durationMs - elapsed);
       setTimeRemaining(remaining);
@@ -46,6 +49,22 @@ export function useGameTimer({ durationMs, onExpire }: UseGameTimerOptions) {
       }
     };
   }, [isRunning, durationMs, stop]);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && isRunning) {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        startTimeRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isRunning]);
 
   const reset = useCallback(() => {
     stop();

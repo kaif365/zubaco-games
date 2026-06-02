@@ -34,6 +34,8 @@ export function useBlitz(config: StageConfig | null, seed: number | null) {
   const advanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startTimeRef = useRef<number>(0);
   const answeredRef = useRef(false);
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   const clearTimers = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -89,6 +91,7 @@ export function useBlitz(config: StageConfig | null, seed: number | null) {
 
     // Global timer
     timerRef.current = setInterval(() => {
+      if (isPausedRef.current) return;
       const elapsed = Date.now() - startTimeRef.current;
       const remaining = Math.max(0, config.timeLimitMs - elapsed);
       setState((prev) => {
@@ -138,6 +141,22 @@ export function useBlitz(config: StageConfig | null, seed: number | null) {
     setState((prev) => ({ ...prev, phase: 'finished', score }));
     return { answers: state.answers, score };
   }, [config, state.answers, clearTimers]);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && state.phase === 'playing') {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        startTimeRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [state.phase]);
 
   useEffect(() => { return () => clearTimers(); }, [clearTimers]);
 

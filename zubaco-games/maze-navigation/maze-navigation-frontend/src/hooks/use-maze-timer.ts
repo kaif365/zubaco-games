@@ -34,6 +34,21 @@ export function useMazeTimer(mode: MazePlayMode): void {
     })),
   );
 
+  const isPausedRef = useRef(false);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && phase === MazeGamePhase.PLAYING) {
+        isPausedRef.current = true;
+      } else if (!document.hidden) {
+        isPausedRef.current = false;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [phase]);
+
   useEffect(() => {
     if (isDemo) {
       return;
@@ -57,6 +72,7 @@ export function useMazeTimer(mode: MazePlayMode): void {
     }
 
     const intervalId = globalThis.setInterval(() => {
+      if (isPausedRef.current) return;
       decrementTimer();
     }, 1000);
 

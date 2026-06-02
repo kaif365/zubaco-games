@@ -66,6 +66,17 @@ export function GamePage() {
     };
   }, [phase, isPaused, isWon]);
 
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && phase === "playing" && !isPaused && !isWon) {
+        setIsPaused(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [phase, isPaused, isWon]);
+
   // ─── Handlers ────────────────────────────────────────────────────────────
 
   const handleTutorialComplete = useCallback(() => {

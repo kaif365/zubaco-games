@@ -15,6 +15,8 @@ export function useReflexGame() {
   const spawnRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const startTimeRef = useRef(0);
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   const spawnCircle = useCallback(() => {
     if (status !== 'playing') return;
@@ -46,6 +48,7 @@ export function useReflexGame() {
     startTimeRef.current = Date.now();
 
     timerRef.current = setInterval(() => {
+      if (isPausedRef.current) return;
       const remaining = Math.max(0, config.timeLimitMs - (Date.now() - startTimeRef.current));
       setTimeLeft(remaining);
       if (remaining <= 0) { clearInterval(timerRef.current); clearTimeout(spawnRef.current); setStatus('ended'); }
@@ -79,6 +82,22 @@ export function useReflexGame() {
   }, [status]);
 
   useEffect(() => { return () => { clearInterval(timerRef.current); clearTimeout(spawnRef.current); }; }, []);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && status === 'playing') {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        startTimeRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [status]);
 
   return { circles, taps, status, score, wrongTaps, timeLeft, startGame, tapCircle };
 }

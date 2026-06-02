@@ -18,6 +18,8 @@ export function usePatternGame() {
   const configRef = useRef<GameConfig | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const startTimeRef = useRef(0);
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   const showSequence = useCallback((seq: number[], flashMs: number) => {
     setPhase('showing');
@@ -45,6 +47,7 @@ export function usePatternGame() {
     startTimeRef.current = Date.now();
 
     timerRef.current = setInterval(() => {
+      if (isPausedRef.current) return;
       const remaining = Math.max(0, config.timeLimitMs - (Date.now() - startTimeRef.current));
       setTimeLeft(remaining);
       if (remaining <= 0) { clearInterval(timerRef.current); setPhase('ended'); }
@@ -88,6 +91,22 @@ export function usePatternGame() {
   }, [phase, playerInput, sequence, round, showSequence]);
 
   useEffect(() => { return () => { clearInterval(timerRef.current); }; }, []);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && phase === 'input') {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        startTimeRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [phase]);
 
   return { phase, round, score, perfectRounds, cellColors, highlightIdx, playerInput, sequence, timeLeft, startGame, tapCell };
 }

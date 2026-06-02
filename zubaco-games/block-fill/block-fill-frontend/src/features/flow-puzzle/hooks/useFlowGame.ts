@@ -79,6 +79,20 @@ export function useFlowGame(transitionHandlers?: FlowSessionTransitionHandlers) 
     return () => window.clearInterval(timer);
   }, [currentLevel, paused, timerAnchorMs, winSummary]);
 
+  // Auto-pause on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && currentLevel && !paused && !winSummary && timerAnchorMs !== null) {
+        const nextElapsed = computeLiveElapsed(elapsedMs, timerAnchorMs);
+        setElapsedMs(nextElapsed);
+        setTimerAnchorMs(null);
+        setPaused(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [currentLevel, paused, winSummary, timerAnchorMs, elapsedMs]);
+
   const openLevelAtIndex = (packId: string, levelIndex: number, level: FlowPuzzleLevel) => {
     const nextSession = createFlowSession(level);
     setSelectedPackId(packId);

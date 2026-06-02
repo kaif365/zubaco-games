@@ -24,6 +24,8 @@ export function useGamePhase(config: StageConfig | null, seed: number | null) {
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   // Start memorize phase
   const startMemorize = useCallback(() => {
@@ -60,6 +62,7 @@ export function useGamePhase(config: StageConfig | null, seed: number | null) {
     }));
 
     timerRef.current = setInterval(() => {
+      if (isPausedRef.current) return;
       const elapsed = Date.now() - startTimeRef.current;
       const remaining = Math.max(0, config.recallTimeMs - elapsed);
 
@@ -145,6 +148,22 @@ export function useGamePhase(config: StageConfig | null, seed: number | null) {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && state.phase === 'recall') {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        startTimeRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [state.phase]);
 
   return {
     ...state,

@@ -31,6 +31,8 @@ export function useGrid(config: StageConfig | null, seed: number | null) {
   const startTimeRef = useRef<number>(0);
   const scheduleRef = useRef<number[][]>([]);
   const intervalIndexRef = useRef<number>(0);
+  const isPausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
 
   const clearTimers = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -79,6 +81,7 @@ export function useGrid(config: StageConfig | null, seed: number | null) {
 
     // Global countdown
     timerRef.current = setInterval(() => {
+      if (isPausedRef.current) return;
       const elapsed = Date.now() - startTimeRef.current;
       const remaining = Math.max(0, config.timeLimitMs - elapsed);
       setState((prev) => {
@@ -134,6 +137,22 @@ export function useGrid(config: StageConfig | null, seed: number | null) {
       return { ...prev, phase: 'finished', score, timeRemainingMs: remaining };
     });
   }, [config, clearTimers]);
+
+  // Pause timer on tab switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && state.phase === 'filling') {
+        isPausedRef.current = true;
+        pausedAtRef.current = Date.now();
+      } else if (!document.hidden && isPausedRef.current) {
+        isPausedRef.current = false;
+        const pauseDuration = Date.now() - pausedAtRef.current;
+        startTimeRef.current += pauseDuration;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [state.phase]);
 
   useEffect(() => { return () => clearTimers(); }, [clearTimers]);
 
