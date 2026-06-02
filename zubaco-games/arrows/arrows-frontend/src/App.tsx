@@ -30,6 +30,7 @@ function CompactLandscapeNotice() {
 export default function App() {
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
   useEffect(() => {
+    if (import.meta.env.VITE_FEATURE_DEVTOOLS === 'true') return;
     const cleanupDevTools = disableDevTools();
 
     return () => {
