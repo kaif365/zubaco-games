@@ -8,7 +8,7 @@ import { canMove } from "@/lib/game/logic";
 interface BoardProps {
   board: BoardType;
   gridSize: number;
-  hintId: string | null;
+  hintId?: string | null;
   disabled: boolean;
   onRemove: (id: string) => void;
   onWrongMove: () => void;
@@ -35,7 +35,6 @@ function getTravelPx(
 export function Board({
   board,
   gridSize,
-  hintId,
   disabled,
   onRemove,
   onWrongMove,
@@ -64,44 +63,56 @@ export function Board({
   function getVisualState(piece: ArrowPiece): ArrowVisualState {
     if (exitingId === piece.id) return "exiting";
     if (shakingId === piece.id) return "shaking";
-    if (hintId === piece.id) return "hint";
     if (canMove(piece, board)) return "movable";
     return "blocked";
   }
 
   return (
-    // overflow-visible so the arrow can visually travel outside its cell while animating
-    <div
-      className="grid"
-      style={{
-        gridTemplateColumns: `repeat(${gridSize}, ${cellPx}px)`,
-        gridTemplateRows: `repeat(${gridSize}, ${cellPx}px)`,
-        gap: 0,
-        overflow: "visible",
-      }}
-    >
-      {Array.from({ length: gridSize }, (_, r) =>
-        Array.from({ length: gridSize }, (_, c) => {
-          const piece = board[r]?.[c];
-          return (
-            <div
-              key={`${r}-${c}`}
-              style={{ width: cellPx, height: cellPx, overflow: "visible" }}
-            >
-              {piece && (
-                <Arrow
-                  piece={piece}
-                  visualState={getVisualState(piece)}
-                  travelPx={getTravelPx(piece, gridSize, cellPx)}
-                  cellPx={cellPx}
-                  onClick={() => handleClick(piece)}
-                  onExitEnd={() => handleExitEnd(piece.id)}
-                />
-              )}
-            </div>
-          );
-        }),
-      )}
+    <div className="relative p-3 rounded-2xl" style={{
+      background: "linear-gradient(145deg, rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.4))",
+      border: "1px solid rgba(0, 229, 255, 0.08)",
+      boxShadow: "0 0 40px rgba(0, 229, 255, 0.03), inset 0 1px 0 rgba(255,255,255,0.03)",
+      backdropFilter: "blur(12px)",
+    }}>
+      <div
+        className="grid relative"
+        style={{
+          gridTemplateColumns: `repeat(${gridSize}, ${cellPx}px)`,
+          gridTemplateRows: `repeat(${gridSize}, ${cellPx}px)`,
+          gap: "3px",
+          overflow: "visible",
+        }}
+      >
+        {Array.from({ length: gridSize }, (_, r) =>
+          Array.from({ length: gridSize }, (_, c) => {
+            const piece = board[r]?.[c];
+            return (
+              <div
+                key={`${r}-${c}`}
+                className="rounded-lg"
+                style={{
+                  width: cellPx,
+                  height: cellPx,
+                  overflow: "visible",
+                  backgroundColor: piece ? "transparent" : "rgba(30, 41, 59, 0.3)",
+                  border: piece ? "none" : "1px solid rgba(71, 85, 105, 0.15)",
+                }}
+              >
+                {piece && (
+                  <Arrow
+                    piece={piece}
+                    visualState={getVisualState(piece)}
+                    travelPx={getTravelPx(piece, gridSize, cellPx)}
+                    cellPx={cellPx}
+                    onClick={() => handleClick(piece)}
+                    onExitEnd={() => handleExitEnd(piece.id)}
+                  />
+                )}
+              </div>
+            );
+          }),
+        )}
+      </div>
     </div>
   );
 }

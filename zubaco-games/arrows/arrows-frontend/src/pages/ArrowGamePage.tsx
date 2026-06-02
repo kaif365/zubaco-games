@@ -217,14 +217,12 @@ export default function ArrowGamePage() {
             solved={false}
             onUndo={handleUndo}
             onRestart={handleRestart}
-            onHint={handleHint}
             level={state.levelIndex + 1}
           />
           <div className="mt-6">
             <Board
               board={state.board}
               gridSize={LEVELS[state.levelIndex]?.gridSize || 4}
-              hintId={state.hintId}
               disabled={false}
               onRemove={(id) => handleRemove(id)}
               onWrongMove={handleWrongMove}

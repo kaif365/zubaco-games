@@ -2,14 +2,14 @@
 ║                    ARROWS GAME — TEST CHECKLIST                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
-URL: http://localhost:3007
+URL: http://localhost:5174
 
 ════════════════════════════════════════════════════════════════════════════════════
 A. FIRST LAUNCH / TUTORIAL
 ════════════════════════════════════════════════════════════════════════════════════
 [ ] On first visit, Tutorial screen shows (not menu)
 [ ] Tutorial has 6 steps with icons
-[ ] "Got it! Let's Play" button works → goes to menu
+[ ] "Start" button works → goes to menu
 [ ] On next visit, Tutorial is skipped (goes straight to menu)
 
 ════════════════════════════════════════════════════════════════════════════════════
@@ -39,23 +39,26 @@ C. LEVEL SELECTOR
 D. GAMEPLAY — CORE MECHANICS
 ════════════════════════════════════════════════════════════════════════════════════
 [ ] Board renders with correct grid size (3×3 for level 1)
-[ ] Arrows display with correct directions (L-shape + arrowhead)
+[ ] Board has glassmorphism container (dark gradient, subtle cyan border)
+[ ] Empty cells show subtle dark placeholder
+[ ] Arrows display with straight chevron style (shaft + arrowhead)
+[ ] ALL arrows look identical (same color #94a3b8) — no visual hint
 [ ] Tapping a MOVABLE arrow → arrow animates sliding off the board
-[ ] Tapping a BLOCKED arrow → arrow shakes + life lost
-[ ] Movable arrows are darker color, blocked are lighter
+[ ] Tapping a BLOCKED arrow → arrow shakes red + life lost
 [ ] After removing an arrow, it disappears from board
 [ ] Removing all arrows = WIN
 
 ════════════════════════════════════════════════════════════════════════════════════
 E. GAMEPLAY — HUD / HEADER
 ════════════════════════════════════════════════════════════════════════════════════
-[ ] Level badge shows (e.g., "Lv.1")
+[ ] HUD has glassmorphism panel (dark gradient, cyan border glow)
+[ ] Level badge shows (e.g., "LV 1") with cyan accent
 [ ] Move counter increments on each valid removal
 [ ] Timer counts down from correct time limit
-[ ] Timer turns red + pulses at ≤10 seconds
-[ ] Lives (hearts) display — 6 total
-[ ] Heart grays out on wrong move
-[ ] Combo badge appears at 3+ streak (e.g., "3x Combo!")
+[ ] Timer turns red + glows + pulses at ≤10 seconds
+[ ] Lives shown as red dots (not emoji hearts) — 6 total
+[ ] Dot grays out on wrong move
+[ ] Combo badge appears at 3+ streak (gold "3x")
 [ ] Combo resets on wrong move
 
 ════════════════════════════════════════════════════════════════════════════════════
@@ -64,10 +67,10 @@ F. GAMEPLAY — ACTIONS
 [ ] Undo button disabled when no moves made
 [ ] Undo restores last arrow to board
 [ ] Undo decrements move counter
-[ ] Hint button highlights a correct arrow (red glow)
 [ ] Restart button resets board to initial state
 [ ] Mute button toggles sound on/off
 [ ] Mute icon changes between speaker/muted
+[ ] NO hint button exists (removed — player figures it out)
 
 ════════════════════════════════════════════════════════════════════════════════════
 G. SOUND EFFECTS
@@ -76,7 +79,7 @@ G. SOUND EFFECTS
 [ ] Tapping blocked arrow → "incorrect" buzz plays
 [ ] Level complete → celebratory ascending tone
 [ ] Start level → "start" tone plays
-[ ] Button taps (undo, hint, restart) → "tap" click sound
+[ ] Button taps (undo, restart) → "tap" click sound
 [ ] Muting disables all sounds
 [ ] Unmuting re-enables sounds
 [ ] Sound preference persists across page reload
@@ -140,21 +143,21 @@ L. STATISTICS
 M. SETTINGS
 ════════════════════════════════════════════════════════════════════════════════════
 [ ] Sound toggle switch works (on/off)
-[ ] Theme selector shows dark/light/system buttons
-[ ] Active theme is highlighted in amber
+[ ] NO theme selector (dark-only, removed)
 [ ] Close button returns to menu
 [ ] Sound setting persists across reload
 
 ════════════════════════════════════════════════════════════════════════════════════
 N. ANIMATIONS & VISUAL POLISH
 ════════════════════════════════════════════════════════════════════════════════════
-[ ] Arrow exit animation — snake-like step-by-step slide + fade
-[ ] Arrow shake animation on wrong tap (GSAP)
-[ ] Hint glow pulsates on the hinted arrow
+[ ] Arrow exit animation — snake-like step-by-step slide + scale up + fade
+[ ] Arrow shake animation on wrong tap (GSAP, red color)
 [ ] Confetti falls with rotation + varied speeds
-[ ] Timer pulse animation when low
+[ ] Timer pulse animation + red glow when low
 [ ] Achievement popup bounces in
 [ ] Page transitions feel smooth
+[ ] Background has subtle radial cyan gradient (not flat black)
+[ ] HUD buttons have hover glow + active scale-down
 
 ════════════════════════════════════════════════════════════════════════════════════
 O. RESPONSIVE & EDGE CASES
