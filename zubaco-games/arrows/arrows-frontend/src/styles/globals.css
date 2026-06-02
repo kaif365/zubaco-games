@@ -4,6 +4,39 @@
 
 @layer base {
   :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 6%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 6%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 6%;
+    --primary: 186 100% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 186 100% 42%;
+    --radius: 0.75rem;
+
+    /* Game tokens */
+    --game-bg: 222 47% 6%;
+    --game-surface: 222 40% 10%;
+    --game-accent: 186 100% 50%;
+    --game-text: 210 40% 98%;
+
+    --font-sans: "Outfit", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", monospace;
+    --font-game: "Outfit", system-ui, sans-serif;
+  }
+
+  .dark {
     --background: 222 47% 6%;
     --foreground: 210 40% 98%;
     --card: 222 47% 8%;
@@ -23,17 +56,6 @@
     --border: 217 33% 17%;
     --input: 217 33% 17%;
     --ring: 186 100% 50%;
-    --radius: 0.75rem;
-
-    /* Game tokens */
-    --game-bg: 222 47% 6%;
-    --game-surface: 222 40% 10%;
-    --game-accent: 186 100% 50%;
-    --game-text: 210 40% 98%;
-
-    --font-sans: "Outfit", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", "Fira Code", monospace;
-    --font-game: "Outfit", system-ui, sans-serif;
   }
 }
 
@@ -89,8 +111,6 @@
       "rlig" 1,
       "calt" 1;
     min-height: 100dvh;
-    background: radial-gradient(ellipse at 50% 0%, rgba(0, 229, 255, 0.03) 0%, transparent 60%),
-                linear-gradient(180deg, #0b0f1a 0%, #0f172a 100%);
   }
 
   h1,
@@ -102,6 +122,11 @@
     @apply font-semibold tracking-tight;
     font-family: "Orbitron", sans-serif;
   }
+}
+
+.dark body {
+  background: radial-gradient(ellipse at 50% 0%, rgba(0, 229, 255, 0.03) 0%, transparent 60%),
+              linear-gradient(180deg, #0b0f1a 0%, #0f172a 100%);
 }
 
 @layer utilities {

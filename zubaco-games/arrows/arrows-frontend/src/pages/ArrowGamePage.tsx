@@ -129,7 +129,7 @@ export default function ArrowGamePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col items-center px-4 py-6 overflow-y-auto">
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center px-4 py-6 overflow-y-auto">
       {showConfetti && <Confetti />}
 
       {/* Achievement popup */}
