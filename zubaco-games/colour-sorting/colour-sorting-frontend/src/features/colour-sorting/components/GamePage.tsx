@@ -201,7 +201,9 @@ export function GamePage() {
 
     // Level progression
     if (solved) {
-      setHighestLevel(currentLevel + 1);
+      if (!isDaily) {
+        setHighestLevel(currentLevel + 1);
+      }
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 4000);
 
@@ -360,7 +362,7 @@ export function GamePage() {
               undoCount={undoStack.length}
               onUndo={handleUndo}
               onRestart={restartGame}
-              level={currentLevel}
+              level={isDaily ? undefined : currentLevel}
             />
             <div className="flex flex-wrap justify-center gap-3 mt-6">
               {tubes.map((tube, idx) => (

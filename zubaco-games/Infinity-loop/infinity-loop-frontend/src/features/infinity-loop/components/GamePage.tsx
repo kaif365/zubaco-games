@@ -129,8 +129,10 @@ export function GamePage() {
     else if (moves <= Math.floor(optimalMoves * 1.5)) stars = 2;
 
     // Persist progress
-    setLevelStars(currentLevel.level, stars);
-    setHighestLevel(currentLevel.level + 1);
+    if (!isDailyMode) {
+      setLevelStars(currentLevel.level, stars);
+      setHighestLevel(currentLevel.level + 1);
+    }
 
     // Update stats
     const isFast = currentLevel.timeLimitSeconds
@@ -240,7 +242,7 @@ export function GamePage() {
       {phase === "playing" && (
         <>
           <GameHeader
-            level={currentLevel.level}
+            level={isDailyMode ? undefined : currentLevel.level}
             moves={moves}
             combo={combo}
             timeElapsed={timeElapsed}

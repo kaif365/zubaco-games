@@ -199,9 +199,12 @@ export function GamePage() {
     if (won) {
       setShowConfetti(true);
       if (!muted) play('levelComplete');
-      setHighestLevel(currentLevel + 1);
-      setLevelStars(currentLevel, stars);
-      if (isDaily) completeDailyChallenge(result.score);
+      if (!isDaily) {
+        setHighestLevel(currentLevel + 1);
+        setLevelStars(currentLevel, stars);
+      } else {
+        completeDailyChallenge(result.score);
+      }
     }
 
     // Update stats
@@ -377,7 +380,7 @@ export function GamePage() {
         score={score}
         timeRemaining={timer.timeRemaining}
         totalTime={config.timeLimit}
-        level={currentLevel}
+        level={isDaily ? undefined : currentLevel}
         combo={combo}
         muted={muted}
         onMuteToggle={toggleMute}

@@ -140,8 +140,10 @@ export function GamePage() {
     else if (efficiency >= 70 || score >= currentLevel.nodeCount * 10) stars = 2;
 
     // Persist progress
-    setLevelStars(currentLevel.level, stars);
-    setHighestLevel(currentLevel.level + 1);
+    if (!isDailyMode) {
+      setLevelStars(currentLevel.level, stars);
+      setHighestLevel(currentLevel.level + 1);
+    }
 
     // Update stats
     const isFast = timeElapsed < (currentLevel.timeLimitMs / 1000) * 0.5;
@@ -232,7 +234,7 @@ export function GamePage() {
             timeLeft={timeLeft}
             nodesVisible={visibleNodes.length}
             totalNodes={currentLevel.nodeCount}
-            level={currentLevel.level}
+            level={isDailyMode ? undefined : currentLevel.level}
             combo={combo}
             onPause={() => setIsPaused(true)}
             onMute={() => {/* handled by settings */}}
