@@ -84,54 +84,59 @@ interface LevelSelectorProps {
 
 export function LevelSelector({ onSelect, onBack }: LevelSelectorProps) {
   const { highestUnlocked, stars } = loadData();
+  const labels = ['Beginner', 'Easy', 'Normal', 'Medium', 'Tricky', 'Hard', 'Tough', 'Expert', 'Master', 'Legend'];
 
   return (
-    <div className="flex flex-col min-h-screen p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <button onClick={onBack} className="text-sm text-gray-400 hover:text-white transition-colors">
-          ← Back
-        </button>
-        <h2 className="text-lg font-bold text-white">Select Level</h2>
-        <div className="w-12" />
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-gray-900 to-indigo-950 p-4">
+      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto w-full mt-4">
+        {LEVELS.map((config, i) => {
+          const isCurrent = config.level === highestUnlocked;
+          const isUnlocked = config.level <= highestUnlocked;
+          const levelStars = stars[config.level] ?? 0;
+
+          return (
+            <motion.button
+              key={config.level}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.04 }}
+              onClick={() => isUnlocked && onSelect(config)}
+              disabled={!isUnlocked}
+              className={`relative flex flex-col items-start p-3 rounded-xl border transition-all ${
+                isCurrent
+                  ? 'border-indigo-400 bg-indigo-500/15 shadow-lg shadow-indigo-500/20'
+                  : isUnlocked
+                    ? 'border-gray-600 bg-gray-800/60 hover:border-gray-400'
+                    : 'border-gray-700/50 bg-gray-900/40 opacity-50 cursor-not-allowed'
+              }`}
+            >
+              {isCurrent && (
+                <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
+              )}
+              <span className="text-xs text-gray-400 font-medium">{labels[i]}</span>
+              <span className="text-lg font-bold text-white mt-0.5">Level {config.level}</span>
+              <span className="text-xs text-gray-500 mt-1">
+                {config.groupCount} groups · {config.itemsPerGroup} items · {Math.floor(config.timeLimitMs / 1000)}s
+              </span>
+              <div className="flex gap-0.5 mt-2">
+                {[1, 2, 3].map((s) => (
+                  <span key={s} className={`text-sm ${s <= levelStars ? 'text-amber-400' : 'text-gray-600'}`}>★</span>
+                ))}
+              </div>
+              {!isUnlocked && (
+                <span className="absolute inset-0 flex items-center justify-center text-2xl">🔒</span>
+              )}
+            </motion.button>
+          );
+        })}
       </div>
 
-      <div className="flex-1 flex justify-center">
-        <div className="grid grid-cols-5 gap-3 max-w-sm w-full content-start">
-          {LEVELS.map((config, i) => {
-            const unlocked = config.level <= highestUnlocked;
-            const levelStars = stars[config.level] ?? 0;
-            return (
-              <motion.button
-                key={config.level}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.03 }}
-                whileTap={unlocked ? { scale: 0.9 } : undefined}
-                onClick={() => unlocked && onSelect(config)}
-                disabled={!unlocked}
-                className={`flex flex-col items-center justify-center rounded-xl aspect-square border transition-all ${
-                  unlocked
-                    ? 'border-indigo-500/40 bg-gray-800/80 hover:bg-gray-700/80'
-                    : 'border-gray-700/30 bg-gray-900/50 opacity-50 cursor-default'
-                }`}
-              >
-                {unlocked ? (
-                  <>
-                    <span className="text-lg font-bold text-white">{config.level}</span>
-                    <div className="mt-1 flex gap-0.5">
-                      {[1, 2, 3].map((s) => (
-                        <span key={s} className={`text-xs ${s <= levelStars ? 'text-amber-400' : 'text-gray-600'}`}>★</span>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <span className="text-lg text-gray-600">🔒</span>
-                )}
-              </motion.button>
-            );
-          })}
-        </div>
-      </div>
+      <button
+        onClick={onBack}
+        className="mt-6 mx-auto text-sm text-gray-400 hover:text-white transition-colors"
+      >
+        ← Back to Menu
+      </button>
     </div>
   );
 }

@@ -50,6 +50,8 @@ function saveLevels(levels: LevelData[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(levels));
 }
 
+const DIFFICULTY_LABELS = ['Beginner', 'Easy', 'Normal', 'Medium', 'Tricky', 'Hard', 'Tough', 'Expert', 'Master', 'Legend'];
+
 export function LevelSelector({ onBack, onSelectLevel }: LevelSelectorProps) {
   const [levels, setLevels] = useState<LevelData[]>(loadLevels);
 
@@ -57,50 +59,81 @@ export function LevelSelector({ onBack, onSelectLevel }: LevelSelectorProps) {
     saveLevels(levels);
   }, [levels]);
 
+  const currentLevel = Math.max(...levels.filter(l => l.unlocked).map(l => l.level));
+
   return (
-    <div className="min-h-screen flex flex-col p-6 bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950">
-      <button onClick={onBack} className="text-gray-400 hover:text-white text-sm mb-6 self-start">
-        ← Back
+    <motion.div
+      className="flex flex-col items-center gap-6 px-4 py-6"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <h2 className="text-2xl font-bold text-white">Select Level</h2>
+      <p className="text-sm text-gray-400 text-center">Read fast, type the answer — less time each level!</p>
+
+      <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
+        {levels.map((lvl, idx) => {
+          const isCurrent = lvl.level === currentLevel;
+          const config = LEVEL_CONFIGS[idx];
+          return (
+            <motion.button
+              key={lvl.level}
+              onClick={() => lvl.unlocked && onSelectLevel(lvl.level)}
+              disabled={!lvl.unlocked}
+              className={`relative p-4 rounded-xl border-2 text-left transition-all
+                ${isCurrent
+                  ? 'border-indigo-400 bg-indigo-500/15 shadow-lg shadow-indigo-500/20'
+                  : lvl.unlocked
+                  ? 'border-gray-600 bg-gray-800/60 hover:border-gray-400'
+                  : 'border-gray-700/50 bg-gray-900/40 opacity-50 cursor-not-allowed'
+                }`}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: idx * 0.05 }}
+              whileHover={lvl.unlocked ? { scale: 1.03 } : {}}
+              whileTap={lvl.unlocked ? { scale: 0.97 } : {}}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-lg font-bold ${lvl.unlocked ? 'text-white' : 'text-gray-600'}`}>
+                  {lvl.level}
+                </span>
+                {!lvl.unlocked && (
+                  <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                )}
+                {lvl.unlocked && (
+                  <div className="flex gap-0.5">
+                    {[1, 2, 3].map((s) => (
+                      <span key={s} className={`text-xs ${s <= lvl.stars ? 'text-yellow-400' : 'text-gray-600'}`}>★</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className={`text-xs mt-1 ${lvl.unlocked ? 'text-gray-400' : 'text-gray-600'}`}>
+                {DIFFICULTY_LABELS[idx]}
+              </div>
+              <div className={`text-xs mt-0.5 ${lvl.unlocked ? 'text-gray-500' : 'text-gray-700'}`}>
+                Flash: {config.flashDuration} · Answer: {config.answerTime}
+              </div>
+              {isCurrent && (
+                <motion.div
+                  className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-400 rounded-full"
+                  animate={{ scale: [1, 1.3, 1] }}
+                  transition={{ repeat: Infinity, duration: 1.5 }}
+                />
+              )}
+            </motion.button>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={onBack}
+        className="mt-2 text-sm text-gray-400 hover:text-white transition-colors"
+      >
+        ← Back to Menu
       </button>
-
-      <h2 className="text-2xl font-bold text-white text-center mb-6">Select Level</h2>
-
-      <div className="grid grid-cols-5 gap-3 max-w-md mx-auto w-full">
-        {levels.map((lvl, i) => (
-          <motion.button
-            key={lvl.level}
-            onClick={() => lvl.unlocked && onSelectLevel(lvl.level)}
-            disabled={!lvl.unlocked}
-            className={`relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${
-              lvl.unlocked
-                ? 'border-indigo-500/50 bg-indigo-500/10 hover:bg-indigo-500/20 cursor-pointer'
-                : 'border-gray-700/50 bg-gray-800/30 opacity-50 cursor-not-allowed'
-            }`}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.04, duration: 0.25 }}
-          >
-            {lvl.unlocked ? (
-              <>
-                <span className="text-lg font-bold text-white">{lvl.level}</span>
-                <span className="text-[10px] text-gray-400">{lvl.flashDuration}</span>
-                <div className="flex gap-0.5 mt-1">
-                  {[1, 2, 3].map((s) => (
-                    <span key={s} className={`text-xs ${s <= lvl.stars ? 'text-yellow-400' : 'text-gray-600'}`}>★</span>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <span className="text-lg">🔒</span>
-            )}
-          </motion.button>
-        ))}
-      </div>
-
-      <div className="mt-6 text-center text-xs text-gray-500">
-        Complete a level to unlock the next. Less time to read & answer!
-      </div>
-    </div>
+    </motion.div>
   );
 }
 

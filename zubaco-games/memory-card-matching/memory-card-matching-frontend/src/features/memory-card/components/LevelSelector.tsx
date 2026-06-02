@@ -84,63 +84,59 @@ interface LevelSelectorProps {
 
 export function LevelSelector({ onSelect, onBack }: LevelSelectorProps) {
   const { highestUnlocked, stars } = loadData();
+  const labels = ['Beginner', 'Easy', 'Normal', 'Medium', 'Tricky', 'Hard', 'Tough', 'Expert', 'Master', 'Legend'];
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 40,
-      display: 'flex', flexDirection: 'column',
-      background: 'linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%)', padding: '24px',
-    }}>
-      <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.85rem' }}>
-          ← Back
-        </button>
-        <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>Select Level</h2>
-        <div style={{ width: '50px' }} />
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-gray-900 to-indigo-950 p-4">
+      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto w-full mt-4">
+        {LEVELS.map((config, i) => {
+          const isCurrent = config.level === highestUnlocked;
+          const isUnlocked = config.level <= highestUnlocked;
+          const levelStars = stars[config.level] ?? 0;
+
+          return (
+            <motion.button
+              key={config.level}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.04 }}
+              onClick={() => isUnlocked && onSelect(config)}
+              disabled={!isUnlocked}
+              className={`relative flex flex-col items-start p-3 rounded-xl border transition-all ${
+                isCurrent
+                  ? 'border-indigo-400 bg-indigo-500/15 shadow-lg shadow-indigo-500/20'
+                  : isUnlocked
+                    ? 'border-gray-600 bg-gray-800/60 hover:border-gray-400'
+                    : 'border-gray-700/50 bg-gray-900/40 opacity-50 cursor-not-allowed'
+              }`}
+            >
+              {isCurrent && (
+                <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
+              )}
+              <span className="text-xs text-gray-400 font-medium">{labels[i]}</span>
+              <span className="text-lg font-bold text-white mt-0.5">Level {config.level}</span>
+              <span className="text-xs text-gray-500 mt-1">
+                {config.gridRows}×{config.gridColumns} · {config.pairs} pairs · {config.previewSec}s preview
+              </span>
+              <div className="flex gap-0.5 mt-2">
+                {[1, 2, 3].map((s) => (
+                  <span key={s} className={`text-sm ${s <= levelStars ? 'text-amber-400' : 'text-gray-600'}`}>★</span>
+                ))}
+              </div>
+              {!isUnlocked && (
+                <span className="absolute inset-0 flex items-center justify-center text-2xl">🔒</span>
+              )}
+            </motion.button>
+          );
+        })}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center' }}>
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px',
-          maxWidth: '320px', width: '100%', alignContent: 'start',
-        }}>
-          {LEVELS.map((config, i) => {
-            const unlocked = config.level <= highestUnlocked;
-            const levelStars = stars[config.level] ?? 0;
-            return (
-              <motion.button
-                key={config.level}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.03 }}
-                whileTap={unlocked ? { scale: 0.9 } : undefined}
-                onClick={() => unlocked && onSelect(config)}
-                disabled={!unlocked}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  borderRadius: '12px', aspectRatio: '1', border: unlocked ? '1px solid rgba(139,92,246,0.4)' : '1px solid rgba(51,65,85,0.3)',
-                  background: unlocked ? 'rgba(30,27,75,0.8)' : 'rgba(15,23,42,0.5)',
-                  opacity: unlocked ? 1 : 0.5, cursor: unlocked ? 'pointer' : 'default',
-                  padding: '8px',
-                }}
-              >
-                {unlocked ? (
-                  <>
-                    <span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>{config.level}</span>
-                    <div style={{ display: 'flex', gap: '2px', marginTop: '4px' }}>
-                      {[1, 2, 3].map((s) => (
-                        <span key={s} style={{ fontSize: '0.6rem', color: s <= levelStars ? '#fbbf24' : '#475569' }}>★</span>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <span style={{ fontSize: '1.1rem', color: '#475569' }}>🔒</span>
-                )}
-              </motion.button>
-            );
-          })}
-        </div>
-      </div>
+      <button
+        onClick={onBack}
+        className="mt-6 mx-auto text-sm text-gray-400 hover:text-white transition-colors"
+      >
+        ← Back to Menu
+      </button>
     </div>
   );
 }
