@@ -6,7 +6,7 @@ import { LevelSelector } from './LevelSelector';
 import { Settings } from './Settings';
 import { StatsScreen } from './StatsScreen';
 import { Achievements } from './Achievements';
-import { DailyChallenge } from './DailyChallenge';
+import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { InstructionScreen } from '../../../components/InstructionScreen';
 import { ResultScreen } from '../../../components/ResultScreen';
 import { useMemoryGroups } from '../hooks/useMemoryGroups';
@@ -22,6 +22,7 @@ export function GamePage() {
   const { startGame: startSession, submitGame } = useGameSession();
   const [_config, setConfig] = useState(DEFAULT_CONFIG);
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
 
   const handleStart = async () => {
     const res = await startSession('memory-groups-stage-1');
@@ -34,7 +35,7 @@ export function GamePage() {
     await submitGame(submittedGroups, score);
   };
 
-  useEffect(() => { if (phase === 'ended') { handleSubmitFinal(); } }, [phase]);
+  useEffect(() => { if (phase === 'ended') { handleSubmitFinal(); if (isDaily) markDailyComplete(); } }, [phase]);
 
   const usedWords = submittedGroups.flat();
   const secs = Math.ceil(timeLeft / 1000);
@@ -58,7 +59,7 @@ export function GamePage() {
   }
 
   if (appPhase === 'daily') {
-    return <DailyChallenge onPlay={() => { setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
+    return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
   }
 
   if (appPhase === 'achievements') {
@@ -116,7 +117,7 @@ export function GamePage() {
           )}
 
           {phase === 'ended' && (
-            <ResultScreen score={score} success={true} onReplay={() => setAppPhase('menu')} />
+            <ResultScreen score={score} success={true} onReplay={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />
           )}
         </>
       )}

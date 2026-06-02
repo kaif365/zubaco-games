@@ -7,7 +7,7 @@ import { LevelSelector } from './LevelSelector';
 import { Settings } from './Settings';
 import { StatsScreen } from './StatsScreen';
 import { Achievements } from './Achievements';
-import { DailyChallenge } from './DailyChallenge';
+import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { InstructionScreen } from '../../../components/InstructionScreen';
 import { ResultScreen } from '../../../components/ResultScreen';
 import type { GameConfig, CellColor } from '../../../types/game';
@@ -22,6 +22,7 @@ export function GamePage() {
   const { phase, round, score, perfectRounds, cellColors, highlightIdx, timeLeft, startGame: startEngine, tapCell } = usePatternGame();
   const { startGame: startSession, submitGame } = useGameSession();
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
 
   const handleStart = async () => {
     const res = await startSession('pattern-survival-stage-1');
@@ -30,7 +31,7 @@ export function GamePage() {
   };
 
   const handleSubmit = async () => { await submitGame(round, perfectRounds, score); };
-  useEffect(() => { if (phase === 'ended') { handleSubmit(); } }, [phase]);
+  useEffect(() => { if (phase === 'ended') { handleSubmit(); if (isDaily) markDailyComplete(); } }, [phase]);
   const secs = Math.ceil(timeLeft / 1000);
 
   // ─── Menu Screens ──────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ export function GamePage() {
     );
   }
   if (appPhase === 'levels') return <LevelSelector onSelect={() => { setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
-  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
+  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;
@@ -78,7 +79,7 @@ export function GamePage() {
             ))}
           </div>
           {phase === 'ended' && (
-            <ResultScreen score={score} success={true} onReplay={() => setAppPhase('menu')} />
+            <ResultScreen score={score} success={true} onReplay={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />
           )}
         </>
       )}

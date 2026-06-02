@@ -40,6 +40,7 @@ import { InstructionsLobbyScreen } from '@/features/flow-puzzle/components/Instr
 import { PlayingStageView } from '@/features/flow-puzzle/components/PlayingStageView';
 import { DemoPlayView } from '@/features/flow-puzzle/components/DemoPlayView';
 import { GameResultOverlay } from '@/features/flow-puzzle/components/GameResultOverlay';
+import { markDailyComplete } from '@/features/flow-puzzle/components/DailyChallenge';
 import { useDemoLevels } from '@/hooks/useDemoLevels';
 import { AuthGateScreen } from '@/components/shared/AuthGateScreen';
 import { GameClearModal } from '@/components/shared/GameClearModal';
@@ -52,6 +53,7 @@ import type { StageId } from '@micro-screens/src';
 
 interface FlowPuzzleGameShellProps {
   onExit?: () => void;
+  isDaily?: boolean;
 }
 
 type StageState = 'start' | 'demo' | 'playing' | 'end';
@@ -62,7 +64,7 @@ type StageState = 'start' | 'demo' | 'playing' | 'end';
  *
  * @param props Component props
  */
-export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProps) {
+export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGameShellProps) {
   const { t } = useTranslation();
   const { showApiError, clearApiError } = useApiError();
   const { gameConfig } = useGameInit();
@@ -524,6 +526,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
           setFinalScore(null);
           setIsLoadingFinalScore(true);
           setIsGameSuccess(true);
+          if (isDaily) markDailyComplete();
           setCompletedRounds(totalActualRoundsEarly);
           setStageState('end');
           if (sid) {

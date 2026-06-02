@@ -17,6 +17,7 @@ import {
   normalizeStageId,
 } from "@/utils/stage/stage-utils";
 import { paths } from "@app/router/routes";
+import { markDailyComplete } from "@/features/maze-navigation/components/DailyChallenge";
 
 export default function ResultPage() {
   const navigate = useNavigate();
@@ -32,6 +33,10 @@ export default function ResultPage() {
   useEffect(() => {
     if (result) {
       hadResultRef.current = true;
+      if (result.variant !== 'failure' && sessionStorage.getItem('maze_daily_active') === '1') {
+        sessionStorage.removeItem('maze_daily_active');
+        markDailyComplete();
+      }
       return;
     }
     if (!hadResultRef.current) {

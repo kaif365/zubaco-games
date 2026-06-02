@@ -83,7 +83,7 @@ export default function HomePage() {
       return <LevelSelector onSelect={() => handleStartGame()} onBack={() => setPhase('menu')} />;
 
     case 'daily':
-      return <DailyChallenge onPlay={handleStartGame} onBack={() => setPhase('menu')} />;
+      return <DailyChallenge onPlay={() => { sessionStorage.setItem('maze_daily_active', '1'); handleStartGame(); }} onBack={() => setPhase('menu')} />;
 
     case 'achievements':
       return <Achievements onBack={() => setPhase('menu')} />;

@@ -28,6 +28,21 @@ function todayKey(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+export function isDailyCompleted(): boolean {
+  const state = loadDaily();
+  return state.lastCompleted === todayKey();
+}
+
+export function markDailyComplete(score?: number): void {
+  const state = loadDaily();
+  const today = todayKey();
+  if (state.lastCompleted === today) return;
+  state.lastCompleted = today;
+  state.currentStreak += 1;
+  state.bestStreak = Math.max(state.bestStreak, state.currentStreak);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
 function getDailyLevel(): number {
   const now = new Date();
   return ((now.getFullYear() * 366 + now.getMonth() * 31 + now.getDate()) % 20) + 1;

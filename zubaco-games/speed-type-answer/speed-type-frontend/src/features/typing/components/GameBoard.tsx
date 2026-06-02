@@ -4,21 +4,26 @@ import { QuestionFlash } from './QuestionFlash';
 import { AnswerInput } from './AnswerInput';
 import { InstructionScreen } from '../../../components/InstructionScreen';
 import { ResultScreen } from '../../../components/ResultScreen';
+import { markDailyComplete } from './DailyChallenge';
 
 interface GameBoardProps {
   onReturnToMenu?: () => void;
+  isDaily?: boolean;
 }
 
-export function GameBoard({ onReturnToMenu }: GameBoardProps) {
+export function GameBoard({ onReturnToMenu, isDaily }: GameBoardProps) {
   const { phase, config, currentQuestion, questionIndex, score, loading, result, startGame, handleTypedAnswer } = useTypingGame();
 
   if (phase === 'idle') return (
     <InstructionScreen onStart={startGame} loading={loading} />
   );
 
-  if (phase === 'finished') return (
-    <ResultScreen score={result?.finalScore ?? score} success={true} onReplay={onReturnToMenu ?? startGame} />
-  );
+  if (phase === 'finished') {
+    if (isDaily) markDailyComplete();
+    return (
+      <ResultScreen score={result?.finalScore ?? score} success={true} onReplay={onReturnToMenu ?? startGame} isDaily={isDaily} />
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-4">

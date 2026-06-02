@@ -13,7 +13,7 @@ import { LevelSelector } from './LevelSelector';
 import { Settings } from './Settings';
 import { StatsScreen } from './StatsScreen';
 import { Achievements } from './Achievements';
-import { DailyChallenge } from './DailyChallenge';
+import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { InstructionScreen } from '@/app/components/InstructionScreen';
 import { ResultScreen } from '@/app/components/ResultScreen';
 
@@ -27,6 +27,7 @@ export function GamePage() {
   const [seed, setSeed] = useState<number | null>(null);
   const [serverScore, setServerScore] = useState<number | undefined>(undefined);
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
 
   const {
     phase,
@@ -93,7 +94,8 @@ export function GamePage() {
     if (response) {
       setServerScore(response.finalScore);
     }
-  }, [submitPlacements, submitResult, sessionId]);
+    if (isDaily) markDailyComplete();
+  }, [submitPlacements, submitResult, sessionId, isDaily]);
 
   // Auto-submit when time runs out (guarded to fire only once)
   const autoSubmittedRef = useRef(false);
@@ -118,7 +120,7 @@ export function GamePage() {
     );
   }
   if (appPhase === 'levels') return <LevelSelector onSelect={() => { setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
-  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
+  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;
@@ -187,7 +189,7 @@ export function GamePage() {
 
         {/* Results */}
         {phase === 'submitted' && score && (
-          <ResultScreen score={serverScore ?? score.finalScore} success={true} onReplay={() => setAppPhase('menu')} />
+          <ResultScreen score={serverScore ?? score.finalScore} success={true} onReplay={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />
         )}
       </div>
     </div>

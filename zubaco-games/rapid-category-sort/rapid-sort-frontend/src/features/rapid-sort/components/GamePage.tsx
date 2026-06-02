@@ -13,7 +13,7 @@ import { LevelSelector } from './LevelSelector';
 import { Settings } from './Settings';
 import { StatsScreen } from './StatsScreen';
 import { Achievements } from './Achievements';
-import { DailyChallenge } from './DailyChallenge';
+import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { PauseDialog } from './PauseDialog';
 import { Confetti } from './Confetti';
 
@@ -21,6 +21,7 @@ const DEFAULT_STAGE_ID = '00000000-0000-0000-0000-000000000001';
 
 export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
   const { startGame: startSession, submitResult, sessionId, loading, error } = useGameSession();
   const [config, setConfig] = useState<StageConfig | null>(null);
   const [seed, setSeed] = useState<number | null>(null);
@@ -65,6 +66,7 @@ export function GamePage() {
       submitResult(sessionId, answers, score.finalScore).then((resp) => {
         if (resp) setServerScore(resp.finalScore);
       });
+      if (isDaily) markDailyComplete();
     }
   }, [phase]);
 
@@ -82,7 +84,7 @@ export function GamePage() {
   // --- App Phase Screens ---
   if (appPhase === 'menu') return <MenuScreen onNavigate={setAppPhase} />;
   if (appPhase === 'levels') return <LevelSelector onBack={() => setAppPhase('menu')} onSelectLevel={() => setAppPhase('game')} />;
-  if (appPhase === 'daily') return <DailyChallenge onBack={() => setAppPhase('menu')} onStartDaily={() => setAppPhase('game')} />;
+  if (appPhase === 'daily') return <DailyChallenge onBack={() => setAppPhase('menu')} onStartDaily={() => { setIsDaily(true); setAppPhase('game'); }} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;
@@ -146,7 +148,7 @@ export function GamePage() {
       {phase === 'finished' && score && (
         <div className="h-full flex items-center justify-center">
           <Confetti active={score.correctCount > 8} />
-          <ResultScreen score={serverScore ?? score.finalScore} success={true} onReplay={() => setAppPhase('menu')} />
+              <ResultScreen score={serverScore ?? score.finalScore} success={true} onReplay={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />
         </div>
       )}
     </div>

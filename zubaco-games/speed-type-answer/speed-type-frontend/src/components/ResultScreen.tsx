@@ -7,9 +7,10 @@ interface ResultScreenProps {
   success: boolean;
   stats?: { label: string; value: string | number }[];
   onReplay?: () => void;
+  isDaily?: boolean;
 }
 
-export function ResultScreen({ score, maxScore, success, stats, onReplay }: ResultScreenProps) {
+export function ResultScreen({ score, maxScore, success, stats, onReplay, isDaily }: ResultScreenProps) {
   const { t } = useTranslation();
 
   return (
@@ -44,7 +45,7 @@ export function ResultScreen({ score, maxScore, success, stats, onReplay }: Resu
         animate={{ opacity: 1 }}
         transition={{ delay: 0.2 }}
       >
-        {success ? t('game.solved', 'Well Done!') : t('game.gameOver')}
+        {success ? (isDaily ? 'Daily Complete!' : t('game.solved', 'Well Done!')) : t('game.gameOver')}
       </motion.h2>
 
       {/* Score display */}

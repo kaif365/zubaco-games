@@ -263,8 +263,8 @@ export function GamePage() {
         <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-slate-950 p-6">
           <div className="text-center">
             <div className="mb-4 text-5xl">🎉</div>
-            <h2 className="text-2xl font-bold text-white mb-2">Route Complete!</h2>
-            <p className="text-slate-400 mb-2">Level {currentLevel.level}</p>
+            <h2 className="text-2xl font-bold text-white mb-2">{isDailyMode ? 'Daily Complete!' : 'Route Complete!'}</h2>
+            {!isDailyMode && <p className="text-slate-400 mb-2">Level {currentLevel.level}</p>}
             <div className="mb-4 flex justify-center gap-1">
               {[1, 2, 3].map((s) => (
                 <span key={s} className={`text-2xl ${s <= getLevelStars(currentLevel.level) ? 'text-amber-400' : 'text-slate-600'}`}>★</span>
@@ -274,7 +274,7 @@ export function GamePage() {
               {edges.length} edges • Score: {score} • {formatTime(timeElapsed)}
             </p>
             <div className="space-y-2 max-w-xs mx-auto">
-              {currentLevel.level < LEVELS.length && (
+              {currentLevel.level < LEVELS.length && !isDailyMode && (
                 <button onClick={handleNextLevel} className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white">
                   Next Level →
                 </button>

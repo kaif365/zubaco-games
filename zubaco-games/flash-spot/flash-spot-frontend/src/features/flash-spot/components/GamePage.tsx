@@ -299,7 +299,7 @@ export function GamePage() {
           className="w-full max-w-sm rounded-2xl bg-white/5 p-6 text-center"
         >
           <h2 className={`text-2xl font-bold ${won ? 'text-emerald-400' : 'text-red-400'}`}>
-            {won ? 'Level Complete!' : 'Time\'s Up!'}
+            {won ? (isDaily ? 'Daily Complete!' : 'Level Complete!') : 'Time\'s Up!'}
           </h2>
 
           <div className="mt-2 text-xs text-yellow-400">
@@ -349,7 +349,7 @@ export function GamePage() {
             >
               Menu
             </button>
-            {currentLevel < 10 && won && (
+            {currentLevel < 10 && won && !isDaily && (
               <button
                 onClick={() => startLevel(currentLevel + 1)}
                 className="flex-1 rounded-xl bg-game-accent py-3 text-sm font-semibold text-white"

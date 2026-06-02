@@ -10,7 +10,7 @@ import { LevelSelector } from './LevelSelector';
 import { Settings } from './Settings';
 import { StatsScreen } from './StatsScreen';
 import { Achievements } from './Achievements';
-import { DailyChallenge } from './DailyChallenge';
+import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { PauseDialog } from './PauseDialog';
 import { Confetti } from './Confetti';
 import { InstructionScreen } from '@/components/InstructionScreen';
@@ -32,6 +32,7 @@ export function GamePage() {
   const [seed, setSeed] = useState<number | null>(null);
   const [gameSessionId, setGameSessionId] = useState<string | null>(null);
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
   const { loading, error, startGame: startSession, submitResult } = useGameSession();
 
   const game = useGrid(config, seed);
@@ -54,8 +55,9 @@ export function GamePage() {
   useEffect(() => {
     if (game.phase === 'finished' && game.score && gameSessionId) {
       submitResult(gameSessionId, game.answers, game.score.finalScore);
+      if (isDaily) markDailyComplete();
     }
-  }, [game.phase, game.score, gameSessionId, game.answers, submitResult]);
+  }, [game.phase, game.score, gameSessionId, game.answers, submitResult, isDaily]);
 
   // ─── Menu Screens ──────────────────────────────────────────────────────
   if (appPhase === 'menu') {
@@ -71,7 +73,7 @@ export function GamePage() {
     );
   }
   if (appPhase === 'levels') return <LevelSelector onSelect={() => { setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
-  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
+  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;
@@ -84,7 +86,7 @@ export function GamePage() {
   }
 
   if (game.phase === 'finished' && game.score) {
-    return <ResultScreen score={game.score.finalScore} success={true} onReplay={() => setAppPhase('menu')} />;
+    return <ResultScreen score={game.score.finalScore} success={true} onReplay={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />;
   }
 
   const totalCells = config.gridSize * config.gridSize;

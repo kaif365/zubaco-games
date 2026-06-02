@@ -5,6 +5,7 @@ import { type CSSProperties, useCallback, useEffect, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import { appConfig } from '@/app/config/appConfig';
+import { markDailyComplete } from '@features/game/components/DailyChallenge';
 import { OfflineStatusModal } from '@/components/shared/OfflineStatusModal';
 import { Alert } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -60,7 +61,7 @@ function hexToRgb(hex: string): string {
   return `${String(r)}, ${String(g)}, ${String(b)}`;
 }
 
-export default function GameContainer() {
+export default function GameContainer({ isDaily }: { isDaily?: boolean } = {}) {
   const { t } = useTranslation();
   const auth = useAuth();
   const game = useGameSession();
@@ -448,6 +449,7 @@ export default function GameContainer() {
     const totalGames = scoreboard.rounds.length;
 
     if (isSuccess) {
+      if (isDaily) markDailyComplete();
       return (
         <GameSuccessScreen
           stage={stageNo}

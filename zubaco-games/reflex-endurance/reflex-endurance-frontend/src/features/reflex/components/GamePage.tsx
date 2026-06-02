@@ -9,7 +9,7 @@ import { LevelSelector } from './LevelSelector';
 import { Settings } from './Settings';
 import { StatsScreen } from './StatsScreen';
 import { Achievements } from './Achievements';
-import { DailyChallenge } from './DailyChallenge';
+import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { PauseDialog } from './PauseDialog';
 import { Confetti } from './Confetti';
 import type { GameConfig } from '../../../types/game';
@@ -20,6 +20,7 @@ const COLOR_MAP = { green: 'bg-green-500', red: 'bg-red-500', blue: 'bg-blue-500
 
 export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
   const { circles, taps, status, score, wrongTaps, timeLeft, startGame: startEngine, tapCircle } = useReflexGame();
   const { startGame: startSession, submitGame } = useGameSession();
 
@@ -33,12 +34,12 @@ export function GamePage() {
     await submitGame(taps, score);
   };
 
-  useEffect(() => { if (status === 'ended') { handleEnd(); } }, [status]);
+  useEffect(() => { if (status === 'ended') { handleEnd(); if (isDaily) markDailyComplete(); } }, [status]);
 
   // --- App Phase Screens ---
   if (appPhase === 'menu') return <MenuScreen onNavigate={setAppPhase} />;
   if (appPhase === 'levels') return <LevelSelector onBack={() => setAppPhase('menu')} onSelectLevel={() => setAppPhase('game')} />;
-  if (appPhase === 'daily') return <DailyChallenge onBack={() => setAppPhase('menu')} onStartDaily={() => setAppPhase('game')} />;
+  if (appPhase === 'daily') return <DailyChallenge onBack={() => setAppPhase('menu')} onStartDaily={() => { setIsDaily(true); setAppPhase('game'); }} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;
@@ -81,7 +82,7 @@ export function GamePage() {
             {status === 'ended' && (
               <>
                 <Confetti active={score >= 20} />
-                <ResultScreen score={score} success={true} onReplay={() => setAppPhase('menu')} />
+                <ResultScreen score={score} success={true} onReplay={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />
               </>
             )}
           </div>

@@ -15,11 +15,12 @@ const GameContainer = lazy(() => import('@features/game/components/GameContainer
 
 export default function SlidingPuzzlePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
-    const handler = () => setAppPhase('menu');
+    const handler = () => { setIsDaily(false); setAppPhase('menu'); };
     window.addEventListener('sliding-puzzle:return-to-menu', handler);
     return () => window.removeEventListener('sliding-puzzle:return-to-menu', handler);
   }, []);
@@ -37,6 +38,7 @@ export default function SlidingPuzzlePage() {
   }, []);
 
   const handleStartDaily = useCallback(() => {
+    setIsDaily(true);
     setAppPhase('game');
   }, []);
 
@@ -72,7 +74,7 @@ export default function SlidingPuzzlePage() {
         return (
           <ErrorBoundary>
             <Suspense fallback={<PageLoader />}>
-              <GameContainer />
+              <GameContainer isDaily={isDaily} />
             </Suspense>
           </ErrorBoundary>
         );

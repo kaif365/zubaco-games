@@ -4,13 +4,14 @@ import { LevelSelector } from '../features/typing/components/LevelSelector';
 import { Settings } from '../features/typing/components/Settings';
 import { StatsScreen } from '../features/typing/components/StatsScreen';
 import { Achievements } from '../features/typing/components/Achievements';
-import { DailyChallenge } from '../features/typing/components/DailyChallenge';
+import { DailyChallenge, markDailyComplete } from '../features/typing/components/DailyChallenge';
 import { PauseDialog } from '../features/typing/components/PauseDialog';
 import { Confetti } from '../features/typing/components/Confetti';
 import { GameBoard } from '../features/typing/components/GameBoard';
 
 export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
@@ -27,6 +28,7 @@ export function GamePage() {
   }, []);
 
   const handleStartDaily = useCallback(() => {
+    setIsDaily(true);
     setAppPhase('game');
   }, []);
 
@@ -59,7 +61,7 @@ export function GamePage() {
       case 'daily':
         return <DailyChallenge onBack={handleBackToMenu} onStartDaily={handleStartDaily} />;
       case 'game':
-        return <GameBoard onReturnToMenu={handleBackToMenu} />;
+        return <GameBoard onReturnToMenu={() => { setIsDaily(false); handleBackToMenu(); }} isDaily={isDaily} />;
       default:
         return <MenuScreen onNavigate={handleNavigate} />;
     }

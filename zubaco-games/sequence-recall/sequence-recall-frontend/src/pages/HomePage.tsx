@@ -14,6 +14,7 @@ import '@styles/sequence-recall.css';
 
 export default function HomePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
@@ -43,6 +44,7 @@ export default function HomePage() {
   }, []);
 
   const handleStartDaily = useCallback((_seed: number) => {
+    setIsDaily(true);
     setAppPhase('game');
   }, []);
 
@@ -79,7 +81,7 @@ export default function HomePage() {
       case 'daily':
         return <DailyChallenge onBack={handleBackToMenu} onStartDaily={handleStartDaily} />;
       case 'game':
-        return <SequenceRecallGameShell />;
+        return <SequenceRecallGameShell isDaily={isDaily} />;
       default:
         return <MenuScreen onNavigate={handleNavigate} />;
     }

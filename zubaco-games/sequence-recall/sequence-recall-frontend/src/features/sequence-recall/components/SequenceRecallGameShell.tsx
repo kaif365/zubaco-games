@@ -14,6 +14,7 @@ import { getStageTheme } from '@/constants/stageTheme';
 import { STORAGE_KEYS } from '@/constants/storageKeys';
 import { gameApi } from '@/features/sequence-recall/api/game.api';
 import { GameResultOverlay } from '@/features/sequence-recall/components/GameResultOverlay';
+import { markDailyComplete } from '@/features/sequence-recall/components/DailyChallenge';
 import { InstructionsLobbyScreen } from '@/features/sequence-recall/components/InstructionsLobbyScreen';
 import { SequenceBoard } from '@/features/sequence-recall/components/SequenceBoard';
 import { SequenceDots } from '@/features/sequence-recall/components/SequenceDots';
@@ -168,7 +169,7 @@ function isPendingGameFinalization(value: unknown): value is PendingGameFinaliza
  *
  * @returns {JSX.Element} The rendered element.
  */
-export function SequenceRecallGameShell() {
+export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {}) {
   const audio = useAudio();
   const { t } = useTranslation();
   const { showApiError, clearApiError } = useApiError();
@@ -999,6 +1000,7 @@ export function SequenceRecallGameShell() {
     if (state?.phase !== GAME_PHASE.GAME_OVER && state?.phase !== GAME_PHASE.SESSION_COMPLETE)
       return;
     const reason = state.phase === GAME_PHASE.SESSION_COMPLETE ? 'COMPLETED' : 'TIME_UP';
+    if (reason === 'COMPLETED' && isDaily) markDailyComplete();
     const submitKey = `${socketSession.gameSessionId}:${reason}`;
     if (gameOverSubmitKeyRef.current === submitKey) return;
     gameOverSubmitKeyRef.current = submitKey;

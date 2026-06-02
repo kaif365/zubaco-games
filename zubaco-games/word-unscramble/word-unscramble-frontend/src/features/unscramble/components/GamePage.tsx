@@ -9,7 +9,7 @@ import { InstructionScreen } from '@/components/InstructionScreen';
 import { ResultScreen } from '@/components/ResultScreen';
 import { MenuScreen } from './MenuScreen';
 import { LevelSelector } from './LevelSelector';
-import { DailyChallenge } from './DailyChallenge';
+import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { Achievements } from './Achievements';
 import { StatsScreen } from './StatsScreen';
 import { Settings } from './Settings';
@@ -27,7 +27,7 @@ const DEFAULT_CONFIG: StageConfig = {
 };
 
 /* ---------- Inner game component ---------- */
-function UnscrambleGame({ onReturnToMenu }: { onReturnToMenu: () => void }) {
+function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; isDaily?: boolean }) {
   const [config, setConfig] = useState<StageConfig>(DEFAULT_CONFIG);
   const [seed, setSeed] = useState<number | null>(null);
   const [gameSessionId, setGameSessionId] = useState<string | null>(null);
@@ -57,8 +57,9 @@ function UnscrambleGame({ onReturnToMenu }: { onReturnToMenu: () => void }) {
   useEffect(() => {
     if (game.phase === 'finished' && game.score && gameSessionId) {
       submitResult(gameSessionId, game.answers, game.score.finalScore);
+      if (isDaily) markDailyComplete(game.score.finalScore);
     }
-  }, [game.phase, game.score, gameSessionId, game.answers, submitResult]);
+  }, [game.phase, game.score, gameSessionId, game.answers, submitResult, isDaily]);
 
   // Keyboard support
   useEffect(() => {
@@ -97,7 +98,7 @@ function UnscrambleGame({ onReturnToMenu }: { onReturnToMenu: () => void }) {
     return (
       <>
         <Confetti active={isPerfect || game.score.finalScore >= 180} />
-        <ResultScreen score={game.score.finalScore} success={true} onReplay={onReturnToMenu} />
+        <ResultScreen score={game.score.finalScore} success={true} onReplay={onReturnToMenu} isDaily={isDaily} />
       </>
     );
   }
@@ -147,6 +148,7 @@ function UnscrambleGame({ onReturnToMenu }: { onReturnToMenu: () => void }) {
 /* ---------- Main GamePage with appPhase state machine ---------- */
 export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [isDaily, setIsDaily] = useState(false);
 
   switch (appPhase) {
     case 'menu':
@@ -170,7 +172,7 @@ export function GamePage() {
     case 'daily':
       return (
         <DailyChallenge
-          onStart={() => setAppPhase('game')}
+          onStart={() => { setIsDaily(true); setAppPhase('game'); }}
           onBack={() => setAppPhase('menu')}
         />
       );
@@ -181,6 +183,6 @@ export function GamePage() {
     case 'settings':
       return <Settings onBack={() => setAppPhase('menu')} />;
     case 'game':
-      return <UnscrambleGame onReturnToMenu={() => setAppPhase('menu')} />;
+      return <UnscrambleGame onReturnToMenu={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />;
   }
 }

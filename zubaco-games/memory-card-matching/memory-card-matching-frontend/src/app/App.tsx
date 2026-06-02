@@ -19,7 +19,7 @@ import { LevelSelector } from '@/features/memory-card/components/LevelSelector';
 import { Settings } from '@/features/memory-card/components/Settings';
 import { StatsScreen } from '@/features/memory-card/components/StatsScreen';
 import { Achievements } from '@/features/memory-card/components/Achievements';
-import { DailyChallenge } from '@/features/memory-card/components/DailyChallenge';
+import { DailyChallenge, markDailyComplete } from '@/features/memory-card/components/DailyChallenge';
 import { buildGameThemeStyle } from '@/utils/gameThemeStyle';
 import { STAGE_THEME_COLORS } from '@micro-screens/src';
 import type { StageId } from '@micro-screens/src/types/stage-theme';
@@ -40,6 +40,7 @@ const INITIAL_STATE: AppState = {
 
 export function App() {
   const { t } = useTranslation();
+  const [isDaily, setIsDaily] = useState(false);
   const [appState, setAppState] = useState<AppState>(() => {
     const hasStoredSession = Boolean(localStorage.getItem(SESSION_STORAGE_KEY));
     return hasStoredSession
@@ -155,8 +156,10 @@ export function App() {
   }, [goToInstructions]);
 
   const handleGameOver = useCallback((stats: GameOverStats) => {
+    if (isDaily && stats.result === 'win') markDailyComplete();
+    setIsDaily(false);
     setAppState((prev) => ({ ...prev, screen: APP_SCREENS.GAME_OVER, gameOverStats: stats }));
-  }, []);
+  }, [isDaily]);
 
   const handleContinue = useCallback(() => {
     localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -206,7 +209,7 @@ export function App() {
         )}
 
         {appState.screen === APP_SCREENS.DAILY && (
-          <DailyChallenge onPlay={handlePlayNow} onBack={goToMenu} />
+          <DailyChallenge onPlay={() => { setIsDaily(true); handlePlayNow(); }} onBack={goToMenu} />
         )}
 
         {appState.screen === APP_SCREENS.ACHIEVEMENTS && (
