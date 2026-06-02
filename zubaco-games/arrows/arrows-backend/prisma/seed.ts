@@ -992,7 +992,7 @@ async function main() {
         database: decodeURIComponent(dbUrl.pathname.slice(1)),
         user: decodeURIComponent(dbUrl.username),
         password: decodeURIComponent(dbUrl.password),
-        ssl: { rejectUnauthorized: false, servername: dbUrl.hostname },
+        ssl: dbUrl.searchParams.get('sslmode') === 'disable' ? false : { rejectUnauthorized: false, servername: dbUrl.hostname },
         connectionTimeoutMillis: 20000,
     });
 

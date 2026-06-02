@@ -74,7 +74,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
             database: decodeURIComponent(dbUrl.pathname.slice(1)),
             user: decodeURIComponent(dbUrl.username),
             password: decodeURIComponent(dbUrl.password),
-            ssl: { rejectUnauthorized: false, servername: dbUrl.hostname },
+            ssl: dbUrl.searchParams.get('sslmode') === 'disable' ? false : { rejectUnauthorized: false, servername: dbUrl.hostname },
         });
         const adapter = new PrismaPg(pool);
         super({ adapter });
