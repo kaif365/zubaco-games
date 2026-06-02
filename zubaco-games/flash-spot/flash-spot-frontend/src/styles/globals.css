@@ -53,3 +53,30 @@
     user-select: none;
   }
 }
+
+/* ═══ Light Theme Overrides ═══ */
+html.light {
+  --mainbackground: 220 20% 97%;
+  --foreground: 222.2 84% 4.9%;
+  --game-bg: 220 20% 97%;
+  --game-surface: 220 15% 92%;
+  --game-text: 222 84% 4.9%;
+  --secondarytext: 215 16% 47%;
+}
+html.light .bg-game-bg { background-color: hsl(220 20% 97%); }
+html.light .bg-game-surface\/80 { background-color: hsl(220 15% 92% / 0.85); }
+html.light .bg-game-surface\/50 { background-color: hsl(220 15% 92% / 0.6); }
+html.light .bg-game-surface { background-color: hsl(220 15% 92%); }
+html.light .bg-game-bg\/50 { background-color: hsl(220 20% 97% / 0.6); }
+html.light .bg-white\/5 { background-color: rgb(0 0 0 / 0.04); }
+html.light .bg-white\/10 { background-color: rgb(0 0 0 / 0.06); }
+html.light .bg-white\/20 { background-color: rgb(0 0 0 / 0.08); }
+html.light .bg-black\/70 { background-color: rgb(255 255 255 / 0.7); }
+html.light .text-white { color: #1f2937; }
+html.light .text-gray-300 { color: #4b5563; }
+html.light .text-gray-400 { color: #6b7280; }
+html.light .text-gray-500 { color: #6b7280; }
+html.light .border-game-accent\/20 { border-color: hsl(186 100% 47% / 0.15); }
+html.light [class*="bg-violet-6"] { color: #ffffff; }
+html.light [class*="bg-game-accent"].text-white { color: #ffffff; }
+html.light .bg-game-accent { color: #ffffff; }

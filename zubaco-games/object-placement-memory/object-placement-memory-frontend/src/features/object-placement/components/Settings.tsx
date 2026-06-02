@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useTheme } from '@/hooks/useTheme';
 
 interface Props {
   onBack: () => void;
@@ -27,11 +28,13 @@ function saveSettings(s: SettingsData) {
 
 export function Settings({ onBack }: Props) {
   const [settings, setSettings] = useState<SettingsData>(loadSettings);
+  const { setTheme: applyTheme } = useTheme();
 
   const update = (patch: Partial<SettingsData>) => {
     const next = { ...settings, ...patch };
     setSettings(next);
     saveSettings(next);
+    if ('darkMode' in patch) applyTheme(next.darkMode ? 'dark' : 'light');
   };
 
   return (

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useTheme } from '@/hooks/useTheme';
 
 interface SettingsState {
   soundEnabled: boolean;
@@ -30,13 +31,18 @@ function saveSettings(s: SettingsState) {
 
 export function Settings({ onBack }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsState>(loadSettings);
+  const { setTheme: applyTheme } = useTheme();
 
   useEffect(() => {
     saveSettings(settings);
   }, [settings]);
 
   const toggle = (key: 'soundEnabled' | 'darkMode') => {
-    setSettings((prev) => ({ ...prev, [key]: !prev[key] }));
+    setSettings((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (key === 'darkMode') applyTheme(next.darkMode ? 'dark' : 'light');
+      return next;
+    });
   };
 
   return (

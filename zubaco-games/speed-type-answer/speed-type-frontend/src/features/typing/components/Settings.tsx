@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useTheme } from '@/hooks/useTheme';
 
 interface SettingsState {
   soundEnabled: boolean;
@@ -30,6 +31,7 @@ function saveSettings(s: SettingsState) {
 
 export function Settings({ onBack }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsState>(loadSettings);
+  const { setTheme: applyTheme } = useTheme();
 
   useEffect(() => {
     saveSettings(settings);
@@ -98,7 +100,7 @@ export function Settings({ onBack }: SettingsProps) {
             {(['dark', 'light', 'system'] as const).map((t) => (
               <button
                 key={t}
-                onClick={() => setSettings((prev) => ({ ...prev, theme: t }))}
+                onClick={() => { setSettings((prev) => ({ ...prev, theme: t })); applyTheme(t); }}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
                   settings.theme === t ? 'bg-indigo-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'
                 }`}

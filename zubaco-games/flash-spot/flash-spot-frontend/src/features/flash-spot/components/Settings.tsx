@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTheme } from '@/hooks/useTheme';
 
 const THEME_KEY = 'zubaco_flash_spot_theme';
 
@@ -15,10 +16,12 @@ interface SettingsProps {
 
 export function Settings({ onClose }: SettingsProps) {
   const [theme, setTheme] = useState(getTheme);
+  const { setTheme: applyTheme } = useTheme();
 
   const changeTheme = (t: string) => {
     setTheme(t);
     setThemePref(t);
+    applyTheme(t as 'dark' | 'light' | 'system');
   };
 
   return (

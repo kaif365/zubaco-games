@@ -100,3 +100,26 @@ body {
 .hud-chip {
   animation: hud-float 2.5s ease-in-out infinite;
 }
+
+/* ═══ Light Theme Overrides ═══ */
+html.light body { background-color: #f9fafb; color: #1f2937; }
+html.light .bg-slate-950 { background-color: #ffffff; }
+html.light .bg-slate-900 { background-color: #ffffff; }
+html.light .bg-slate-800\/80 { background-color: rgb(243 244 246 / 0.85); }
+html.light .bg-slate-800\/60 { background-color: rgb(243 244 246 / 0.7); }
+html.light .bg-slate-800 { background-color: #f3f4f6; }
+html.light .bg-slate-700\/60 { background-color: rgb(229 231 235 / 0.7); }
+html.light .bg-slate-700 { background-color: #e5e7eb; }
+html.light .bg-slate-600 { background-color: #d1d5db; }
+html.light .bg-white\/5 { background-color: rgb(0 0 0 / 0.04); }
+html.light .bg-white\/10 { background-color: rgb(0 0 0 / 0.06); }
+html.light .bg-white\/20 { background-color: rgb(0 0 0 / 0.08); }
+html.light .text-white { color: #1f2937; }
+html.light .text-slate-300 { color: #4b5563; }
+html.light .text-slate-400 { color: #6b7280; }
+html.light .text-slate-500 { color: #6b7280; }
+html.light .hover\:text-white:hover { color: #1f2937; }
+html.light .border-slate-600\/30 { border-color: rgb(209 213 219 / 0.5); }
+html.light .border-slate-700\/50 { border-color: rgb(209 213 219 / 0.5); }
+html.light .border-slate-700 { border-color: #e5e7eb; }
+html.light .shadow-lg { --tw-shadow-color: rgb(0 0 0 / 0.08); }

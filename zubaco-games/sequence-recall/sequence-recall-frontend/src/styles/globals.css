@@ -88,6 +88,23 @@
   }
 }
 
+/* ═══ Light Theme Overrides ═══ */
+html.light {
+  --mainbackground: 220 20% 97%;
+  --game-bg: 220 20% 97%;
+  --game-surface: 220 15% 92%;
+  --game-text: 222 84% 4.9%;
+  --secondarytext: 215 16% 47%;
+}
+html.light .text-white { color: #1f2937; }
+html.light .text-gray-300 { color: #4b5563; }
+html.light .text-gray-400 { color: #6b7280; }
+html.light .bg-gray-800\/60 { background-color: rgb(243 244 246 / 0.7); }
+html.light .bg-gray-800 { background-color: #f3f4f6; }
+html.light .bg-gray-700 { background-color: #e5e7eb; }
+html.light .bg-white\/5 { background-color: rgb(0 0 0 / 0.04); }
+html.light .bg-white\/10 { background-color: rgb(0 0 0 / 0.06); }
+
 @layer utilities {
   .container {
     @apply mx-auto w-full max-w-screen-xl px-4 md: px-6 lg:px-8;

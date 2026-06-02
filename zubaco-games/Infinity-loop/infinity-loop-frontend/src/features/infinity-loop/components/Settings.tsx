@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import { useState, useEffect } from "react";
+import { useTheme } from "@/hooks/useTheme";
 
 interface SettingsProps {
   readonly onBack: () => void;
@@ -37,13 +38,18 @@ function saveSettings(s: SettingsState): void {
 
 export function Settings({ onBack }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsState>(loadSettings);
+  const { setTheme: applyTheme } = useTheme();
 
   useEffect(() => {
     saveSettings(settings);
   }, [settings]);
 
   const update = (partial: Partial<SettingsState>) => {
-    setSettings((prev) => ({ ...prev, ...partial }));
+    setSettings((prev) => {
+      const next = { ...prev, ...partial };
+      if ('darkMode' in partial) applyTheme(next.darkMode ? 'dark' : 'light');
+      return next;
+    });
   };
 
   return (

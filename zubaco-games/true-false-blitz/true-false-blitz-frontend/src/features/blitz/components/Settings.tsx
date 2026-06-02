@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useTheme } from '@/hooks/useTheme';
 
 interface SettingsProps {
   onBack: () => void;
@@ -27,6 +28,7 @@ function saveSettings(s: SettingsState) {
 
 export function Settings({ onBack }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsState>(loadSettings);
+  const { setTheme: applyTheme } = useTheme();
 
   useEffect(() => {
     saveSettings(settings);
@@ -93,7 +95,7 @@ export function Settings({ onBack }: SettingsProps) {
               {(['dark', 'light', 'system'] as const).map((t) => (
                 <button
                   key={t}
-                  onClick={() => setSettings((s) => ({ ...s, theme: t }))}
+                  onClick={() => { setSettings((s) => ({ ...s, theme: t })); applyTheme(t); }}
                   className={`py-2 rounded-lg text-xs font-medium capitalize transition-all ${
                     settings.theme === t
                       ? 'bg-indigo-600 text-white'

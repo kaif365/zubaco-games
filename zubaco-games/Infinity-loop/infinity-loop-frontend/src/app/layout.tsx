@@ -41,7 +41,15 @@ export default async function RootLayout({
     <html
       lang={locale}
       className={`${outfit.variable} ${orbitron.variable} dark`}
+      suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `!function(){var t=localStorage.getItem('zubaco_theme')||'dark';if(t==='system')t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.classList.remove('dark','light');document.documentElement.classList.add(t)}()`,
+          }}
+        />
+      </head>
       <body
         suppressHydrationWarning
         className="bg-black text-slate-100 antialiased flex justify-center"

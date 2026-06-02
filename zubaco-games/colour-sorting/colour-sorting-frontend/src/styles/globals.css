@@ -1,3 +1,69 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Light Theme Overrides
+   Applied when ThemeProvider sets html.light class
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Body background */
+html.light body {
+  background-color: #f9fafb;
+  color: #1f2937;
+}
+
+/* Surface backgrounds */
+html.light .bg-gray-800\/60 { background-color: rgb(243 244 246 / 0.7); }
+html.light .bg-gray-800\/80 { background-color: rgb(243 244 246 / 0.85); }
+html.light .bg-gray-800 { background-color: #f3f4f6; }
+html.light .bg-gray-700 { background-color: #e5e7eb; }
+html.light .bg-gray-700\/60 { background-color: rgb(229 231 235 / 0.7); }
+html.light .bg-gray-600 { background-color: #d1d5db; }
+
+/* Text */
+html.light .text-white { color: #1f2937; }
+html.light .text-gray-300 { color: #4b5563; }
+html.light .text-gray-400 { color: #6b7280; }
+html.light .text-gray-500 { color: #6b7280; }
+
+/* Preserve white text on colored backgrounds */
+html.light .bg-emerald-600,
+html.light .bg-emerald-500,
+html.light .bg-indigo-600,
+html.light .bg-indigo-500,
+html.light .bg-indigo-500\/10 + .text-white { color: #ffffff; }
+
+html.light [class*="bg-emerald-6"],
+html.light [class*="bg-emerald-5"]:not([class*="bg-emerald-500\/"]),
+html.light [class*="bg-indigo-6"],
+html.light [class*="bg-indigo-5"]:not([class*="bg-indigo-500\/"]) {
+  color: #ffffff;
+}
+
+/* Hover states */
+html.light .hover\:bg-gray-700:hover { background-color: #d1d5db; }
+html.light .hover\:bg-gray-600:hover { background-color: #d1d5db; }
+html.light .hover\:bg-gray-600\/60:hover { background-color: rgb(209 213 219 / 0.7); }
+html.light .hover\:text-white:hover { color: #1f2937; }
+html.light .hover\:bg-gray-500:hover { background-color: #d1d5db; }
+
+/* Borders */
+html.light .border-gray-600\/30 { border-color: rgb(209 213 219 / 0.5); }
+html.light .border-gray-700\/50 { border-color: rgb(209 213 219 / 0.5); }
+html.light .border-gray-500\/60 { border-color: rgb(156 163 175 / 0.6); }
+html.light .border-gray-400\/80 { border-color: rgb(156 163 175 / 0.6); }
+
+/* Shadows — softer in light mode */
+html.light .shadow-lg { --tw-shadow-color: rgb(0 0 0 / 0.08); }
+
+/* Backdrop blur surfaces */
+html.light .backdrop-blur-sm { background-color: rgb(255 255 255 / 0.7); }
+
+/* Accent tints (low-opacity colored backgrounds should remain as-is) */
+html.light .bg-indigo-500\/10 { background-color: rgb(99 102 241 / 0.08); }
+html.light .bg-emerald-500\/10 { background-color: rgb(16 185 129 / 0.08); }
+html.light .bg-yellow-500\/10 { background-color: rgb(234 179 8 / 0.08); }
+html.light .bg-indigo-500\/20 { background-color: rgb(99 102 241 / 0.12); }
+html.light .bg-purple-500\/20 { background-color: rgb(168 85 247 / 0.12); }
+html.light .bg-pink-500\/20 { background-color: rgb(236 72 153 / 0.12); }
