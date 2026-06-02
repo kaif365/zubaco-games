@@ -49,12 +49,15 @@ export default function ArrowGamePage() {
       // Update stats
       const levelNum = state.levelIndex + 1;
       updateStats(true, state.score, levelNum, state.maxStreak);
-      setUnlockedLevel(levelNum + 1);
+
+      // Only unlock next level for normal play, not daily
+      if (!isDaily) {
+        setUnlockedLevel(levelNum + 1);
+      }
 
       // Mark daily as done if applicable
       if (isDaily) {
         markDailyDone(state.score);
-        setIsDaily(false);
       }
 
       // Check achievements
@@ -254,13 +257,14 @@ export default function ArrowGamePage() {
         <GameResult
           won={state.status === 'won'}
           score={state.score}
-          level={state.levelIndex + 1}
+          level={isDaily ? undefined : state.levelIndex + 1}
           moves={state.moves}
           timeRemainingMs={state.timeRemainingMs}
           maxStreak={state.maxStreak}
-          onNextLevel={handleNextLevel}
+          onNextLevel={isDaily ? undefined : handleNextLevel}
           onRetry={() => { resetLevel(); setScreen('playing'); }}
-          onMenu={() => setScreen('menu')}
+          onMenu={() => { setIsDaily(false); setScreen('menu'); }}
+          isDaily={isDaily}
         />
       )}
     </div>
