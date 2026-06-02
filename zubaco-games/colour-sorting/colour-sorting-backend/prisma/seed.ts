@@ -1,63 +1,29 @@
-import { PrismaClient } from '../generated/prisma/client';
+import { PrismaClient } from '.prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter });
 
+/**
+ * Base configuration for the Colour Sorting game.
+ * Level-specific difficulty params (tubeCount, colorCount, timeLimitMs, etc.)
+ * are handled by src/game/engine/levelConfig.ts at runtime.
+ * This record provides:
+ *   - Base fallback values (used when no level param is sent)
+ *   - pointsPerSortedTube & timeBonusMultiplier (used for ALL levels)
+ */
 const stages = [
-    {
-      stageId: 'colour-sort-stage-1',
-      label: 'Easy',
-      tubeCount: 5,
-      colorCount: 3,
-      ballsPerTube: 4,
-      emptyTubes: 2,
-      timeLimitMs: 120000,
-      pointsPerSortedTube: 100,
-      timeBonusMultiplier: 10,
-    },
-    {
-      stageId: 'colour-sort-stage-2',
-      label: 'Medium',
-      tubeCount: 7,
-      colorCount: 5,
-      ballsPerTube: 4,
-      emptyTubes: 2,
-      timeLimitMs: 120000,
-      pointsPerSortedTube: 150,
-      timeBonusMultiplier: 12,
-    },
-    {
-      stageId: 'colour-sort-stage-3',
-      label: 'Hard',
-      tubeCount: 9,
-      colorCount: 7,
-      ballsPerTube: 4,
-      emptyTubes: 2,
-      timeLimitMs: 90000,
-      pointsPerSortedTube: 200,
-      timeBonusMultiplier: 15,
-    },
-    {
-      stageId: 'colour-sort-stage-4',
-      label: 'Expert',
-      tubeCount: 11,
-      colorCount: 9,
-      ballsPerTube: 4,
-      emptyTubes: 2,
-      timeLimitMs: 75000,
-      pointsPerSortedTube: 250,
-      timeBonusMultiplier: 18,
-    },
-    {
-      stageId: 'colour-sort-stage-5',
-      label: 'Master',
-      tubeCount: 14,
-      colorCount: 12,
-      ballsPerTube: 4,
-      emptyTubes: 2,
-      timeLimitMs: 60000,
-      pointsPerSortedTube: 300,
-      timeBonusMultiplier: 20,
-    },
+  {
+    stageId: '00000000-0000-0000-0000-000000000001',
+    label: 'Colour Sorting',
+    tubeCount: 5,
+    colorCount: 3,
+    ballsPerTube: 4,
+    emptyTubes: 2,
+    timeLimitMs: 120000,
+    pointsPerSortedTube: 100,
+    timeBonusMultiplier: 10,
+  },
 ];
 
 async function main() {
