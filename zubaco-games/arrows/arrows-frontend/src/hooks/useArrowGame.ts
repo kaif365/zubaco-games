@@ -177,6 +177,14 @@ export function useArrowGame(initialLevel = 0) {
         timerRef.current = null;
       } else if (!document.hidden && state.status === 'playing') {
         lastTickRef.current = Date.now();
+        const tick = () => {
+          const now = Date.now();
+          const delta = now - lastTickRef.current;
+          lastTickRef.current = now;
+          dispatch({ type: 'TICK', delta });
+          timerRef.current = requestAnimationFrame(tick);
+        };
+        timerRef.current = requestAnimationFrame(tick);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
