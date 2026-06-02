@@ -170,9 +170,9 @@ async function main() {
         host,
         port: Number(dbUrl.port) || 5432,
         database: decodeURIComponent(dbUrl.pathname.slice(1)),
-        user: decodeURIComponent(dbUrl.username),
-        password: decodeURIComponent(dbUrl.password),
-        ssl: { rejectUnauthorized: false, servername: dbUrl.hostname },
+        user: decodeURIComponent(dbUrl.password ? dbUrl.username : 'zubaco'),
+        password: decodeURIComponent(dbUrl.password || 'zubaco_dev_2024'),
+        ssl: dbUrl.searchParams.get('sslmode') === 'disable' ? false : { rejectUnauthorized: false, servername: dbUrl.hostname },
         connectionTimeoutMillis: 20000,
     });
 

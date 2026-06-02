@@ -26,7 +26,7 @@ import { NextBoardDto } from './dto/next-board.dto';
 import { SaveProgressDto } from './dto/save-progress.dto';
 import { StartSessionDto } from './dto/start-session.dto';
 import { TimeSyncDto } from './dto/time-sync.dto';
-import { GameSessionRestateService } from './game-session-restate.service';
+import { GameSessionOrchestratorService } from './game-session-orchestrator.service';
 import { GameService, type SessionTimerState } from './game.service';
 
 @ApiTags('Game Session')
@@ -36,7 +36,7 @@ import { GameService, type SessionTimerState } from './game.service';
 export class GameController {
     constructor(
         private readonly gameService: GameService,
-        private readonly gameSessionRestate: GameSessionRestateService,
+        private readonly gameSessionOrchestrator: GameSessionOrchestratorService,
     ) {}
 
     /**
@@ -68,7 +68,7 @@ export class GameController {
         authMode: SESSION_AUTH_MODE.PAYLOAD,
     })
     start(@Body() dto: StartSessionDto, @AuthUser('userId') userId: string) {
-        return this.gameSessionRestate.startSession(userId, dto.stageId);
+        return this.gameSessionOrchestrator.startSession(userId, dto.stageId);
     }
 
     /**
@@ -84,7 +84,7 @@ export class GameController {
         authMode: SESSION_AUTH_MODE.PAYLOAD,
     })
     saveProgress(@Body() dto: SaveProgressDto, @AuthUser('userId') userId: string) {
-        return this.gameSessionRestate.saveProgress(userId, dto);
+        return this.gameSessionOrchestrator.saveProgress(userId, dto);
     }
 
     /**
@@ -100,7 +100,7 @@ export class GameController {
         authMode: SESSION_AUTH_MODE.PAYLOAD,
     })
     nextBoard(@Body() dto: NextBoardDto, @AuthUser('userId') userId: string) {
-        return this.gameSessionRestate.nextBoard(userId, dto);
+        return this.gameSessionOrchestrator.nextBoard(userId, dto);
     }
 
     /**
@@ -116,7 +116,7 @@ export class GameController {
         authMode: SESSION_AUTH_MODE.PAYLOAD,
     })
     completeBoard(@Body() dto: CompleteBoardDto, @AuthUser('userId') userId: string) {
-        return this.gameSessionRestate.completeBoard(userId, dto);
+        return this.gameSessionOrchestrator.completeBoard(userId, dto);
     }
 
     /**
@@ -132,7 +132,7 @@ export class GameController {
         authMode: SESSION_AUTH_MODE.PAYLOAD,
     })
     getCurrentBoard(@Param('sessionId') sessionId: string, @AuthUser('userId') userId: string) {
-        return this.gameSessionRestate.getCurrentBoard(userId, sessionId);
+        return this.gameSessionOrchestrator.getCurrentBoard(userId, sessionId);
     }
 
     /**
@@ -149,7 +149,7 @@ export class GameController {
     })
     @Transactional({ readOnly: true })
     async timeSync(@Query() dto: TimeSyncDto, @AuthUser('userId') userId: string) {
-        const state: SessionTimerState | null = await this.gameSessionRestate.getTimerState(
+        const state: SessionTimerState | null = await this.gameSessionOrchestrator.getTimerState(
             userId,
             dto.sessionId,
         );
@@ -177,6 +177,6 @@ export class GameController {
         authMode: SESSION_AUTH_MODE.PAYLOAD,
     })
     endGame(@Body() dto: EndGameDto, @AuthUser('userId') userId: string) {
-        return this.gameSessionRestate.endGame(userId, dto.sessionId);
+        return this.gameSessionOrchestrator.endGame(userId, dto.sessionId);
     }
 }

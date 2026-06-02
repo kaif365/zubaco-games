@@ -17,6 +17,7 @@ import { DecryptionMiddleware } from './crypto/decryption.middleware';
 import { GameModule } from './game/game.module';
 import { RedisModule } from './redis/redis.module';
 import { ServerModule } from './server/server.module';
+import { DevAuthModule } from './user/dev-auth/dev-auth.module';
 import { DemoModule } from './user/demo/demo.module';
 import { MetricsModule } from './common/metrics/metrics.module';
 import { AppLoggerModule } from './common/logger/logger.module';
@@ -64,6 +65,7 @@ import { HardeningModule } from './hardening/hardening.module';
         CryptoModule,
         GameModule,
         DemoModule,
+        ...(config.nodeEnv !== 'production' ? [DevAuthModule] : []),
         AdminModule,
         ServerModule,
         AppLoggerModule,

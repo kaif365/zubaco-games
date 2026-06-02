@@ -26,6 +26,13 @@ export class GameRestateEndpointService implements OnModuleInit, OnModuleDestroy
     constructor(private readonly gameService: GameService) {}
 
     async onModuleInit(): Promise<void> {
+        if (config.nodeEnv !== 'production' && config.restate.ingressUrl === 'http://localhost:8080') {
+            this.logger.warn(
+                'Restate ingress using default localhost — skipping endpoint startup (direct DB mode)',
+            );
+            return;
+        }
+
         const endpoint = restate.endpoint() as unknown as RestateEndpointBuilder;
         const handler = endpoint
             .bind(createGameExpiryRestateService())
@@ -34,15 +41,21 @@ export class GameRestateEndpointService implements OnModuleInit, OnModuleDestroy
 
         this.server = http2.createServer(handler);
 
-        await new Promise<void>((resolve, reject) => {
-            this.server!.once('error', reject);
-            this.server!.listen(config.restate.endpointPort, () => {
-                this.server!.off('error', reject);
-                resolve();
+        try {
+            await new Promise<void>((resolve, reject) => {
+                this.server!.once('error', reject);
+                this.server!.listen(config.restate.endpointPort, () => {
+                    this.server!.off('error', reject);
+                    resolve();
+                });
             });
-        });
 
-        this.logger.log(`Restate endpoint listening on port ${config.restate.endpointPort}`);
+            this.logger.log(`Restate endpoint listening on port ${config.restate.endpointPort}`);
+        } catch (error: unknown) {
+            const errMsg = error instanceof Error ? error.message : String(error);
+            this.logger.warn(`Restate endpoint failed to start: ${errMsg} — running without Restate`);
+            this.server = null;
+        }
     }
 
     async onModuleDestroy(): Promise<void> {
