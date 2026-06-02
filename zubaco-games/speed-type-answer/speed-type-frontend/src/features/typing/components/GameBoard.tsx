@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useTypingGame } from '../hooks/useTypingGame';
+import { useAudio } from '../../../hooks/useAudio';
 import { QuestionFlash } from './QuestionFlash';
 import { AnswerInput } from './AnswerInput';
 import { InstructionScreen } from '../../../components/InstructionScreen';
@@ -13,12 +15,26 @@ interface GameBoardProps {
 
 export function GameBoard({ onReturnToMenu, isDaily }: GameBoardProps) {
   const { phase, config, currentQuestion, questionIndex, score, loading, result, startGame, handleTypedAnswer } = useTypingGame();
+  const { play } = useAudio();
+  const prevScoreRef = useRef(score);
+
+  useEffect(() => {
+    if (phase === 'result') {
+      if (score > prevScoreRef.current) {
+        play('correct');
+      } else {
+        play('incorrect');
+      }
+      prevScoreRef.current = score;
+    }
+  }, [phase, score, play]);
 
   if (phase === 'idle') return (
-    <InstructionScreen onStart={startGame} loading={loading} />
+    <InstructionScreen onStart={() => { play('start'); startGame(); }} loading={loading} />
   );
 
   if (phase === 'finished') {
+    play('complete');
     if (isDaily) markDailyComplete();
     return (
       <ResultScreen score={result?.finalScore ?? score} success={true} onReplay={onReturnToMenu ?? startGame} isDaily={isDaily} />
@@ -32,7 +48,7 @@ export function GameBoard({ onReturnToMenu, isDaily }: GameBoardProps) {
       </div>
       <AnimatePresence mode="wait">
         {phase === 'flash' && currentQuestion && <QuestionFlash key="flash" text={currentQuestion.text} />}
-        {phase === 'type' && config && <AnswerInput key="type" onSubmit={handleTypedAnswer} timeLimit={config.answerTimeMs} />}
+        {phase === 'type' && config && <AnswerInput key="type" onSubmit={(answer) => { play('tap'); handleTypedAnswer(answer); }} timeLimit={config.answerTimeMs} />}
         {phase === 'result' && <div key="result" className="text-center text-xl text-gray-300">Next question...</div>}
       </AnimatePresence>
     </div>

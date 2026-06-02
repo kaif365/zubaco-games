@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { usePatternGame } from '../hooks/usePatternGame';
 import { useGameSession } from '../hooks/useGameSession';
@@ -11,6 +11,7 @@ import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { InstructionScreen } from '../../../components/InstructionScreen';
 import { ResultScreen } from '../../../components/ResultScreen';
 import type { GameConfig, CellColor } from '../../../types/game';
+import { useAudio } from '../../../hooks/useAudio';
 
 type AppPhase = 'menu' | 'levels' | 'daily' | 'achievements' | 'stats' | 'settings' | 'game';
 
@@ -23,16 +24,33 @@ export function GamePage() {
   const { startGame: startSession, submitGame } = useGameSession();
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
+  const { play } = useAudio();
+  const prevRoundRef = useRef(round);
 
   const handleStart = async () => {
     const res = await startSession('pattern-survival-stage-1');
     const config = res.config || DEFAULT_CONFIG;
     startEngine(res.seed, config);
+    play('start');
   };
 
   const handleSubmit = async () => { await submitGame(round, perfectRounds, score); };
-  useEffect(() => { if (phase === 'ended') { handleSubmit(); if (isDaily) markDailyComplete(); } }, [phase]);
+  useEffect(() => { if (phase === 'ended') { play('complete'); handleSubmit(); if (isDaily) markDailyComplete(); } }, [phase]);
+
+  useEffect(() => {
+    if (round > prevRoundRef.current) play('correct');
+    prevRoundRef.current = round;
+  }, [round]);
+
+  useEffect(() => {
+    if (phase === 'ended' && timeLeft > 0) play('incorrect');
+  }, [phase]);
+
   const secs = Math.ceil(timeLeft / 1000);
+
+  useEffect(() => {
+    if (phase !== 'idle' && phase !== 'ended' && secs <= 10 && secs > 0) play('countdown');
+  }, [secs]);
 
   // ─── Menu Screens ──────────────────────────────────────────────────────
   if (appPhase === 'menu') {
@@ -72,7 +90,7 @@ export function GamePage() {
           {phase === 'input' && <p className="text-center text-green-400 font-bold mb-4">Your turn! Repeat the pattern</p>}
           <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
             {cellColors.map((color, idx) => (
-              <motion.button key={idx} onClick={() => tapCell(idx)} disabled={phase !== 'input'}
+              <motion.button key={idx} onClick={() => { play('tap'); tapCell(idx); }} disabled={phase !== 'input'}
                 animate={{ scale: highlightIdx === idx ? 1.2 : 1, opacity: highlightIdx === idx ? 1 : 0.7 }}
                 className={`aspect-square rounded-xl ${COLOR_MAP[color]} ${highlightIdx === idx ? 'ring-4 ring-white' : ''} ${phase === 'input' ? 'cursor-pointer active:scale-95' : 'cursor-not-allowed'} transition-all`}
               />

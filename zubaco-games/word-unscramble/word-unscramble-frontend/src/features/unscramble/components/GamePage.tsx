@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { StageConfig } from '@/types/game';
 import { useGameSession } from '../hooks/useGameSession';
 import { useUnscramble } from '../hooks/useUnscramble';
+import { useAudio } from '@/hooks/useAudio';
 import { LetterTile } from './LetterTile';
 import { WordDisplay } from './WordDisplay';
 import { GameHeader } from './GameHeader';
@@ -34,6 +35,7 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
   const { loading, error, startGame: startSession, submitResult } = useGameSession();
 
   const game = useUnscramble(config, seed);
+  const { play } = useAudio();
 
   const handleStart = useCallback(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -50,6 +52,7 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
   useEffect(() => {
     if (seed !== null && game.phase === 'idle') {
       game.startGame();
+      play('start');
     }
   }, [seed, game.phase, game.startGame]);
 
@@ -58,8 +61,34 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
     if (game.phase === 'finished' && game.score && gameSessionId) {
       submitResult(gameSessionId, game.answers, game.score.finalScore);
       if (isDaily) markDailyComplete(game.score.finalScore);
+      play('complete');
     }
   }, [game.phase, game.score, gameSessionId, game.answers, submitResult, isDaily]);
+
+  // Sound on letter select (tap)
+  const prevSelectedCount = useRef(game.selectedIndices.length);
+  useEffect(() => {
+    if (game.selectedIndices.length > prevSelectedCount.current) {
+      play('tap');
+    }
+    prevSelectedCount.current = game.selectedIndices.length;
+  }, [game.selectedIndices.length, play]);
+
+  // Sound on word solved (correct) or countdown
+  const prevWordIndex = useRef(game.currentWordIndex);
+  useEffect(() => {
+    if (game.currentWordIndex > prevWordIndex.current) {
+      play('correct');
+    }
+    prevWordIndex.current = game.currentWordIndex;
+  }, [game.currentWordIndex, play]);
+
+  // Countdown sound in last 10 seconds
+  useEffect(() => {
+    if (game.phase !== 'playing') return;
+    const secs = Math.ceil(game.timeRemainingMs / 1000);
+    if (secs <= 10 && secs > 0) play('countdown');
+  }, [game.phase, Math.ceil(game.timeRemainingMs / 1000), play]);
 
   // Keyboard support
   useEffect(() => {

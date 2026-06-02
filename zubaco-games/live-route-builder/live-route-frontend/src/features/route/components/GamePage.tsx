@@ -12,6 +12,7 @@ import { Confetti } from './Confetti';
 import { PauseDialog } from './PauseDialog';
 import { useRouteGame } from '../hooks/useRouteGame';
 import { useGameSession } from '../hooks/useGameSession';
+import { useAudio } from '../../../hooks/useAudio';
 import type { GameConfig } from '../../../types/game';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -47,8 +48,11 @@ export function GamePage() {
 
   const { visibleNodes, edges, status, score, timeLeft, startGame: startEngine, connectNode, endGame } = useRouteGame();
   const { startGame: startSession, submitGame } = useGameSession();
+  const { play } = useAudio();
 
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const prevScoreRef = useRef(0);
+  const countdownPlayedRef = useRef(false);
 
   // Track elapsed time
   useEffect(() => {
@@ -61,6 +65,25 @@ export function GamePage() {
     }, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [phase, status, isPaused]);
+
+  // Play tap sound when score increases (node connected)
+  useEffect(() => {
+    if (score > prevScoreRef.current && status === 'playing') {
+      play(combo >= 3 ? 'correct' : 'tap');
+    }
+    prevScoreRef.current = score;
+  }, [score]);
+
+  // Countdown sound for last 10 seconds
+  useEffect(() => {
+    if (status === 'playing' && timeLeft <= 10 && timeLeft > 0 && !countdownPlayedRef.current) {
+      countdownPlayedRef.current = true;
+      play('countdown');
+    }
+    if (timeLeft > 10) {
+      countdownPlayedRef.current = false;
+    }
+  }, [timeLeft, status]);
 
   // Watch for game end
   useEffect(() => {
@@ -102,6 +125,7 @@ export function GamePage() {
       startEngine(seed, gameConfig);
     }
     setPhase('playing');
+    play('start');
   };
 
   const handlePlay = useCallback(() => {
@@ -130,6 +154,7 @@ export function GamePage() {
   }, [connectNode]);
 
   const handleGameEnd = () => {
+    play('complete');
     setShowConfetti(true);
 
     // Calculate stars based on path efficiency

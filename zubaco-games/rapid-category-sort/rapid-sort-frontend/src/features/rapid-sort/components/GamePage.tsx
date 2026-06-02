@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import type { StageConfig } from '@/types/game';
 import { useGameSession } from '../hooks/useGameSession';
 import { useRapidSort } from '../hooks/useRapidSort';
+import { useAudio } from '@/hooks/useAudio';
 import { FallingItem } from './FallingItem';
 import { CategoryLanes } from './CategoryLanes';
 import { GameHeader } from './GameHeader';
@@ -43,6 +44,8 @@ export function GamePage() {
     finishGame,
   } = useRapidSort(config, seed);
 
+  const { play } = useAudio();
+
   const handleStart = useCallback(async () => {
     const session = await startSession(DEFAULT_STAGE_ID);
     if (session) {
@@ -57,6 +60,7 @@ export function GamePage() {
     if (gameStarted && config && seed !== null) {
       startGame();
       setGameStarted(false);
+      play('start');
     }
   }, [gameStarted, config, seed, startGame]);
 
@@ -67,8 +71,25 @@ export function GamePage() {
         if (resp) setServerScore(resp.finalScore);
       });
       if (isDaily) markDailyComplete();
+      play('complete');
     }
   }, [phase]);
+
+  // Sound feedback on correct/incorrect
+  const prevFeedbackRef = useRef(lastFeedback);
+  useEffect(() => {
+    if (lastFeedback && lastFeedback !== prevFeedbackRef.current) {
+      play(lastFeedback === 'correct' ? 'correct' : 'incorrect');
+    }
+    prevFeedbackRef.current = lastFeedback;
+  }, [lastFeedback, play]);
+
+  // Countdown sound in last 10 seconds
+  useEffect(() => {
+    if (phase !== 'playing') return;
+    const secs = Math.ceil(timeRemainingMs / 1000);
+    if (secs <= 10 && secs > 0) play('countdown');
+  }, [phase, Math.ceil(timeRemainingMs / 1000), play]);
 
   // Keyboard controls
   useEffect(() => {

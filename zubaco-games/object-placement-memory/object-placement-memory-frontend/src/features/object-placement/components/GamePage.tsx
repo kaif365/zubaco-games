@@ -16,6 +16,7 @@ import { Achievements } from './Achievements';
 import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { InstructionScreen } from '@/app/components/InstructionScreen';
 import { ResultScreen } from '@/app/components/ResultScreen';
+import { useAudio } from '@/hooks/useAudio';
 
 type AppPhase = 'menu' | 'levels' | 'daily' | 'achievements' | 'stats' | 'settings' | 'game';
 
@@ -42,6 +43,8 @@ export function GamePage() {
     submitPlacements,
   } = useGamePhase(config, seed);
 
+  const { play } = useAudio();
+
   // DnD sensors (pointer + touch for mobile)
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
   const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } });
@@ -64,6 +67,7 @@ export function GamePage() {
       setSeed(session.seed);
       // startMemorize will be triggered via effect when config+seed are set
       setTimeout(() => startMemorize(), 50);
+      play('start');
     }
   }, [startGame, startMemorize]);
 
@@ -90,12 +94,33 @@ export function GamePage() {
     const result = submitPlacements();
     if (!result || !sessionId) return;
 
+    play('complete');
     const response = await submitResult(sessionId, result.attempts, result.score.finalScore);
     if (response) {
       setServerScore(response.finalScore);
     }
     if (isDaily) markDailyComplete();
   }, [submitPlacements, submitResult, sessionId, isDaily]);
+
+  // Play tap sound when objects are placed or removed
+  const prevPlacementCountRef = useRef(userPlacements.size);
+  useEffect(() => {
+    if (phase === 'recall' && userPlacements.size !== prevPlacementCountRef.current) {
+      play('tap');
+    }
+    prevPlacementCountRef.current = userPlacements.size;
+  }, [userPlacements.size, phase, play]);
+
+  // Countdown tick for last 10 seconds
+  const lastTickRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (phase !== 'recall') { lastTickRef.current = null; return; }
+    const seconds = Math.ceil(timeRemainingMs / 1000);
+    if (seconds <= 10 && seconds > 0 && lastTickRef.current !== seconds) {
+      lastTickRef.current = seconds;
+      play('countdown');
+    }
+  }, [phase, timeRemainingMs, play]);
 
   // Auto-submit when time runs out (guarded to fire only once)
   const autoSubmittedRef = useRef(false);

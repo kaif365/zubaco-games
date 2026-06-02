@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { StageConfig } from '@/types/game';
+import { useAudio } from '@/hooks/useAudio';
 import { useGameSession } from '../hooks/useGameSession';
 import { useGrid } from '../hooks/useGrid';
 import { GridCell } from './GridCell';
@@ -36,6 +37,8 @@ export function GamePage() {
   const { loading, error, startGame: startSession, submitResult } = useGameSession();
 
   const game = useGrid(config, seed);
+  const { play } = useAudio();
+  const prevAnswerCountRef = useRef(0);
 
   const handleStart = useCallback(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -49,15 +52,43 @@ export function GamePage() {
   }, [startSession]);
 
   useEffect(() => {
-    if (seed !== null && game.phase === 'idle') game.startGame();
-  }, [seed, game.phase, game.startGame]);
+    if (seed !== null && game.phase === 'idle') {
+      game.startGame();
+      play('start');
+    }
+  }, [seed, game.phase, game.startGame, play]);
 
   useEffect(() => {
     if (game.phase === 'finished' && game.score && gameSessionId) {
       submitResult(gameSessionId, game.answers, game.score.finalScore);
+      play('complete');
       if (isDaily) markDailyComplete();
     }
-  }, [game.phase, game.score, gameSessionId, game.answers, submitResult, isDaily]);
+  }, [game.phase, game.score, gameSessionId, game.answers, submitResult, isDaily, play]);
+
+  // Play 'tap' sound on each cell value change
+  useEffect(() => {
+    const currentCount = game.playerAnswers.size;
+    if (currentCount > prevAnswerCountRef.current) {
+      play('tap');
+    }
+    prevAnswerCountRef.current = currentCount;
+  }, [game.playerAnswers.size, play]);
+
+  // Countdown tick for last 10 seconds
+  useEffect(() => {
+    if (
+      game.phase === 'filling' &&
+      game.timeRemainingMs <= 10000 &&
+      game.timeRemainingMs > 0
+    ) {
+      const secondsLeft = Math.ceil(game.timeRemainingMs / 1000);
+      const nextTick = game.timeRemainingMs - (secondsLeft - 1) * 1000;
+      if (nextTick <= 1000) {
+        play('countdown');
+      }
+    }
+  }, [game.phase, Math.ceil(game.timeRemainingMs / 1000), play]);
 
   // ─── Menu Screens ──────────────────────────────────────────────────────
   if (appPhase === 'menu') {

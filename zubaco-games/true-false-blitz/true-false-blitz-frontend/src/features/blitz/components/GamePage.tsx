@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { StageConfig } from '@/types/game';
 import { useGameSession } from '../hooks/useGameSession';
 import { useBlitz } from '../hooks/useBlitz';
+import { useAudio } from '@/hooks/useAudio';
 import { StatementCard } from './StatementCard';
 import { AnswerButtons } from './AnswerButtons';
 import { GameHeader } from './GameHeader';
@@ -36,6 +37,7 @@ function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; is
   const [gameSessionId, setGameSessionId] = useState<string | null>(null);
 
   const blitz = useBlitz(config, seed);
+  const { play } = useAudio();
 
   const handleStart = useCallback(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -53,6 +55,7 @@ function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; is
   useEffect(() => {
     if (seed !== null && blitz.phase === 'idle') {
       blitz.startGame();
+      play('start');
     }
   }, [seed, blitz.phase, blitz.startGame]);
 
@@ -61,8 +64,25 @@ function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; is
     if (blitz.phase === 'finished' && blitz.score && gameSessionId) {
       submitResult(gameSessionId, blitz.answers, blitz.score.finalScore);
       if (isDaily) markDailyComplete(blitz.score.finalScore);
+      play('complete');
     }
   }, [blitz.phase, blitz.score, gameSessionId, blitz.answers, submitResult, isDaily]);
+
+  // Sound feedback on correct/incorrect
+  const prevFeedbackRef = useRef(blitz.lastFeedback);
+  useEffect(() => {
+    if (blitz.lastFeedback && blitz.lastFeedback !== prevFeedbackRef.current) {
+      play(blitz.lastFeedback === 'correct' ? 'correct' : 'incorrect');
+    }
+    prevFeedbackRef.current = blitz.lastFeedback;
+  }, [blitz.lastFeedback, play]);
+
+  // Countdown sound in last 10 seconds
+  useEffect(() => {
+    if (blitz.phase !== 'playing') return;
+    const secs = Math.ceil(blitz.timeRemainingMs / 1000);
+    if (secs <= 10 && secs > 0) play('countdown');
+  }, [blitz.phase, Math.ceil(blitz.timeRemainingMs / 1000), play]);
 
   // Keyboard support
   useEffect(() => {

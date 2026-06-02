@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useReflexGame } from '../hooks/useReflexGame';
 import { useGameSession } from '../hooks/useGameSession';
+import { useAudio } from '../../../hooks/useAudio';
 import { InstructionScreen } from '../../../components/InstructionScreen';
 import { ResultScreen } from '../../../components/ResultScreen';
 import { MenuScreen, type AppPhase } from './MenuScreen';
@@ -23,18 +24,39 @@ export function GamePage() {
   const [isDaily, setIsDaily] = useState(false);
   const { circles, taps, status, score, wrongTaps, timeLeft, startGame: startEngine, tapCircle } = useReflexGame();
   const { startGame: startSession, submitGame } = useGameSession();
+  const { play } = useAudio();
 
   const handleStart = async () => {
     const res = await startSession('reflex-endurance-stage-1');
     const config = res.config || DEFAULT_CONFIG;
     startEngine(res.seed, config);
+    play('start');
   };
 
   const handleEnd = async () => {
     await submitGame(taps, score);
   };
 
-  useEffect(() => { if (status === 'ended') { handleEnd(); if (isDaily) markDailyComplete(); } }, [status]);
+  useEffect(() => { if (status === 'ended') { handleEnd(); if (isDaily) markDailyComplete(); play('complete'); } }, [status]);
+
+  // Sound on tap - correct (green) or incorrect (other)
+  const prevScore = useRef(score);
+  const prevWrong = useRef(wrongTaps);
+  useEffect(() => {
+    if (score > prevScore.current) play('correct');
+    prevScore.current = score;
+  }, [score, play]);
+  useEffect(() => {
+    if (wrongTaps > prevWrong.current) play('incorrect');
+    prevWrong.current = wrongTaps;
+  }, [wrongTaps, play]);
+
+  // Countdown sound in last 30 seconds
+  useEffect(() => {
+    if (status !== 'running') return;
+    const secs = Math.ceil(timeLeft / 1000);
+    if (secs <= 10 && secs > 0) play('countdown');
+  }, [status, Math.ceil(timeLeft / 1000), play]);
 
   // --- App Phase Screens ---
   if (appPhase === 'menu') return <MenuScreen onNavigate={setAppPhase} />;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WordCard } from './WordCard';
 import { MenuScreen } from './MenuScreen';
@@ -10,6 +10,7 @@ import { DailyChallenge, markDailyComplete } from './DailyChallenge';
 import { InstructionScreen } from '../../../components/InstructionScreen';
 import { ResultScreen } from '../../../components/ResultScreen';
 import { useMemoryGroups } from '../hooks/useMemoryGroups';
+import { useAudio } from '../../../hooks/useAudio';
 import { useGameSession } from '../hooks/useGameSession';
 import type { GameConfig } from '../../../types/game';
 
@@ -20,6 +21,8 @@ const DEFAULT_CONFIG: GameConfig = { showDurationMs: 5000, timeLimitMs: 60000, g
 export function GamePage() {
   const { phase, shuffledWords, selectedWords, submittedGroups, score, timeLeft, startGame: startEngine, toggleWord, submitGroup } = useMemoryGroups();
   const { startGame: startSession, submitGame } = useGameSession();
+  const { play } = useAudio();
+  const prevGroupCount = useRef(0);
   const [_config, setConfig] = useState(DEFAULT_CONFIG);
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
@@ -29,16 +32,32 @@ export function GamePage() {
     const config = res.config || DEFAULT_CONFIG;
     setConfig(config);
     startEngine(res.seed, config);
+    play('start');
   };
 
   const handleSubmitFinal = async () => {
     await submitGame(submittedGroups, score);
   };
 
-  useEffect(() => { if (phase === 'ended') { handleSubmitFinal(); if (isDaily) markDailyComplete(); } }, [phase]);
-
   const usedWords = submittedGroups.flat();
   const secs = Math.ceil(timeLeft / 1000);
+
+  useEffect(() => { if (phase === 'ended') { play('complete'); handleSubmitFinal(); if (isDaily) markDailyComplete(); } }, [phase]);
+
+  // Sound feedback when a group is submitted (correct)
+  useEffect(() => {
+    if (submittedGroups.length > prevGroupCount.current) {
+      play('correct');
+    }
+    prevGroupCount.current = submittedGroups.length;
+  }, [submittedGroups.length]);
+
+  // Countdown beep for last 10 seconds
+  useEffect(() => {
+    if (phase === 'play' && secs <= 10 && secs > 0 && timeLeft > 0) {
+      play('countdown');
+    }
+  }, [secs]);
 
   // ─── Menu Screens ──────────────────────────────────────────────────────
   if (appPhase === 'menu') {

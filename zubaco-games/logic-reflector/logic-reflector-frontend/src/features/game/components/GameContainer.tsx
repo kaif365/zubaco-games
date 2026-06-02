@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useStageContent } from '@/features/stage-content/hooks/useStageContent';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useAudio } from '@/hooks/useAudio';
 import { GameStatus } from '@/types/logic-reflector';
 import type { BlockType, GameLevel } from '@/types/logic-reflector';
 import { storage } from '@/utils/storage';
@@ -89,6 +90,7 @@ export default function GameContainer({ stage }: GameContainerProps) {
   const game = useGameSession();
   const { contentByStage, isLoading: isStageContentLoading } = useStageContent();
   const { isOnline } = useNetworkStatus();
+  const { play } = useAudio();
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   const pendingRetryRef = useRef<(() => void) | null>(null);
   const [errorDismissed, setErrorDismissed] = useState(false);
@@ -239,6 +241,27 @@ export default function GameContainer({ stage }: GameContainerProps) {
 
   // Reset dismissal whenever a new error arrives (must be after `error` is declared).
   useEffect(() => { setErrorDismissed(false); }, [error, auth.error]);
+
+  // Audio: game start
+  useEffect(() => {
+    if (phase === 'playing') play('start');
+  }, [phase]);
+
+  // Audio: level cleared
+  useEffect(() => {
+    if (phase === 'level-clearing') play('correct');
+  }, [phase]);
+
+  // Audio: game complete
+  useEffect(() => {
+    if (phase === 'completed') play('complete');
+  }, [phase]);
+
+  // Audio: timer countdown
+  useEffect(() => {
+    if (phase !== 'playing') return;
+    if (timerSeconds <= 15 && timerSeconds > 0) play('countdown');
+  }, [phase, timerSeconds]);
 
   // ── Auth loading — full-screen spinner while dev-session token is fetched ──
   if (auth.isLoading) {
