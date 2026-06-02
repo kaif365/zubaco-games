@@ -1,82 +1,45 @@
-import { useState, useEffect } from 'react';
-
-// ─── Types & Storage ─────────────────────────────────────────────────────────
-
-interface SettingsData {
-  soundEnabled: boolean;
-  volume: number;
-}
-
-const STORAGE_KEY = 'memory-groups-settings';
-
-function loadSettings(): SettingsData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return { soundEnabled: true, volume: 80 };
-}
-
-function saveSettings(data: SettingsData): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
-export function getSettings(): SettingsData {
-  return loadSettings();
-}
-
-// ─── Component ───────────────────────────────────────────────────────────────
+import { motion } from 'framer-motion';
 
 interface SettingsProps {
-  readonly onBack: () => void;
+  onBack: () => void;
 }
 
 export function Settings({ onBack }: SettingsProps) {
-  const [settings, setSettings] = useState<SettingsData>(loadSettings);
-
-  useEffect(() => {
-    saveSettings(settings);
-  }, [settings]);
-
   return (
-    <div className="flex flex-col min-h-screen p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <button onClick={onBack} className="text-sm text-gray-400 hover:text-white transition-colors">
-          ← Back
+    <motion.div
+      className="flex flex-col gap-6 px-4 py-6 w-full max-w-sm mx-auto"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-white">Settings</h2>
+        <button onClick={onBack} className="text-gray-400 hover:text-white text-sm">
+          Done
         </button>
-        <h2 className="text-lg font-bold text-white">Settings</h2>
-        <div className="w-12" />
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center max-w-sm mx-auto w-full space-y-5">
-        {/* Sound Toggle */}
-        <div className="w-full flex items-center justify-between rounded-xl bg-gray-800/80 px-5 py-4">
-          <span className="text-sm font-medium text-white">Sound Effects</span>
-          <button
-            onClick={() => setSettings((s) => ({ ...s, soundEnabled: !s.soundEnabled }))}
-            className={`w-12 h-7 rounded-full transition-colors relative ${settings.soundEnabled ? 'bg-indigo-600' : 'bg-gray-600'}`}
-          >
-            <div className={`w-5 h-5 rounded-full bg-white shadow absolute top-1 transition-transform ${settings.soundEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-          </button>
-        </div>
-
-        {/* Volume Slider */}
-        <div className="w-full rounded-xl bg-gray-800/80 px-5 py-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-white">Volume</span>
-            <span className="text-xs text-gray-400">{settings.volume}%</span>
+      {/* Music (coming soon) */}
+      <div className="flex items-center justify-between p-4 bg-gray-800/60 rounded-xl opacity-50">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-pink-500/20 flex items-center justify-center">
+            <svg className="w-5 h-5 text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+            </svg>
           </div>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={settings.volume}
-            onChange={(e) => setSettings((s) => ({ ...s, volume: Number(e.target.value) }))}
-            disabled={!settings.soundEnabled}
-            className="w-full h-2 rounded-full bg-gray-600 appearance-none cursor-pointer accent-indigo-500 disabled:opacity-40"
-          />
+          <div>
+            <div className="text-sm font-medium text-white">Background Music</div>
+            <div className="text-xs text-gray-400">Ambient gameplay music</div>
+          </div>
         </div>
+        <span className="text-xs text-gray-500">Soon</span>
       </div>
-    </div>
+
+      <button
+        onClick={onBack}
+        className="mt-2 w-full py-3 rounded-xl bg-gray-700 text-sm font-medium text-white hover:bg-gray-600 transition-colors"
+      >
+        Done
+      </button>
+    </motion.div>
   );
 }
