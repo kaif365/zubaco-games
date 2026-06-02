@@ -76,13 +76,13 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
   }, [game.selectedIndices.length, play]);
 
   // Sound on word solved (correct) or countdown
-  const prevWordIndex = useRef(game.currentWordIndex);
+  const prevWordIndex = useRef(game.currentIndex);
   useEffect(() => {
-    if (game.currentWordIndex > prevWordIndex.current) {
+    if (game.currentIndex > prevWordIndex.current) {
       play('correct');
     }
-    prevWordIndex.current = game.currentWordIndex;
-  }, [game.currentWordIndex, play]);
+    prevWordIndex.current = game.currentIndex;
+  }, [game.currentIndex, play]);
 
   // Countdown sound in last 10 seconds
   useEffect(() => {
