@@ -29,6 +29,7 @@ import { Prisma } from '@prisma';
 import { SnsService } from '../aws/sns.service';
 
 import { GameExpiryService } from './game-expiry.service';
+import { BoosterType, getBoosterDef } from './engine/boosterEngine';
 import {
     InFlightBoardState,
     InFlightSavedPath,
@@ -109,6 +110,13 @@ export interface EndGameResponse {
     finalScore: number;
     roundsCompleted: number;
     totalRounds: number;
+}
+
+export interface BoosterActivationResult {
+    success: boolean;
+    boosterType: string;
+    effect: { label: string; description: string; durationMs: number | null } | null;
+    newEndTime?: string;
 }
 
 const GAME_END_BASE_SCORE = 20;
@@ -2644,6 +2652,47 @@ export class GameService {
         const userRank = entries.find((e) => e.userId === userId) ?? null;
 
         return { entries, userRank };
+    }
+
+    /**
+     * Activates a booster for the given session.
+     * Currently supports TIME_FREEZE (extends session end time by 5s).
+     */
+    async activateBooster(sessionId: string, userId: string, boosterType: BoosterType): Promise<BoosterActivationResult> {
+        const session = await this.prisma.gameSession.findFirst({
+            where: { id: sessionId, userId, deletedAt: null, status: GAME_SESSION_STATUS.ACTIVE },
+            select: { id: true, gameEndedAt: true, gameStartedAt: true },
+        });
+
+        if (!session) {
+            throw new NotFoundException('No active session found');
+        }
+
+        const def = getBoosterDef(boosterType);
+        if (!def) {
+            throw new BadRequestException(`Unknown booster type: ${boosterType}`);
+        }
+
+        // Apply booster effect
+        let newEndTime: string | undefined;
+
+        if (boosterType === BoosterType.TIME_FREEZE && def.durationMs) {
+            // Extend the session end time by the booster's duration
+            const currentEnd = session.gameEndedAt ?? new Date(Date.now() + 60000);
+            const extended = new Date(currentEnd.getTime() + def.durationMs);
+            await this.prisma.gameSession.update({
+                where: { id: sessionId },
+                data: { gameEndedAt: extended },
+            });
+            newEndTime = extended.toISOString();
+        }
+
+        return {
+            success: true,
+            boosterType,
+            effect: { label: def.label, description: def.description, durationMs: def.durationMs },
+            newEndTime,
+        };
     }
 }
 

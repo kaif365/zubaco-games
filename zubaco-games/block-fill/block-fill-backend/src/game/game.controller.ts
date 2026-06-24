@@ -26,9 +26,11 @@ import { NextBoardDto } from './dto/next-board.dto';
 import { SaveProgressDto } from './dto/save-progress.dto';
 import { StartSessionDto } from './dto/start-session.dto';
 import { TimeSyncDto } from './dto/time-sync.dto';
+import { ActivateBoosterDto } from './dto/activate-booster.dto';
 import { GameSessionOrchestratorService } from './game-session-orchestrator.service';
 import { GameService, type SessionTimerState } from './game.service';
 import { getDailyChallenge } from './engine/dailyChallenge';
+import type { BoosterType } from './engine/boosterEngine';
 
 const BLOCK_FILL_GAME_ID = 'block-fill';
 
@@ -212,5 +214,21 @@ export class GameController {
     @Transactional({ readOnly: true })
     async getLeaderboard(@AuthUser('userId') userId: string) {
         return this.gameService.getLeaderboard(userId);
+    }
+
+    /**
+     * Activates a booster for the current session (e.g., time freeze, hint).
+     * @param {ActivateBoosterDto} dto - The payload containing session ID and booster type.
+     * @param {string} userId - The authenticated user identifier.
+     * @returns {Promise<import('./game.service').BoosterActivationResult>} The booster activation result.
+     */
+    @Post('activate-booster')
+    @RequireSession({
+        tokenTypes: [TOKEN_TYPES.LOGIN],
+        userTypes: [USER_TYPES.USER],
+        authMode: SESSION_AUTH_MODE.PAYLOAD,
+    })
+    activateBooster(@Body() dto: ActivateBoosterDto, @AuthUser('userId') userId: string) {
+        return this.gameSessionOrchestrator.activateBooster(userId, dto.sessionId, dto.boosterType as BoosterType);
     }
 }

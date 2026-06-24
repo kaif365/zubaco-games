@@ -385,3 +385,29 @@ export async function fetchCurrentBoard(sessionId: string): Promise<CurrentBoard
   }
   return payload.data;
 }
+
+export interface BoosterActivationResult {
+  success: boolean;
+  boosterType: string;
+  effect: { label: string; description: string; durationMs: number | null } | null;
+  newEndTime?: string;
+}
+
+/**
+ * Activates a booster for the current game session.
+ *
+ * @param {string} sessionId - The active game session identifier.
+ * @param {string} boosterType - The type of booster to activate (TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO).
+ *
+ * @returns {Promise<BoosterActivationResult>} The activation result including any effects applied.
+ */
+export async function activateBooster(sessionId: string, boosterType: string): Promise<BoosterActivationResult> {
+  const payload = await apiPost<{ success: boolean; data: BoosterActivationResult }, { sessionId: string; boosterType: string }>({
+    baseUrl: ensureGameBaseUrl(),
+    path: API_ENDPOINTS.game.activateBooster,
+    body: { sessionId, boosterType },
+    ...gamePayloadCryptoOptions(),
+  });
+  ensureSuccess(payload, 'Failed to activate booster');
+  return (payload as unknown as { data: BoosterActivationResult }).data;
+}

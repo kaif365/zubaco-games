@@ -15,5 +15,6 @@ export const API_ENDPOINTS = {
     timeSync: '/game/session/time-sync',
     dailyChallenge: '/game/session/daily-challenge',
     leaderboard: '/game/session/leaderboard',
+    activateBooster: '/game/session/activate-booster',
   },
 } as const;

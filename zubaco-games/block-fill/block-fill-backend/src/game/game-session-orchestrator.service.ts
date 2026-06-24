@@ -6,11 +6,13 @@ import type { NextBoardDto } from './dto/next-board.dto';
 import type { SaveProgressDto } from './dto/save-progress.dto';
 import { GameSessionRestateService } from './game-session-restate.service';
 import {
+    type BoosterActivationResult,
     type EndGameResponse,
     GameService,
     type SessionBoardResponse,
     type SessionTimerState,
 } from './game.service';
+import type { BoosterType } from './engine/boosterEngine';
 
 /**
  * Orchestrates game session operations using either Restate (production)
@@ -90,5 +92,10 @@ export class GameSessionOrchestratorService {
             return this.restateService.getTimerState(userId, sessionId);
         }
         return this.gameService.getOwnedSessionTimer(sessionId, userId);
+    }
+
+    async activateBooster(userId: string, sessionId: string, boosterType: BoosterType): Promise<BoosterActivationResult> {
+        // Boosters are only supported in direct-DB mode (not Restate) for now
+        return this.gameService.activateBooster(sessionId, userId, boosterType);
     }
 }
