@@ -422,7 +422,6 @@ export class GameService {
 
         return {
             ...stageConfig,
-            totalDemoRounds: 0,
         };
     }
 
@@ -465,9 +464,9 @@ export class GameService {
         }
 
         const sequence = await this.buildBoardSequence(userId, stageConfig);
-        const effectiveEnableDemo = false;
-        const effectiveTotalDemoRounds = 0;
-        const isActualStart = true;
+        const effectiveEnableDemo = stageConfig.enableDemo;
+        const effectiveTotalDemoRounds = stageConfig.totalDemoRounds;
+        const isActualStart = !effectiveEnableDemo || effectiveTotalDemoRounds === 0;
         const nowMs = Date.now();
         let session: {
             id: string;
@@ -1092,9 +1091,9 @@ export class GameService {
         }
 
         const sequence = await this.buildBoardSequence(userId, stageConfig);
-        const effectiveEnableDemo = false;
-        const effectiveTotalDemoRounds = 0;
-        const isActualStart = true;
+        const effectiveEnableDemo = stageConfig.enableDemo;
+        const effectiveTotalDemoRounds = stageConfig.totalDemoRounds;
+        const isActualStart = !effectiveEnableDemo || effectiveTotalDemoRounds === 0;
         const now = new Date();
         const gameStartedAt = now;
         const gameEndedAt = new Date(now.getTime() + stageConfig.timeLimit * 1000);

@@ -9,16 +9,15 @@ interface LevelDef {
 }
 
 const LEVELS: LevelDef[] = [
-  { level: 1, label: 'Beginner', desc: '5×5 grid · 120s' },
-  { level: 2, label: 'Easy', desc: '5×5 grid · 100s' },
-  { level: 3, label: 'Normal', desc: '6×6 grid · 90s' },
-  { level: 4, label: 'Medium', desc: '7×7 grid · 80s' },
-  { level: 5, label: 'Tricky', desc: '7×7 grid · 70s' },
-  { level: 6, label: 'Hard', desc: '8×8 grid · 60s' },
-  { level: 7, label: 'Expert', desc: '8×8 grid · 55s' },
-  { level: 8, label: 'Master', desc: '9×9 grid · 50s' },
-  { level: 9, label: 'Insane', desc: '9×9 grid · 45s' },
-  { level: 10, label: 'Legend', desc: '10×10 grid · 40s' },
+  { level: 1, label: 'Easy', desc: '5×5 grid · 3 boards' },
+  { level: 2, label: 'Medium', desc: '6×6 grid · 3 boards' },
+  { level: 3, label: 'Hard', desc: '7×7 grid · 2 boards' },
+  { level: 4, label: 'Tricky', desc: '7×7 grid · 3 boards' },
+  { level: 5, label: 'Tough', desc: '8×8 grid · 3 boards' },
+  { level: 6, label: 'Expert', desc: '8×8 grid · 3 boards' },
+  { level: 7, label: 'Master', desc: '9×9 grid · 3 boards' },
+  { level: 8, label: 'Insane', desc: '9×9 grid · 3 boards' },
+  { level: 9, label: 'Legend', desc: '10×10 grid · 3 boards' },
 ];
 
 export function getHighestLevel(): number {

@@ -125,7 +125,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
   useEffect(() => {
     if (stageState === 'end' && finalScore !== null && !statsSavedRef.current) {
       statsSavedRef.current = true;
-      updateStats({ won: isGameSuccess, timeSec: sessionTimerSeconds, moves: completedRounds });
+      updateStats({ won: isGameSuccess, timeSec: sessionTimerSeconds, moves: completedRounds, score: finalScore ?? 0 });
     }
   }, [stageState, finalScore, isGameSuccess, completedRounds]);
 

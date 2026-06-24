@@ -13,16 +13,16 @@ interface Achievement {
 }
 
 const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first_solve', icon: '🏆', title: 'First Solve', description: 'Complete your first puzzle' },
-  { id: 'speed_fill', icon: '⚡', title: 'Speed Fill', description: 'Solve a puzzle in under 30 seconds' },
-  { id: 'no_hints', icon: '🧠', title: 'No Hints', description: 'Solve without using any hints' },
-  { id: 'streak_3', icon: '🔥', title: 'On Fire', description: 'Solve 3 puzzles in a row' },
-  { id: 'streak_7', icon: '⚡', title: 'Unstoppable', description: 'Win 7 games in a row' },
-  { id: 'all_easy', icon: '🌟', title: 'Easy Master', description: 'Complete all easy levels' },
-  { id: 'all_hard', icon: '👑', title: 'Hard Master', description: 'Complete all hard levels' },
-  { id: 'daily_7', icon: '📅', title: 'Weekly Warrior', description: 'Complete 7 daily challenges' },
-  { id: 'perfect_fill', icon: '💎', title: 'Perfect Fill', description: 'Fill board with zero wrong moves' },
-  { id: 'total_50', icon: '🎯', title: 'Puzzle Veteran', description: 'Solve 50 puzzles total' },
+  { id: 'FIRST_WIN', icon: '🏆', title: 'First Victory', description: 'Win your first game' },
+  { id: 'STREAK_5', icon: '🔥', title: 'On Fire', description: 'Achieve a 5-streak combo' },
+  { id: 'STREAK_10', icon: '⚡', title: 'Unstoppable', description: 'Achieve a 10-streak combo' },
+  { id: 'PERFECT_GAME', icon: '💎', title: 'Perfectionist', description: 'Complete a game with no mistakes' },
+  { id: 'SPEED_DEMON', icon: '⏱️', title: 'Speed Demon', description: 'Finish with >50% time remaining' },
+  { id: 'PERSISTENCE', icon: '🎯', title: 'Dedicated', description: 'Play 50 games' },
+  { id: 'LEVEL_5', icon: '⭐', title: 'Rising Star', description: 'Reach level 5' },
+  { id: 'LEVEL_10', icon: '👑', title: 'Master', description: 'Reach level 10' },
+  { id: 'HIGH_SCORER', icon: '📈', title: 'High Scorer', description: 'Score over 1000 points' },
+  { id: 'NO_MISTAKES', icon: '✨', title: 'Flawless', description: 'Complete without any errors' },
 ];
 
 const STORAGE_KEY = 'blockfill_achievements';

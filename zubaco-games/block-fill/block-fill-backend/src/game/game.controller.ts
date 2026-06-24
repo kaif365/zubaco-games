@@ -28,6 +28,9 @@ import { StartSessionDto } from './dto/start-session.dto';
 import { TimeSyncDto } from './dto/time-sync.dto';
 import { GameSessionOrchestratorService } from './game-session-orchestrator.service';
 import { GameService, type SessionTimerState } from './game.service';
+import { getDailyChallenge } from './engine/dailyChallenge';
+
+const BLOCK_FILL_GAME_ID = 'block-fill';
 
 @ApiTags('Game Session')
 @ApiBearerAuth()
@@ -178,5 +181,20 @@ export class GameController {
     })
     endGame(@Body() dto: EndGameDto, @AuthUser('userId') userId: string) {
         return this.gameSessionOrchestrator.endGame(userId, dto.sessionId);
+    }
+
+    /**
+     * Returns today's daily challenge configuration.
+     * @returns {object} The daily challenge details (date, seed, level, bonusMultiplier).
+     */
+    @Get('daily-challenge')
+    @RequireSession({
+        tokenTypes: [TOKEN_TYPES.LOGIN],
+        userTypes: [USER_TYPES.USER],
+        authMode: SESSION_AUTH_MODE.PAYLOAD,
+    })
+    @Transactional({ readOnly: true })
+    getDailyChallenge() {
+        return getDailyChallenge(BLOCK_FILL_GAME_ID);
     }
 }

@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { apiGet } from '@/app/api/apiClient';
+import { API_ENDPOINTS } from '@/app/api/endpoints';
 
 interface DailyChallengeProps {
   onPlay: (level: number) => void;
@@ -14,6 +16,13 @@ interface DailyState {
   currentStreak: number;
   bestStreak: number;
   weekCompleted: boolean[];
+}
+
+interface DailyChallengeResponse {
+  date: string;
+  seed: number;
+  level: number;
+  bonusMultiplier: number;
 }
 
 function loadDaily(): DailyState {
@@ -33,25 +42,31 @@ export function isDailyCompleted(): boolean {
   return state.lastCompleted === todayKey();
 }
 
-export function markDailyComplete(score?: number): void {
+export function markDailyComplete(): void {
   const state = loadDaily();
   const today = todayKey();
   if (state.lastCompleted === today) return;
   state.lastCompleted = today;
   state.currentStreak += 1;
   state.bestStreak = Math.max(state.bestStreak, state.currentStreak);
+  const dow = new Date().getDay();
+  state.weekCompleted[dow] = true;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-
-function getDailyLevel(): number {
-  const now = new Date();
-  return ((now.getFullYear() * 366 + now.getMonth() * 31 + now.getDate()) % 20) + 1;
 }
 
 export function DailyChallenge({ onPlay, onBack }: DailyChallengeProps) {
   const [state] = useState<DailyState>(loadDaily);
+  const [serverDaily, setServerDaily] = useState<DailyChallengeResponse | null>(null);
   const today = new Date().getDay();
   const completedToday = state.lastCompleted === todayKey();
+
+  useEffect(() => {
+    apiGet<DailyChallengeResponse>({ path: API_ENDPOINTS.game.dailyChallenge })
+      .then(setServerDaily)
+      .catch(() => { /* fallback to local level calc */ });
+  }, []);
+
+  const dailyLevel = serverDaily?.level ?? ((new Date().getDay() === 0 ? 7 : Math.min(new Date().getDay() + 2, 9)));
 
   return (
     <motion.div
@@ -107,7 +122,7 @@ export function DailyChallenge({ onPlay, onBack }: DailyChallengeProps) {
 
         {/* Start button */}
         <motion.button
-          onClick={() => onPlay(getDailyLevel())}
+          onClick={() => onPlay(dailyLevel)}
           disabled={completedToday}
           className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${
             completedToday

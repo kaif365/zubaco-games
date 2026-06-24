@@ -1,5 +1,7 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import { unlockAchievement } from './Achievements';
+import { getHighestLevel } from './LevelSelector';
 
 interface StatsData {
   gamesPlayed: number;
@@ -31,7 +33,7 @@ function loadStats(): StatsData {
   };
 }
 
-export function updateStats(update: { won: boolean; timeSec: number; moves: number }) {
+export function updateStats(update: { won: boolean; timeSec: number; moves: number; score?: number }) {
   const stats = loadStats();
   stats.gamesPlayed++;
   if (update.won) { stats.gamesWon++; stats.currentStreak++; } else { stats.currentStreak = 0; }
@@ -39,9 +41,19 @@ export function updateStats(update: { won: boolean; timeSec: number; moves: numb
   stats.totalTimeSec += update.timeSec;
   if (update.won && (stats.bestTimeSec === 0 || update.timeSec < stats.bestTimeSec)) stats.bestTimeSec = update.timeSec;
   stats.totalMoves += update.moves;
-  const score = update.won ? Math.max(1, 1000 - update.moves * 10) : 0;
+  const score = update.score ?? (update.won ? Math.max(1, 1000 - update.moves * 10) : 0);
   stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
   localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+
+  // Check achievement unlocks based on updated stats
+  if (stats.gamesWon >= 1) unlockAchievement('FIRST_WIN');
+  if (stats.longestStreak >= 5) unlockAchievement('STREAK_5');
+  if (stats.longestStreak >= 10) unlockAchievement('STREAK_10');
+  if (stats.gamesPlayed >= 50) unlockAchievement('PERSISTENCE');
+  if (score >= 1000) unlockAchievement('HIGH_SCORER');
+  const level = getHighestLevel();
+  if (level >= 5) unlockAchievement('LEVEL_5');
+  if (level >= 9) unlockAchievement('LEVEL_10');
 }
 
 interface StatsScreenProps {

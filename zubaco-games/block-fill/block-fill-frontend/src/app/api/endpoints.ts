@@ -13,5 +13,6 @@ export const API_ENDPOINTS = {
     completeBoard: '/game/session/complete-board',
     gameEnd: '/game/session/game-end',
     timeSync: '/game/session/time-sync',
+    dailyChallenge: '/game/session/daily-challenge',
   },
 } as const;
