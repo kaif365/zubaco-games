@@ -255,7 +255,7 @@ export class FlowPuzzleScene extends Phaser.Scene {
         const drawSize = cellSize - padding * 2;
         const drawX = x + padding;
         const drawY = y + padding;
-        const radius = 9;
+        const radius = Math.round(drawSize * 0.3);
 
         const lineA = gridLine.alpha * cellAlpha;
 
@@ -315,7 +315,7 @@ export class FlowPuzzleScene extends Phaser.Scene {
   }
 
   /**
-   * Creates a hex node texture on an offscreen canvas and registers it with Phaser.
+   * Creates a circular node texture on an offscreen canvas and registers it with Phaser.
    * Skipped if the texture key already exists (same color + same radius).
    */
   private createHexTexture(
@@ -337,29 +337,23 @@ export class FlowPuzzleScene extends Phaser.Scene {
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
 
-    const drawHex = (r: number, color: string, alpha = 1) => {
+    const drawCircle = (r: number, color: string, alpha = 1) => {
       ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const angle = (i * 60 + 30) * (Math.PI / 180);
-        const x = cx + r * Math.cos(angle);
-        const y = cy + r * Math.sin(angle);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.closePath();
       ctx.globalAlpha = alpha;
       ctx.fillStyle = color;
       ctx.fill();
     };
 
-    // Layer 1 — outer hex (full color)
-    drawHex(radius, toCSS(fillColor));
-    // Layer 2 — mid hex (darker ring)
-    drawHex(radius * 0.8, toCSS(darkerColor));
-    // Layer 3 — inner hex (full color core)
-    drawHex(radius * 0.67, toCSS(fillColor));
+    // Layer 1 — outer circle (full color)
+    drawCircle(radius, toCSS(fillColor));
+    // Layer 2 — mid circle (darker ring)
+    drawCircle(radius * 0.8, toCSS(darkerColor));
+    // Layer 3 — inner circle (full color core)
+    drawCircle(radius * 0.67, toCSS(fillColor));
     // Layer 4 — subtle white tint on core
-    drawHex(radius * 0.67, 'white', 0.1);
+    drawCircle(radius * 0.67, 'white', 0.1);
 
     // Reset globalAlpha before handing canvas to Phaser
     ctx.globalAlpha = 1;

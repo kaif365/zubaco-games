@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { BoardCardFlip, type FlipPhase } from '@/features/flow-puzzle/components/BoardCardFlip';
 import { PhaserFlowBoard } from '@/features/flow-puzzle/components/PhaserFlowBoard';
-import { GameTimer } from '@/features/flow-puzzle/components/GameTimer';
+import { GameHeader } from '@/features/flow-puzzle/components/GameHeader';
 import {
   DEMO_TO_ACTUAL_TRANSITION_MESSAGES,
   FINAL_ROUND_SCORE_MESSAGES,
@@ -27,10 +27,12 @@ interface PlayingStageViewProps {
   boardAdvanceVariant?: 'next-round' | 'score-calculating' | null;
   /** Phase of the card-flip transition between rounds. */
   flipPhase?: FlipPhase;
+  hideLevel?: boolean;
   onBeginPath: (coord: GridCoord) => void;
   onDragPath: (coord: GridCoord) => void;
   onEndPath: () => void;
   onTimerExpire?: () => void;
+  onRestart?: () => void;
 }
 
 /**
@@ -47,10 +49,12 @@ export function PlayingStageView({
   boardAdvancePending = false,
   boardAdvanceVariant = null,
   flipPhase = 'idle',
+  hideLevel = false,
   onBeginPath,
   onDragPath,
   onEndPath,
   onTimerExpire,
+  onRestart,
 }: PlayingStageViewProps) {
   const { t } = useTranslation();
   const meta = currentLevel.metadata;
@@ -66,46 +70,19 @@ export function PlayingStageView({
     ? (meta.requestedDemoRound ?? currentLevel.order)
     : (meta.requestedActualRound ?? currentLevel.order);
 
-  const headerJustifyClass =
-    sessionTimerSeconds > 0 ? 'justify-between sm:justify-center sm:flex-col' : 'justify-center';
-
   return (
     <>
       <div className="mx-auto flex h-[100dvh] w-full max-w-[90%] flex-col items-center overflow-hidden py-4 sm:py-5">
         <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 sm:gap-5">
-          <div
-            className={`flex gap-4 items-center ${headerJustifyClass} sm:items-center sm:px-5 header`}
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-semibold text-[16px] md:text-[18px] tracking-[1px] md:uppercase md:tracking-[0.16em] text-white">
-                {t('game.level')} {levelLabel}
-              </p>
-              {meta.isDemoRound ? (
-                <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-violet-300">
-                  {t('game.demo')}
-                </span>
-              ) : null}
-            </div>
-            <div className="timer-container">
-              {sessionTimerSeconds > 0 ? (
-                <div className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2">
-                  <span className="text-[11px] uppercase tracking-[0.24em] text-white">
-                    <img
-                      src="/timer-icon.svg"
-                      alt="Clock icon"
-                      className="inline-block w-4"
-                    />
-                  </span>
-                  <GameTimer
-                    key={stageKey}
-                    totalSeconds={sessionTimerSeconds}
-                    running={true}
-                    onExpire={onTimerExpire}
-                  />
-                </div>
-              ) : null}
-            </div>
-          </div>
+          <GameHeader
+            levelLabel={levelLabel}
+            isDemoRound={meta.isDemoRound}
+            sessionTimerSeconds={sessionTimerSeconds}
+            stageKey={stageKey}
+            onRestart={onRestart}
+            onTimerExpire={onTimerExpire}
+            hideLevel={hideLevel}
+          />
           <div className="gameplay min-h-0">
             <motion.div
               className="relative flex h-full min-h-0 w-full items-center justify-center"

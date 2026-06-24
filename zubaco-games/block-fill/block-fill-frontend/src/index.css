@@ -1,26 +1,26 @@
 @import 'tailwindcss';
 
 :root {
-  --background: 260 50% 8%;
-  --foreground: 214 100% 98%;
-  --card: 260 40% 10%;
-  --card-foreground: 214 100% 98%;
-  --primary: 186 100% 50%;
-  --primary-foreground: 260 48% 9%;
-  --muted: 260 20% 18%;
-  --muted-foreground: 220 16% 72%;
-  --accent: 263 84% 67%;
+  --background: 220 20% 7%;
+  --foreground: 0 0% 98%;
+  --card: 220 18% 11%;
+  --card-foreground: 0 0% 98%;
+  --primary: 160 84% 39%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 220 14% 16%;
+  --muted-foreground: 220 10% 65%;
+  --accent: 239 84% 67%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 84% 60%;
-  --border: 260 27% 22%;
-  --ring: 186 100% 50%;
-  --bg-color: #0f0a1e;
-  --brown: #8b5cf6;
-  --card-bg: #1a1233;
-  --glow: #00f0ff;
-  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+  --border: 220 13% 20%;
+  --ring: 160 84% 39%;
+  --bg-color: #111827;
+  --brown: #6366f1;
+  --card-bg: #1f2937;
+  --glow: #10b981;
+  --font-sans: 'Inter', 'Outfit', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
     'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-serif: 'Orbitron', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
 @theme inline {
@@ -144,29 +144,24 @@ select {
 }
 
 .btn-play {
-  background: linear-gradient(90deg, rgba(255, 212, 132, 1) 0%, rgba(255, 180, 117, 1) 100%);
-  border: 1px solid #8b5cf6;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border: none;
+  color: white;
 }
 .text-foreground {
-  color: #8b5cf6 !important;
+  color: #10b981 !important;
 }
 .btn-background {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 212, 132, 1) 0%,
-    rgba(255, 180, 117, 1) 100%
-  ) !important;
-  border: 1px solid #8b5cf6 !important;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  border: none !important;
+  color: white !important;
 }
 .bg-timer {
   position: relative;
-  background: linear-gradient(
-    133deg,
-    rgba(255, 235, 222, 1) 0%,
-    rgba(255, 235, 222, 1) 50%,
-    rgba(255, 228, 165, 1) 100%
-  ) !important;
+  background: rgba(31, 41, 55, 0.8) !important;
+  backdrop-filter: blur(8px);
   padding: 2px;
+  border-radius: 9999px;
 }
 .bg-timer::before {
   content: '';
@@ -175,12 +170,8 @@ select {
   left: 0;
   width: 100%;
   height: 100%;
-  background: linear-gradient(
-    133deg,
-    rgba(255, 219, 190, 1) 0%,
-    rgba(255, 154, 73, 1) 50%,
-    rgba(254, 228, 169, 1) 100%
-  );
+  background: rgba(31, 41, 55, 0.9);
+  border-radius: 9999px;
   z-index: -1;
 }
 

@@ -1,133 +1,214 @@
 ============================================================
 BLOCK FILL GAME - TEST CHECKLIST
 ============================================================
-Created: 2026-05-25
-URL: http://localhost:3008/
+Updated: 2026-06-03
+URL: http://localhost:5173/
 Game Type: Flow Free (connect colored dots, fill entire grid)
+UI Style: Dark theme (gray-900), emerald/indigo accents, 
+          consistent with colour-sort & arrows games
 
 ============================================================
 HOW TO RUN
 ============================================================
-cd C:\game\zubaco-games-repo\zubaco-games\block-fill\block-fill-frontend
-$env:PATH = "C:\Program Files\nodejs;$env:PATH"
-npx vite --mode development --port 3008
+cd C:\zubaco-games\zubaco-games\block-fill\block-fill-frontend
+npx vite --mode development --port 5173
+
+Backend (required):
+cd C:\zubaco-games\zubaco-games\block-fill\block-fill-backend
+bun run start:dev
 
 ============================================================
 TEST CASES
 ============================================================
 
---- HOME / MENU ---
+--- TUTORIAL (first-time user) ---
+[ ] Tutorial carousel shows on first visit (6 steps)
+[ ] Progress dots show current step (active dot wider, indigo)
+[ ] Each step has emoji icon + title + description
+[ ] Icon has spring bounce animation on entry
+[ ] Steps slide left/right with AnimatePresence
+[ ] "Skip" button skips to menu
+[ ] "Next" button advances step
+[ ] Last step shows "Let's Go!" button text
+[ ] Completing tutorial saves to localStorage (won't show again)
+
+--- MENU SCREEN (after tutorial) ---
 [ ] App loads without errors (no white screen)
-[ ] Game title "Block Fill" displays correctly
-[ ] Difficulty packs visible (Easy/Medium/Hard)
-[ ] Can select different difficulty packs
-[ ] "Play Selected" button works → enters game
-[ ] "Generator" button works → opens level generator
-[ ] "Settings" button visible → navigates to Settings screen
-[ ] "Stats" button visible → navigates to Stats screen
+[ ] Animated 🧩 emoji rotates at top
+[ ] "Block Fill" title in bold white
+[ ] Subtitle text in gray-400
+[ ] "▶ Play" button — emerald-600, rounded-xl, shadow
+[ ] Play button hover → scale 1.02
+[ ] Play button tap → scale 0.98
+[ ] Play button disabled state with spinner when starting
+[ ] "📅 Daily Challenge" button — indigo-600 (or gray if done)
+[ ] Daily Challenge shows ✓ when completed today
+[ ] "🎮 Learn How to Play" button (if demo enabled)
+[ ] Bottom 3-icon grid: 🏆 📊 ⚙️ (Achievements, Stats, Settings)
+[ ] Icon buttons are bg-gray-800, rounded-xl
+[ ] NO "View Tutorial" standalone button (removed)
 
---- SETTINGS SCREEN (navigate to #/settings) ---
-[ ] Settings screen renders properly
-[ ] Sound toggle works (on/off)
-[ ] Vibration toggle works (on/off)
-[ ] "Reset All Progress" button shows confirm dialog
-[ ] Back button returns to home/game
+--- DAILY CHALLENGE SCREEN ---
+[ ] Navigates from menu when 📅 tapped
+[ ] Week calendar shows 7 days (Mon-Sun)
+[ ] Today highlighted with emerald ring
+[ ] Completed days show ✓ in indigo
+[ ] Streak counters display (current + best)
+[ ] "Start Daily Challenge" button — emerald gradient
+[ ] Button disabled + "✓ Completed Today" if done
+[ ] "← Back" button returns to menu
 
---- STATS SCREEN (navigate to #/stats) ---
-[ ] Stats screen renders properly
-[ ] Shows all stat categories (Games Played, Won, Win Rate, etc.)
-[ ] Stats default to 0/-- for new players
-[ ] Back button returns to home/game
+--- ACHIEVEMENTS SCREEN ---
+[ ] Opens from menu 🏆 button
+[ ] Header "Achievements" + close X button
+[ ] Shows "N/10 unlocked" count
+[ ] 10 achievements listed in scrollable area
+[ ] Unlocked: bg-gray-800/80, emerald check, full color icon
+[ ] Locked: bg-gray-900/40, grayscale icon, 60% opacity
+[ ] Staggered fade-in animation (0.05s delay per item)
+[ ] "Close" button returns to menu
 
---- GAMEPLAY ---
-[ ] Grid board renders correctly (colored dots visible)
+--- STATS SCREEN ---
+[ ] Opens from menu 📊 button  
+[ ] Header "Your Stats" + close X button
+[ ] 2-column grid with 7 stat cards
+[ ] Each card: emoji icon, bold value, gray label
+[ ] Cards: bg-gray-800/60, rounded-xl, border-gray-700/50
+[ ] Staggered scale-in animation
+[ ] Recent Scores bar chart (if >1 game played)
+[ ] Bar chart: indigo bars, animated height transition
+[ ] "Close" button returns to menu
+
+--- SETTINGS SCREEN ---
+[ ] Opens from menu ⚙️ button
+[ ] Header "Settings" + close X button
+[ ] Vibration toggle — emoji icon, label, emerald toggle switch
+[ ] Toggle animates slide (translate-x)
+[ ] Background Music item — disabled/50% opacity, "Soon" label
+[ ] Reset All Progress — red themed, shows confirm dialog
+[ ] Confirm dialog uses window.confirm()
+[ ] "Done" button returns to menu
+
+--- GAMEPLAY (after pressing Play) ---
+[ ] Game session starts via backend API
+[ ] Board renders with Phaser canvas
+[ ] Grid cells have rounded corners (30% radius)
+[ ] Node dots are CIRCULAR (not hexagonal)
+[ ] Circular dots have layered fill (outer/mid/inner)
+[ ] Board scales to fit screen (responsive)
+
+--- GAME HEADER (top bar during play) ---
+[ ] Top bar: bg-gray-800/80, rounded-xl, backdrop-blur
+[ ] Level badge: "Lv.N" in indigo pill
+[ ] Demo badge shows when in demo round
+[ ] Timer displays in header (bold, tabular-nums)
+[ ] Timer turns red + pulse animation at ≤30s
+[ ] Timer counts down correctly
+[ ] Action buttons row below header
+[ ] "Restart" button with rotate icon
+[ ] "Mute/Unmute" button with speaker icon
+[ ] Mute state persists in localStorage
+[ ] All buttons: bg-gray-700/80, rounded-lg, whileTap scale
+
+--- GAMEPLAY INTERACTION ---
 [ ] Can touch/click a colored dot to start drawing path
 [ ] Can drag to draw a path between dots
 [ ] Path follows finger/mouse through grid cells
 [ ] Can backtrack by dragging over own path
 [ ] Releasing finger/mouse commits the path
-[ ] Move counter increments on each completed path draw
-[ ] Timer counts up during gameplay
-[ ] Coverage percentage updates as paths fill cells
-[ ] Pairs counter updates when a pair is fully connected
+[ ] Path rendering shows colored line with rounded joins
+[ ] Level complete triggers burst animation (ring + glow)
+[ ] Board flips between rounds (fold/unfold transition)
+[ ] Next board loads automatically after completion
+[ ] Loading overlay shows between rounds
 
---- GAME HUD BUTTONS ---
-[ ] Pause button works → shows pause dialog
-[ ] Undo button appears on HUD
-[ ] Undo button disabled when no moves made
-[ ] Undo button enabled after drawing a path
-[ ] Clicking Undo reverts the last path action
-[ ] Can undo multiple times (up to 20 moves)
-[ ] Hint button appears with count (3)
-[ ] Hint count decreases when hint is used
-[ ] Hint button disabled when hints = 0
-[ ] Mute button appears (speaker icon)
-[ ] Mute button toggles sound on/off
-[ ] Mute icon changes (Volume2 ↔ VolumeX)
-[ ] Reset Level button clears all paths
-[ ] Levels button returns to level select
+--- GAME RESULT SCREEN (on game end) ---
+[ ] Fullscreen overlay with bg-gray-900/95 + backdrop-blur
+[ ] Content slides up with spring animation
+[ ] Success: 🎉 emoji with bounce + rotate spring
+[ ] Failure: ⏱️ emoji with bounce
+[ ] Title: "Puzzle Solved!" or "Time Up!" — white, bold
+[ ] Score: 5xl emerald-400 with scale spring animation
+[ ] "points" label below score
+[ ] Stats grid: 2 columns (Rounds Done, Total Rounds)
+[ ] Stats cards: bg-gray-800/60, rounded-xl, indigo/purple text
+[ ] Progress bar with animated fill (emerald or indigo)
+[ ] Percentage label on progress bar
+[ ] "Continue" or "Try Again" button — emerald, rounded-xl
+[ ] Button has whileHover/whileTap motion
+[ ] SUCCESS: confetti particles (40 colored circles falling)
+[ ] Confetti: random positions, colors, speeds, rotations
+[ ] Confetti is pointer-events-none (doesn't block button)
 
---- PAUSE DIALOG ---
-[ ] Pause dialog opens correctly
-[ ] "Resume" button continues the game
-[ ] "Reset" button restarts the level
-[ ] "Exit" button leaves the game
+--- DEMO MODE ---
+[ ] "Learn How to Play" starts demo rounds
+[ ] Demo rounds show "Demo" badge in header
+[ ] Board flip transitions between demo rounds
+[ ] Demo complete shows modal
+[ ] Modal returns to menu
 
---- WIN CONDITION ---
-[ ] Connecting all pairs + filling entire grid = WIN
-[ ] Win dialog appears on completion
-[ ] Confetti animation plays on win (60 colored pieces falling)
-[ ] Score displays correctly
-[ ] Time displays correctly
-[ ] "Replay" button restarts same level
-[ ] "Next Level" button advances to next puzzle
-[ ] "Level Select" button goes back to level list
+--- THEME & VISUAL CONSISTENCY ---
+[ ] Background color: #111827 (gray-900)
+[ ] Primary buttons: emerald-600 with shadow-emerald-600/20
+[ ] Secondary buttons: indigo-600 with shadow-indigo-600/20
+[ ] Cards/surfaces: bg-gray-800/60, border-gray-700/50
+[ ] Text hierarchy: white (headings), gray-300 (body), gray-400 (muted)
+[ ] All interactive elements have rounded-xl corners
+[ ] All buttons have framer-motion whileHover/whileTap
+[ ] Consistent with colour-sort and arrows game UI
+[ ] No old purple/cyan/gold theme remnants
 
 --- AUDIO ---
 [ ] Sound plays when picking up a path (if not muted)
 [ ] Sound plays when releasing a path
-[ ] Mute persists across game actions
+[ ] Mute toggle persists via localStorage
 [ ] No audio errors in console
 
 --- RESPONSIVE / MOBILE ---
 [ ] Board scales to fit mobile screen
 [ ] Touch drawing works on mobile
-[ ] Portrait lock overlay shows in landscape mode
-[ ] Buttons are tappable on mobile (not too small)
+[ ] Menu buttons are tappable (min 44px touch target)
 [ ] No horizontal overflow/scroll
+[ ] Timer pill doesn't overflow on small screens
+[ ] Result overlay is scrollable if content overflows
 
---- LEVEL GENERATOR (navigate to #/generator) ---
-[ ] Generator screen loads
-[ ] Can select difficulty
-[ ] Can change grid rows/cols
-[ ] Generate button creates level JSON
-[ ] Copy button copies JSON to clipboard
-[ ] Download button downloads JSON file
+--- ERROR HANDLING ---
+[ ] Auth gate screen shows if not authenticated
+[ ] API errors display with Alert component
+[ ] Network failure doesn't crash the app
+[ ] Session restore works after page refresh
 
 ============================================================
-KNOWN FEATURES ALREADY WORKING (from before our changes):
+KNOWN FEATURES WORKING:
 ============================================================
 ✓ Core flow puzzle engine (path drawing)
-✓ Multiple difficulty packs (easy/medium/hard)
-✓ Timer system
-✓ Score calculation
-✓ Phaser board renderer
-✓ Level generator
+✓ Timer system (countdown, server-synced)
+✓ Score calculation (server-side)
+✓ Phaser board renderer (circular nodes, rounded cells)
 ✓ Save progress (outbox pattern)
 ✓ i18n translations
-✓ Auth gate (dev session)
-✓ Board card flip transitions
+✓ Auth gate (dev session for local dev)
+✓ Board card flip transitions between rounds
+✓ Level complete burst animation (ring + mandala glow)
+✓ Session time sync polling
+✓ Auto-save progress outbox
+✓ Prefetch next board
 
 ============================================================
-NEW FEATURES ADDED (this session):
+UI COMPONENTS (new/updated this session):
 ============================================================
-★ Mute toggle button on game HUD
-★ Undo button (reverts last path action, up to 20 steps)
-★ Hint button (3 hints per level)
-★ Confetti animation on level completion
-★ Settings screen (sound/vibration toggles, reset progress)
-★ Stats screen (games played, win rate, streaks, times)
-★ Settings/Stats routes added to app navigation
+★ TutorialCarousel — 6-step onboarding (progress dots, emoji)
+★ InstructionsLobbyScreen — Menu with Play/Daily/Achievements/Stats/Settings
+★ GameHeader — Toolbar with Lv badge, timer, restart, mute
+★ GameResultOverlay — Animated result (emoji, score, stats, confetti)
+★ Achievements — 10 badges with unlock tracking
+★ Settings — Vibration toggle, music (soon), reset progress
+★ StatsScreen — 7 stat cards + bar chart (colour-sort style)
+★ DailyChallenge — Week calendar, streaks, daily puzzle
+★ Circular node dots (replaced hexagons)
+★ Rounded grid cells (30% corner radius)
+★ Dark theme (gray-900 bg, emerald/indigo accents)
+★ All micro-screens theme colors updated to match
 
 ============================================================
 BUG REPORT FORMAT:

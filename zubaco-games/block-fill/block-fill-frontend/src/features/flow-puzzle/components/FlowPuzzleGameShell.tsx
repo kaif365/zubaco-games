@@ -42,6 +42,7 @@ import { DemoPlayView } from '@/features/flow-puzzle/components/DemoPlayView';
 import { GameResultOverlay } from '@/features/flow-puzzle/components/GameResultOverlay';
 import { updateStats } from '@/features/flow-puzzle/components/StatsScreen';
 import { markDailyComplete } from '@/features/flow-puzzle/components/DailyChallenge';
+import { setHighestLevel, getHighestLevel } from '@/features/flow-puzzle/components/LevelSelector';
 import { useDemoLevels } from '@/hooks/useDemoLevels';
 import { AuthGateScreen } from '@/components/shared/AuthGateScreen';
 import { GameClearModal } from '@/components/shared/GameClearModal';
@@ -54,7 +55,6 @@ import type { StageId } from '@micro-screens/src';
 
 interface FlowPuzzleGameShellProps {
   onExit?: () => void;
-  isDaily?: boolean;
 }
 
 type StageState = 'start' | 'demo' | 'playing' | 'end';
@@ -65,7 +65,7 @@ type StageState = 'start' | 'demo' | 'playing' | 'end';
  *
  * @param props Component props
  */
-export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGameShellProps) {
+export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProps) {
   const { t } = useTranslation();
   const { showApiError, clearApiError } = useApiError();
   const { gameConfig } = useGameInit();
@@ -84,6 +84,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
   const [completedRounds, setCompletedRounds] = useState(0);
   const [apiTotalRounds, setApiTotalRounds] = useState<number | null>(null);
   const [isGameSuccess, setIsGameSuccess] = useState(false);
+  const [isDailyGame, setIsDailyGame] = useState(false);
   const handledWinLevelIdRef = useRef<string | null>(null);
   const restoreAttemptedRef = useRef(false);
   const [waitingForRestore, setWaitingForRestore] = useState(() => !!getActiveSessionId());
@@ -536,7 +537,8 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
           setFinalScore(null);
           setIsLoadingFinalScore(true);
           setIsGameSuccess(true);
-          if (isDaily) markDailyComplete();
+          if (isDailyGame) markDailyComplete();
+          if (!isDailyGame) setHighestLevel(getHighestLevel() + 1);
           setCompletedRounds(totalActualRoundsEarly);
           setStageState('end');
           if (sid) {
@@ -609,6 +611,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
   }, [
     game,
     gameConfig,
+    isDailyGame,
     prefetchedNextLevel,
     requestNextBoard,
     stageState,
@@ -712,10 +715,6 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
     };
   }, [handleSessionTimerExpire]);
 
-  const showLoader =
-    stageState === 'start' &&
-    (restoreBoardMutation.isPending || waitingForRestore || isAutoRestarting);
-
   return (
     <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="w-full">
       {levelCompleteBurst ? (
@@ -726,21 +725,13 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
         <div className="pointer-events-none absolute inset-0 overflow-hidden" />
 
         <div className="relative z-10 flex-col justify-center gap-6">
-          {stageState === 'start' && showLoader ? (
-            <AuthGateScreen
-              gameThemeStyle={gameThemeStyle}
-              error={null}
-              phase="config"
-              loaderOnly
-            />
-          ) : null}
-
-          {stageState === 'start' && !showLoader ? (
+          {stageState === 'start' ? (
             <InstructionsLobbyScreen
               stage={safeStageId}
               isStarting={isStartingStage}
               enableLearnHowToPlay={(gameConfig?.enableDemo ?? false) && !isDemoEmpty && !isDemoLoading}
-              onPlayNow={() => void startStage()}
+              onPlayNow={() => { setIsDailyGame(false); void startStage(); }}
+              onPlayDaily={() => { setIsDailyGame(true); void startStage(); }}
               onLearnHowToPlay={startDemo}
               contentByStage={stageContentByStage}
               isContentLoading={Boolean(isStageContentLoading)}
@@ -775,6 +766,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
               onDragPath={game.handleDragPath}
               onEndPath={game.handleEndPath}
               onTimerExpire={handleSessionTimerExpire}
+              hideLevel={isDailyGame}
             />
           ) : null}
         </div>
@@ -792,13 +784,22 @@ export function FlowPuzzleGameShell({ onExit: _onExit, isDaily }: FlowPuzzleGame
           score={finalScore ?? 0}
           completedRounds={completedRounds}
           totalRounds={totalRounds}
+          isDaily={isDailyGame}
           onContinue={() => {
-            try {
-              window.localStorage.clear();
-            } catch {
-              /* storage may be unavailable in private mode / SSR */
-            }
-            window.location.reload();
+            clearActiveSessionId();
+            setFinalScore(null);
+            setIsGameSuccess(false);
+            setCompletedRounds(0);
+            setIsDailyGame(false);
+            void startStage();
+          }}
+          onMainMenu={() => {
+            clearActiveSessionId();
+            setStageState('start');
+            setFinalScore(null);
+            setIsGameSuccess(false);
+            setCompletedRounds(0);
+            setIsDailyGame(false);
           }}
         />
       </div>

@@ -58,35 +58,61 @@ const LEVEL_CONFIG = [
     { name: 'Easy', size: 5, pairs: 3, count: 3, difficultyScore: 1 },
     { name: 'Medium', size: 6, pairs: 4, count: 3, difficultyScore: 2 },
     { name: 'Hard', size: 7, pairs: 5, count: 2, difficultyScore: 3 },
+    { name: 'Tricky', size: 7, pairs: 5, count: 3, difficultyScore: 4 },
+    { name: 'Tough', size: 8, pairs: 5, count: 3, difficultyScore: 5 },
+    { name: 'Expert', size: 8, pairs: 6, count: 3, difficultyScore: 6 },
+    { name: 'Master', size: 9, pairs: 5, count: 3, difficultyScore: 7 },
+    { name: 'Insane', size: 9, pairs: 5, count: 3, difficultyScore: 8 },
+    { name: 'Legend', size: 10, pairs: 5, count: 3, difficultyScore: 9 },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
-    return arr.sort(() => Math.random() - 0.5);
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
 }
 
 function generateFullPaths(grid: number, pairCount: number): Path[] {
     const cells: Point[] = [];
 
-    for (let r = 0; r < grid; r++) {
-        if (r % 2 === 0) {
-            for (let c = 0; c < grid; c++) {
-                cells.push({ row: r, col: c });
-            }
-        } else {
-            for (let c = grid - 1; c >= 0; c--) {
-                cells.push({ row: r, col: c });
+    // Randomize snake direction: vertical vs horizontal, start corner, per-row direction
+    const vertical = Math.random() > 0.5;
+    const startFromEnd = Math.random() > 0.5;
+    const reverseFirst = Math.random() > 0.5;
+
+    const size = grid;
+    for (let i = 0; i < size; i++) {
+        const idx = startFromEnd ? size - 1 - i : i;
+        const goForward = (i % 2 === 0) !== reverseFirst;
+
+        for (let j = 0; j < size; j++) {
+            const jj = goForward ? j : size - 1 - j;
+            if (vertical) {
+                cells.push({ row: jj, col: idx });
+            } else {
+                cells.push({ row: idx, col: jj });
             }
         }
     }
 
-    const segmentSize = Math.floor(cells.length / pairCount);
-    const paths: Path[] = [];
+    // Random split points (minimum 2 cells per segment) for unique endpoint placement
+    const totalCells = cells.length;
+    const minSegSize = 2;
+    const available = totalCells - pairCount * minSegSize;
+    const extras = Array(pairCount).fill(0);
+    for (let k = 0; k < available; k++) {
+        extras[Math.floor(Math.random() * pairCount)]++;
+    }
 
-    let index = 0;
+    const paths: Path[] = [];
+    let pos = 0;
     for (let i = 0; i < pairCount; i++) {
-        const size = i === pairCount - 1 ? cells.length - index : segmentSize;
-        paths.push(cells.slice(index, index + size));
-        index += size;
+        const segLen = minSegSize + extras[i];
+        paths.push(cells.slice(pos, pos + segLen));
+        pos += segLen;
     }
 
     return paths;
@@ -122,6 +148,12 @@ function generateSolvableBoard(grid: number, pairCount: number): BoardSeed {
 
             validateBlockFillPairs(grid, grid, pairs);
 
+            // Skip expensive solver verification for large grids (>=9).
+            // The snake-traversal construction guarantees solvability by design.
+            if (grid >= 9) {
+                return boardSeed;
+            }
+
             const solvable = hasBlockFillSolution({
                 gridX: grid,
                 gridY: grid,
@@ -144,6 +176,11 @@ function assertSeedBoardIsPersistable(boardSeed: BoardSeed): ReturnType<typeof t
     const pairs = extractPairsFromBoardShape(storedShape);
 
     validateBlockFillPairs(boardSeed.gridCol, boardSeed.gridRow, pairs);
+
+    // Skip expensive solver for large grids — snake-traversal guarantees solvability
+    if (boardSeed.gridCol >= 9 || boardSeed.gridRow >= 9) {
+        return storedShape;
+    }
 
     const solvable = hasBlockFillSolution({
         gridX: boardSeed.gridCol,

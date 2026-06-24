@@ -81,9 +81,9 @@ export function DailyChallenge({ onPlay, onBack }: DailyChallengeProps) {
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
                   i === today
-                    ? 'bg-cyan-600 text-white ring-2 ring-cyan-400'
+                    ? 'bg-emerald-600 text-white ring-2 ring-emerald-400'
                     : state.weekCompleted[i]
-                    ? 'bg-green-600 text-white'
+                    ? 'bg-indigo-600 text-white'
                     : 'bg-gray-800 text-gray-500'
                 }`}
               >
@@ -112,7 +112,7 @@ export function DailyChallenge({ onPlay, onBack }: DailyChallengeProps) {
           className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${
             completedToday
               ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-              : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg hover:shadow-xl'
+              : 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500'
           }`}
           whileTap={!completedToday ? { scale: 0.97 } : undefined}
         >

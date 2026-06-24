@@ -1,7 +1,4 @@
 import { motion } from 'framer-motion';
-import { ArrowLeft, Trophy, Clock, Target, Flame } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { useEffect, useState } from 'react';
 
 interface StatsData {
@@ -42,7 +39,6 @@ export function updateStats(update: { won: boolean; timeSec: number; moves: numb
   stats.totalTimeSec += update.timeSec;
   if (update.won && (stats.bestTimeSec === 0 || update.timeSec < stats.bestTimeSec)) stats.bestTimeSec = update.timeSec;
   stats.totalMoves += update.moves;
-  // Use moves as a "score" proxy (lower is better, so invert for bar chart)
   const score = update.won ? Math.max(1, 1000 - update.moves * 10) : 0;
   stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
   localStorage.setItem(STATS_KEY, JSON.stringify(stats));
@@ -71,72 +67,77 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
   };
 
   const statItems = [
-    { icon: Target, label: 'Games Played', value: String(stats.gamesPlayed), color: 'text-cyan-300' },
-    { icon: Trophy, label: 'Games Won', value: String(stats.gamesWon), color: 'text-amber-300' },
-    { icon: Target, label: 'Win Rate', value: `${winRate}%`, color: 'text-mint-300' },
-    { icon: Clock, label: 'Total Time', value: formatTime(stats.totalTimeSec), color: 'text-violet-300' },
-    { icon: Clock, label: 'Best Time', value: formatTime(stats.bestTimeSec), color: 'text-indigo-300' },
-    { icon: Flame, label: 'Current Streak', value: String(stats.currentStreak), color: 'text-orange-300' },
-    { icon: Flame, label: 'Longest Streak', value: String(stats.longestStreak), color: 'text-rose-300' },
+    { label: 'Games Played', value: String(stats.gamesPlayed), icon: '🎮' },
+    { label: 'Games Won', value: String(stats.gamesWon), icon: '🏆' },
+    { label: 'Win Rate', value: `${winRate}%`, icon: '📊' },
+    { label: 'Best Time', value: formatTime(stats.bestTimeSec), icon: '⚡' },
+    { label: 'Total Time', value: formatTime(stats.totalTimeSec), icon: '⏱️' },
+    { label: 'Current Streak', value: String(stats.currentStreak), icon: '🔥' },
+    { label: 'Longest Streak', value: String(stats.longestStreak), icon: '⭐' },
   ];
 
   return (
-    <Card className="rounded-[2rem] border-white/12 bg-slate-950/65">
-      <CardContent className="space-y-6 px-6 py-8 sm:px-8">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Statistics</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white">
-              Your Progress
-            </h2>
-          </div>
-          <Button
-            variant="ghost"
-            className="rounded-full text-slate-200 hover:bg-white/8"
-            onClick={onBack}
+    <motion.div
+      className="flex flex-col gap-4 px-4 py-6 w-full max-w-sm mx-auto"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-white">Your Stats</h2>
+        <button onClick={onBack} className="text-gray-400 hover:text-white p-1 transition-colors">
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {statItems.map((item, idx) => (
+          <motion.div
+            key={item.label}
+            className="p-3 bg-gray-800/60 rounded-xl border border-gray-700/50"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: idx * 0.05 }}
           >
-            <ArrowLeft size={18} />
-            Back
-          </Button>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          {statItems.map(({ icon: Icon, label, value, color }) => (
-            <div
-              key={label}
-              className="flex items-center gap-4 rounded-[1.5rem] border border-white/8 bg-white/5 px-5 py-4"
-            >
-              <Icon size={22} className={color} />
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{label}</p>
-                <p className="mt-1 text-xl font-semibold text-white">{value}</p>
-              </div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">{item.icon}</span>
+              <span className="text-lg font-bold text-white">{item.value}</span>
             </div>
-          ))}
-        </div>
+            <div className="text-xs text-gray-400">{item.label}</div>
+          </motion.div>
+        ))}
+      </div>
 
-        {stats.recentScores && stats.recentScores.length > 1 && (
-          <div className="rounded-[1.5rem] border border-white/8 bg-white/5 px-5 py-4">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-400 mb-3">Recent Scores</p>
-            <div className="flex items-end gap-1 h-16">
-              {stats.recentScores.slice(0, 15).map((s, idx) => {
-                const max = Math.max(...stats.recentScores, 1);
-                const height = Math.max(4, (s / max) * 100);
-                return (
-                  <motion.div
-                    key={idx}
-                    className="flex-1 bg-indigo-500 rounded-t"
-                    style={{ height: `${height}%` }}
-                    initial={{ height: 0 }}
-                    animate={{ height: `${height}%` }}
-                    transition={{ delay: idx * 0.05 }}
-                  />
-                );
-              })}
-            </div>
+      {/* Recent scores chart */}
+      {stats.recentScores && stats.recentScores.length > 1 && (
+        <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
+          <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
+          <div className="flex items-end gap-1 h-16">
+            {stats.recentScores.slice(0, 15).map((score, idx) => {
+              const max = Math.max(...stats.recentScores, 1);
+              const height = Math.max(4, (score / max) * 100);
+              return (
+                <motion.div
+                  key={idx}
+                  className="flex-1 bg-indigo-500 rounded-t"
+                  style={{ height: `${height}%` }}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${height}%` }}
+                  transition={{ delay: idx * 0.05 }}
+                />
+              );
+            })}
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+
+      <button
+        onClick={onBack}
+        className="mt-2 w-full py-3 rounded-xl bg-gray-700/60 text-sm font-medium text-gray-300 hover:bg-gray-600/60 transition-colors"
+      >
+        Close
+      </button>
+    </motion.div>
   );
 }

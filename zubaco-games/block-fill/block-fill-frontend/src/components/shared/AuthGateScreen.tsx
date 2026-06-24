@@ -31,14 +31,14 @@ export function AuthGateScreen({
   gameThemeStyle,
   error,
   phase = 'dev-session',
-  loaderOnly = false,
 }: AuthGateScreenProps) {
   const { t } = useTranslation();
-  const copyKeys = PHASE_COPY_KEYS[phase];
 
+  // Only show UI when there's an actual error; otherwise render an empty dark screen
+  // so users don't see a "buffering" spinner/text on startup.
   return (
     <main
-      className={`block-fill-shell auth-gate-screen select-none${loaderOnly ? ' auth-gate-screen--loader-only' : ''}`}
+      className="block-fill-shell auth-gate-screen select-none"
       style={gameThemeStyle}
     >
       {error ? (
@@ -46,15 +46,7 @@ export function AuthGateScreen({
           <p className="auth-gate-title">{t('auth.failedTitle')}</p>
           <p className="auth-gate-copy">{error}</p>
         </div>
-      ) : loaderOnly ? (
-        <div className="loading-spinner" aria-hidden />
-      ) : (
-        <div className="auth-gate-card">
-          <div className="loading-spinner" aria-hidden />
-          <p className="auth-gate-title">{t(copyKeys.title)}</p>
-          <p className="auth-gate-copy">{t(copyKeys.copy)}</p>
-        </div>
-      )}
+      ) : null}
     </main>
   );
 }

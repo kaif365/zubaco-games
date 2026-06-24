@@ -50,8 +50,8 @@ export function GameTimer({ totalSeconds, running, onExpire }: GameTimerProps) {
 
   return (
     <span
-      className={`font-sans text-sm md:text-lg font-semibold transition-colors ${
-        isLow ? 'text-rose-300' : 'text-white'
+      className={`font-sans text-sm md:text-lg font-semibold tabular-nums transition-colors ${
+        isLow ? 'text-rose-400 animate-pulse' : 'text-white'
       }`}
     >
       {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}

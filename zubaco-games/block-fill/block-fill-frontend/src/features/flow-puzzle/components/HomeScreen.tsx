@@ -1,8 +1,5 @@
 import { motion } from 'framer-motion';
-import { Play, Sparkles, Wand2, Settings, BarChart3 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { GAME_LABEL, GAME_TITLE } from '@/features/flow-puzzle/config/branding';
+import { GAME_TITLE } from '@/features/flow-puzzle/config/branding';
 import type { FlowLevelPack } from '@/features/flow-puzzle/types';
 
 interface HomeScreenProps {
@@ -16,123 +13,63 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({
-  packs,
-  selectedPackId,
-  onSelectPack,
+  packs: _packs,
+  selectedPackId: _selectedPackId,
+  onSelectPack: _onSelectPack,
   onPlay,
-  onOpenGenerator,
+  onOpenGenerator: _onOpenGenerator,
   onOpenSettings,
   onOpenStats,
 }: HomeScreenProps) {
-  const selectedPack = packs.find((pack) => pack.id === selectedPackId) ?? packs[0];
-
   return (
-    <Card className="relative overflow-hidden rounded-[2rem] border-white/12 bg-slate-950/65 shadow-[0_20px_80px_rgba(0,0,0,0.4)]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(92,242,255,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(255,75,189,0.16),transparent_28%)]" />
-      <CardContent className="relative z-10 px-6 py-8 sm:px-10 sm:py-12">
-        <div className="mx-auto max-w-5xl">
-          <div className="text-center">
-            <div className="mb-8 inline-flex items-center gap-3 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-cyan-100/90">
-              <Sparkles size={14} />
-              {GAME_LABEL}
-            </div>
-            <motion.h1
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-5xl font-semibold tracking-[-0.04em] text-white sm:text-7xl"
+    <motion.div
+      className="flex flex-col items-center gap-5 py-8 px-4"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <motion.div
+        className="text-5xl mb-2"
+        animate={{ rotate: [0, 5, -5, 0] }}
+        transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+      >
+        🧩
+      </motion.div>
+      <h1 className="text-3xl font-black text-white">{GAME_TITLE}</h1>
+      <p className="text-sm text-gray-400 text-center max-w-xs">
+        Connect dots and fill the board before time runs out!
+      </p>
+
+      <div className="flex flex-col gap-3 w-full max-w-xs mt-4">
+        <motion.button
+          onClick={onPlay}
+          className="w-full py-3.5 rounded-xl bg-emerald-600 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500 transition-all"
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          ▶ Play
+        </motion.button>
+
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          {onOpenStats && (
+            <motion.button
+              onClick={onOpenStats}
+              className="py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl transition-all text-sm"
+              whileTap={{ scale: 0.95 }}
             >
-              {GAME_TITLE}
-            </motion.h1>
-            <p className="mx-auto mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-lg">
-              Choose a difficulty pack, jump straight into play, or open the generator on its own
-              screen to create the next level JSON for that pack.
-            </p>
-          </div>
-
-          <div className="mt-10 grid gap-4 lg:grid-cols-3">
-            {packs.map((pack) => {
-              const isSelected = selectedPackId === pack.id;
-
-              return (
-                <button
-                  key={pack.id}
-                  type="button"
-                  onClick={() => onSelectPack(pack.id)}
-                  className={`rounded-[1.65rem] border p-5 text-left transition-all ${
-                    isSelected
-                      ? 'border-cyan-300/45 bg-cyan-300/10 shadow-[0_0_30px_rgba(92,242,255,0.14)]'
-                      : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/8'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase text-white font-sans font-semibold">
-                        {pack.name}
-                      </p>
-                      <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">
-                        Multiple Grid Sizes
-                      </h3>
-                    </div>
-                    <div className="rounded-full border border-white/12 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
-                      {pack.levels.length} levels
-                    </div>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-300">{pack.themeName}</p>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-10 rounded-[1.65rem] border border-white/10 bg-white/5 p-6">
-            <p className="text-xs uppercase text-white font-sans font-semibold">Selected Pack</p>
-            <h3 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white">
-              {selectedPack?.name}
-            </h3>
-            <p className="mt-3 text-sm leading-6 text-slate-300">{selectedPack?.themeName}</p>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <Button
-                size="lg"
-                className="rounded-full bg-cyan-300 px-8 text-slate-950 shadow-[0_0_24px_rgba(92,242,255,0.45)] hover:bg-cyan-200"
-                onClick={onPlay}
-              >
-                <Play size={18} />
-                Play Selected
-              </Button>
-              <Button
-                variant="secondary"
-                size="lg"
-                className="rounded-full bg-white/8 text-white hover:bg-white/12"
-                onClick={onOpenGenerator}
-              >
-                <Wand2 size={18} />
-                Generator
-              </Button>
-              {onOpenSettings && (
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  className="rounded-full bg-white/8 text-white hover:bg-white/12"
-                  onClick={onOpenSettings}
-                >
-                  <Settings size={18} />
-                  Settings
-                </Button>
-              )}
-              {onOpenStats && (
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  className="rounded-full bg-white/8 text-white hover:bg-white/12"
-                  onClick={onOpenStats}
-                >
-                  <BarChart3 size={18} />
-                  Stats
-                </Button>
-              )}
-            </div>
-          </div>
+              📊 Stats
+            </motion.button>
+          )}
+          {onOpenSettings && (
+            <motion.button
+              onClick={onOpenSettings}
+              className="py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl transition-all text-sm"
+              whileTap={{ scale: 0.95 }}
+            >
+              ⚙️ Settings
+            </motion.button>
+          )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </motion.div>
   );
 }

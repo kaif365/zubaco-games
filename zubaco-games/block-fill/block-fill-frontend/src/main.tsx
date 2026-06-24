@@ -13,9 +13,11 @@ import { AUTH_STORAGE_KEY } from '@/app/authSession';
 import { ACTIVE_SESSION_KEY } from '@/features/flow-puzzle/sessionStorage/activeSessionStorage';
 import { OUTBOX_STORAGE_KEY } from '@/features/flow-puzzle/save-progress/saveProgressOutbox';
 
-// Apply client-side security hardening on every startup (not gated by env flag).
-disableDevTools();
-disableCopyAndSelection();
+// Apply client-side security hardening only in production builds.
+if (import.meta.env.PROD) {
+  disableDevTools();
+  disableCopyAndSelection();
+}
 
 void (async () => {
   await initSecureStorage([AUTH_STORAGE_KEY, ACTIVE_SESSION_KEY, OUTBOX_STORAGE_KEY]);
