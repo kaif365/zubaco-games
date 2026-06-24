@@ -30,6 +30,7 @@ type GameAction =
   | { type: 'RESET_LEVEL' }
   | { type: 'NEXT_LEVEL' }
   | { type: 'GOTO_LEVEL'; index: number }
+  | { type: 'LOAD_BOARD'; level: Level; levelIndex: number; timeLimitMs?: number }
   | { type: 'UNDO' }
   | { type: 'TICK'; delta: number }
   | { type: 'USE_HINT' }
@@ -139,6 +140,23 @@ function reducer(state: GameState, action: GameAction): GameState {
     }
     case 'GOTO_LEVEL':
       return initState(action.index);
+    case 'LOAD_BOARD': {
+      const timeLimitMs = action.timeLimitMs ?? getTimeLimit(action.levelIndex);
+      return {
+        levelIndex: action.levelIndex,
+        board: buildBoard(action.level),
+        moves: 0,
+        lives: MAX_LIVES,
+        status: 'playing' as const,
+        score: 0,
+        comboStreak: 0,
+        maxStreak: 0,
+        timeRemainingMs: timeLimitMs,
+        timeLimitMs,
+        undoStack: [],
+        hintId: null,
+      };
+    }
     default:
       return state;
   }
@@ -197,6 +215,7 @@ export function useArrowGame(initialLevel = 0) {
   const resetLevel = useCallback(() => dispatch({ type: 'RESET_LEVEL' }), []);
   const nextLevel = useCallback(() => dispatch({ type: 'NEXT_LEVEL' }), []);
   const gotoLevel = useCallback((index: number) => dispatch({ type: 'GOTO_LEVEL', index }), []);
+  const loadBoard = useCallback((level: Level, levelIndex: number, timeLimitMs?: number) => dispatch({ type: 'LOAD_BOARD', level, levelIndex, timeLimitMs }), []);
   const useHint = useCallback(() => dispatch({ type: 'USE_HINT' }), []);
 
   return {
@@ -207,6 +226,7 @@ export function useArrowGame(initialLevel = 0) {
     resetLevel,
     nextLevel,
     gotoLevel,
+    loadBoard,
     useHint,
     levels: LEVELS,
   };

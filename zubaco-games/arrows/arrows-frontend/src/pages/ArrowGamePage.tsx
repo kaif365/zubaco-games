@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useArrowGame } from '@/hooks/useArrowGame';
+import { useArrowGameSession } from '@/hooks/useArrowGameSession';
 import { useAudio } from '@/hooks/useAudio';
 import { Board } from '@/components/game/Board';
 import { GameHeader } from '@/components/game/GameHeaderNew';
@@ -36,7 +37,8 @@ export default function ArrowGamePage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [achievementPopup, setAchievementPopup] = useState<string | null>(null);
 
-  const { state, removeArrow, wrongMove, undo, resetLevel, nextLevel, gotoLevel, useHint } = useArrowGame(currentLevel);
+  const { state, removeArrow, wrongMove, undo, resetLevel, nextLevel, gotoLevel, loadBoard, useHint } = useArrowGame(currentLevel);
+  const { session, startSession, recordMove, endBoard, endGame } = useArrowGameSession();
   const { play } = useAudio();
 
   // Track game end
@@ -58,6 +60,16 @@ export default function ArrowGamePage() {
       // Mark daily as done if applicable
       if (isDaily) {
         markDailyDone(state.score);
+      }
+
+      // Submit to backend
+      if (session.isConnected) {
+        void endBoard().then(async (next) => {
+          if (!next) {
+            // Game is over — finalize session
+            await endGame();
+          }
+        });
       }
 
       // Check achievements
@@ -82,6 +94,12 @@ export default function ArrowGamePage() {
       play('incorrect');
       updateStats(false, 0, state.levelIndex + 1, state.maxStreak);
       setIsDaily(false);
+
+      // Submit game over to backend
+      if (session.isConnected) {
+        void endGame();
+      }
+
       setTimeout(() => setScreen('result'), 800);
     }
   }, [state.status]);
@@ -94,18 +112,34 @@ export default function ArrowGamePage() {
     }
   }, [achievementPopup]);
 
-  const handleStartLevel = useCallback((index: number) => {
+  const handleStartLevel = useCallback(async (index: number) => {
     setCurrentLevel(index);
     setIsDaily(false);
-    gotoLevel(index);
     play('start');
     setScreen('playing');
-  }, [gotoLevel, play]);
+
+    // Try to start a backend session; fall back to local levels on failure
+    const result = await startSession();
+    if (result) {
+      loadBoard(result.level, index, result.timeLimitMs);
+    } else {
+      gotoLevel(index);
+    }
+  }, [gotoLevel, loadBoard, play, startSession]);
 
   const handleRemove = useCallback((id: string) => {
     play('correct');
+    // Find the arrow's position for backend move tracking
+    for (const row of state.board) {
+      for (const cell of row) {
+        if (cell && cell.id === id) {
+          recordMove(cell.col, cell.row);
+          break;
+        }
+      }
+    }
     removeArrow(id);
-  }, [removeArrow, play]);
+  }, [removeArrow, play, recordMove, state.board]);
 
   const handleWrongMove = useCallback(() => {
     play('incorrect');
@@ -127,13 +161,23 @@ export default function ArrowGamePage() {
     resetLevel();
   }, [resetLevel, play]);
 
-  const handleNextLevel = useCallback(() => {
+  const handleNextLevel = useCallback(async () => {
     const next = Math.min(currentLevel + 1, LEVELS.length - 1);
     setCurrentLevel(next);
-    gotoLevel(next);
     play('start');
     setScreen('playing');
-  }, [currentLevel, gotoLevel, play]);
+
+    if (session.isConnected) {
+      // Try to get next board from server
+      const result = await endBoard();
+      if (result) {
+        loadBoard(result.level, next, result.timeLimitMs);
+        return;
+      }
+    }
+    // Fallback to local
+    gotoLevel(next);
+  }, [currentLevel, gotoLevel, loadBoard, play, session.isConnected, endBoard]);
 
   const handleTutorialDone = useCallback(() => {
     localStorage.setItem('arrowgame_tutorial_done', 'true');
@@ -214,12 +258,18 @@ export default function ArrowGamePage() {
 
       {/* DAILY */}
       {screen === 'daily' && (
-        <DailyChallenge onPlay={(lvl) => {
+        <DailyChallenge onPlay={async (lvl) => {
           setCurrentLevel(lvl);
           setIsDaily(true);
-          gotoLevel(lvl);
           play('start');
           setScreen('playing');
+
+          const result = await startSession();
+          if (result) {
+            loadBoard(result.level, lvl, result.timeLimitMs);
+          } else {
+            gotoLevel(lvl);
+          }
         }} onClose={() => setScreen('menu')} />
       )}
 
