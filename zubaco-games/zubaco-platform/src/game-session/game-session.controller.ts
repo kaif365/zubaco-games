@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Body, Param, Headers, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { GameSessionService } from './game-session.service';
 import { ScoreValidatorService } from './score-validator.service';
 import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
@@ -16,6 +17,7 @@ export class GameSessionController {
   ) {}
 
   @Post('start')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   async startGame(
     @CurrentUser() userId: string,
     @Body() dto: StartGameDto,
@@ -57,11 +59,13 @@ export class GameSessionController {
   // ─── SCORING ENGINE ENDPOINTS ───────────────────────────────────
 
   @Get('scoring/config/:gameType')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   getScoringConfig(@Param('gameType') gameType: string) {
     return this.scoreValidator.getScoringConfig(gameType as GameType);
   }
 
   @Post('scoring/breakdown')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   calculateBreakdown(
     @Body() dto: { game_type: string; correct_actions: number; wrong_actions: number; time_limit_ms: number; remaining_time_ms: number },
   ) {

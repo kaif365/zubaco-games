@@ -7,9 +7,10 @@ import { BankDetailService } from './bank-detail.service';
 import { WalletCleanupService } from './wallet-cleanup.service';
 import { AuthModule } from '../auth/auth.module';
 import { ComplianceModule } from '../compliance/compliance.module';
+import { RedisModule } from '../common/redis/redis.module';
 
 @Module({
-  imports: [forwardRef(() => AuthModule), ComplianceModule],
+  imports: [forwardRef(() => AuthModule), ComplianceModule, RedisModule],
   controllers: [WalletController],
   providers: [WalletService, PaymentGatewayService, KycService, BankDetailService, WalletCleanupService],
   exports: [WalletService, PaymentGatewayService, KycService, BankDetailService],

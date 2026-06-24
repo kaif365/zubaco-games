@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { RedisService } from '../common/redis/redis.service';
 import * as crypto from 'crypto';
 
 interface RazorpayOrder {
@@ -15,7 +16,10 @@ export class PaymentGatewayService {
   private readonly keySecret: string;
   private readonly webhookSecret: string;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {
     this.keyId = process.env.RAZORPAY_KEY_ID || '';
     this.keySecret = process.env.RAZORPAY_KEY_SECRET || '';
     this.webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
@@ -30,6 +34,9 @@ export class PaymentGatewayService {
     if (amountInr > 100000) {
       throw new BadRequestException('Maximum deposit is ₹1,00,000');
     }
+
+    // ─── Responsible Gaming: Deposit Limit Enforcement ───────────
+    await this.enforceDepositLimits(userId, amountInr);
 
     const amountPaise = Math.round(amountInr * 100);
 
@@ -350,5 +357,79 @@ export class PaymentGatewayService {
     }
 
     return response.json() as Promise<{ amount: number; status: string }>;
+  }
+
+  // ─── RESPONSIBLE GAMING: DEPOSIT LIMIT ENFORCEMENT ─────────────
+
+  private async enforceDepositLimits(userId: string, amountInr: number): Promise<void> {
+    const limitsRaw = await this.redis.get(`deposit_limit:${userId}`);
+    if (!limitsRaw) return; // No limits set — allow
+
+    const limits = JSON.parse(limitsRaw);
+    if (!limits.enabled) return;
+
+    const now = new Date();
+
+    // Check daily limit
+    if (limits.daily_limit > 0) {
+      const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const dailyTotal = await this.prisma.transaction.aggregate({
+        where: {
+          user_id: userId,
+          type: 'DEPOSIT',
+          status: { in: ['COMPLETED', 'PENDING'] },
+          created_at: { gte: dayStart },
+        },
+        _sum: { amount: true },
+      });
+      const todayDeposits = Number(dailyTotal._sum.amount || 0);
+      if (todayDeposits + amountInr > limits.daily_limit) {
+        throw new BadRequestException(
+          `Daily deposit limit exceeded. Limit: ₹${limits.daily_limit}, Today's deposits: ₹${todayDeposits}`,
+        );
+      }
+    }
+
+    // Check weekly limit
+    if (limits.weekly_limit > 0) {
+      const weekStart = new Date(now);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      const weeklyTotal = await this.prisma.transaction.aggregate({
+        where: {
+          user_id: userId,
+          type: 'DEPOSIT',
+          status: { in: ['COMPLETED', 'PENDING'] },
+          created_at: { gte: weekStart },
+        },
+        _sum: { amount: true },
+      });
+      const weekDeposits = Number(weeklyTotal._sum.amount || 0);
+      if (weekDeposits + amountInr > limits.weekly_limit) {
+        throw new BadRequestException(
+          `Weekly deposit limit exceeded. Limit: ₹${limits.weekly_limit}, This week: ₹${weekDeposits}`,
+        );
+      }
+    }
+
+    // Check monthly limit
+    if (limits.monthly_limit > 0) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthlyTotal = await this.prisma.transaction.aggregate({
+        where: {
+          user_id: userId,
+          type: 'DEPOSIT',
+          status: { in: ['COMPLETED', 'PENDING'] },
+          created_at: { gte: monthStart },
+        },
+        _sum: { amount: true },
+      });
+      const monthDeposits = Number(monthlyTotal._sum.amount || 0);
+      if (monthDeposits + amountInr > limits.monthly_limit) {
+        throw new BadRequestException(
+          `Monthly deposit limit exceeded. Limit: ₹${limits.monthly_limit}, This month: ₹${monthDeposits}`,
+        );
+      }
+    }
   }
 }
