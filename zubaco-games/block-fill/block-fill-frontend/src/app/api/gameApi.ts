@@ -47,6 +47,7 @@ interface GameSessionData {
   isActualRound: boolean;
   startTime?: string;
   endTime?: string;
+  serverNow?: string;
   board: SessionBoard | null;
 }
 
@@ -244,11 +245,11 @@ export async function fetchGameConfigs(stageId: string): Promise<GameConfig> {
  *
  * @returns {Promise<GameSessionData>} The initial board and session metadata.
  */
-export async function startGameSession(stageId: string) {
-  const payload = await apiPost<GameEnvelope, { stageId: string }>({
+export async function startGameSession(stageId: string, options?: { level?: number; isDaily?: boolean }) {
+  const payload = await apiPost<GameEnvelope, { stageId: string; level?: number; isDaily?: boolean }>({
     baseUrl: ensureGameBaseUrl(),
     path: API_ENDPOINTS.game.startSession,
-    body: { stageId },
+    body: { stageId, ...options },
     ...gamePayloadCryptoOptions(),
   });
   ensureSuccess(payload, 'Invalid start game session response');

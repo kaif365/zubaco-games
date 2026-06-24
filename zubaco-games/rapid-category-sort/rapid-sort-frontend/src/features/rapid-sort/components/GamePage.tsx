@@ -46,8 +46,8 @@ export function GamePage() {
 
   const { play } = useAudio();
 
-  const handleStart = useCallback(async () => {
-    const session = await startSession(DEFAULT_STAGE_ID);
+  const handleStart = useCallback(async (level?: number) => {
+    const session = await startSession(DEFAULT_STAGE_ID, level);
     if (session) {
       setConfig(session.config);
       setSeed(session.seed);

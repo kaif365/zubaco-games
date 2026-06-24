@@ -38,10 +38,10 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
   const { play } = useAudio();
   const statsSavedRef = useRef(false);
 
-  const handleStart = useCallback(async () => {
+  const handleStart = useCallback(async (level?: number) => {
     const params = new URLSearchParams(window.location.search);
     const stageId = params.get('stageId') || 'word-unscramble-stage-1';
-    const session = await startSession(stageId);
+    const session = await startSession(stageId, level);
     if (session) {
       setConfig(session.config || DEFAULT_CONFIG);
       setSeed(session.seed);

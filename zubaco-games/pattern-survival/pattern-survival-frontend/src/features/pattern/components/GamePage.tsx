@@ -27,8 +27,8 @@ export function GamePage() {
   const { play } = useAudio();
   const prevRoundRef = useRef(round);
 
-  const handleStart = async () => {
-    const res = await startSession('pattern-survival-stage-1');
+  const handleStart = async (level?: number) => {
+    const res = await startSession('pattern-survival-stage-1', level);
     const config = res.config || DEFAULT_CONFIG;
     startEngine(res.seed, config);
     play('start');
@@ -65,8 +65,8 @@ export function GamePage() {
       />
     );
   }
-  if (appPhase === 'levels') return <LevelSelector onSelect={() => { setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
-  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
+  if (appPhase === 'levels') return <LevelSelector onSelect={(level) => { setAppPhase('game'); handleStart(level); }} onBack={() => setAppPhase('menu')} />;
+  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;

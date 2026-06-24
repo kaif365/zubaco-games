@@ -40,11 +40,11 @@ export class GameSessionOrchestratorService {
         }
     }
 
-    async startSession(userId: string, stageId: string): Promise<SessionBoardResponse> {
+    async startSession(userId: string, stageId: string, level?: number, isDaily?: boolean): Promise<SessionBoardResponse> {
         if (this.useRestate) {
             return this.restateService.startSession(userId, stageId);
         }
-        return this.gameService.startSession(userId, stageId);
+        return this.gameService.startSession(userId, stageId, level, isDaily);
     }
 
     async saveProgress(

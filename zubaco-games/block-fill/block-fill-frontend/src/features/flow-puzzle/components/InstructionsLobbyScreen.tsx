@@ -15,8 +15,8 @@ interface InstructionsLobbyScreenProps {
   stage?: StageId;
   isStarting: boolean;
   enableLearnHowToPlay: boolean;
-  onPlayNow: () => void;
-  onPlayDaily: () => void;
+  onPlayNow: (level: number) => void;
+  onPlayDaily: (level: number) => void;
   onLearnHowToPlay?: () => void;
   contentByStage?: Partial<StageInstructionContentMap>;
   isContentLoading?: boolean;
@@ -45,7 +45,7 @@ export function InstructionsLobbyScreen({
   if (subScreen === 'daily') {
     return (
       <DailyChallenge
-        onPlay={(_level: number) => { onPlayDaily(); }}
+        onPlay={(level: number) => { onPlayDaily(level); }}
         onBack={() => setSubScreen('menu')}
       />
     );
@@ -62,7 +62,7 @@ export function InstructionsLobbyScreen({
   if (subScreen === 'levels') {
     return (
       <LevelSelector
-        onSelect={(_level: number) => { onPlayNow(); }}
+        onSelect={(level: number) => { onPlayNow(level); }}
         onBack={() => setSubScreen('menu')}
       />
     );

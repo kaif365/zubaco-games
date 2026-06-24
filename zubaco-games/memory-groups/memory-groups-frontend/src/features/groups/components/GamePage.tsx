@@ -27,8 +27,8 @@ export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
 
-  const handleStart = async () => {
-    const res = await startSession('memory-groups-stage-1');
+  const handleStart = async (level?: number) => {
+    const res = await startSession('memory-groups-stage-1', level);
     const config = res.config || DEFAULT_CONFIG;
     setConfig(config);
     startEngine(res.seed, config);
@@ -74,7 +74,7 @@ export function GamePage() {
   }
 
   if (appPhase === 'levels') {
-    return <LevelSelector onSelect={() => { setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
+    return <LevelSelector onSelect={(level) => { setAppPhase('game'); handleStart(level); }} onBack={() => setAppPhase('menu')} />;
   }
 
   if (appPhase === 'daily') {

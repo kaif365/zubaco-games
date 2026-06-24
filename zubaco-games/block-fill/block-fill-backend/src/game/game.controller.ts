@@ -71,7 +71,7 @@ export class GameController {
         authMode: SESSION_AUTH_MODE.PAYLOAD,
     })
     start(@Body() dto: StartSessionDto, @AuthUser('userId') userId: string) {
-        return this.gameSessionOrchestrator.startSession(userId, dto.stageId);
+        return this.gameSessionOrchestrator.startSession(userId, dto.stageId, dto.level, dto.isDaily);
     }
 
     /**

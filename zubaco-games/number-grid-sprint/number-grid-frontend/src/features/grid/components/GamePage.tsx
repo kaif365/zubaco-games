@@ -40,10 +40,10 @@ export function GamePage() {
   const { play } = useAudio();
   const prevAnswerCountRef = useRef(0);
 
-  const handleStart = useCallback(async () => {
+  const handleStart = useCallback(async (level?: number) => {
     const params = new URLSearchParams(window.location.search);
     const stageId = params.get('stageId') || 'number-grid-stage-1';
-    const session = await startSession(stageId);
+    const session = await startSession(stageId, level);
     if (session) {
       setConfig(session.config || DEFAULT_CONFIG);
       setSeed(session.seed);
@@ -103,7 +103,7 @@ export function GamePage() {
       />
     );
   }
-  if (appPhase === 'levels') return <LevelSelector onSelect={() => { setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
+  if (appPhase === 'levels') return <LevelSelector onSelect={(level) => { setAppPhase('game'); handleStart(level); }} onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;

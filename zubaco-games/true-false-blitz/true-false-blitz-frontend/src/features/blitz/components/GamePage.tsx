@@ -40,10 +40,10 @@ function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; is
   const blitz = useBlitz(config, seed);
   const { play } = useAudio();
 
-  const handleStart = useCallback(async () => {
+  const handleStart = useCallback(async (level?: number) => {
     const params = new URLSearchParams(window.location.search);
     const stageId = params.get('stageId') || 'true-false-blitz-stage-1';
-    const session = await startSession(stageId);
+    const session = await startSession(stageId, level);
 
     if (session) {
       setConfig(session.config || DEFAULT_CONFIG);

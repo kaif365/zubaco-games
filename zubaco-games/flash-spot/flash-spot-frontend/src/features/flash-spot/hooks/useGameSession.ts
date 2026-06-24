@@ -18,11 +18,11 @@ export function useGameSession() {
   const [error, setError] = useState<string | null>(null);
   const sessionRef = useRef<GameSession | null>(null);
 
-  const startGame = useCallback(async (stageId: string) => {
+  const startGame = useCallback(async (stageId: string, level?: number) => {
     setIsLoading(true);
     setError(null);
     try {
-      const { data } = await httpClient.post<{ data: StartGameResponse }>('/game/start', { stageId });
+      const { data } = await httpClient.post<{ data: StartGameResponse }>('/game/start', { stageId, level });
       const response = data.data;
       const newSession: GameSession = {
         gameSessionId: response.gameSessionId,

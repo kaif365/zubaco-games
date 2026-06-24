@@ -94,7 +94,7 @@ export function GamePage() {
     const cfg = getConfig(level);
 
     try {
-      const response = await startGame(appConfig.socket.stageId);
+      const response = await startGame(appConfig.socket.stageId, level);
       gameSessionIdRef.current = response.gameSessionId;
 
       const generated = generateRound({

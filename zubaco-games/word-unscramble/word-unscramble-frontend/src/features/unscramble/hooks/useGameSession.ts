@@ -6,11 +6,11 @@ export function useGameSession() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const startGame = useCallback(async (stageId: string): Promise<GameSessionResponse | null> => {
+  const startGame = useCallback(async (stageId: string, level?: number): Promise<GameSessionResponse | null> => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await httpClient.post<{ data: GameSessionResponse }>('/game/start', { stageId });
+      const { data } = await httpClient.post<{ data: GameSessionResponse }>('/game/start', { stageId, level });
       setLoading(false);
       return data.data;
     } catch (err: unknown) {

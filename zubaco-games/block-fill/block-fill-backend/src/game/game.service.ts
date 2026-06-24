@@ -83,6 +83,7 @@ export interface SessionBoardResponse {
     isActualRound: boolean;
     startTime?: string;
     endTime?: string;
+    serverNow?: string;
     board: ReturnType<typeof formatBlockFillBoard> | null;
     finalScore?: number;
 }
@@ -434,6 +435,7 @@ export class GameService {
     async createInFlightSession(
         userId: string,
         stageId: string,
+        level?: number,
     ): Promise<{
         session: InFlightSessionState;
         boards: InFlightBoardState[];
@@ -463,7 +465,19 @@ export class GameService {
             throw new BadRequestException('STAGE_CONFIG_HAS_NO_LEVELS');
         }
 
-        const sequence = await this.buildBoardSequence(userId, stageConfig);
+        // Filter to the requested level (1-based order) if provided
+        const filteredConfig = level != null
+            ? {
+                  ...stageConfig,
+                  levels: stageConfig.levels.filter((l) => l.order === level - 1),
+              }
+            : stageConfig;
+
+        if (level != null && filteredConfig.levels.length === 0) {
+            throw new BadRequestException('REQUESTED_LEVEL_NOT_FOUND');
+        }
+
+        const sequence = await this.buildBoardSequence(userId, filteredConfig);
         const effectiveEnableDemo = stageConfig.enableDemo;
         const effectiveTotalDemoRounds = stageConfig.totalDemoRounds;
         const isActualStart = !effectiveEnableDemo || effectiveTotalDemoRounds === 0;
@@ -1065,7 +1079,7 @@ export class GameService {
      * @param {string} stageId - The stage identifier.
      * @returns {Promise<SessionBoardResponse>} The first board response for the session.
      */
-    async startSession(userId: string, stageId: string): Promise<SessionBoardResponse> {
+    async startSession(userId: string, stageId: string, level?: number, isDaily?: boolean): Promise<SessionBoardResponse> {
         const stageConfig = await this.prisma.stageConfig.findFirst({
             where: { stageId, deletedAt: null },
             include: {
@@ -1090,7 +1104,19 @@ export class GameService {
             throw new BadRequestException('STAGE_CONFIG_HAS_NO_LEVELS');
         }
 
-        const sequence = await this.buildBoardSequence(userId, stageConfig);
+        // Filter to the requested level (1-based order) if provided
+        const filteredConfig = level != null
+            ? {
+                  ...stageConfig,
+                  levels: stageConfig.levels.filter((l) => l.order === level - 1),
+              }
+            : stageConfig;
+
+        if (level != null && filteredConfig.levels.length === 0) {
+            throw new BadRequestException('REQUESTED_LEVEL_NOT_FOUND');
+        }
+
+        const sequence = await this.buildBoardSequence(userId, filteredConfig);
         const effectiveEnableDemo = stageConfig.enableDemo;
         const effectiveTotalDemoRounds = stageConfig.totalDemoRounds;
         const isActualStart = !effectiveEnableDemo || effectiveTotalDemoRounds === 0;
@@ -2311,6 +2337,7 @@ export class GameService {
                 isActualRound && session.gameEndedAtMs
                     ? new Date(session.gameEndedAtMs).toISOString()
                     : undefined,
+            serverNow: new Date().toISOString(),
             board: formatBlockFillBoard({
                 sessionBoardId: board.sessionBoardId,
                 board: {

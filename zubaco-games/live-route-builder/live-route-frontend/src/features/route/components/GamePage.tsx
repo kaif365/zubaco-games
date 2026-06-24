@@ -117,7 +117,7 @@ export function GamePage() {
     };
 
     try {
-      const res = await startSession(`live-route-builder-stage-${config.level}`);
+      const res = await startSession(`live-route-builder-stage-${config.level}`, config.level);
       startEngine(res.seed, res.config || gameConfig);
     } catch {
       // Fallback to local if API unavailable

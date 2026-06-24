@@ -26,8 +26,8 @@ export function GamePage() {
   const { startGame: startSession, submitGame } = useGameSession();
   const { play } = useAudio();
 
-  const handleStart = async () => {
-    const res = await startSession('reflex-endurance-stage-1');
+  const handleStart = async (level?: number) => {
+    const res = await startSession('reflex-endurance-stage-1', level);
     const config = res.config || DEFAULT_CONFIG;
     startEngine(res.seed, config);
     play('start');

@@ -60,8 +60,8 @@ export function GamePage() {
   }, [userPlacements]);
 
   // Handle starting the game
-  const handleStart = useCallback(async () => {
-    const session = await startGame(DEFAULT_STAGE_ID);
+  const handleStart = useCallback(async (level?: number) => {
+    const session = await startGame(DEFAULT_STAGE_ID, level);
     if (session) {
       setConfig(session.config);
       setSeed(session.seed);
@@ -144,8 +144,8 @@ export function GamePage() {
       />
     );
   }
-  if (appPhase === 'levels') return <LevelSelector onSelect={() => { setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
-  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); }} onBack={() => setAppPhase('menu')} />;
+  if (appPhase === 'levels') return <LevelSelector onSelect={(level) => { setAppPhase('game'); handleStart(level); }} onBack={() => setAppPhase('menu')} />;
+  if (appPhase === 'daily') return <DailyChallenge onPlay={() => { setIsDaily(true); setAppPhase('game'); handleStart(); }} onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;

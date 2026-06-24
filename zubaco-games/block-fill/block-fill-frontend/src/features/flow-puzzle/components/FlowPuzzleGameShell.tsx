@@ -85,6 +85,8 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
   const [apiTotalRounds, setApiTotalRounds] = useState<number | null>(null);
   const [isGameSuccess, setIsGameSuccess] = useState(false);
   const [isDailyGame, setIsDailyGame] = useState(false);
+  /** 1-based level number selected by the player (maps to StageLevelConfig order). */
+  const [currentLevel, setCurrentLevel] = useState<number>(getHighestLevel());
   const handledWinLevelIdRef = useRef<string | null>(null);
   const restoreAttemptedRef = useRef(false);
   const [waitingForRestore, setWaitingForRestore] = useState(() => !!getActiveSessionId());
@@ -109,7 +111,10 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
 
   const { demoLevels, isLoading: isDemoLoading, isEmpty: isDemoEmpty } = useDemoLevels();
 
-  const startSessionMutation = useMutation({ mutationFn: startGameSession });
+  const startSessionMutation = useMutation({
+    mutationFn: (args: { stageId: string; level?: number; isDaily?: boolean }) =>
+      startGameSession(args.stageId, { level: args.level, isDaily: args.isDaily }),
+  });
   const endSessionMutation = useMutation({ mutationFn: endGameSession });
   const restoreBoardMutation = useMutation({ mutationFn: fetchCurrentBoard });
   const endSession = endSessionMutation.mutateAsync;
@@ -255,7 +260,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
       requestNextBoard,
     });
 
-  const startStage = async () => {
+  const startStage = async (levelOverride?: number) => {
     if (!stageId) {
       showApiError({
         title: t('errors.startFailed'),
@@ -263,6 +268,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
       });
       return;
     }
+    const levelToPlay = levelOverride ?? currentLevel;
     setIsStartingStage(true);
     clearApiError();
     setFinalScore(null);
@@ -271,8 +277,13 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
     setBoardAdvancePending(false);
     setBoardAdvanceVariant(null);
     sessionTimerExpiredHandledRef.current = false;
+    statsSavedRef.current = false;
     try {
-      let sessionData = await startSessionMutation.mutateAsync(stageId);
+      let sessionData = await startSessionMutation.mutateAsync({
+        stageId,
+        level: levelToPlay,
+        isDaily: isDailyGame,
+      });
 
       if (sessionData.status === 'COMPLETED' || !sessionData.board) {
         setIsAutoRestarting(true);
@@ -284,7 +295,11 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
         }
         const freshSession = await createDevSession(stageId);
         saveAuthSession(freshSession);
-        sessionData = await startSessionMutation.mutateAsync(stageId);
+        sessionData = await startSessionMutation.mutateAsync({
+          stageId,
+          level: levelToPlay,
+          isDaily: isDailyGame,
+        });
       }
 
       if (!sessionData.board) {
@@ -308,9 +323,13 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
       setActiveSessionId(sessionData.sessionId);
       setStageKey((k) => k + 1);
       if (sessionData.endTime) {
+        // Use server time for accurate timer instead of client Date.now()
+        const serverNowMs = sessionData.serverNow
+          ? new Date(sessionData.serverNow).getTime()
+          : Date.now();
         const remaining = Math.max(
           0,
-          Math.round((new Date(sessionData.endTime).getTime() - Date.now()) / 1000),
+          Math.round((new Date(sessionData.endTime).getTime() - serverNowMs) / 1000),
         );
         setSessionTimerSeconds(remaining);
       }
@@ -538,7 +557,6 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
           setIsLoadingFinalScore(true);
           setIsGameSuccess(true);
           if (isDailyGame) markDailyComplete();
-          if (!isDailyGame) setHighestLevel(getHighestLevel() + 1);
           setCompletedRounds(totalActualRoundsEarly);
           setStageState('end');
           if (sid) {
@@ -730,8 +748,8 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
               stage={safeStageId}
               isStarting={isStartingStage}
               enableLearnHowToPlay={(gameConfig?.enableDemo ?? false) && !isDemoEmpty && !isDemoLoading}
-              onPlayNow={() => { setIsDailyGame(false); void startStage(); }}
-              onPlayDaily={() => { setIsDailyGame(true); void startStage(); }}
+              onPlayNow={(level: number) => { setIsDailyGame(false); setCurrentLevel(level); void startStage(level); }}
+              onPlayDaily={(level: number) => { setIsDailyGame(true); setCurrentLevel(level); void startStage(level); }}
               onLearnHowToPlay={startDemo}
               contentByStage={stageContentByStage}
               isContentLoading={Boolean(isStageContentLoading)}
@@ -790,8 +808,18 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
             setFinalScore(null);
             setIsGameSuccess(false);
             setCompletedRounds(0);
-            setIsDailyGame(false);
-            void startStage();
+            if (isGameSuccess && !isDailyGame) {
+              // "Next Level" → advance to the next difficulty
+              const nextLvl = Math.min(currentLevel + 1, 9);
+              setHighestLevel(nextLvl);
+              setCurrentLevel(nextLvl);
+              setIsDailyGame(false);
+              void startStage(nextLvl);
+            } else {
+              // "Try Again" → replay the SAME level
+              setIsDailyGame(false);
+              void startStage(currentLevel);
+            }
           }}
           onMainMenu={() => {
             clearActiveSessionId();
