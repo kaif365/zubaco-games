@@ -21,14 +21,14 @@ export interface AchievementCheck {
 }
 
 const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first_win', icon: '🏆', title: 'First Victory', description: 'Complete your first round', condition: (s) => s.wins >= 1 },
+  { id: 'FIRST_WIN', icon: '🏆', title: 'First Victory', description: 'Complete your first round', condition: (s) => s.wins >= 1 },
   { id: 'on_fire', icon: '🔥', title: 'On Fire', description: 'Get a 5-tap streak', condition: (s) => s.bestStreak >= 5 },
   { id: 'unstoppable', icon: '💫', title: 'Unstoppable', description: 'Get a 10-tap streak', condition: (s) => s.bestStreak >= 10 },
   { id: 'sharp_eye', icon: '🎯', title: 'Sharp Eye', description: 'Achieve 90% accuracy', condition: (s) => s.bestAccuracy >= 0.9 },
-  { id: 'perfect', icon: '💎', title: 'Perfectionist', description: '100% accuracy in a round', condition: (s) => s.bestAccuracy >= 1.0 },
-  { id: 'speed_demon', icon: '⚡', title: 'Speed Demon', description: 'Score over 500 points', condition: (s) => s.highScore >= 500 },
-  { id: 'high_scorer', icon: '🌟', title: 'High Scorer', description: 'Score over 1000 points', condition: (s) => s.highScore >= 1000 },
-  { id: 'dedicated', icon: '🎮', title: 'Dedicated', description: 'Play 50 games', condition: (s) => s.gamesPlayed >= 50 },
+  { id: 'PERFECT_GAME', icon: '💎', title: 'Perfectionist', description: '100% accuracy in a round', condition: (s) => s.bestAccuracy >= 1.0 },
+  { id: 'SPEED_DEMON', icon: '⚡', title: 'Speed Demon', description: 'Score over 500 points', condition: (s) => s.highScore >= 500 },
+  { id: 'HIGH_SCORER', icon: '🌟', title: 'High Scorer', description: 'Score over 1000 points', condition: (s) => s.highScore >= 1000 },
+  { id: 'PERSISTENCE', icon: '🎮', title: 'PERSISTENCE', description: 'Play 50 games', condition: (s) => s.gamesPlayed >= 50 },
   { id: 'rising_star', icon: '📈', title: 'Rising Star', description: 'Reach level 5', condition: (s) => s.highestLevel >= 5 },
   { id: 'master', icon: '👑', title: 'Master', description: 'Reach level 10', condition: (s) => s.highestLevel >= 10 },
 ];

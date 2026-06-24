@@ -36,7 +36,7 @@ const ACHIEVEMENTS: Achievement[] = [
   { id: AchievementId.STREAK_10, title: 'Unstoppable', description: 'Achieve a 10-edge combo streak', icon: '⚡', xp: 250 },
   { id: AchievementId.PERFECT_GAME, title: 'Perfectionist', description: 'Achieve 90%+ path efficiency', icon: '💎', xp: 200 },
   { id: AchievementId.SPEED_DEMON, title: 'Speed Builder', description: 'Complete with >50% time remaining', icon: '⏱️', xp: 150 },
-  { id: AchievementId.PERSISTENCE, title: 'Dedicated', description: 'Play 50 games', icon: '🎯', xp: 300 },
+  { id: AchievementId.PERSISTENCE, title: 'PERSISTENCE', description: 'Play 50 games', icon: '🎯', xp: 300 },
   { id: AchievementId.LEVEL_5, title: 'Rising Star', description: 'Reach level 5', icon: '⭐', xp: 200 },
   { id: AchievementId.LEVEL_10, title: 'Master Builder', description: 'Reach level 10', icon: '👑', xp: 500 },
   { id: AchievementId.HIGH_SCORER, title: 'High Scorer', description: 'Score over 500 points', icon: '📈', xp: 150 },

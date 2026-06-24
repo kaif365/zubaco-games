@@ -16,13 +16,13 @@ const ACHIEVEMENTS: Achievement[] = [
   { id: 'first_game', icon: '🎮', title: 'First Game', description: 'Complete your first unscramble game' },
   { id: 'speed_solver', icon: '⚡', title: 'Speed Solver', description: 'Solve a word in under 2 seconds' },
   { id: 'word_master', icon: '📖', title: 'Word Master', description: 'Solve 10 words in a single game' },
-  { id: 'perfect_game', icon: '💎', title: 'Perfectionist', description: 'Solve all 15 words in one game' },
+  { id: 'PERFECT_GAME', icon: '💎', title: 'Perfectionist', description: 'Solve all 15 words in one game' },
   { id: 'daily_warrior', icon: '📅', title: 'Daily Warrior', description: 'Complete 7 daily challenges' },
-  { id: 'level_5', icon: '🌟', title: 'Halfway There', description: 'Reach Level 5' },
-  { id: 'level_10', icon: '👑', title: 'Word King', description: 'Complete Level 10' },
+  { id: 'LEVEL_5', icon: '🌟', title: 'Halfway There', description: 'Reach Level 5' },
+  { id: 'LEVEL_10', icon: '👑', title: 'Word King', description: 'Complete Level 10' },
   { id: 'long_word', icon: '🔠', title: 'Long Word Pro', description: 'Solve an 8-letter word' },
   { id: 'no_timeout', icon: '🛡️', title: 'No Timeout', description: 'Complete game with zero timeouts' },
-  { id: 'high_score', icon: '🏅', title: 'High Roller', description: 'Score 200+ in a single game' },
+  { id: 'HIGH_SCORER', icon: '🏅', title: 'High Roller', description: 'Score 200+ in a single game' },
 ];
 
 const STORAGE_KEY = 'wordscramble_achievements';

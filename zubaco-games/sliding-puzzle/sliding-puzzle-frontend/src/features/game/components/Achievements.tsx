@@ -16,7 +16,7 @@ interface AchievementsProps {
 const STORAGE_KEY = 'sliding-puzzle-achievements';
 
 const ACHIEVEMENT_DEFS: Omit<Achievement, 'unlocked'>[] = [
-  { id: 'FIRST_SOLVE', title: 'First Solve', description: 'Solve your first puzzle', icon: '🧩' },
+  { id: 'FIRST_WIN', title: 'First Solve', description: 'Solve your first puzzle', icon: '🧩' },
   { id: 'SPEED_SOLVER', title: 'Speed Solver', description: 'Solve a puzzle under 30 seconds', icon: '⚡' },
   { id: 'PERFECT_3X3', title: 'Perfect 3×3', description: 'Solve 3×3 with minimum moves', icon: '💎' },
   { id: 'BIG_GRID', title: 'Going Big', description: 'Complete a 5×5 puzzle', icon: '🔲' },
@@ -121,7 +121,7 @@ export function checkAndUnlockAchievements(params: {
 
   const minMoves3x3 = 22; // approximate minimum for 3x3
   const checks: [string, boolean][] = [
-    ['FIRST_SOLVE', params.gamesPlayed >= 1],
+    ['FIRST_WIN', params.gamesPlayed >= 1],
     ['SPEED_SOLVER', params.solveTime > 0 && params.solveTime < 30000],
     ['PERFECT_3X3', params.gridSize === '3×3' && params.moves <= minMoves3x3],
     ['BIG_GRID', params.gridSize === '5×5'],

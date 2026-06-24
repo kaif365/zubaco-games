@@ -20,11 +20,11 @@ const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'STREAK_10', title: 'Unstoppable', description: 'Complete 10 rounds in a row', icon: '⚡' },
   { id: 'PERFECT_GAME', title: 'Perfectionist', description: 'Survive 15+ rounds', icon: '💎' },
   { id: 'SPEED_DEMON', title: 'Speed Demon', description: 'Finish with >50% time remaining', icon: '⏱️' },
-  { id: 'PERSISTENCE', title: 'Dedicated', description: 'Play 50 games', icon: '🎯' },
+  { id: 'PERSISTENCE', title: 'PERSISTENCE', description: 'Play 50 games', icon: '🎯' },
   { id: 'LEVEL_5', title: 'Rising Star', description: 'Reach level 5', icon: '⭐' },
   { id: 'LEVEL_10', title: 'Master', description: 'Reach level 10', icon: '👑' },
   { id: 'HIGH_SCORER', title: 'High Scorer', description: 'Score over 200 points', icon: '📈' },
-  { id: 'NO_MISTAKES', title: 'Flawless', description: 'Complete 10 rounds without hesitation', icon: '✨' },
+  { id: 'NO_MISTAKES', title: 'NO_MISTAKES', description: 'Complete 10 rounds without hesitation', icon: '✨' },
 ];
 
 function loadUnlocked(): Set<string> {

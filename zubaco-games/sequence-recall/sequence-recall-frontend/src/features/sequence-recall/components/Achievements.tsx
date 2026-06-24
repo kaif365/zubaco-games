@@ -21,11 +21,11 @@ const ACHIEVEMENT_DEFS: Omit<Achievement, 'unlocked'>[] = [
   { id: 'STREAK_10', title: 'Unstoppable', description: 'Get a 10-round streak', icon: '⚡' },
   { id: 'PERFECT_GAME', title: 'Perfectionist', description: 'Complete a game with no mistakes', icon: '💎' },
   { id: 'SPEED_DEMON', title: 'Speed Demon', description: 'Finish with >50% time remaining', icon: '⏱️' },
-  { id: 'PERSISTENCE', title: 'Dedicated', description: 'Play 50 games total', icon: '🎯' },
+  { id: 'PERSISTENCE', title: 'PERSISTENCE', description: 'Play 50 games total', icon: '🎯' },
   { id: 'LEVEL_5', title: 'Rising Star', description: 'Reach level 5', icon: '⭐' },
   { id: 'LEVEL_10', title: 'Master', description: 'Reach level 10', icon: '👑' },
   { id: 'HIGH_SCORER', title: 'High Scorer', description: 'Score over 1000 points', icon: '📈' },
-  { id: 'NO_MISTAKES', title: 'Flawless', description: 'Complete without any wrong taps', icon: '✨' },
+  { id: 'NO_MISTAKES', title: 'NO_MISTAKES', description: 'Complete without any wrong taps', icon: '✨' },
 ];
 
 function loadAchievements(): Achievement[] {

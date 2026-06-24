@@ -8,16 +8,16 @@ interface Achievement {
 }
 
 const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first_win', title: 'First Victory', description: 'Complete your first level', icon: '🏆' },
-  { id: 'streak_5', title: 'On Fire', description: 'Remove 5 arrows in a row without a mistake', icon: '🔥' },
-  { id: 'streak_10', title: 'Unstoppable', description: '10 correct moves in a row', icon: '⚡' },
-  { id: 'perfect', title: 'Perfectionist', description: 'Complete a level with no mistakes', icon: '💎' },
-  { id: 'speed_demon', title: 'Speed Demon', description: 'Finish with >50% time remaining', icon: '⏱️' },
-  { id: 'dedicated', title: 'Dedicated', description: 'Play 50 games', icon: '🎯' },
-  { id: 'level_5', title: 'Rising Star', description: 'Reach level 5', icon: '⭐' },
-  { id: 'level_10', title: 'Master', description: 'Complete all 10 levels', icon: '👑' },
-  { id: 'high_scorer', title: 'High Scorer', description: 'Score over 500 points', icon: '📈' },
-  { id: 'no_undo', title: 'No Regrets', description: 'Win without using undo', icon: '✨' },
+  { id: 'FIRST_WIN', title: 'First Victory', description: 'Complete your first level', icon: '🏆' },
+  { id: 'STREAK_5', title: 'On Fire', description: 'Remove 5 arrows in a row without a mistake', icon: '🔥' },
+  { id: 'STREAK_10', title: 'Unstoppable', description: '10 correct moves in a row', icon: '⚡' },
+  { id: 'PERFECT_GAME', title: 'Perfectionist', description: 'Complete a level with no mistakes', icon: '💎' },
+  { id: 'SPEED_DEMON', title: 'Speed Demon', description: 'Finish with >50% time remaining', icon: '⏱️' },
+  { id: 'PERSISTENCE', title: 'Dedicated', description: 'Play 50 games', icon: '🎯' },
+  { id: 'LEVEL_5', title: 'Rising Star', description: 'Reach level 5', icon: '⭐' },
+  { id: 'LEVEL_10', title: 'Master', description: 'Complete all 10 levels', icon: '👑' },
+  { id: 'HIGH_SCORER', title: 'High Scorer', description: 'Score over 500 points', icon: '📈' },
+  { id: 'NO_MISTAKES', title: 'No Regrets', description: 'Win without using undo', icon: '✨' },
 ];
 
 function getUnlockedAchievements(): Set<string> {
@@ -95,16 +95,16 @@ export function checkAndUnlockAchievements(stats: {
   let newUnlock: string | null = null;
 
   const checks: [string, boolean][] = [
-    ['first_win', stats.totalWins >= 1],
-    ['streak_5', stats.maxStreak >= 5],
-    ['streak_10', stats.maxStreak >= 10],
-    ['perfect', stats.perfectGames >= 1],
-    ['speed_demon', stats.fastCompletions >= 1],
-    ['dedicated', stats.totalGames >= 50],
-    ['level_5', stats.highestLevel >= 5],
-    ['level_10', stats.highestLevel >= 10],
-    ['high_scorer', stats.highScore >= 500],
-    ['no_undo', stats.noUndoWins >= 1],
+    ['FIRST_WIN', stats.totalWins >= 1],
+    ['STREAK_5', stats.maxStreak >= 5],
+    ['STREAK_10', stats.maxStreak >= 10],
+    ['PERFECT_GAME', stats.perfectGames >= 1],
+    ['SPEED_DEMON', stats.fastCompletions >= 1],
+    ['PERSISTENCE', stats.totalGames >= 50],
+    ['LEVEL_5', stats.highestLevel >= 5],
+    ['LEVEL_10', stats.highestLevel >= 10],
+    ['HIGH_SCORER', stats.highScore >= 500],
+    ['NO_MISTAKES', stats.noUndoWins >= 1],
   ];
 
   for (const [id, condition] of checks) {

@@ -9,16 +9,16 @@ interface Achievement {
 }
 
 const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first_win', title: 'First Victory', description: 'Win your first game', icon: '🏆', unlocked: false },
-  { id: 'streak_5', title: 'On Fire', description: 'Achieve a 5-move combo', icon: '🔥', unlocked: false },
-  { id: 'streak_10', title: 'Unstoppable', description: 'Achieve a 10-move combo', icon: '⚡', unlocked: false },
-  { id: 'perfect', title: 'Perfectionist', description: 'Complete without undo', icon: '💎', unlocked: false },
-  { id: 'speed', title: 'Speed Demon', description: 'Finish with >50% time left', icon: '⏱️', unlocked: false },
-  { id: 'persistence', title: 'Dedicated', description: 'Play 50 games', icon: '🎯', unlocked: false },
-  { id: 'level_5', title: 'Rising Star', description: 'Reach level 5', icon: '⭐', unlocked: false },
-  { id: 'level_10', title: 'Master', description: 'Reach level 10', icon: '👑', unlocked: false },
-  { id: 'high_score', title: 'High Scorer', description: 'Score over 1000 points', icon: '📈', unlocked: false },
-  { id: 'flawless', title: 'Flawless', description: 'No invalid move attempts', icon: '✨', unlocked: false },
+  { id: 'FIRST_WIN', title: 'First Victory', description: 'Win your first game', icon: '🏆', unlocked: false },
+  { id: 'STREAK_5', title: 'On Fire', description: 'Achieve a 5-move combo', icon: '🔥', unlocked: false },
+  { id: 'STREAK_10', title: 'Unstoppable', description: 'Achieve a 10-move combo', icon: '⚡', unlocked: false },
+  { id: 'PERFECT_GAME', title: 'Perfectionist', description: 'Complete without undo', icon: '💎', unlocked: false },
+  { id: 'SPEED_DEMON', title: 'Speed Demon', description: 'Finish with >50% time left', icon: '⏱️', unlocked: false },
+  { id: 'PERSISTENCE', title: 'Dedicated', description: 'Play 50 games', icon: '🎯', unlocked: false },
+  { id: 'LEVEL_5', title: 'Rising Star', description: 'Reach level 5', icon: '⭐', unlocked: false },
+  { id: 'LEVEL_10', title: 'Master', description: 'Reach level 10', icon: '👑', unlocked: false },
+  { id: 'HIGH_SCORER', title: 'High Scorer', description: 'Score over 1000 points', icon: '📈', unlocked: false },
+  { id: 'NO_MISTAKES', title: 'Flawless', description: 'No invalid move attempts', icon: '✨', unlocked: false },
 ];
 
 const STORAGE_KEY = 'zubaco_colour_sort_achievements';
@@ -52,16 +52,16 @@ export function checkAchievements(stats: {
 }): string[] {
   const newlyUnlocked: string[] = [];
   const checks: [string, boolean][] = [
-    ['first_win', stats.totalWins >= 1],
-    ['streak_5', stats.maxStreak >= 5],
-    ['streak_10', stats.maxStreak >= 10],
-    ['perfect', stats.totalWins >= 1 && !stats.usedUndo],
-    ['speed', stats.timeRemainingPercent > 50],
-    ['persistence', stats.totalGames >= 50],
-    ['level_5', stats.highestLevel >= 5],
-    ['level_10', stats.highestLevel >= 10],
-    ['high_score', stats.highestScore >= 1000],
-    ['flawless', stats.totalWins >= 1 && !stats.hadInvalidMove],
+    ['FIRST_WIN', stats.totalWins >= 1],
+    ['STREAK_5', stats.maxStreak >= 5],
+    ['STREAK_10', stats.maxStreak >= 10],
+    ['PERFECT_GAME', stats.totalWins >= 1 && !stats.usedUndo],
+    ['SPEED_DEMON', stats.timeRemainingPercent > 50],
+    ['PERSISTENCE', stats.totalGames >= 50],
+    ['LEVEL_5', stats.highestLevel >= 5],
+    ['LEVEL_10', stats.highestLevel >= 10],
+    ['HIGH_SCORER', stats.highestScore >= 1000],
+    ['NO_MISTAKES', stats.totalWins >= 1 && !stats.hadInvalidMove],
   ];
 
   for (const [id, condition] of checks) {

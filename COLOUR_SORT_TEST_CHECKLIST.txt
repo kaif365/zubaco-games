@@ -105,7 +105,7 @@ Sound Effects (need sound ON in settings):
 [ ] E6. Game starting plays a "start" sound
 
 Animations:
-[ ] E7. Selecting a tube: lifts up with yellow border + glow
+[ ] E7. Slectinge a tube: lifts up with yellow border + glow
 [ ] E8. Invalid move: tube SHAKES left-right
 [ ] E9. Ball placement: spring bounce animation (ball scales in)
 [ ] E10. Ball removal: ball scales out and fades

@@ -28,11 +28,11 @@ const ACHIEVEMENTS: Achievement[] = [
   { id: 'STREAK_10', title: 'Unstoppable', description: '10 correct groups in a row', icon: '⚡' },
   { id: 'PERFECT_GAME', title: 'Perfectionist', description: 'All groups correct in one game', icon: '💎' },
   { id: 'SPEED_DEMON', title: 'Speed Demon', description: 'Finish with >50% time remaining', icon: '⏱️' },
-  { id: 'PERSISTENCE', title: 'Dedicated', description: 'Play 50 games', icon: '🎯' },
+  { id: 'PERSISTENCE', title: 'PERSISTENCE', description: 'Play 50 games', icon: '🎯' },
   { id: 'LEVEL_5', title: 'Rising Star', description: 'Reach level 5', icon: '⭐' },
   { id: 'LEVEL_10', title: 'Word Master', description: 'Reach level 10', icon: '👑' },
   { id: 'HIGH_SCORER', title: 'High Scorer', description: 'Score over 500 points', icon: '📈' },
-  { id: 'NO_MISTAKES', title: 'Flawless', description: 'Complete without any wrong groups', icon: '✨' },
+  { id: 'NO_MISTAKES', title: 'NO_MISTAKES', description: 'Complete without any wrong groups', icon: '✨' },
 ];
 
 // ─── Storage ─────────────────────────────────────────────────────────────────

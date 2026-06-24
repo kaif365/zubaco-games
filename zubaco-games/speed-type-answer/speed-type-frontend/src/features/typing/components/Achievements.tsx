@@ -22,7 +22,7 @@ const ACHIEVEMENT_DEFS: Omit<Achievement, 'unlocked'>[] = [
   { id: 'STREAK_5', title: 'On Fire', description: '5 correct answers in a row', icon: '🔥' },
   { id: 'STREAK_10', title: 'Unstoppable', description: '10 correct answers in a row', icon: '💪' },
   { id: 'HIGH_SCORER', title: 'High Scorer', description: 'Score over 500 points', icon: '⭐' },
-  { id: 'MARATHON', title: 'Dedicated', description: 'Play 25 games total', icon: '🏃' },
+  { id: 'MARATHON', title: 'PERSISTENCE', description: 'Play 25 games total', icon: '🏃' },
   { id: 'LEVEL_5', title: 'Rising Star', description: 'Reach level 5', icon: '📈' },
   { id: 'LEVEL_10', title: 'Typing Master', description: 'Reach level 10', icon: '👑' },
   { id: 'DAILY_7', title: 'Weekly Warrior', description: 'Complete 7 daily challenges', icon: '📅' },

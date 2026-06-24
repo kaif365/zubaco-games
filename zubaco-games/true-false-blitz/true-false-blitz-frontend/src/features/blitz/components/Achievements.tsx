@@ -15,14 +15,14 @@ interface Achievement {
 const ACHIEVEMENTS: Achievement[] = [
   { id: 'first_game', icon: '🎮', title: 'First Game', description: 'Complete your first blitz game' },
   { id: 'perfect_10', icon: '🎯', title: 'Perfect 10', description: 'Get 10 correct in a row' },
-  { id: 'speed_demon', icon: '⚡', title: 'Speed Demon', description: 'Answer 20+ statements in under 30s' },
+  { id: 'SPEED_DEMON', icon: '⚡', title: 'Speed Demon', description: 'Answer 20+ statements in under 30s' },
   { id: 'streak_master', icon: '🔥', title: 'Streak Master', description: 'Reach a 15-statement streak' },
-  { id: 'perfect_game', icon: '💎', title: 'Perfectionist', description: '100% accuracy in a full game' },
+  { id: 'PERFECT_GAME', icon: '💎', title: 'Perfectionist', description: '100% accuracy in a full game' },
   { id: 'daily_warrior', icon: '📅', title: 'Daily Warrior', description: 'Complete 7 daily challenges' },
-  { id: 'level_5', icon: '🌟', title: 'Halfway There', description: 'Reach Level 5' },
-  { id: 'level_10', icon: '👑', title: 'Blitz King', description: 'Complete Level 10' },
+  { id: 'LEVEL_5', icon: '🌟', title: 'Halfway There', description: 'Reach Level 5' },
+  { id: 'LEVEL_10', icon: '👑', title: 'Blitz King', description: 'Complete Level 10' },
   { id: 'no_miss', icon: '🛡️', title: 'No Miss', description: 'Answer every statement (zero missed)' },
-  { id: 'high_score', icon: '🏅', title: 'High Roller', description: 'Score 250+ in a single game' },
+  { id: 'HIGH_SCORER', icon: '🏅', title: 'High Roller', description: 'Score 250+ in a single game' },
 ];
 
 const STORAGE_KEY = 'tfblitz_achievements';

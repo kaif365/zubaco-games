@@ -28,7 +28,7 @@ const ACHIEVEMENTS: Achievement[] = [
   { id: 'STREAK_10', title: 'Unstoppable', description: 'Solve 10 mazes in a row', icon: '⚡' },
   { id: 'PERFECT_GAME', title: 'Perfectionist', description: 'Solve maze with optimal path', icon: '💎' },
   { id: 'SPEED_DEMON', title: 'Speed Demon', description: 'Finish with >50% time remaining', icon: '⏱️' },
-  { id: 'PERSISTENCE', title: 'Dedicated', description: 'Play 50 games', icon: '🎯' },
+  { id: 'PERSISTENCE', title: 'PERSISTENCE', description: 'Play 50 games', icon: '🎯' },
   { id: 'LEVEL_5', title: 'Explorer', description: 'Reach level 5', icon: '⭐' },
   { id: 'LEVEL_10', title: 'Maze Master', description: 'Reach level 10', icon: '👑' },
   { id: 'HIGH_SCORER', title: 'High Scorer', description: 'Score over 1000 points', icon: '📈' },
