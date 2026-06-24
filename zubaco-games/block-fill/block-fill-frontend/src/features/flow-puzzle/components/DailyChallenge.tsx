@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { apiGet } from '@/app/api/apiClient';
 import { API_ENDPOINTS } from '@/app/api/endpoints';
+import { appEnv } from '@/app/config/env';
 
 interface DailyChallengeProps {
   onPlay: (level: number) => void;
@@ -61,7 +62,7 @@ export function DailyChallenge({ onPlay, onBack }: DailyChallengeProps) {
   const completedToday = state.lastCompleted === todayKey();
 
   useEffect(() => {
-    apiGet<DailyChallengeResponse>({ path: API_ENDPOINTS.game.dailyChallenge })
+    apiGet<DailyChallengeResponse>({ baseUrl: appEnv.gameServiceBaseUrl, path: API_ENDPOINTS.game.dailyChallenge })
       .then(setServerDaily)
       .catch(() => { /* fallback to local level calc */ });
   }, []);
