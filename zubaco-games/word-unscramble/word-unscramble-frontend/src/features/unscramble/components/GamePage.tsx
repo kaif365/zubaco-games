@@ -28,7 +28,7 @@ const DEFAULT_CONFIG: StageConfig = {
 };
 
 /* ---------- Inner game component ---------- */
-function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; isDaily?: boolean }) {
+function UnscrambleGame({ onReturnToMenu, isDaily, initialLevel }: { onReturnToMenu: () => void; isDaily?: boolean; initialLevel?: number }) {
   const [config, setConfig] = useState<StageConfig>(DEFAULT_CONFIG);
   const [seed, setSeed] = useState<number | null>(null);
   const [gameSessionId, setGameSessionId] = useState<string | null>(null);
@@ -56,6 +56,15 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
       play('start');
     }
   }, [seed, game.phase, game.startGame]);
+
+  // Auto-start with initialLevel if provided (from LevelSelector)
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (initialLevel != null && !autoStartedRef.current && game.phase === 'idle' && !loading) {
+      autoStartedRef.current = true;
+      handleStart(initialLevel);
+    }
+  }, [initialLevel, game.phase, loading]);
 
   // Submit when finished
   useEffect(() => {
@@ -189,12 +198,13 @@ function UnscrambleGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => voi
 export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
+  const [selectedLevel, setSelectedLevel] = useState<number | undefined>(undefined);
 
   switch (appPhase) {
     case 'menu':
       return (
         <MenuScreen
-          onPlay={() => setAppPhase('game')}
+          onPlay={() => { setSelectedLevel(undefined); setAppPhase('game'); }}
           onLevels={() => setAppPhase('levels')}
           onDaily={() => setAppPhase('daily')}
           onAchievements={() => setAppPhase('achievements')}
@@ -205,14 +215,14 @@ export function GamePage() {
     case 'levels':
       return (
         <LevelSelector
-          onSelectLevel={() => setAppPhase('game')}
+          onSelectLevel={(level) => { setSelectedLevel(level); setAppPhase('game'); }}
           onBack={() => setAppPhase('menu')}
         />
       );
     case 'daily':
       return (
         <DailyChallenge
-          onStart={() => { setIsDaily(true); setAppPhase('game'); }}
+          onStart={() => { setIsDaily(true); setSelectedLevel(undefined); setAppPhase('game'); }}
           onBack={() => setAppPhase('menu')}
         />
       );
@@ -223,6 +233,6 @@ export function GamePage() {
     case 'settings':
       return <Settings onBack={() => setAppPhase('menu')} />;
     case 'game':
-      return <UnscrambleGame onReturnToMenu={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />;
+      return <UnscrambleGame onReturnToMenu={() => { setIsDaily(false); setSelectedLevel(undefined); setAppPhase('menu'); }} isDaily={isDaily} initialLevel={selectedLevel} />;
   }
 }

@@ -104,8 +104,8 @@ export function GamePage() {
 
   // --- App Phase Screens ---
   if (appPhase === 'menu') return <MenuScreen onNavigate={setAppPhase} />;
-  if (appPhase === 'levels') return <LevelSelector onBack={() => setAppPhase('menu')} onSelectLevel={() => setAppPhase('game')} />;
-  if (appPhase === 'daily') return <DailyChallenge onBack={() => setAppPhase('menu')} onStartDaily={() => { setIsDaily(true); setAppPhase('game'); }} />;
+  if (appPhase === 'levels') return <LevelSelector onBack={() => setAppPhase('menu')} onSelectLevel={(level) => { setAppPhase('game'); handleStart(level); }} />;
+  if (appPhase === 'daily') return <DailyChallenge onBack={() => setAppPhase('menu')} onStartDaily={() => { setIsDaily(true); setAppPhase('game'); handleStart(); }} />;
   if (appPhase === 'achievements') return <Achievements onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'stats') return <StatsScreen onBack={() => setAppPhase('menu')} />;
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;

@@ -30,7 +30,7 @@ const DEFAULT_CONFIG: StageConfig = {
 };
 
 /* ---------- Inner game component ---------- */
-function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; isDaily?: boolean }) {
+function BlitzGame({ onReturnToMenu, isDaily, initialLevel }: { onReturnToMenu: () => void; isDaily?: boolean; initialLevel?: number }) {
   const [config, setConfig] = useState<StageConfig>(DEFAULT_CONFIG);
   const [seed, setSeed] = useState<number | null>(null);
   const { loading, error, startGame: startSession, submitResult } = useGameSession();
@@ -59,6 +59,15 @@ function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; is
       play('start');
     }
   }, [seed, blitz.phase, blitz.startGame]);
+
+  // Auto-start with initialLevel if provided (from LevelSelector/DailyChallenge)
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (initialLevel != null && !autoStartedRef.current && blitz.phase === 'idle' && !loading) {
+      autoStartedRef.current = true;
+      handleStart(initialLevel);
+    }
+  }, [initialLevel, blitz.phase, loading]);
 
   // Submit when game finishes
   useEffect(() => {
@@ -158,12 +167,13 @@ function BlitzGame({ onReturnToMenu, isDaily }: { onReturnToMenu: () => void; is
 export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
+  const [selectedLevel, setSelectedLevel] = useState<number | undefined>(undefined);
 
   switch (appPhase) {
     case 'menu':
       return (
         <MenuScreen
-          onPlay={() => setAppPhase('game')}
+          onPlay={() => { setSelectedLevel(undefined); setAppPhase('game'); }}
           onLevels={() => setAppPhase('levels')}
           onDaily={() => setAppPhase('daily')}
           onAchievements={() => setAppPhase('achievements')}
@@ -174,14 +184,14 @@ export function GamePage() {
     case 'levels':
       return (
         <LevelSelector
-          onSelectLevel={() => setAppPhase('game')}
+          onSelectLevel={(level) => { setSelectedLevel(level); setAppPhase('game'); }}
           onBack={() => setAppPhase('menu')}
         />
       );
     case 'daily':
       return (
         <DailyChallenge
-          onStart={() => { setIsDaily(true); setAppPhase('game'); }}
+          onStart={() => { setIsDaily(true); setSelectedLevel(undefined); setAppPhase('game'); }}
           onBack={() => setAppPhase('menu')}
         />
       );
@@ -192,6 +202,6 @@ export function GamePage() {
     case 'settings':
       return <Settings onBack={() => setAppPhase('menu')} />;
     case 'game':
-      return <BlitzGame onReturnToMenu={() => { setIsDaily(false); setAppPhase('menu'); }} isDaily={isDaily} />;
+      return <BlitzGame onReturnToMenu={() => { setIsDaily(false); setSelectedLevel(undefined); setAppPhase('menu'); }} isDaily={isDaily} initialLevel={selectedLevel} />;
   }
 }
