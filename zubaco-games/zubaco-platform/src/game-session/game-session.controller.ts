@@ -1,13 +1,18 @@
 import { Controller, Get, Post, Body, Param, Headers, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { GameSessionService } from './game-session.service';
+import { ScoreValidatorService } from './score-validator.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { StartGameDto, SubmitGameResultDto, StartTournamentGameDto } from './dto/game-session.dto';
+import { GameType } from '.prisma/client';
 
 @Controller('game-session')
 @UseGuards(JwtAuthGuard)
 export class GameSessionController {
-  constructor(private readonly gameSessionService: GameSessionService) {}
+  constructor(
+    private readonly gameSessionService: GameSessionService,
+    private readonly scoreValidator: ScoreValidatorService,
+  ) {}
 
   @Post('start')
   async startGame(@CurrentUser() userId: string, @Body() dto: StartGameDto) {
@@ -31,6 +36,26 @@ export class GameSessionController {
     @Body() dto: SubmitGameResultDto,
   ) {
     return this.gameSessionService.submitResult(sessionId, userId, dto.score, dto.duration_ms, dto.metadata);
+  }
+
+  // ─── SCORING ENGINE ENDPOINTS ───────────────────────────────────
+
+  @Get('scoring/config/:gameType')
+  getScoringConfig(@Param('gameType') gameType: string) {
+    return this.scoreValidator.getScoringConfig(gameType as GameType);
+  }
+
+  @Post('scoring/breakdown')
+  calculateBreakdown(
+    @Body() dto: { game_type: string; correct_actions: number; wrong_actions: number; time_limit_ms: number; remaining_time_ms: number },
+  ) {
+    return this.scoreValidator.calculateScoreBreakdown(
+      dto.game_type as GameType,
+      dto.correct_actions,
+      dto.wrong_actions,
+      dto.time_limit_ms,
+      dto.remaining_time_ms,
+    );
   }
 }
 

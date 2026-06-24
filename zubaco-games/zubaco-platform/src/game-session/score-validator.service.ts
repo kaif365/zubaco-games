@@ -7,13 +7,99 @@ interface ValidationResult {
   theoretical_max?: number;
 }
 
+export interface ScoreBreakdown {
+  base_score: number;
+  time_bonus: number;
+  penalties: number;
+  final_score: number;
+}
+
+export interface PenaltyInfo {
+  per_wrong: number;
+  label: string;
+}
+
+export interface TimeBonusInfo {
+  multiplier: number;
+  max: number;
+  formula: string;
+}
+
 /**
- * Server-side score validation.
- * Uses per-game scoring formulas from the spec to compute theoretical maximum scores.
- * Rejects scores that exceed what's physically possible given the config + duration.
+ * Centralized penalty configuration per game.
+ */
+const PENALTY_CONFIG: Partial<Record<GameType, PenaltyInfo>> = {
+  TRUE_FALSE_BLITZ: { per_wrong: 5, label: 'wrong answer' },
+  RAPID_CATEGORY_SORT: { per_wrong: 5, label: 'wrong category' },
+  FLASH_SPOT: { per_wrong: 10, label: 'wrong tap' },
+  WORD_UNSCRAMBLE: { per_wrong: 5, label: 'wrong letter order' },
+  REFLEX_ENDURANCE: { per_wrong: 3, label: 'missed target' },
+  COLOUR_SORTING: { per_wrong: 10, label: 'inefficient move' },
+  NUMBER_GRID_SPRINT: { per_wrong: 5, label: 'wrong number' },
+  PATTERN_SURVIVAL: { per_wrong: 0, label: 'game ends on mistake' },
+};
+
+/**
+ * Time bonus configuration per game.
+ */
+const TIME_BONUS_CONFIG: Partial<Record<GameType, TimeBonusInfo>> = {
+  SLIDING_PUZZLE: { multiplier: 10, max: 10, formula: 'floor(10 × remaining/total)' },
+  ARROWS: { multiplier: 10, max: 10, formula: 'floor(10 × remaining/total)' },
+  SEQUENCE_RECALL: { multiplier: 1, max: 300, formula: 'floor(time_left × 1.0)' },
+  MEMORY_CARD_MATCHING: { multiplier: 1, max: 180, formula: 'remaining_seconds' },
+  INFINITY_LOOP: { multiplier: 1, max: 60, formula: 'remaining_per_board' },
+  BLOCK_FILL: { multiplier: 1, max: 180, formula: 'remaining_seconds' },
+  MAZE_NAVIGATION: { multiplier: 5, max: 5, formula: 'floor(5 × remaining/total)' },
+  FLASH_SPOT: { multiplier: 10, max: 10, formula: 'floor(10 × remaining/total)' },
+  OBJECT_PLACEMENT_MEMORY: { multiplier: 5, max: 5, formula: 'floor(5 × remaining/total)' },
+  COLOUR_SORTING: { multiplier: 10, max: 10, formula: 'floor(10 × remaining/total)' },
+  NUMBER_GRID_SPRINT: { multiplier: 2, max: 360, formula: 'remaining × 2' },
+  MEMORY_GROUPS: { multiplier: 3, max: 540, formula: 'remaining × 3' },
+  WORD_UNSCRAMBLE: { multiplier: 6, max: 150, formula: '6pts per word time bonus' },
+  SPEED_TYPE_ANSWER: { multiplier: 10, max: 250, formula: 'speed_bonus per answer (max 10)' },
+  LOGIC_REFLECTOR: { multiplier: 10, max: 10, formula: 'floor(10 × remaining/total)' },
+  LIVE_ROUTE_BUILDER: { multiplier: 0, max: 0, formula: 'path_efficiency (no time bonus)' },
+  RAPID_CATEGORY_SORT: { multiplier: 0, max: 0, formula: 'none - speed IS the score' },
+  REFLEX_ENDURANCE: { multiplier: 0, max: 0, formula: 'none - endurance IS the score' },
+  PATTERN_SURVIVAL: { multiplier: 0, max: 0, formula: 'round bonuses only' },
+};
+
+/**
+ * Base points per correct action, per game.
+ */
+const BASE_POINTS: Record<string, number> = {
+  SLIDING_PUZZLE: 100,
+  ARROWS: 50,
+  SEQUENCE_RECALL: 10,
+  MEMORY_CARD_MATCHING: 100,
+  INFINITY_LOOP: 10,
+  BLOCK_FILL: 100,
+  MAZE_NAVIGATION: 100,
+  TRUE_FALSE_BLITZ: 10,
+  FLASH_SPOT: 20,
+  COLOUR_SORTING: 100,
+  RAPID_CATEGORY_SORT: 10,
+  WORD_UNSCRAMBLE: 15,
+  NUMBER_GRID_SPRINT: 10,
+  LIVE_ROUTE_BUILDER: 10,
+  MEMORY_GROUPS: 50,
+  REFLEX_ENDURANCE: 2,
+  PATTERN_SURVIVAL: 20,
+  SPEED_TYPE_ANSWER: 20,
+  LOGIC_REFLECTOR: 100,
+  OBJECT_PLACEMENT_MEMORY: 100,
+};
+
+/**
+ * Server-side score validation + scoring engine.
+ * - Validates scores against theoretical maximum bounds
+ * - Provides centralized penalty/bonus configuration
+ * - Calculates score breakdowns for frontend display
  */
 @Injectable()
 export class ScoreValidatorService {
+  // ─── VALIDATION ─────────────────────────────────────────────────
+
   validateScore(
     gameType: GameType,
     config: Record<string, any>,
@@ -35,6 +121,67 @@ export class ScoreValidatorService {
 
     return { valid: true, theoretical_max: theoreticalMax };
   }
+
+  // ─── SCORING CONFIG ─────────────────────────────────────────────
+
+  /**
+   * Get the full scoring configuration for a game type.
+   * Used by frontends to display score breakdown.
+   */
+  getScoringConfig(gameType: GameType) {
+    return {
+      game_type: gameType,
+      base_points_per_action: BASE_POINTS[gameType] ?? 10,
+      penalty: PENALTY_CONFIG[gameType] ?? null,
+      time_bonus: TIME_BONUS_CONFIG[gameType] ?? null,
+    };
+  }
+
+  getPenaltyConfig(gameType: GameType): PenaltyInfo | null {
+    return PENALTY_CONFIG[gameType] ?? null;
+  }
+
+  getTimeBonusConfig(gameType: GameType): TimeBonusInfo | null {
+    return TIME_BONUS_CONFIG[gameType] ?? null;
+  }
+
+  // ─── SCORE BREAKDOWN CALCULATOR ─────────────────────────────────
+
+  /**
+   * Calculate score breakdown for display purposes.
+   * Actual scoring is authoritative in each game backend — this is a reference calculator.
+   */
+  calculateScoreBreakdown(
+    gameType: GameType,
+    correctActions: number,
+    wrongActions: number,
+    timeLimitMs: number,
+    remainingTimeMs: number,
+  ): ScoreBreakdown {
+    const ratio = timeLimitMs > 0 ? Math.max(0, remainingTimeMs / timeLimitMs) : 0;
+    const timeLimitSec = timeLimitMs / 1000;
+
+    // Base score
+    const basePoints = BASE_POINTS[gameType] ?? 10;
+    const base_score = correctActions * basePoints;
+
+    // Time bonus
+    const tbConfig = TIME_BONUS_CONFIG[gameType];
+    let time_bonus = 0;
+    if (tbConfig && tbConfig.multiplier > 0) {
+      time_bonus = Math.min(Math.floor(tbConfig.multiplier * ratio * timeLimitSec), tbConfig.max);
+    }
+
+    // Penalties
+    const penConfig = PENALTY_CONFIG[gameType];
+    const penalties = penConfig ? wrongActions * penConfig.per_wrong : 0;
+
+    const final_score = Math.max(0, base_score + time_bonus - penalties);
+
+    return { base_score, time_bonus, penalties, final_score };
+  }
+
+  // ─── THEORETICAL MAX ────────────────────────────────────────────
 
   private computeTheoreticalMax(gameType: GameType, config: Record<string, any>, durationMs: number): number {
     const timeLimit = config?.time_limit ?? 180; // seconds
