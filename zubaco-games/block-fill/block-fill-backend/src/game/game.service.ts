@@ -113,9 +113,16 @@ export interface EndGameResponse {
 
 const GAME_END_BASE_SCORE = 20;
 const LEVEL_SCORE_WEIGHTS: Record<string, number> = {
+    demo: 0,
     easy: 20,
-    medium: 30,
-    hard: 40,
+    medium: 35,
+    hard: 50,
+    tricky: 65,
+    tough: 80,
+    expert: 100,
+    master: 120,
+    insane: 150,
+    legend: 200,
 };
 
 interface NextBoardInput {
@@ -805,9 +812,13 @@ export class GameService {
         board.version += 1;
 
         const isActualBoard = !session.enableDemo || board.roundNumber > session.totalDemoRounds;
-        const boardScore = isActualBoard
+        const baseScore = isActualBoard
             ? this.calculateBoardScoreFromLevelName(board.levelName)
             : 0;
+        // Apply combo multiplier: consecutive board completions boost score
+        const comboStreak = isActualBoard ? session.completedRounds + 1 : 0;
+        const comboMultiplier = 1.0 + Math.min(Math.floor(comboStreak / 2) * 0.25, 1.0);
+        const boardScore = Math.round(baseScore * comboMultiplier);
         board.score = boardScore;
         session.score += boardScore;
         session.completedRounds += isActualBoard ? 1 : 0;
@@ -2588,6 +2599,51 @@ export class GameService {
         }
 
         return flags;
+    }
+
+    /**
+     * Returns top scores and the requesting user's rank.
+     */
+    async getLeaderboard(userId: string) {
+        const topSessions = await this.prisma.gameSession.findMany({
+            where: {
+                status: GAME_SESSION_STATUS.COMPLETED,
+                deletedAt: null,
+                score: { not: null },
+            },
+            orderBy: { score: 'desc' },
+            take: 50,
+            select: {
+                userId: true,
+                score: true,
+                completedRounds: true,
+                gameEndedAt: true,
+            },
+        });
+
+        // Deduplicate: keep only the highest score per user
+        const bestByUser = new Map<string, (typeof topSessions)[0]>();
+        for (const session of topSessions) {
+            const existing = bestByUser.get(session.userId);
+            if (!existing || (session.score ?? 0) > (existing.score ?? 0)) {
+                bestByUser.set(session.userId, session);
+            }
+        }
+
+        const entries = [...bestByUser.values()]
+            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+            .slice(0, 20)
+            .map((s, i) => ({
+                rank: i + 1,
+                userId: s.userId,
+                score: s.score ?? 0,
+                completedRounds: s.completedRounds,
+                achievedAt: s.gameEndedAt?.toISOString() ?? null,
+            }));
+
+        const userRank = entries.find((e) => e.userId === userId) ?? null;
+
+        return { entries, userRank };
     }
 }
 

@@ -14,5 +14,6 @@ export const API_ENDPOINTS = {
     gameEnd: '/game/session/game-end',
     timeSync: '/game/session/time-sync',
     dailyChallenge: '/game/session/daily-challenge',
+    leaderboard: '/game/session/leaderboard',
   },
 } as const;

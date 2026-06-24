@@ -197,4 +197,20 @@ export class GameController {
     getDailyChallenge() {
         return getDailyChallenge(BLOCK_FILL_GAME_ID);
     }
+
+    /**
+     * Returns the top scores leaderboard.
+     * @param {string} userId - The authenticated user identifier.
+     * @returns {Promise<{ entries: any[]; userRank: any | null }>} Leaderboard data.
+     */
+    @Get('leaderboard')
+    @RequireSession({
+        tokenTypes: [TOKEN_TYPES.LOGIN],
+        userTypes: [USER_TYPES.USER],
+        authMode: SESSION_AUTH_MODE.PAYLOAD,
+    })
+    @Transactional({ readOnly: true })
+    async getLeaderboard(@AuthUser('userId') userId: string) {
+        return this.gameService.getLeaderboard(userId);
+    }
 }
