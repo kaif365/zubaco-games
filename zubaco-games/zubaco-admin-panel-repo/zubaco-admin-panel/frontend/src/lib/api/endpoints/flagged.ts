@@ -4,44 +4,93 @@ import type {
   FilterParams,
   PaginationParams,
 } from "@/types/common";
-import { MOCK_FLAGGED } from "@/mocks/flagged";
+import { get, post } from "@/lib/api/http";
 
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Flag type mapping (backend uses integers)
+const FLAG_TYPE_NAMES: Record<number, string> = {
+  0: "Score Anomaly",
+  1: "Timing Anomaly",
+  2: "Impossible Score",
+  3: "Rapid Progression",
+  4: "Device Duplicate",
+  5: "Input Bot Pattern",
+  6: "Session Tampering",
+};
 
-const store = [...MOCK_FLAGGED];
+const FLAG_SEVERITY_MAP: Record<number, FlaggedUser["severity"]> = {
+  0: "low",
+  1: "medium",
+  2: "high",
+  3: "critical",
+};
+
+const FLAG_REASON_MAP: Record<number, FlaggedUser["reason"]> = {
+  0: "cheating",
+  1: "cheating",
+  2: "exploit",
+  3: "spam",
+  4: "multiple_accounts",
+  5: "cheating",
+  6: "exploit",
+};
+
+interface BackendCheatFlag {
+  id: string;
+  reference_id: string;
+  user_id: string;
+  flag_type: number;
+  game_type: number;
+  game_id: string;
+  game_created_at: string;
+  received_at: string;
+}
+
+interface BackendListResponse {
+  items: BackendCheatFlag[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+}
+
+function mapToFlaggedUser(flag: BackendCheatFlag): FlaggedUser {
+  return {
+    id: flag.id,
+    userId: flag.user_id,
+    userName: flag.user_id.slice(0, 8), // Will be enriched by join later
+    userEmail: "",
+    gameId: flag.game_id,
+    gameName: FLAG_TYPE_NAMES[flag.flag_type] || `Type ${flag.flag_type}`,
+    reason: FLAG_REASON_MAP[flag.flag_type] || "cheating",
+    severity: FLAG_SEVERITY_MAP[Math.min(flag.flag_type, 3)] || "medium",
+    date: flag.game_created_at || flag.received_at,
+    status: "pending",
+  };
+}
 
 export async function fetchFlaggedUsers(
   params: PaginationParams & FilterParams,
 ): Promise<PaginatedResponse<FlaggedUser>> {
-  // TODO: Replace with real API call when available
-  await delay(400);
+  const queryParams = new URLSearchParams({
+    page: String(params.page),
+    limit: String(params.pageSize),
+  });
 
-  let results = [...store];
+  if (params.search) queryParams.set("userId", params.search);
 
-  if (params.search) {
-    const q = params.search.toLowerCase();
-    results = results.filter(
-      (f) =>
-        f.userName.toLowerCase().includes(q) ||
-        f.gameName.toLowerCase().includes(q) ||
-        f.userEmail.toLowerCase().includes(q),
-    );
+  const response = await get<BackendListResponse>(
+    `/admin/cheat-flags?${queryParams.toString()}`,
+  );
+
+  if (!response) {
+    return { data: [], total: 0, page: params.page, pageSize: params.pageSize, totalPages: 0 };
   }
 
-  if (params.status) {
-    results = results.filter((f) => f.status === params.status);
-  }
-
-  const total = results.length;
-  const start = (params.page - 1) * params.pageSize;
-  const data = results.slice(start, start + params.pageSize);
+  const data = response.items.map(mapToFlaggedUser);
 
   return {
     data,
-    total,
-    page: params.page,
+    total: response.pagination.total,
+    page: response.pagination.page,
     pageSize: params.pageSize,
-    totalPages: Math.ceil(total / params.pageSize),
+    totalPages: response.pagination.totalPages,
   };
 }
 
@@ -49,18 +98,60 @@ export async function updateFlaggedStatus(
   id: string,
   status: FlagStatus,
 ): Promise<FlaggedUser> {
-  // TODO: Replace with real API call when available
-  await delay(300);
-  const index = store.findIndex((f) => f.id === id);
-  if (index === -1) throw new Error("Flagged record not found");
-  store[index] = { ...store[index], status };
-  return store[index];
+  // Map frontend status to backend action
+  const actionMap: Record<string, string> = {
+    safe: "dismiss",
+    suspended: "ban",
+    reviewed: "warn",
+  };
+  const action = actionMap[status] || "dismiss";
+  const endpoint = `/admin/cheat-flags/${id}/${action}`;
+
+  const result = await post<any>(endpoint, { admin_id: "current" });
+  // Return a mapped result
+  return {
+    id,
+    userId: result?.user_id || "",
+    userName: "",
+    userEmail: "",
+    gameId: "",
+    gameName: "",
+    reason: "cheating",
+    severity: "medium",
+    date: new Date().toISOString(),
+    status,
+  };
 }
 
 export async function fetchFlaggedById(
   id: string,
 ): Promise<FlaggedUser | null> {
-  // TODO: Replace with real API call when available
-  await delay(200);
-  return store.find((f) => f.id === id) ?? null;
+  // Individual flag fetch not supported by current backend — return null
+  return null;
+}
+
+// ─── NEW: Anti-cheat action APIs ─────────────────────────────────
+
+export async function dismissFlag(flagId: string, adminId: string) {
+  return post(`/admin/cheat-flags/${flagId}/dismiss`, { admin_id: adminId });
+}
+
+export async function warnFlag(flagId: string, adminId: string) {
+  return post(`/admin/cheat-flags/${flagId}/warn`, { admin_id: adminId });
+}
+
+export async function banFlag(flagId: string, adminId: string) {
+  return post(`/admin/cheat-flags/${flagId}/ban`, { admin_id: adminId });
+}
+
+export async function unbanUser(userId: string) {
+  return post(`/admin/cheat-flags/users/${userId}/unban`, {});
+}
+
+export async function resetUserRiskScore(userId: string) {
+  return post(`/admin/cheat-flags/users/${userId}/reset-risk`, {});
+}
+
+export async function getUserRiskScore(userId: string): Promise<{ user_id: string; risk_score: number; penalty_tier: number } | null> {
+  return get(`/admin/cheat-flags/users/${userId}/risk-score`);
 }

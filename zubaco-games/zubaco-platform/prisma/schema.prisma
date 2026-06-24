@@ -26,6 +26,7 @@ model User {
   is_verified     Boolean   @default(false)
   is_banned       Boolean   @default(false)
   ban_reason      String?
+  penalty_tier    Int       @default(0)  // 0=clean, 1=warning, 2=throttle, 3=cooldown, 4=temp-ban, 5=perma-ban
   last_login_at   DateTime?
   terms_accepted_at DateTime?
   privacy_accepted_at DateTime?
@@ -51,6 +52,7 @@ model User {
   achievements    UserAchievement[]
   energy          UserEnergy?
   tds_records     TdsRecord[]
+  device_fingerprints DeviceFingerprint[]
 
   @@index([email])
   @@index([phone])
@@ -210,12 +212,20 @@ model GameSession {
   completed_at    DateTime?
   metadata        Json?         // Game-specific result data
 
+  // Anti-cheat tracking fields
+  ip_address          String?
+  device_fingerprint  String?
+  moves_hash          String?       // SHA256 of submitted move sequence
+  input_signature     Json?         // Timing cadence metadata for bot detection
+
   user        User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
   stage_entry StageEntry?  @relation(fields: [stage_entry_id], references: [id])
+  heartbeats  SessionHeartbeat[]
 
   @@index([user_id, game_type])
   @@index([stage_entry_id])
   @@index([started_at])
+  @@index([moves_hash])
   @@map("game_sessions")
 }
 
@@ -642,9 +652,51 @@ enum CheatSeverity {
   CRITICAL
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CHALLENGES (Friend vs Friend)
-// ═══════════════════════════════════════════════════════════════
+// ─── ANTI-CHEAT: Device Fingerprinting ───────────────────────────
+
+model DeviceFingerprint {
+  id               String   @id @default(uuid())
+  user_id          String
+  fingerprint_hash String   // SHA256 of combined device components
+  components       Json?    // Canvas, WebGL, screen, timezone, locale, platform
+  first_seen_at    DateTime @default(now())
+  last_seen_at     DateTime @default(now())
+  session_count    Int      @default(1)
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, fingerprint_hash])
+  @@index([fingerprint_hash])
+  @@map("device_fingerprints")
+}
+
+// ─── ANTI-CHEAT: Session Heartbeats ─────────────────────────────
+
+model SessionHeartbeat {
+  id              String   @id @default(uuid())
+  session_id      String
+  sequence        Int
+  client_ts       DateTime
+  server_ts       DateTime @default(now())
+
+  session GameSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@unique([session_id, sequence])
+  @@index([session_id])
+  @@map("session_heartbeats")
+}
+
+// ─── PLATFORM SETTINGS (Configurable thresholds) ─────────────────
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String?
+  category    String?  // gameplay, anti_cheat, wallet, compliance, tournament
+  updated_at  DateTime @updatedAt
+
+  @@map("system_settings")
+}
 
 model Challenge {
   id              String          @id @default(uuid())

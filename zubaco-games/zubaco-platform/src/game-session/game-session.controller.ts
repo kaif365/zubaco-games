@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Body, Param, Headers, UseGuards, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Headers, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { GameSessionService } from './game-session.service';
 import { ScoreValidatorService } from './score-validator.service';
+import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { StartGameDto, SubmitGameResultDto, StartTournamentGameDto } from './dto/game-session.dto';
@@ -15,8 +16,20 @@ export class GameSessionController {
   ) {}
 
   @Post('start')
-  async startGame(@CurrentUser() userId: string, @Body() dto: StartGameDto) {
-    return this.gameSessionService.startGame(userId, dto.game_type, dto.config);
+  async startGame(
+    @CurrentUser() userId: string,
+    @Body() dto: StartGameDto,
+    @Req() req: any,
+  ) {
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    const deviceFingerprint = req.headers['x-device-fingerprint'] || undefined;
+    const deviceComponents = dto.device_components || undefined;
+
+    return this.gameSessionService.startGame(userId, dto.game_type, dto.config, {
+      ipAddress,
+      deviceFingerprint,
+      deviceComponents,
+    });
   }
 
   @Post('tournament/start')
@@ -35,7 +48,10 @@ export class GameSessionController {
     @Param('sessionId') sessionId: string,
     @Body() dto: SubmitGameResultDto,
   ) {
-    return this.gameSessionService.submitResult(sessionId, userId, dto.score, dto.duration_ms, dto.metadata);
+    return this.gameSessionService.submitResult(sessionId, userId, dto.score, dto.duration_ms, dto.metadata, {
+      movesHash: dto.moves_hash,
+      inputSignature: dto.input_signature,
+    });
   }
 
   // ─── SCORING ENGINE ENDPOINTS ───────────────────────────────────
@@ -60,24 +76,39 @@ export class GameSessionController {
 }
 
 /**
- * Internal API for game backends to report game completion.
+ * Internal API for game backends to report game completion, heartbeats, and real-time flags.
  * Protected by API key (not user JWT) — game backends call this after gameplay ends.
- * This is the bridge between individual game backends and the platform.
  */
 @Controller('internal/game')
 export class InternalGameController {
   private readonly INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
-  constructor(private readonly gameSessionService: GameSessionService) {}
+  constructor(
+    private readonly gameSessionService: GameSessionService,
+    private readonly antiCheat: AntiCheatService,
+  ) {}
+
+  private validateApiKey(apiKey: string) {
+    if (!this.INTERNAL_API_KEY || apiKey !== this.INTERNAL_API_KEY) {
+      throw new UnauthorizedException('Invalid API key');
+    }
+  }
 
   @Post('complete')
   async gameComplete(
     @Headers('x-api-key') apiKey: string,
-    @Body() dto: { sessionId: string; userId: string; score: number; durationMs: number; gameType: string; metadata?: any },
+    @Body() dto: {
+      sessionId: string;
+      userId: string;
+      score: number;
+      durationMs: number;
+      gameType: string;
+      metadata?: any;
+      movesHash?: string;
+      inputSignature?: any;
+    },
   ) {
-    if (!this.INTERNAL_API_KEY || apiKey !== this.INTERNAL_API_KEY) {
-      throw new UnauthorizedException('Invalid API key');
-    }
+    this.validateApiKey(apiKey);
 
     return this.gameSessionService.submitResult(
       dto.sessionId,
@@ -85,18 +116,55 @@ export class InternalGameController {
       dto.score,
       dto.durationMs,
       dto.metadata,
+      {
+        movesHash: dto.movesHash,
+        inputSignature: dto.inputSignature,
+      },
     );
   }
 
   @Post('start')
   async gameStart(
     @Headers('x-api-key') apiKey: string,
-    @Body() dto: { userId: string; gameType: string; config?: any; mode?: string },
+    @Req() req: any,
+    @Body() dto: { userId: string; gameType: string; config?: any; mode?: string; deviceFingerprint?: string; deviceComponents?: any },
   ) {
-    if (!this.INTERNAL_API_KEY || apiKey !== this.INTERNAL_API_KEY) {
-      throw new UnauthorizedException('Invalid API key');
-    }
+    this.validateApiKey(apiKey);
 
-    return this.gameSessionService.startGame(dto.userId, dto.gameType, dto.config);
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+
+    return this.gameSessionService.startGame(dto.userId, dto.gameType, dto.config, {
+      ipAddress,
+      deviceFingerprint: dto.deviceFingerprint,
+      deviceComponents: dto.deviceComponents,
+    });
+  }
+
+  /**
+   * Session heartbeat — game backends call every 10s during active gameplay.
+   */
+  @Post('heartbeat')
+  async heartbeat(
+    @Headers('x-api-key') apiKey: string,
+    @Body() dto: { sessionId: string; sequence: number; clientTs: string },
+  ) {
+    this.validateApiKey(apiKey);
+
+    await this.antiCheat.recordHeartbeat(dto.sessionId, dto.sequence, new Date(dto.clientTs));
+    return { ok: true };
+  }
+
+  /**
+   * Real-time flag — game backends call when they detect physically impossible inputs.
+   * Returns { action: "TERMINATE" } to instruct game backend to disconnect player.
+   */
+  @Post('flag-realtime')
+  async flagRealtime(
+    @Headers('x-api-key') apiKey: string,
+    @Body() dto: { sessionId: string; userId: string; gameType: string; reason: string },
+  ) {
+    this.validateApiKey(apiKey);
+
+    return this.antiCheat.flagRealtime(dto.sessionId, dto.userId, dto.gameType as GameType, dto.reason);
   }
 }

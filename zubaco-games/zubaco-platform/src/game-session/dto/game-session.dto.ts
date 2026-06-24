@@ -21,6 +21,9 @@ export class StartGameDto {
 
   @IsOptional()
   config?: any;
+
+  @IsOptional()
+  device_components?: any;
 }
 
 export class SubmitGameResultDto {
@@ -36,6 +39,13 @@ export class SubmitGameResultDto {
 
   @IsOptional()
   metadata?: any;
+
+  @IsOptional()
+  @IsString()
+  moves_hash?: string;
+
+  @IsOptional()
+  input_signature?: any;
 }
 
 export class StartTournamentGameDto {

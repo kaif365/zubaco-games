@@ -1,24 +1,51 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
+import { DeviceDetectionService } from '../anti-cheat/device-detection.service';
 import { LeaderboardService } from '../leaderboard/leaderboard.service';
 import { ScoreValidatorService } from './score-validator.service';
 import { generateServerSeed, hashServerSeed, computeFinalSeed } from './seed-rng';
+import { InputSignature } from './utils/input-analyzer';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class GameSessionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly antiCheat: AntiCheatService,
+    private readonly deviceDetection: DeviceDetectionService,
     private readonly leaderboard: LeaderboardService,
     private readonly scoreValidator: ScoreValidatorService,
   ) {}
 
   /**
    * Primary game session flow used by the mobile app WebView integration.
-   * Matches the contract: POST /UserContest/{key}/startGame
+   * Now includes: risk check, concurrent session prevention, IP/device capture.
    */
-  async startGame(userId: string, gameType: string, config: any) {
+  async startGame(userId: string, gameType: string, config: any, options?: {
+    ipAddress?: string;
+    deviceFingerprint?: string;
+    deviceComponents?: any;
+  }) {
+    // ─── ANTI-CHEAT: Check if user is allowed to play ────────────
+    const sessionCheck = await this.antiCheat.checkSessionAllowed(userId);
+    if (!sessionCheck.allowed) {
+      throw new ForbiddenException(sessionCheck.reason);
+    }
+
+    // ─── ANTI-CHEAT: Concurrent session prevention ───────────────
+    const previousSession = await this.antiCheat.registerActiveSession(userId, 'pending');
+    if (previousSession && previousSession !== 'pending') {
+      // Abandon the old session
+      await this.prisma.gameSession.updateMany({
+        where: { id: previousSession, outcome: null },
+        data: { outcome: 'ABANDONED', completed_at: new Date() },
+      });
+    }
+
+    // Track session start for rate limiting
+    await this.antiCheat.trackSessionStart(userId);
+
     const serverSeed = generateServerSeed();
     const serverSeedHash = hashServerSeed(serverSeed);
     const numericSeed = computeFinalSeed(serverSeed);
@@ -30,13 +57,29 @@ export class GameSessionService {
         mode: 'FREE_PLAY',
         server_seed: serverSeed,
         config: config || {},
+        ip_address: options?.ipAddress || null,
+        device_fingerprint: options?.deviceFingerprint || null,
       },
     });
 
+    // Update active session with real ID
+    await this.antiCheat.registerActiveSession(userId, session.id);
+
+    // ─── ANTI-CHEAT: Register device fingerprint ─────────────────
+    if (options?.deviceFingerprint) {
+      try {
+        await this.deviceDetection.upsertFingerprint(
+          userId,
+          options.deviceFingerprint,
+          options.deviceComponents,
+        );
+      } catch { /* non-blocking */ }
+    }
+
     return {
       gameSessionId: session.id,
-      serverSeedHash, // Commitment hash — reveal actual seed after game
-      seed: numericSeed, // Numeric seed for game content generation
+      serverSeedHash,
+      seed: numericSeed,
       startedAt: session.started_at,
       config: config || {},
     };
@@ -147,9 +190,13 @@ export class GameSessionService {
   }
 
   /**
-   * Submit game result - called by game frontend after play
+   * Submit game result - called by game frontend after play.
+   * Now accepts: movesHash, inputSignature for anti-cheat analysis.
    */
-  async submitResult(sessionId: string, userId: string, score: number, durationMs: number, metadata?: any) {
+  async submitResult(sessionId: string, userId: string, score: number, durationMs: number, metadata?: any, antiCheatData?: {
+    movesHash?: string;
+    inputSignature?: InputSignature;
+  }) {
     // Hard reject obviously invalid values
     if (score < 0) throw new ForbiddenException('Invalid score');
     if (durationMs < 1000) throw new ForbiddenException('Invalid duration');
@@ -187,20 +234,50 @@ export class GameSessionService {
         outcome: 'COMPLETED',
         completed_at: new Date(),
         metadata,
+        moves_hash: antiCheatData?.movesHash || null,
+        input_signature: antiCheatData?.inputSignature ? (antiCheatData.inputSignature as any) : null,
       },
     });
 
-    // Phase 1: Run anti-cheat analysis (async-safe — doesn't block response on failure)
+    // Clear active session lock
+    await this.antiCheat.clearActiveSession(userId);
+
+    // Phase 3: Run full anti-cheat analysis (non-blocking on failure)
     let flagsRaised = 0;
     try {
-      const cheatResult = await this.antiCheat.analyzeGameResult(
+      // Verify heartbeats if game was long enough
+      if (durationMs > 15000) {
+        const hbResult = await this.antiCheat.verifyHeartbeats(sessionId, durationMs);
+        if (!hbResult.valid && hbResult.flag) {
+          // Store the heartbeat flag
+          await this.prisma.cheatFlag.create({
+            data: {
+              user_id: userId,
+              session_id: sessionId,
+              game_type: session.game_type,
+              flag_type: hbResult.flag.type,
+              severity: hbResult.flag.severity,
+              details: hbResult.flag.details,
+            },
+          });
+          flagsRaised++;
+        }
+      }
+
+      // Run main anti-cheat analysis (all 7 detection types)
+      const cheatResult = await this.antiCheat.analyzeGameResult({
         userId,
         sessionId,
         score,
         durationMs,
-        session.game_type,
-      );
-      flagsRaised = cheatResult.flags_raised;
+        gameType: session.game_type,
+        movesHash: antiCheatData?.movesHash,
+        inputSignature: antiCheatData?.inputSignature,
+        ipAddress: session.ip_address || undefined,
+        deviceFingerprint: session.device_fingerprint || undefined,
+        mode: session.mode,
+      });
+      flagsRaised += cheatResult.flags_raised;
     } catch {
       // Anti-cheat failure should not block game completion
     }

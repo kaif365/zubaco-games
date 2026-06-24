@@ -7,7 +7,7 @@ import { LeaderboardModule } from '../leaderboard/leaderboard.module';
 
 @Module({
   imports: [AntiCheatModule, LeaderboardModule],
-  controllers: [GameSessionController],
+  controllers: [GameSessionController, InternalGameController],
   providers: [GameSessionService, ScoreValidatorService],
   exports: [GameSessionService],
 })

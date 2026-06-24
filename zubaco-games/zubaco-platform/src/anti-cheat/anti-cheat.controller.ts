@@ -38,6 +38,12 @@ export class AntiCheatController {
     return this.antiCheatService.getUserFlags(userId);
   }
 
+  @Get('users/:userId/risk-score')
+  async getUserRiskScore(@Param('userId') userId: string) {
+    const riskScore = await this.antiCheatService.getRiskScore(userId);
+    return { user_id: userId, risk_score: riskScore, penalty_tier: Math.min(5, Math.floor(riskScore / 25)) };
+  }
+
   @Post('users/:userId/ban')
   async banUser(@Param('userId') userId: string, @Body() body: { reason: string }) {
     return this.antiCheatService.banUser(userId, body.reason);
@@ -46,5 +52,11 @@ export class AntiCheatController {
   @Post('users/:userId/unban')
   async unbanUser(@Param('userId') userId: string) {
     return this.antiCheatService.unbanUser(userId);
+  }
+
+  @Post('users/:userId/reset-risk')
+  async resetRiskScore(@Param('userId') userId: string) {
+    await this.antiCheatService.resetRiskScore(userId);
+    return { user_id: userId, risk_score: 0, penalty_tier: 0 };
   }
 }
