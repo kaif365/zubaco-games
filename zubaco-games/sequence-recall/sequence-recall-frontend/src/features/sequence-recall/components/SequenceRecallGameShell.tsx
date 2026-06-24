@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { signalGameCompleted, signalGameFailed } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { motion } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -395,6 +396,11 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
 
       setPlayMode('socket');
       setGameOverData(gameOver);
+      if (reason === 'COMPLETED') {
+        signalGameCompleted(gameOver.finalScore, { gameType: 'sequence-recall' });
+      } else {
+        signalGameFailed(reason, { gameType: 'sequence-recall', score: gameOver.finalScore });
+      }
       setCurrentDemoRound(persisted.currentDemoRound);
       setCurrentActualRound(Math.max(gameOver.completedRounds, persisted.currentActualRound));
       setIsApiDemo(false);

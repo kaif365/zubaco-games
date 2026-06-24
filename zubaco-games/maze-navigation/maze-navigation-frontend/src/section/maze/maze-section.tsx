@@ -1,4 +1,5 @@
 import { LiveGameRouteSkeleton } from "@/components/molecules/live-game-route-skeleton";
+import { signalGameCompleted, signalGameFailed } from "../../../../../../packages/game-sdk/src/lifecycle";
 import { MazeTemplate } from "@/components/templates/maze-template";
 import { GAME_SESSION_STATUS } from "@/constants/game-session-status";
 import { MAZE_DEMO_COMPLETE_EXIT_DELAY_MS } from "@/constants/maze";
@@ -312,6 +313,11 @@ export function MazeSection({ mode, stageId }: Readonly<MazeSectionProps>) {
       stageId,
       phase === MazeGamePhase.WIN ? "success" : "failure",
     );
+    if (phase === MazeGamePhase.WIN) {
+      signalGameCompleted(0, { gameType: 'maze-navigation' });
+    } else {
+      signalGameFailed('lost', { gameType: 'maze-navigation' });
+    }
     navigate(paths.results, { replace: true });
   }, [isDemo, navigate, phase, publishTerminalResult, stageId]);
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { signalGameCompleted, signalGameFailed } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { getApiErrorMessage } from '@/lib/api/getApiErrorMessage';
@@ -132,6 +133,12 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
     if (stageState === 'end' && finalScore !== null && !statsSavedRef.current) {
       statsSavedRef.current = true;
       updateStats({ won: isGameSuccess, timeSec: sessionTimerSeconds, moves: completedRounds, score: finalScore ?? 0 });
+      // Signal to host app
+      if (isGameSuccess) {
+        signalGameCompleted(finalScore, { gameType: 'block-fill' });
+      } else {
+        signalGameFailed('session_ended', { gameType: 'block-fill', score: finalScore });
+      }
     }
   }, [stageState, finalScore, isGameSuccess, completedRounds]);
 

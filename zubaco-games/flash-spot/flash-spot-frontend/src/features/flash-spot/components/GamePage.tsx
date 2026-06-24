@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import type { TapResult } from '@/types/game';
@@ -228,6 +229,7 @@ export function GamePage() {
     // Submit to server
     if (gameSessionIdRef.current) {
       submitResult(gameSessionIdRef.current, taps, result.score).catch(() => {});
+      signalGameCompleted(result.score, { gameType: 'flash-spot' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);

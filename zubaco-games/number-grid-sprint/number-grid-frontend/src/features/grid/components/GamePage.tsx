@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import type { StageConfig } from '@/types/game';
 import { useAudio } from '@/hooks/useAudio';
 import { useGameSession } from '../hooks/useGameSession';
@@ -61,6 +62,7 @@ export function GamePage() {
   useEffect(() => {
     if (game.phase === 'finished' && game.score && gameSessionId) {
       submitResult(gameSessionId, game.answers, game.score.finalScore);
+      signalGameCompleted(game.score.finalScore, { gameType: 'number-grid-sprint' });
       play('complete');
       if (isDaily) markDailyComplete();
     }

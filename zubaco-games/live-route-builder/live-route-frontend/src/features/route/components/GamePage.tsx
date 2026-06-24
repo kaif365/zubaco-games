@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { RouteCanvas } from './RouteCanvas';
 import { GameHeader } from './GameHeader';
 import { Tutorial } from './Tutorial';
@@ -210,6 +211,7 @@ export function GamePage() {
 
     // Submit to backend
     submitGame(edges, score).catch(() => { /* offline — outbox handles */ });
+    signalGameCompleted(score, { gameType: 'live-route-builder' });
 
     setTimeout(() => { setShowConfetti(false); setPhase('result'); }, 3000);
   };

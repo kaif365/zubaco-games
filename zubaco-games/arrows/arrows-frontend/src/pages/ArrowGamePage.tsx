@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { signalGameCompleted, signalGameFailed } from '../../../../packages/game-sdk/src/lifecycle';
 import { useArrowGame } from '@/hooks/useArrowGame';
 import { useArrowGameSession } from '@/hooks/useArrowGameSession';
 import { useAudio } from '@/hooks/useAudio';
@@ -71,6 +72,7 @@ export default function ArrowGamePage() {
           }
         });
       }
+      signalGameCompleted(state.score, { gameType: 'arrows' });
 
       // Check achievements
       const stats = JSON.parse(localStorage.getItem('arrowgame_stats') || '{}');
@@ -99,6 +101,7 @@ export default function ArrowGamePage() {
       if (session.isConnected) {
         void endGame();
       }
+      signalGameFailed('game_over', { gameType: 'arrows', score: state.score });
 
       setTimeout(() => setScreen('result'), 800);
     }

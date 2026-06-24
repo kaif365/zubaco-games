@@ -1,6 +1,7 @@
 // /modules/game/hooks/use-game-state.ts
 "use client";
 
+import { signalGameCompleted } from "../../../../packages/game-sdk/src/lifecycle";
 import { logger } from "@/lib/default-logger";
 import {
   checkWinCondition,
@@ -336,6 +337,7 @@ export const useGameState = (
       setIsWon(true);
       setScore(payload.data.score ?? null);
       setTimeBonus(payload.data.timeBonus ?? null);
+      signalGameCompleted(payload.data.score ?? 0, { gameType: 'infinity-loop' });
     },
     [isTutorialMode],
   );

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { signalGameCompleted, signalGameFailed } from '../../../../../../packages/game-sdk/src/lifecycle';
 import i18next from 'i18next';
 import { simulateLaser } from '@/game/laserEngine';
 import { getAuthToken, setAuthToken } from '@/services/httpClient';
@@ -298,13 +299,18 @@ export function useGameSession(): UseGameSessionReturn {
       setSelectedBlock(null);
       setSelectedBlockId(null);
       if (status.scoreboard?.levels) setLevelScores(status.scoreboard.levels);
-      setPhase(
-        status.status === GameStatus.ENDED ||
+      const isSuccess = status.status === GameStatus.ENDED ||
         status.status === GameStatus.MANUALLY_ENDED ||
-        status.status === GameStatus.EXPIRED
-          ? 'completed'
-          : 'error',
-      );
+        status.status === GameStatus.EXPIRED;
+      setPhase(isSuccess ? 'completed' : 'error');
+
+      // Signal to host app
+      const finalScore = status.scoreboard?.totalScore ?? 0;
+      if (isSuccess) {
+        signalGameCompleted(finalScore, { gameType: 'logic-reflector' });
+      } else {
+        signalGameFailed('error', { gameType: 'logic-reflector' });
+      }
     },
     [clearSessionClock, clearTimer, levelPrefetch, moveSubmission],
   );

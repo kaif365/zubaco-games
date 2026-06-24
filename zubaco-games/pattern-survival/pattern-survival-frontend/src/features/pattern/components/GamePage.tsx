@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { motion } from 'framer-motion';
 import { usePatternGame } from '../hooks/usePatternGame';
 import { useGameSession } from '../hooks/useGameSession';
@@ -35,7 +36,7 @@ export function GamePage() {
   };
 
   const handleSubmit = async () => { await submitGame(round, perfectRounds, score); };
-  useEffect(() => { if (phase === 'ended') { play('complete'); handleSubmit(); if (isDaily) markDailyComplete(); } }, [phase]);
+  useEffect(() => { if (phase === 'ended') { play('complete'); handleSubmit(); signalGameCompleted(score, { gameType: 'pattern-survival' }); if (isDaily) markDailyComplete(); } }, [phase]);
 
   useEffect(() => {
     if (round > prevRoundRef.current) play('correct');

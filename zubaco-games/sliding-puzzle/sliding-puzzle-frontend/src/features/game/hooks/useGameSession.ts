@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { signalGameCompleted, signalGameFailed } from '../../../../../../packages/game-sdk/src/lifecycle';
 
 import { isSolvedBoard, moveTile } from '@/lib/sliding-puzzle/board';
 import { getAuthToken, setAuthToken } from '@/services/httpClient';
@@ -262,11 +263,16 @@ export function useGameSession(): UseGameSessionReturn {
         setRoundScores(status.scoreboard.rounds);
       }
 
-      setPhase(
-        status.status === GameStatus.ENDED || status.status === GameStatus.MANUALLY_ENDED
-          ? 'completed'
-          : 'expired',
-      );
+      const isSuccess = status.status === GameStatus.ENDED || status.status === GameStatus.MANUALLY_ENDED;
+      setPhase(isSuccess ? 'completed' : 'expired');
+
+      // Signal to host app
+      const finalScore = status.scoreboard?.totalScore ?? 0;
+      if (isSuccess) {
+        signalGameCompleted(finalScore, { gameType: 'sliding-puzzle' });
+      } else {
+        signalGameFailed('time_expired', { gameType: 'sliding-puzzle', score: finalScore });
+      }
     },
     [clearSessionClock, moveSubmission, stopTimer],
   );

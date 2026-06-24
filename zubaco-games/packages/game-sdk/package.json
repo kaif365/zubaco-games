@@ -1,0 +1,27 @@
+{
+  "name": "@zubaco/game-sdk",
+  "version": "1.0.0",
+  "description": "Shared WebView game client SDK for Zubaco Games platform",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bridge": "./src/bridge/index.ts",
+    "./api": "./src/api/index.ts",
+    "./timer": "./src/timer/index.ts",
+    "./moves": "./src/moves/index.ts",
+    "./shell": "./src/shell/index.ts"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.7.0"
+  },
+  "keywords": ["zubaco", "game", "webview", "sdk"],
+  "license": "UNLICENSED",
+  "private": true
+}

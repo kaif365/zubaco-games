@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import type { StageConfig } from '@/types/game';
 import { useGameSession } from '../hooks/useGameSession';
 import { useUnscramble } from '../hooks/useUnscramble';
@@ -70,6 +71,7 @@ function UnscrambleGame({ onReturnToMenu, isDaily, initialLevel }: { onReturnToM
   useEffect(() => {
     if (game.phase === 'finished' && game.score && gameSessionId) {
       submitResult(gameSessionId, game.answers, game.score.finalScore);
+      signalGameCompleted(game.score.finalScore, { gameType: 'word-unscramble' });
       if (isDaily) markDailyComplete(game.score.finalScore);
       play('complete');
     }

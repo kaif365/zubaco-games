@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import type { Question, Answer, GameConfig, StartGameResponse, SubmitResponse } from '../../../types/game';
 import httpClient from '../../../services/httpClient';
 import { selectQuestions } from '../engine/questionBank';
@@ -83,6 +84,7 @@ export function useTypingGame() {
     try {
       const { data } = await httpClient.post<{ data: SubmitResponse }>('/game/submit', { gameSessionId: sessionIdRef.current, answers, clientScore: score });
       setResult(data.data);
+      signalGameCompleted(data.data.finalScore, { gameType: 'speed-type-answer' });
     } finally { setLoading(false); }
   }, [answers, score]);
 

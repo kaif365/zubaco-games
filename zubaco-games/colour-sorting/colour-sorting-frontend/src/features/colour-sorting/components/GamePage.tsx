@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { StageConfig } from '@/types/game';
 import { useGameSession } from '../hooks/useGameSession';
@@ -215,6 +216,7 @@ export function GamePage() {
     // Submit to server
     const response = await submitResult(sessionId, result.moves, result.score.finalScore, solved);
     if (response) setServerScore(response.finalScore);
+    signalGameCompleted(result.score.finalScore, { gameType: 'colour-sorting' });
 
     setScreen('result');
   }, [finishGame, submitResult, sessionId, solved, config, timeRemainingMs, currentLevel, moves.length, usedUndo, isDaily]);

@@ -1,3 +1,4 @@
+import '../../../packages/game-sdk/src/bootstrap';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './i18n';

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WordCard } from './WordCard';
 import { MenuScreen } from './MenuScreen';
@@ -42,7 +43,7 @@ export function GamePage() {
   const usedWords = submittedGroups.flat();
   const secs = Math.ceil(timeLeft / 1000);
 
-  useEffect(() => { if (phase === 'ended') { play('complete'); handleSubmitFinal(); if (isDaily) markDailyComplete(); } }, [phase]);
+  useEffect(() => { if (phase === 'ended') { play('complete'); handleSubmitFinal(); signalGameCompleted(score, { gameType: 'memory-groups' }); if (isDaily) markDailyComplete(); } }, [phase]);
 
   // Sound feedback when a group is submitted (correct)
   useEffect(() => {

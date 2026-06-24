@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useReflexGame } from '../hooks/useReflexGame';
 import { useGameSession } from '../hooks/useGameSession';
@@ -37,7 +38,7 @@ export function GamePage() {
     await submitGame(taps, score);
   };
 
-  useEffect(() => { if (status === 'ended') { handleEnd(); if (isDaily) markDailyComplete(); play('complete'); } }, [status]);
+  useEffect(() => { if (status === 'ended') { handleEnd(); signalGameCompleted(score, { gameType: 'reflex-endurance' }); if (isDaily) markDailyComplete(); play('complete'); } }, [status]);
 
   // Sound on tap - correct (green) or incorrect (other)
   const prevScore = useRef(score);

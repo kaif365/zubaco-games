@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import type { StageConfig } from '@/types/game';
 import { useGameSession } from '../hooks/useGameSession';
 import { useBlitz } from '../hooks/useBlitz';
@@ -73,6 +74,7 @@ function BlitzGame({ onReturnToMenu, isDaily, initialLevel }: { onReturnToMenu: 
   useEffect(() => {
     if (blitz.phase === 'finished' && blitz.score && gameSessionId) {
       submitResult(gameSessionId, blitz.answers, blitz.score.finalScore);
+      signalGameCompleted(blitz.score.finalScore, { gameType: 'true-false-blitz' });
       if (isDaily) markDailyComplete(blitz.score.finalScore);
       play('complete');
     }

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { motion } from 'framer-motion';
 import type { StageConfig } from '@/types/game';
 import { useGameSession } from '../hooks/useGameSession';
@@ -70,6 +71,7 @@ export function GamePage() {
       submitResult(sessionId, answers, score.finalScore).then((resp) => {
         if (resp) setServerScore(resp.finalScore);
       });
+      signalGameCompleted(score.finalScore, { gameType: 'rapid-category-sort' });
       if (isDaily) markDailyComplete();
       play('complete');
     }

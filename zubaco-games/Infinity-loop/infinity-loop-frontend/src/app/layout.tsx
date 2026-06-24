@@ -1,5 +1,6 @@
 // /app/layout.tsx
 import { DevToolsDisabler } from "@/components/dev-tools-disabler";
+import { WebViewBootstrap } from "@/components/webview-bootstrap";
 import { MobileLandscapePortraitOverlay } from "@/components/organisms/mobile-landscape-portrait-overlay";
 import { Toaster } from "@/components/organisms/sonner";
 import { UserProvider } from "@/context/user-context";
@@ -60,6 +61,7 @@ export default async function RootLayout({
               <UserProvider>
                 <SocketProvider>
                   <div className="w-full min-h-[100dvh] relative overflow-hidden">
+                    <WebViewBootstrap />
                     <DevToolsDisabler />
                     {children}
                     <MobileLandscapePortraitOverlay />

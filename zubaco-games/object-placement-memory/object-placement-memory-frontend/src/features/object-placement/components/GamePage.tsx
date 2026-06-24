@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { signalGameCompleted } from '../../../../../../packages/game-sdk/src/lifecycle';
 import { DndContext, type DragEndEvent, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { motion } from 'framer-motion';
 import type { ObjectItem, StageConfig } from '@/types/game';
@@ -99,6 +100,7 @@ export function GamePage() {
     if (response) {
       setServerScore(response.finalScore);
     }
+    signalGameCompleted(result.score.finalScore, { gameType: 'object-placement-memory' });
     if (isDaily) markDailyComplete();
   }, [submitPlacements, submitResult, sessionId, isDaily]);
 

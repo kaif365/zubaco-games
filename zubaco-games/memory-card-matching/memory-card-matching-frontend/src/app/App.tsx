@@ -1,4 +1,5 @@
 import { TiltOverlay } from '@/components/TiltOverlay';
+import { signalGameCompleted, signalGameFailed } from '../../../../packages/game-sdk/src/lifecycle';
 import { GameClearModal } from '@/components/shared/GameClearModal';
 import { APP_SCREENS, SESSION_STORAGE_KEY } from '@/constants/game.constants';
 import { useCompactLandscape } from '@/hooks/useCompactLandscape';
@@ -159,6 +160,12 @@ export function App() {
     if (isDaily && stats.result === 'win') markDailyComplete();
     setIsDaily(false);
     setAppState((prev) => ({ ...prev, screen: APP_SCREENS.GAME_OVER, gameOverStats: stats }));
+    // Signal to host app
+    if (stats.result === 'win') {
+      signalGameCompleted(stats.score ?? 0, { gameType: 'memory-card-matching' });
+    } else {
+      signalGameFailed('lost', { gameType: 'memory-card-matching' });
+    }
   }, [isDaily]);
 
   const handleContinue = useCallback(() => {

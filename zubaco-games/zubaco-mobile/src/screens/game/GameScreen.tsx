@@ -1,5 +1,5 @@
 import React, { useRef, useCallback } from 'react';
-import { View, StyleSheet, BackHandler, Alert } from 'react-native';
+import { View, StyleSheet, BackHandler, Alert, Platform } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -24,7 +24,8 @@ export function GameScreen() {
       window.__ZUBACO__ = {
         token: "${token}",
         gameSessionId: "${sessionId}",
-        platform: "mobile"
+        platform: "${Platform.OS === 'ios' ? 'ios' : 'android'}",
+        apiBaseUrl: "https://api.zubaco.com"
       };
       window.postMessage = window.ReactNativeWebView.postMessage;
     })();
@@ -37,13 +38,26 @@ export function GameScreen() {
       const data = JSON.parse(event.nativeEvent.data);
 
       switch (data.type) {
+        case 'GAME_READY':
+          // Game SDK initialized — can send config if needed
+          break;
+
+        case 'GAME_STARTED':
+          // Game session started
+          break;
+
         case 'GAME_COMPLETED':
           // Game finished - navigate back with result
           navigation.goBack();
           break;
 
+        case 'GAME_FAILED':
+          // Player failed (time up, max attempts, etc.)
+          navigation.goBack();
+          break;
+
         case 'GAME_ERROR':
-          Alert.alert('Game Error', data.message || 'Something went wrong');
+          Alert.alert('Game Error', data.payload?.error || data.message || 'Something went wrong');
           navigation.goBack();
           break;
 
@@ -57,6 +71,11 @@ export function GameScreen() {
               { text: 'Leave', style: 'destructive', onPress: () => navigation.goBack() },
             ],
           );
+          break;
+
+        case 'GAME_PAUSED':
+        case 'GAME_RESUMED':
+          // Track state for analytics
           break;
       }
     } catch {
