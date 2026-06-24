@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { unlockAchievement } from './Achievements';
 import { getHighestLevel } from './LevelSelector';
+import { fetchPlayerStats } from '@/app/api/gameApi';
 
 interface StatsData {
   gamesPlayed: number;
@@ -64,7 +65,24 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
   const [stats, setStats] = useState<StatsData>(loadStats);
 
   useEffect(() => {
-    setStats(loadStats());
+    // Try to load stats from backend first, merge with local stats
+    fetchPlayerStats()
+      .then((remote) => {
+        const local = loadStats();
+        setStats({
+          gamesPlayed: Math.max(local.gamesPlayed, remote.totalGames),
+          gamesWon: Math.max(local.gamesWon, Math.round(remote.totalGames * remote.winRate / 100)),
+          totalTimeSec: local.totalTimeSec,
+          bestTimeSec: local.bestTimeSec,
+          totalMoves: local.totalMoves,
+          currentStreak: local.currentStreak,
+          longestStreak: Math.max(local.longestStreak, remote.longestStreak),
+          recentScores: remote.recentScores.length > 0 ? remote.recentScores : local.recentScores,
+        });
+      })
+      .catch(() => {
+        setStats(loadStats());
+      });
   }, []);
 
   const winRate = stats.gamesPlayed > 0

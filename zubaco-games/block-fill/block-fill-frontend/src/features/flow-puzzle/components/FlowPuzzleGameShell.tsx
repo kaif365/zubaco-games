@@ -43,6 +43,7 @@ import { GameResultOverlay } from '@/features/flow-puzzle/components/GameResultO
 import { updateStats } from '@/features/flow-puzzle/components/StatsScreen';
 import { markDailyComplete } from '@/features/flow-puzzle/components/DailyChallenge';
 import { setHighestLevel, getHighestLevel } from '@/features/flow-puzzle/components/LevelSelector';
+import { unlockAchievement } from '@/features/flow-puzzle/components/Achievements';
 import { useDemoLevels } from '@/hooks/useDemoLevels';
 import { AuthGateScreen } from '@/components/shared/AuthGateScreen';
 import { GameClearModal } from '@/components/shared/GameClearModal';
@@ -565,6 +566,12 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
               setFinalScore(endData.finalScore);
               setCompletedRounds(endData.roundsCompleted);
               setApiTotalRounds(endData.totalRounds);
+              // Sync backend achievements to localStorage
+              if (endData.achievements) {
+                for (const ach of endData.achievements) {
+                  if (ach.unlocked) unlockAchievement(ach.id);
+                }
+              }
             } catch (error) {
               showApiError({
                 title: t('errors.scoreFailed'),

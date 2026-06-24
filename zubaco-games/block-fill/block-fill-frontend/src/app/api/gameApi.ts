@@ -96,6 +96,8 @@ interface GameEndData {
   finalScore: number;
   roundsCompleted: number;
   totalRounds: number;
+  achievements?: Array<{ id: string; unlocked: boolean; unlockedAt: string | null }>;
+  playerStats?: PlayerStatsData;
 }
 
 interface GameEndEnvelope {
@@ -340,10 +342,12 @@ export async function endGameSession(body: EndGameRequest): Promise<GameEndData>
   if (typeof payload.data?.finalScore !== 'number') {
     throw new Error('Invalid game end response');
   }
-  const result = {
+  const result: GameEndData = {
     finalScore: payload.data.finalScore,
     roundsCompleted: payload.data.roundsCompleted ?? 0,
     totalRounds: payload.data.totalRounds ?? 0,
+    achievements: payload.data.achievements,
+    playerStats: payload.data.playerStats,
   };
   console.log('[endGameSession] decoded response:', result);
   return result;
@@ -410,4 +414,30 @@ export async function activateBooster(sessionId: string, boosterType: string): P
   });
   ensureSuccess(payload, 'Failed to activate booster');
   return (payload as unknown as { data: BoosterActivationResult }).data;
+}
+
+export interface PlayerStatsData {
+  totalGames: number;
+  totalScore: number;
+  averageScore: number;
+  highScore: number;
+  highestLevel: number;
+  longestStreak: number;
+  winRate: number;
+  recentScores: number[];
+}
+
+/**
+ * Fetches computed player statistics from game session history.
+ *
+ * @returns {Promise<PlayerStatsData>} Player stats from the backend.
+ */
+export async function fetchPlayerStats(): Promise<PlayerStatsData> {
+  const payload = await apiGet<{ success: boolean; data: PlayerStatsData }>({
+    baseUrl: ensureGameBaseUrl(),
+    path: API_ENDPOINTS.game.playerStats,
+    ...gamePayloadCryptoOptions(),
+  });
+  ensureSuccess(payload, 'Failed to fetch player stats');
+  return (payload as unknown as { data: PlayerStatsData }).data;
 }

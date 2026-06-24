@@ -12,6 +12,7 @@ import {
     type SessionBoardResponse,
     type SessionTimerState,
 } from './game.service';
+import type { PlayerStats } from './engine/scoreHistory';
 import type { BoosterType } from './engine/boosterEngine';
 
 /**
@@ -97,5 +98,9 @@ export class GameSessionOrchestratorService {
     async activateBooster(userId: string, sessionId: string, boosterType: BoosterType): Promise<BoosterActivationResult> {
         // Boosters are only supported in direct-DB mode (not Restate) for now
         return this.gameService.activateBooster(sessionId, userId, boosterType);
+    }
+
+    async getPlayerStats(userId: string): Promise<PlayerStats> {
+        return this.gameService.getPlayerStats(userId);
     }
 }

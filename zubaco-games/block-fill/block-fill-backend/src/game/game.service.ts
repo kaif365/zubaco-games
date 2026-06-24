@@ -30,6 +30,8 @@ import { SnsService } from '../aws/sns.service';
 
 import { GameExpiryService } from './game-expiry.service';
 import { BoosterType, getBoosterDef } from './engine/boosterEngine';
+import { checkAchievements, type AchievementProgress, type GameStats } from './engine/achievementEngine';
+import { computePlayerStats, type PlayerStats, type ScoreRecord } from './engine/scoreHistory';
 import {
     InFlightBoardState,
     InFlightSavedPath,
@@ -110,6 +112,8 @@ export interface EndGameResponse {
     finalScore: number;
     roundsCompleted: number;
     totalRounds: number;
+    achievements?: AchievementProgress[];
+    playerStats?: PlayerStats;
 }
 
 export interface BoosterActivationResult {
@@ -1359,7 +1363,8 @@ export class GameService {
             context.session.status === GAME_SESSION_STATUS.EXPIRED ||
             context.session.status === GAME_SESSION_STATUS.MANUALLY_ENDED
         ) {
-            return this.buildEndGameResponseFromContext(context, context.session.score ?? 0);
+            const extras = await this.computeEndGameExtras(userId, context.session.score ?? 0);
+            return this.buildEndGameResponseFromContext(context, context.session.score ?? 0, extras);
         }
 
         const endedAt = new Date();
@@ -1375,7 +1380,8 @@ export class GameService {
             },
         });
 
-        return this.buildEndGameResponseFromContext(context, finalScore);
+        const extras = await this.computeEndGameExtras(userId, finalScore);
+        return this.buildEndGameResponseFromContext(context, finalScore, extras);
     }
 
     /**
@@ -2193,11 +2199,13 @@ export class GameService {
     private buildEndGameResponseFromContext(
         context: SessionContext,
         finalScore: number,
+        extras?: { achievements?: AchievementProgress[]; playerStats?: PlayerStats },
     ): EndGameResponse {
         return {
             finalScore,
             roundsCompleted: context.session.completedRounds,
             totalRounds: context.totalActualRounds,
+            ...extras,
         };
     }
 
@@ -2655,13 +2663,140 @@ export class GameService {
     }
 
     /**
+     * Queries the user's completed session history and computes achievements + player stats.
+     */
+    private async computeEndGameExtras(
+        userId: string,
+        currentScore: number,
+    ): Promise<{ achievements: AchievementProgress[]; playerStats: PlayerStats }> {
+        try {
+            const sessions = await this.prisma.gameSession.findMany({
+                where: {
+                    userId,
+                    deletedAt: null,
+                    status: { in: [GAME_SESSION_STATUS.COMPLETED, GAME_SESSION_STATUS.MANUALLY_ENDED] },
+                },
+                orderBy: { endedAt: 'desc' },
+                take: 200,
+                select: {
+                    id: true,
+                    score: true,
+                    completedRounds: true,
+                    endedAt: true,
+                    gameStartedAt: true,
+                    gameEndedAt: true,
+                    stageId: true,
+                    currentLevelId: true,
+                },
+            });
+
+            // Build score records for PlayerStats computation
+            const scoreRecords: ScoreRecord[] = sessions.map((s) => ({
+                sessionId: s.id,
+                userId,
+                score: s.score ?? 0,
+                level: s.completedRounds,
+                maxStreak: 0,
+                comboBonus: 0,
+                timeBonusMs: 0,
+                completedAt: s.endedAt?.toISOString() ?? new Date().toISOString(),
+                isDaily: (s.stageId ?? '').includes('daily'),
+            }));
+            const playerStats = computePlayerStats(scoreRecords);
+
+            // Build GameStats for achievement checks
+            const totalGamesPlayed = sessions.length;
+            const totalWins = sessions.filter((s) => (s.score ?? 0) > 0).length;
+            const highestScore = Math.max(currentScore, ...sessions.map((s) => s.score ?? 0));
+            const highestLevel = Math.max(...sessions.map((s) => s.completedRounds), 0);
+
+            // Estimate fast completions: finished in < 50% of allotted time
+            let fastCompletions = 0;
+            for (const s of sessions) {
+                if (s.gameStartedAt && s.gameEndedAt && s.endedAt) {
+                    const allottedMs = s.gameEndedAt.getTime() - s.gameStartedAt.getTime();
+                    const usedMs = s.endedAt.getTime() - s.gameStartedAt.getTime();
+                    if (allottedMs > 0 && usedMs < allottedMs * 0.5) {
+                        fastCompletions++;
+                    }
+                }
+            }
+
+            // Compute streak (consecutive wins ordered by date)
+            let maxStreak = 0;
+            let currentStreak = 0;
+            for (const s of sessions) {
+                if ((s.score ?? 0) > 0) {
+                    currentStreak++;
+                    maxStreak = Math.max(maxStreak, currentStreak);
+                } else {
+                    currentStreak = 0;
+                }
+            }
+
+            const gameStats: GameStats = {
+                totalGamesPlayed,
+                totalWins,
+                maxStreak,
+                highestScore,
+                highestLevel,
+                perfectGames: 0,
+                fastCompletions,
+            };
+
+            const achievements = checkAchievements(gameStats, []);
+
+            return { achievements, playerStats };
+        } catch (error) {
+            this.logger.warn(`Failed to compute end-game extras for ${userId}: ${error}`);
+            return { achievements: [], playerStats: { totalGames: 0, totalScore: 0, averageScore: 0, highScore: 0, highestLevel: 0, longestStreak: 0, winRate: 0, recentScores: [] } };
+        }
+    }
+
+    /**
+     * Returns computed player stats from session history.
+     */
+    async getPlayerStats(userId: string): Promise<PlayerStats> {
+        const sessions = await this.prisma.gameSession.findMany({
+            where: {
+                userId,
+                deletedAt: null,
+                status: { in: [GAME_SESSION_STATUS.COMPLETED, GAME_SESSION_STATUS.MANUALLY_ENDED] },
+            },
+            orderBy: { endedAt: 'desc' },
+            take: 200,
+            select: {
+                id: true,
+                score: true,
+                completedRounds: true,
+                endedAt: true,
+                stageId: true,
+            },
+        });
+
+        const scoreRecords: ScoreRecord[] = sessions.map((s) => ({
+            sessionId: s.id,
+            userId,
+            score: s.score ?? 0,
+            level: s.completedRounds,
+            maxStreak: 0,
+            comboBonus: 0,
+            timeBonusMs: 0,
+            completedAt: s.endedAt?.toISOString() ?? new Date().toISOString(),
+            isDaily: (s.stageId ?? '').includes('daily'),
+        }));
+
+        return computePlayerStats(scoreRecords);
+    }
+
+    /**
      * Activates a booster for the given session.
-     * Currently supports TIME_FREEZE (extends session end time by 5s).
+     * Supports: TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO.
      */
     async activateBooster(sessionId: string, userId: string, boosterType: BoosterType): Promise<BoosterActivationResult> {
         const session = await this.prisma.gameSession.findFirst({
             where: { id: sessionId, userId, deletedAt: null, status: GAME_SESSION_STATUS.ACTIVE },
-            select: { id: true, gameEndedAt: true, gameStartedAt: true },
+            select: { id: true, gameEndedAt: true, gameStartedAt: true, score: true },
         });
 
         if (!session) {
@@ -2673,18 +2808,53 @@ export class GameService {
             throw new BadRequestException(`Unknown booster type: ${boosterType}`);
         }
 
-        // Apply booster effect
         let newEndTime: string | undefined;
 
-        if (boosterType === BoosterType.TIME_FREEZE && def.durationMs) {
-            // Extend the session end time by the booster's duration
-            const currentEnd = session.gameEndedAt ?? new Date(Date.now() + 60000);
-            const extended = new Date(currentEnd.getTime() + def.durationMs);
-            await this.prisma.gameSession.update({
-                where: { id: sessionId },
-                data: { gameEndedAt: extended },
-            });
-            newEndTime = extended.toISOString();
+        switch (boosterType) {
+            case BoosterType.TIME_FREEZE: {
+                // Extend the session end time by the booster's duration (5s)
+                const currentEnd = session.gameEndedAt ?? new Date(Date.now() + 60000);
+                const extended = new Date(currentEnd.getTime() + (def.durationMs ?? 5000));
+                await this.prisma.gameSession.update({
+                    where: { id: sessionId },
+                    data: { gameEndedAt: extended },
+                });
+                newEndTime = extended.toISOString();
+                break;
+            }
+
+            case BoosterType.DOUBLE_POINTS: {
+                // Award a flat bonus of 50 points immediately (simulates 2x for the current board)
+                const bonus = 50;
+                await this.prisma.gameSession.update({
+                    where: { id: sessionId },
+                    data: { score: (session.score ?? 0) + bonus },
+                });
+                break;
+            }
+
+            case BoosterType.SKIP: {
+                // Mark the current (incomplete) board as completed with 0 score and advance
+                const currentBoard = await this.prisma.gameSessionBoard.findFirst({
+                    where: { sessionId, completed: false, deletedAt: null },
+                    orderBy: { roundNumber: 'asc' },
+                    select: { id: true, roundNumber: true },
+                });
+                if (currentBoard) {
+                    await this.prisma.gameSessionBoard.update({
+                        where: { id: currentBoard.id },
+                        data: { completed: true, completedAt: new Date(), score: 0 },
+                    });
+                }
+                break;
+            }
+
+            case BoosterType.HINT:
+            case BoosterType.UNDO: {
+                // HINT and UNDO are handled client-side.
+                // Server acknowledges the activation so inventory is decremented.
+                break;
+            }
         }
 
         return {

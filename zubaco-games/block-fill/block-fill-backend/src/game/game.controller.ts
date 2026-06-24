@@ -217,6 +217,22 @@ export class GameController {
     }
 
     /**
+     * Returns computed player statistics from game session history.
+     * @param {string} userId - The authenticated user identifier.
+     * @returns {Promise<import('./engine/scoreHistory').PlayerStats>} Player stats.
+     */
+    @Get('player-stats')
+    @RequireSession({
+        tokenTypes: [TOKEN_TYPES.LOGIN],
+        userTypes: [USER_TYPES.USER],
+        authMode: SESSION_AUTH_MODE.PAYLOAD,
+    })
+    @Transactional({ readOnly: true })
+    async getPlayerStats(@AuthUser('userId') userId: string) {
+        return this.gameSessionOrchestrator.getPlayerStats(userId);
+    }
+
+    /**
      * Activates a booster for the current session (e.g., time freeze, hint).
      * @param {ActivateBoosterDto} dto - The payload containing session ID and booster type.
      * @param {string} userId - The authenticated user identifier.
