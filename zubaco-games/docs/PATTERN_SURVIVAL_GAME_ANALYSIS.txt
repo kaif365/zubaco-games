@@ -1,0 +1,162 @@
+========================================================================
+PATTERN SURVIVAL – GAME ANALYSIS
+========================================================================
+Version: 1.0
+Location: zubaco-games-repo/zubaco-games/pattern-survival/
+
+========================================================================
+1. GAME CONCEPT
+========================================================================
+Pattern Survival is a Simon-Says style pattern memory game. A 3×3 grid
+of colored cells is displayed. Each round, the game flashes a sequence
+of cells (the pattern). The player must then tap cells in the exact
+same order. Each successful round adds one more step to the sequence.
+The game continues until the player makes a mistake or time runs out.
+This is a "survival" game — no fixed end, just keep going!
+
+Core loop:
+  1. Grid generated with random colors (6 colors, seeded)
+  2. Sequence flashes one cell at a time (round N = N+1 cells)
+  3. Player repeats the pattern by tapping cells in order
+  4. Correct → next round (sequence grows by 1)
+  5. Wrong tap → game over immediately
+  6. Timer runs throughout; time out → game over
+  7. Score = rounds × pointsPerRound
+
+========================================================================
+2. FRONTEND ARCHITECTURE
+========================================================================
+Stack: React 19 + Vite + TypeScript + TailwindCSS 3.4 + Framer Motion
+State: Custom hooks (useState + useCallback + useRef), NO Zustand
+Routing: None — single GamePage component with phase state machine
+
+App.tsx:
+  ErrorBoundary → ThemeProvider → OfflineBanner → GamePage
+
+Phases (usePatternGame hook):
+  idle → showing → input → ended
+
+Components:
+  • GamePage.tsx — Main game (grid, header, phases, API calls)
+
+Hooks:
+  • usePatternGame.ts — State machine (sequence gen, showing, input validation)
+  • useGameSession.ts — API calls (POST /game/start, POST /game/submit)
+
+Engine:
+  • sequenceGenerator.ts — Deterministic sequence + cell colors (Mulberry32)
+  • random.ts            — Mulberry32 PRNG
+
+Audio (8 sounds):
+  patternShow, patternInput, patternCorrect, patternWrong,
+  combo, levelComplete, gameOver, uiClick
+
+========================================================================
+3. BACKEND ENGINE
+========================================================================
+NestJS with standard engines:
+  • levelConfig.ts     — 10 levels (startingLength 3→8, displaySpeed 800ms→300ms)
+  • achievementEngine  — 10 achievements (standard pattern)
+  • boosterEngine      — 5 boosters: TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+  • comboEngine        — Streak multiplier (max 4×, milestone every 3)
+  • dailyChallenge     — SHA-256 seeded per date
+  • leaderboard        — Top 100
+  • scoreHistory       — Score tracking
+  • timingAnalyzer     — Anti-cheat
+
+Level Progression:
+  L1:  120s, start length 3, display 800ms, ×1.0
+  L2:  110s, start length 3, display 700ms, ×1.2
+  L3:  100s, start length 4, display 650ms, ×1.4
+  L4:  95s,  start length 4, display 600ms, ×1.6
+  L5:  90s,  start length 5, display 550ms, ×1.8
+  L6:  85s,  start length 5, display 500ms, ×2.0
+  L7:  80s,  start length 6, display 450ms, ×2.3
+  L8:  75s,  start length 6, display 400ms, ×2.6
+  L9:  70s,  start length 7, display 350ms, ×3.0
+  L10: 65s,  start length 8, display 300ms, ×3.5
+
+========================================================================
+4. GAME MECHANICS DETAIL
+========================================================================
+Grid: 3×3 (9 cells), each colored randomly per round
+Colors: red, green, blue, yellow, purple, orange (6 total)
+
+Sequence Generation:
+  - Per round: rng = mulberry32(seed + round × 7919)
+  - Length = round + 1 (round 0 = 1 cell, round 5 = 6 cells)
+  - Each cell index = floor(rng() × 9)
+
+Cell Color Generation:
+  - Per round: rng = mulberry32(seed + round × 3571)
+  - Each of 9 cells assigned random color from pool
+
+Showing Phase:
+  - Cells flash one by one (500ms each, 200ms gap between)
+  - Highlighted cell: scale 1.2 + ring-4 ring-white
+
+Input Phase:
+  - Player taps cells in sequence order
+  - Each tap compared against expected sequence step
+  - Wrong → immediate game over
+  - All correct → advance to next round
+
+Scoring:
+  - pointsPerRound: 20 (per completed round)
+  - perfectBonus: 10 (extra for no hesitation — unused currently)
+  - score = rounds × 20
+  - Submit: roundsReached, perfectRounds, clientScore
+
+Timer:
+  - Default: 300000ms (5 minutes)
+  - Counts down continuously (across all rounds)
+  - Display: MM:SS format, red when < 30s
+
+========================================================================
+5. SIMILAR INTERNET GAMES
+========================================================================
+1. Simon (classic) — 4-color light sequence game
+2. Simon Tatham Puzzles — Pattern recall
+3. Memory Blocks (Lumosity) — Grid pattern flash
+4. Sequence Memory (Human Benchmark) — Growing sequence
+5. Bop It — Simon-like with different actions
+
+Key features from similar games:
+  • Progressive difficulty (faster display, longer sequences)
+  • High score tracking and leaderboards
+  • Color-blind accessibility mode
+  • Sound feedback per cell color (musical notes)
+  • Lives system (3 mistakes allowed)
+  • Power-ups: slow down display, replay sequence
+  • Statistics: longest streak, average accuracy
+  • Daily challenge with set seed
+
+========================================================================
+6. GOLD STANDARD COMPONENTS NEEDED
+========================================================================
+Currently missing:
+  1. MenuScreen        — Main menu with Play/Levels/Daily/etc
+  2. LevelSelector     — 10-level grid with stars + unlock
+  3. Settings          — Sound, volume, theme toggles
+  4. StatsScreen       — Rounds survived, accuracy, streaks
+  5. Achievements      — 10 achievements + unlock popup
+  6. DailyChallenge    — Calendar week + streak + date-seeded
+  7. PauseDialog       — Pause overlay with resume/restart/exit
+  8. Confetti          — Particle celebration on high rounds
+
+Integration: Add appPhase state machine in GamePage.tsx wrapping
+existing game flow.
+
+========================================================================
+7. TECHNICAL NOTES
+========================================================================
+- Uses `framer-motion` for cell animations (scale + opacity)
+- TailwindCSS class-based styling with COLOR_MAP Record
+- No React Router — single component
+- Survival mode: no win state, only failure (wrong tap or time out)
+- Sequence grows indefinitely (round 0 = 1 step, round N = N+1 steps)
+- Cell colors regenerate each round (visual variety)
+- i18next for localization
+- httpClient for API calls
+- Save progress outbox (offline)
+========================================================================

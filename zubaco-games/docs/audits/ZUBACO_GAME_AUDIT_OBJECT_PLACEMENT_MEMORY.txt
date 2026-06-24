@@ -1,0 +1,836 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #12: OBJECT PLACEMENT MEMORY (Spatial Memory Puzzle)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Spatial memory — objects (emoji) are shown on a grid for a brief
+          memorize phase, then removed. Player must drag-and-drop them back
+          to their correct positions from memory.
+Stack: NestJS 11 + Prisma 7 + Restate + Redis + BullMQ + Socket.IO (backend),
+       React 19 + Vite 6 + dnd-kit + Framer Motion + TailwindCSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Object Placement Memory is a well-conceived spatial memory game with a STRONG
+implementation: memorize object positions → drag-and-drop them back. The DnD
+interaction model (via @dnd-kit) is excellent for this game type. 10 levels
+scale from 3 objects on 4×4 (easy) to 12 objects on 7×7 (extreme).
+
+CRITICAL BUG FOUND: The backend startGame method uses a BIASED shuffle
+(`.sort(() => rng() - 0.5)`) to generate object types, while submitResult
+uses a CORRECT Fisher-Yates shuffle (`seededShuffle`). With the same seed and
+same RNG state, these produce DIFFERENT results. This means the objects shown
+to the player may not match what the server validates against.
+
+The seed is sent to the client (standard pattern across all games), allowing
+precomputation. However, this game has SERVER-SIDE VALIDATION that properly
+regenerates the board and ignores client's `isCorrect` flag — the anti-cheat
+architecture is sound.
+
+UNIQUE POSITIVE: This is one of the FEW games with a concurrent session check
+(`existing && status === 1 → ConflictException`). Well done.
+
+TOTAL ISSUES: 34 (3 Critical, 7 High, 14 Medium, 10 Low)
+
+RELEASE READINESS SCORE: 60/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Backend startGame uses biased shuffle (.sort) while submitResult
+           uses Fisher-Yates — generates DIFFERENT boards from same seed.
+BLOCKER-2: Seed sent to client → frontend has generateBoard() → all correct
+           positions computable instantly.
+BLOCKER-3: .env committed with JWT_SECRET + DB credentials. Three different
+           fallback secrets across guards/gateway.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (18 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: Biased Shuffle in startGame vs Fisher-Yates in submitResult      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Bug / Game Logic                                                   │
+│ File: src/game/game.service.ts (lines 100-101 vs 148-149)                    │
+│                                                                              │
+│ startGame code (BIASED):                                                     │
+│   const shuffled = [...OBJECT_POOL].sort(() => rng() - 0.5);                │
+│   const objectTypes = shuffled.slice(0, objectCount);                        │
+│                                                                              │
+│ submitResult code (CORRECT):                                                 │
+│   const shuffledObjects = this.seededShuffle([...OBJECT_POOL], rng);         │
+│   const selectedObjects = shuffledObjects.slice(0, objectCount);             │
+│                                                                              │
+│ Description: startGame uses `.sort(() => rng() - 0.5)` which is BIASED      │
+│ and NON-DETERMINISTIC across JS engines. submitResult uses proper            │
+│ Fisher-Yates. Same seed → DIFFERENT orderings.                              │
+│                                                                              │
+│ Impact: objectTypes in startGame response may not match server validation.   │
+│ The game currently WORKS because the frontend ignores startGame's            │
+│ objectTypes and generates its own board via generateBoard(seed) which        │
+│ uses Fisher-Yates (matching submitResult). But it's a lurking bug.           │
+│                                                                              │
+│ Fix: Replace .sort(() => rng() - 0.5) with this.seededShuffle() in          │
+│ startGame.                                                                   │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Seed Sent to Client (Board Computable)                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (startGame return)                            │
+│                                                                              │
+│ Code:                                                                        │
+│   return { gameSessionId, ..., seed, objectTypes, ... };                     │
+│                                                                              │
+│ Description: Seed returned to client. Frontend has identical                 │
+│ generateBoard(seed, config) → all correct positions computable.             │
+│                                                                              │
+│ MITIGATED BY: Server ignores client isCorrect, regenerates board,            │
+│ score divergence detection.                                                  │
+│                                                                              │
+│ Fix: Don't send seed. Send board positions for memorize phase directly.      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: .env Committed + Three Fallback Secrets                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: .env, src/common/guards/, src/ws/                                     │
+│                                                                              │
+│ .env contents:                                                               │
+│   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/object_place…   │
+│   JWT_SECRET=dev-secret-change-in-production                                 │
+│                                                                              │
+│ Fallback secrets:                                                            │
+│   - SessionGuard: 'dev-secret'                                               │
+│   - GameGateway: 'dev-secret-object-placement'                               │
+│   - HMAC Guard: 'dev-hmac-secret'                                            │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: scoreMultiplier Returned But Never Applied                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (submitResult scoring)                        │
+│                                                                              │
+│ Description: getLevelConfig() returns scoreMultiplier (1.0x to 3.5x).        │
+│ startGame returns it to client. submitResult NEVER applies it.               │
+│ Level 10 earns same points as Level 1.                                       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts                                                            │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: WebSocket join-session No Ownership Check                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/ (gateway)                                                      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: In-Memory Rate Limiter Unbounded Growth                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/                                                         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: computeSeed Uses userId as clientSeed with nonce=0               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 82)                                     │
+│                                                                              │
+│ Code: const seed = this.computeSeed(serverSeed, userId, 0);                  │
+│                                                                              │
+│ Description: Hardcoded nonce=0 reduces entropy.                              │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: CORS Fallback to Allow-All                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts                                                            │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: No "Too Fast" Anti-Cheat on Submit                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (submitResult)                                │
+│                                                                              │
+│ Description: No check for submit before memorizeMs elapsed. Bot can          │
+│ submit correct answers in <1 second.                                         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: No Timing Analysis                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts                                               │
+│                                                                              │
+│ Description: Unlike Number Grid Sprint, no timing analysis on placements.    │
+│ Placements have no timestamp in DTO — bot detection impossible.              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Placement Count Allows 0 Placements                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (submitResult)                                │
+│                                                                              │
+│ Description: Only checks >100 but not <1. Empty submission gets timeBonus.   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: Dead Engine Modules (6 Files)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ Files: achievementEngine.ts, boosterEngine.ts, comboEngine.ts,               │
+│        dailyChallenge.ts, leaderboard.ts, scoreHistory.ts                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: getMaxLevel() Exported But Never Used                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: startGame objectTypes Response Is Redundant + Wrong              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│ File: src/game/game.service.ts (startGame return)                            │
+│                                                                              │
+│ Description: objectTypes returned but frontend ignores it. And it's          │
+│ generated with biased shuffle so it's WRONG anyway.                          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: endGame Method Never Called From Controller                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: Score Divergence Threshold Too High (>20)                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts                                               │
+│                                                                              │
+│ Description: Max score ~105, threshold 20 = ~19% tolerance. Lenient.         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-18: Snapshot Doesn't Store Computed Seed                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (16 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: VITE_ENCRYPTION_KEY Bundled in Client JS                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 5)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || '';           │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Client Has Full Board Generator + Seed                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL (same as B-02)                                            │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/object-placement/engine/boardGenerator.ts                 │
+│                                                                              │
+│ Description: generateBoard(seed, config) produces all correct placements.    │
+│ Seed from server. DevTools: generateBoard(seed, config) → all positions.    │
+│                                                                              │
+│ Fix: Remove boardGenerator from frontend. Server sends board directly.       │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: autoSubmittedRef Never Resets on Replay                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/features/object-placement/components/GamePage.tsx (line 87)        │
+│                                                                              │
+│ Description: autoSubmittedRef stays true after first game. If state-based    │
+│ replay is added, auto-submit won't fire on subsequent games.                 │
+│                                                                              │
+│ Priority Score: 5/10 (latent)                                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Memorize→Recall setTimeout Not Tracked                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / Memory Leak                                                  │
+│ File: src/features/object-placement/hooks/useGamePhase.ts (line 49)          │
+│                                                                              │
+│ Code:                                                                        │
+│   setTimeout(() => { startRecall(); }, config.memorizeTimeMs);               │
+│                                                                              │
+│ Description: Not stored in ref, never cleaned on unmount.                    │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: Stale Closure in startMemorize → startRecall                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/features/object-placement/hooks/useGamePhase.ts (line 49)          │
+│                                                                              │
+│ Description: startRecall captured in setTimeout closure may be stale if      │
+│ config changes. In practice, config doesn't change mid-game.                 │
+│                                                                              │
+│ Priority Score: 4/10 (latent)                                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Memorize Timer Never Shows Countdown                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: UX                                                                 │
+│ File: src/features/object-placement/hooks/useGamePhase.ts                    │
+│                                                                              │
+│ Description: During memorize phase, no countdown shown. Player doesn't       │
+│ know when objects will vanish. timeRemainingMs is set to recallTimeMs        │
+│ (wrong timer for memorize phase).                                            │
+│                                                                              │
+│ Fix: Track memorize countdown. Show "5s...4s...3s..." countdown.             │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Objects vanish without warning                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: Audio Hook Exists but Never Used                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature / Dead Code                                        │
+│ File: src/hooks/useAudio.ts                                                  │
+│                                                                              │
+│ Fix: Wire up: drop sound, correct/incorrect on reveal, tick countdown.       │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Post-Game Correction View                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx (submitted phase)                                         │
+│                                                                              │
+│ Description: Can't see which objects were placed correctly/incorrectly.      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: No Haptic Feedback on Drop                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx (handleDragEnd)                                           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: No Timer Warning Visual                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GameHeader.tsx                                                         │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: No Accessibility (ARIA, Keyboard DnD)                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: RecallGrid.tsx, ObjectTray.tsx                                         │
+│                                                                              │
+│ Description: DnD via dnd-kit needs keyboard alternatives. No aria-labels.    │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: Client-Side Scorer                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/object-placement/engine/scorer.ts                         │
+│                                                                              │
+│ Description: Client calculates score. Server recalculates (good).            │
+│ Client scorer used for immediate UI feedback — acceptable pattern.           │
+│                                                                              │
+│ Priority Score: 3/10 (mitigated by server validation)                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: Socket Infrastructure Unused                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/hooks/useSocket.ts                                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: GameOverScreen Component Never Used                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/features/object-placement/components/GameOverScreen.tsx             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: Source Maps Likely Shipped                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: computeFinalSeed in Client (Unnecessary)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/features/object-placement/engine/random.ts                         │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Profile:
+
+1. Grid: 4×4 to 7×7 (16-49 cells) — all lightweight
+2. DnD: @dnd-kit core (~20KB gzipped) — well-optimized
+3. Timer: setInterval at 100ms — minimal impact
+4. Draggables: 3-12 objects — no concerns
+5. Bundle: framer-motion + socket.io (unused ~40KB waste)
+
+VERDICT: Excellent performance. @dnd-kit is the right choice.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Drag-and-drop is PERFECT for this game
+✓ @dnd-kit with PointerSensor + TouchSensor (mobile-first)
+✓ ObjectTray separate from grid (clear source/target)
+✓ Can remove placed objects back to tray (undo!)
+✓ placedObjectIds prevents duplicate placements
+✓ Auto-submit when time expires
+✓ Error message display
+✓ Gradient dark background (premium feel)
+✓ Framer Motion animations
+✓ MemorizeGrid shows clear object positions
+
+UX PROBLEMS:
+1. No Memorize Countdown — FRUSTRATION: HIGH
+2. No Sound — FRUSTRATION: MEDIUM
+3. No Correction View — FRUSTRATION: MEDIUM
+4. No Haptic on Drop — FRUSTRATION: LOW-MEDIUM
+5. No Timer Warning — FRUSTRATION: LOW
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  [!] Memorize phase countdown
+2.  [!] Sound effects (drop, correct, incorrect)
+3.  [!] Post-game correction view
+4.  [ ] Haptic feedback on drop
+5.  [ ] Timer warning visual
+6.  [ ] Level progression UI
+7.  [ ] Personal best per level
+8.  [ ] Score breakdown
+9.  [ ] Keyboard DnD accessibility
+10. [ ] Share results
+11. [ ] Proper replay without reload
+12. [ ] Difficulty info on start screen
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Memorize countdown: pulsing timer (5...4...3...2...1...GO!)
+2. Object drop: "snap" into cell + haptic
+3. Object pickup: lift animation + shadow
+4. Correct (post-game): green glow + checkmark
+5. Wrong (post-game): red shake + show correct position
+6. All correct: confetti + celebration
+7. Timer low: red pulse + urgency sound
+8. Tray objects: subtle bounce when available
+9. Grid cells: highlight valid drop targets during drag
+10. Level complete: accuracy % + time bonus breakdown
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Remove boardGenerator.ts (server sends board)
+2. Add memorize countdown
+3. Wire up useAudio
+4. Add correction view
+5. Track setTimeout, clean on unmount
+6. Remove socket.io-client
+7. Remove computeFinalSeed
+8. Delete GameOverScreen.tsx
+9. Add haptic on drop
+10. Fix autoSubmittedRef for replay
+
+Backend:
+1. FIX biased shuffle → seededShuffle
+2. Remove fallback secrets + .env from VCS
+3. Apply scoreMultiplier
+4. Add "too fast" check
+5. Add timing data to DTO
+6. Validate placements >= 1
+7. Gate Swagger
+8. Add WS ownership check
+9. Add rate limiter cleanup
+10. Remove dead engine modules
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Anti-Cheat
+- Seed → full board computable
+- No timing analysis, no "too fast" check
+- HOWEVER: Server ignores client isCorrect (good!)
+- HOWEVER: Server regenerates board independently (good!)
+- HOWEVER: Score divergence detection (good!)
+- Anti-cheat score: 35/100
+
+Attack Surface 2: Secrets
+- .env committed + 3 fallback secrets
+- VITE_ENCRYPTION_KEY in bundle
+- Severity: CRITICAL
+
+Attack Surface 3: Game Logic Bug
+- Biased shuffle creates potential mismatch (latent)
+- Severity: HIGH
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mixed" - 5.5/10
+
+POSITIVE:
+"Dragging objects back to the grid is satisfying!"
+"Cute emoji objects — recognizable and fun."
+"Good difficulty curve from 3 to 12 objects."
+"Love that I can undo placements."
+
+NEGATIVE:
+"The objects just VANISHED! No countdown!"
+"No sound — dropping should go 'snap'!"
+"Can't see which ones I got wrong!"
+"Level 10 is insane but earns same score as Level 1."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "Objects vanished with NO countdown!" — No memorize timer
+2. "No sound!" — DnD needs audio feedback
+3. "Can't see my mistakes!" — No correction view
+4. "Level 10 earns same as Level 1!" — Multiplier unused
+5. "Dropping feels hollow on mobile" — No haptic
+6. "Timer ran out with no warning!" — No urgency indicator
+7. "How do I improve if I can't see errors?" — No learning loop
+8. "Page reloads on replay" — No state reset
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Spatial memory is universally engaging
+✓ Drag-and-drop is tactile and satisfying
+✓ Emoji objects are cute and recognizable
+✓ Clear memorize → recall flow
+✓ Scalable difficulty (3→12 objects)
+✓ "I KNOW the star was here!" moment
+✓ Quick sessions (~45-90 seconds)
+✓ Infinite replayability
+✓ Remove/redo mechanic (second-guessing)
+✓ Time pressure creates urgency
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. NO MEMORIZE COUNTDOWN — feels unfair, players quit
+2. NO SOUND — drop moment needs audio reinforcement
+3. NO CORRECTION VIEW — can't learn, can't improve
+4. NO SHARE — can't brag "6/6 in 12s!"
+5. NO DIFFICULTY REWARD — no flex for skilled players
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     68/100
+- Security:                         30/100
+- Performance:                      75/100
+- Game Logic & Correctness:         55/100
+- UX & Polish:                      50/100
+- Anti-Cheat:                       35/100
+- Accessibility:                    20/100
+- Retention & Engagement:           55/100
+- Error Handling:                   60/100
+- Production Readiness:             50/100
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 60/100
+═══════════════════════════════════════
+
+VERDICT: SOLID MECHANIC, NEEDS BUG FIX + COUNTDOWN + SOUND
+DnD spatial memory is compelling. @dnd-kit is perfect. Server validation is
+proper. Fix the biased shuffle, add memorize countdown, wire up audio.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL (0.5 day)
+  □ Fix biased shuffle → seededShuffle in startGame
+  □ Remove fallback secrets + .env from VCS
+  □ Gate Swagger
+
+PHASE 2: ANTI-CHEAT (0.5 day)
+  □ Don't send seed (send board for memorize)
+  □ Add "too fast" check
+  □ Apply scoreMultiplier
+
+PHASE 3: GAME JUICE (1 day)
+  □ Add memorize countdown (CRITICAL UX)
+  □ Wire up useAudio
+  □ Add correction view
+  □ Add haptic on drop
+
+PHASE 4: POLISH (0.5 day)
+  □ Level progression UI
+  □ Timer warning
+  □ Proper replay
+  □ Fix autoSubmittedRef
+
+PHASE 5: HARDENING (0.5 day)
+  □ Track setTimeout, cleanup
+  □ Remove dead code
+  □ Add keyboard DnD
+  □ Add share results
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Fix biased shuffle (.sort → seededShuffle)
+    Effort: 5 min | Impact: Prevents validation mismatch
+    ROI: ∞
+
+#2  Add memorize countdown
+    Effort: 30 min | Impact: No more "unfair vanish!"
+    ROI: 10x
+
+#3  Wire up useAudio (ALREADY BUILT!)
+    Effort: 15 min | Impact: DnD comes alive with drop sounds
+    ROI: 10x
+
+#4  Remove fallback secrets
+    Effort: 30 min | Impact: Prevents auth bypass
+    ROI: ∞
+
+#5  Add correction view
+    Effort: 1-2 hours | Impact: Players learn and improve
+    ROI: 8x
+
+#6  Apply scoreMultiplier
+    Effort: 10 min | Impact: Higher levels rewarding
+    ROI: 8x
+
+#7  Don't send seed (send board directly)
+    Effort: 1-2 hours | Impact: Prevents cheating
+    ROI: 7x
+
+#8  Add haptic on drop
+    Effort: 15 min | Impact: DnD feels physically satisfying
+    ROI: 6x
+
+#9  Timer warning visual
+    Effort: 20 min | Impact: No surprise time-out
+    ROI: 5x
+
+#10 Personal best per level
+    Effort: 1 hour | Impact: Retention loop
+    ROI: 6x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND:
+✓ Server-authoritative (regenerates board, ignores client isCorrect!)
+✓ Concurrent session check (ConflictException) — UNIQUE!
+✓ Score divergence detection with cheat flag persistence
+✓ Atomic double-submit prevention
+✓ Placement count limit (anti-DoS)
+✓ Session expiry enforcement
+✓ Config snapshot (immune to changes)
+✓ Restate integration
+✓ Fisher-Yates in validation (seededShuffle)
+✓ 10-level difficulty curve (3→12 objects, 5s→1.8s memorize)
+
+FRONTEND:
+✓ @dnd-kit — perfect library for spatial DnD
+✓ PointerSensor + TouchSensor (mobile-first)
+✓ Can undo placements (remove back to tray)
+✓ Prevents duplicate placements
+✓ Auto-submit on timeout
+✓ Error state display
+✓ Clean phase management
+✓ Framer Motion animations
+✓ Emoji objects (cute, universal)
+✓ Proper timer cleanup
+
+GAME DESIGN:
+✓ Spatial memory + drag-and-drop = perfect match
+✓ 10 levels natural difficulty curve
+✓ Quick sessions, infinite replay
+✓ Remove/redo mechanic
+✓ Time bonus rewards speed
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1 (Arrows):             58/100
+  Game #2 (Block Fill):         62/100
+  Game #3 (Colour Sorting):     61/100
+  Game #4 (Flash Spot):         56/100
+  Game #5 (Infinity Loop):      59/100
+  Game #6 (Live Route Builder): 48/100 ← LOWEST
+  Game #7 (Logic Reflector):    72/100 ← HIGHEST
+  Game #8 (Maze Navigation):    58/100
+  Game #9 (Memory Card Match):  68/100
+  Game #10 (Memory Groups):     45/100 ← SECOND LOWEST
+  Game #11 (Number Grid Sprint):62/100
+  Game #12 (Object Placement):  60/100
+
+UNIQUE STRENGTHS:
+★ Drag-and-drop interaction (unique — others use taps)
+★ @dnd-kit library (proper DnD)
+★ Concurrent session prevention (only game!)
+★ Undo/redo mechanic
+★ Emoji objects (cute, universal)
+
+================================================================================
+END OF AUDIT — GAME #12: OBJECT PLACEMENT MEMORY
+================================================================================

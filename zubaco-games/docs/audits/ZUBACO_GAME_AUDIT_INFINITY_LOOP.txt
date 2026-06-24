@@ -1,0 +1,1520 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #5: INFINITY LOOP (Pipe Rotation Puzzle)
+================================================================================
+Audit Date: May 23, 2026
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Tile rotation puzzle — rotate pipe/connection tiles to form a
+          complete connected loop (similar to classic "Pipes" puzzle)
+Stack: NestJS 11 + Prisma 7 + BullMQ + Socket.IO + Restate (backend),
+       Next.js 16 (App Router) + React 19 + Phaser 4 + Zustand + Tailwind 4
+       + Socket.IO + Howler.js (frontend)
+Runtime: Bun (backend), Node.js (frontend SSR)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Infinity Loop is the MOST ARCHITECTURALLY ADVANCED game in the lineup.
+It uses Restate Virtual Objects for durable game state (no DB writes during
+gameplay!), has a sophisticated Phaser 4 WebGL renderer with SVG fallback,
+socket-authoritative win validation, and a clean bitmask-based tile system.
+
+However, it has UNIQUE CRITICAL issues not found in other games:
+- console.log statements that DUMP THE JWT SECRET AND ALL USER TOKENS to logs
+- Cache flush endpoints accessible without authentication
+- WebSocket CORS allows ALL origins (cross-site socket hijacking)
+- Out-of-bounds grid access crash (no coordinate validation)
+
+The frontend is notably more complete than other games — Phaser rendering,
+optimistic rotation with recovery, encrypted storage, tilt detection, and
+dynamic theming. However, the encryption key is still in the bundle.
+
+TOTAL ISSUES: 53 (4 Critical, 9 High, 15 Medium, 25 Low)
+
+RELEASE READINESS SCORE: 59/100
+(Best architecture in the lineup, undermined by critical log leakage)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: console.log DUMPS JWT SECRET to stdout (token.util.ts)
+BLOCKER-2: console.log DUMPS ALL USER TOKENS to stdout (user-http.service.ts)
+BLOCKER-3: .env file with DB credentials + JWT secret + encryption key committed
+BLOCKER-4: HMAC guard uses hardcoded fallback 'dev-hmac-secret'
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (28 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env File Contains Real Credentials Committed to Repo            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env (root)                                                            │
+│                                                                              │
+│ Description:                                                                 │
+│   DATABASE_URL=postgresql://zubaco:zubaco_dev_2024@localhost:5432/zubaco     │
+│   JWT_SECRET=dev-jwt-secret-min-32-chars-here                                │
+│   ENCRYPTION_KEY=0123456789abcdef0123456789abcdef01234...                     │
+│                                                                              │
+│   Real-looking credentials and a full 64-char hex encryption key.            │
+│   If committed to VCS, any developer with repo access can:                   │
+│   - Forge JWT tokens for any user                                            │
+│   - Decrypt all encrypted payloads                                           │
+│   - Access the database directly                                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   git rm --cached .env; rotate all secrets immediately.                      │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Complete platform compromise                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Token Utility LOGS JWT SECRET AND ALL TOKENS to stdout           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/utils/token.util.ts (lines 22-25)                           │
+│                                                                              │
+│ Description:                                                                 │
+│   export function verifyToken(token: string): TokenPayload {                 │
+│       console.log('[token.util] verifyToken called');                         │
+│       console.log('[token.util] token:', token);                             │
+│       console.log('[token.util] JWT_SECRET:', config.security.jwtSecret);    │
+│                                                                              │
+│   UNCONDITIONAL console.log of:                                              │
+│   1. Every user's full JWT token (on EVERY request)                          │
+│   2. The JWT signing secret itself                                           │
+│                                                                              │
+│   These logs persist in CloudWatch/Datadog/whatever log aggregator is used.  │
+│   Anyone with log access can impersonate ANY user AND forge new tokens.      │
+│                                                                              │
+│   *** THIS IS THE WORST SECURITY ISSUE IN THE ENTIRE PLATFORM ***            │
+│   *** UNIQUE TO INFINITY LOOP — NO OTHER GAME HAS THIS ***                  │
+│                                                                              │
+│ Exploit Scenario:                                                            │
+│   1. Junior dev or ops staff accesses CloudWatch logs                        │
+│   2. Sees JWT_SECRET in plaintext                                            │
+│   3. Forges admin tokens for any user                                        │
+│   4. Complete account takeover for ALL users                                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   DELETE all console.log statements immediately.                             │
+│   If debugging is needed, use structured logger at debug level.              │
+│   Rotate JWT_SECRET after deployment (old tokens in logs compromised).       │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Every user token already leaked to logs                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: User HTTP Service LOGS Full Bearer Tokens                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/http/user-http.service.ts (lines 19-26)                     │
+│                                                                              │
+│ Description:                                                                 │
+│   console.log('[user-http] checkAuthenticated called');                       │
+│   console.log('[user-http] token:', token);                                  │
+│   console.log('[user-http] usersMicroservice.baseUrl:', ...);                │
+│                                                                              │
+│   Logs every user's token + internal service URLs unconditionally.           │
+│   Combined with B-02: double exposure of every single auth token.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove ALL console.log. Use structured Pino logger at debug level only.    │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Token theft via log aggregation                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: HMAC Guard Uses Hardcoded Fallback Secret                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts (line 18)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';                │
+│   Env validation only errors in production (warns in dev/staging).           │
+│   Guard itself doesn't check NODE_ENV — always falls back.                  │
+│                                                                              │
+│ Exploit: Forge HMAC signatures for any protected endpoint.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove fallback. Throw at construction time if missing.                    │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: API request forgery                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: WebSocket Gateway CORS Allows ALL Origins                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/game/game.gateway.ts (lines 95-99)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   @WebSocketGateway({ cors: { origin: true, credentials: true } })           │
+│   Unlike HTTP CORS (reads CORS_ORIGINS), WS allows ANY origin.              │
+│   A malicious website can open WS connections using victim's token.          │
+│                                                                              │
+│ Exploit Scenario:                                                            │
+│   1. Victim visits attacker's page while logged into Zubaco                  │
+│   2. Attacker's page opens WS to game backend                               │
+│   3. Victim's auth cookie/token sent automatically                           │
+│   4. Attacker plays games on behalf of victim                                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Read from process.env.CORS_ORIGINS, same as HTTP config.                   │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Cross-site socket hijacking                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: Client-Provided Timestamps Trusted for Anti-Cheat                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/restate/game-session.object.ts (lines 309-310)                     │
+│                                                                              │
+│ Description:                                                                 │
+│   const clickedAt = req.timestamp                                            │
+│     ? new Date(req.timestamp).toISOString() : nowIso;                        │
+│                                                                              │
+│   Client-supplied timestamp used for anti-cheat timing analysis.             │
+│   Bot can send fabricated timestamps spaced 200ms apart, completely          │
+│   bypassing ROTATE_TOO_FAST and UNIFORM_TIMING detections.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Always use ctx.date.now() for clickedAt. Store client timestamps           │
+│   separately for latency analysis only.                                      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Automated bots dominate leaderboards                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Cache Flush Endpoints Accessible Without Authentication          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/admin/stage-config.controller.ts (lines 82-95)                     │
+│                                                                              │
+│ Description:                                                                 │
+│   DELETE /cache and DELETE /cache/:stageId lack @RequireSession().            │
+│   The class has @UseGuards(SessionGuard) but without @RequireSession,        │
+│   the guard sees no requirements and returns true.                           │
+│   ANY unauthenticated request can flush ALL Redis caches.                    │
+│                                                                              │
+│ Exploit: Continuous cache flushing → forces expensive DB queries on          │
+│   every game start → DoS.                                                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add @RequireSession({ tokenTypes: [LOGIN], userTypes: [ADMIN] })           │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: DoS via cache invalidation flooding                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: rotateTile Has No Bounds Check on Grid Coordinates               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Crash / Denial of Service                                          │
+│ File: src/restate/game-session.object.ts (line 326)                          │
+│                                                                              │
+│ Description:                                                                 │
+│   updatedBoard.currentGrid[req.r][req.c] = PuzzleEngine.rotateTile(...)      │
+│   req.r and req.c come from client WebSocket payload with NO validation.     │
+│   Out-of-bounds access crashes the Restate handler.                          │
+│                                                                              │
+│ Exploit: Send { r: 999, c: 999 } → crash game session virtual object.       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   if (req.r < 0 || req.r >= board.gridY ||                                   │
+│       req.c < 0 || req.c >= board.gridX)                                     │
+│     throw terminalError('INVALID_COORDINATES', 400);                         │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Any player can crash any game session                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: rotateTileBatch Also Has No Bounds Check + No Array Limit        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Crash / DoS                                                        │
+│ File: src/restate/game-session.object.ts (line 500)                          │
+│                                                                              │
+│ Description:                                                                 │
+│   Same as B-08 but for batch handler. Additionally, no maximum size          │
+│   limit on req.moves array. Client could send 10,000 moves in one           │
+│   payload, causing CPU spike in Restate handler.                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Validate each move coordinate. Cap req.moves.length ≤ gridX*gridY*4.      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: CPU DoS + crash via malformed batch                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: GameStartDto Only Validates Numbers, Gateway Accepts UUIDs       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Validation Inconsistency                                           │
+│ Files: src/game/dto/game-start.dto.ts, src/game/game.gateway.ts (line 280)   │
+│                                                                              │
+│ Description:                                                                 │
+│   HTTP DTO restricts stages to numbers 1-100.                                │
+│   WS gateway accepts arbitrary UUIDs as stage identifiers.                   │
+│   No validation that UUID actually corresponds to an existing stage.         │
+│                                                                              │
+│ Exploit: Enumerate/probe for UUID stage IDs via WebSocket.                   │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Session Guard Logs Sensitive Debugging Info Unconditionally       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/common/guards/session.guard.ts (lines 58-62)                       │
+│                                                                              │
+│ Description:                                                                 │
+│   console.error('[session.guard] VALIDATION FAILED: no token found');         │
+│   console.log('[session.guard] token extracted, proceeding to verify');       │
+│   Exposes token processing details in all environments.                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Replace with structured Logger. Gate behind dev check.                     │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: getGameMeta() Loads ALL Boards for ALL Stages (N+1 Explosion)    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/game/game.service.ts (lines 712-740)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Called on EVERY WebSocket connection (handleConnection).                    │
+│   Eagerly loads ALL stages → ALL levels → ALL boards with full JSON grids.  │
+│   100 stages × N levels × large JSON grid data = massive memory + DB load.  │
+│                                                                              │
+│ Exploit: Opening many WebSocket connections triggers N heavy queries.         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Select only board IDs (not grid JSON). Cache in Redis with 5min TTL.       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Slow WebSocket connect + server memory pressure               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: No Server-Side Board Validation on Admin Upload                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Integrity                                                     │
+│ File: src/admin/dto/admin.dto.ts, AdminService                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Admin can upload any 2D number array as a grid. No validation that:        │
+│   - Grid is actually solvable                                                │
+│   - Cell values are valid bitmasks (0-28)                                    │
+│   - Grid dimensions match gridX/gridY                                        │
+│   Invalid boards cause runtime errors during gameplay.                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add PuzzleEngine.validateSolution(grid) check + dimension validation.      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Unsolvable puzzles if admin makes mistake                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Race Condition — Concurrent Socket + HTTP Game Start             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic Bug                                                          │
+│ Files: src/game/game.controller.ts, src/game/game.gateway.ts                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Both HTTP POST /game/start and WS game:start call startGame().             │
+│   Restate serializes by userId:stageId key (safe), but HTTP controller       │
+│   doesn't update socket.data.gameSessionId → stale socket state.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove HTTP start endpoint or coordinate with WS session state.            │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Socket can't rotate tiles after HTTP-initiated game           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: Redis KEYS Pattern Scan (Blocks Event Loop)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/redis/redis.service.ts (lines 162-164)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   flushAllStageCaches() calls redis.keys('stage:config:*').                  │
+│   KEYS blocks Redis on large datasets.                                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use SCAN with cursor-based iteration.                                      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: Env Validation Only Warns in Non-Production                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/config/env.validation.ts (lines 32-40)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   In dev/staging: missing HMAC_SECRET, ADMIN_API_KEYS only produce           │
+│   warnings. Combined with fallback secrets in guards, staging runs           │
+│   with known-weak credentials.                                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Make critical security vars fail-stop in ALL environments.                 │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: BFS Uses Array.shift() — O(n²) for Large Puzzles                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/game/engine/puzzle.engine.ts (line 223)                            │
+│                                                                              │
+│ Description:                                                                 │
+│   const [r, c] = q.shift()!;                                                 │
+│   Array.shift() is O(n) per call → O(n²) overall for BFS.                   │
+│   Called multiple times per CROSS injection attempt on 20×20 grids.          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use index-based queue (pointer increment instead of shift).                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Slow puzzle generation for large boards                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-18: Dead Engine Files (Achievement/Booster/Combo/Daily/Leaderboard)  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts, boosterEngine.ts,               │
+│        comboEngine.ts, dailyChallenge.ts, leaderboard.ts, scoreHistory.ts    │
+│                                                                              │
+│ Description:                                                                 │
+│   6 engine files never imported or used anywhere in active game flow.        │
+│   Pre-built templates for future features.                                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-19: Score Is Time-Based Only — Move Count Ignored                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Design                                                        │
+│ File: src/restate/game-session.object.ts (lines 113-116)                     │
+│                                                                              │
+│ Description:                                                                 │
+│   Score = 10 + max(0, timeLimit - durationSec)                               │
+│   A lucky fast solve scores the same as a methodical one.                    │
+│   Move efficiency is never factored in.                                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add multiplier: (optimalMoves / actualMoves) factor.                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Score doesn't reflect puzzle-solving skill                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-20: MOVE_MIN_INTERVAL_MS = 50ms Flags But Doesn't Block              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/common/constants.ts (line 83)                                      │
+│                                                                              │
+│ Description:                                                                 │
+│   50ms between moves is faster than any human (reaction time ~150ms).        │
+│   But anti-cheat only FLAGS rather than BLOCKS. Move still executes.         │
+│   Bot solves entire puzzle, gets flagged after the fact.                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Block moves faster than threshold. OR invalidate solve if flagged.         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Bots solve puzzles, get flagged but still win                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-21: TestAuthController Risk (Dev Auth in Production)                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/game/game.module.ts (lines 19-21)                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   TestAuthController gated behind ENABLE_DEV_AUTH env var.                   │
+│   If accidentally set to true in production → anyone can generate            │
+│   valid tokens for arbitrary user IDs without authentication.                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add defense-in-depth: throw inside controller if NODE_ENV=production.      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-22: Board Grid JSON Not Validated for Dimensions/Bitmask Range       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Validation                                                         │
+│ File: src/admin/dto/admin.dto.ts (lines 113-115)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   Grid validated as z.array(z.array(z.number())) only.                       │
+│   No check: grid.length === gridY, grid[i].length === gridX,                 │
+│   cell values in valid bitmask range (0-28).                                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-23: PrismaModule Import Inconsistency                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│ File: src/admin/admin.module.ts                                              │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-24: UserStageProgress Upsert Outside Transaction                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Data Integrity                                                     │
+│ File: src/game/game.service.ts (lines 690-710)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Upsert happens outside $transaction block. If it fails after session       │
+│   commit, user's progress is inconsistent.                                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Move inside transaction or add retry logic.                                │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Progress lost on transient failures                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-25: CORS Default '*' When CORS_ORIGINS Not Set                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 66-67)                                              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-26: game:reset Is Just an Alias for game:start (Misleading)          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/game/game.gateway.ts (lines 351-357)                               │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-27: Missing DB Index on GameSessionBoard.sessionId                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ File: prisma/schema.prisma (GameSessionBoard model)                          │
+│                                                                              │
+│ Description:                                                                 │
+│   count({ where: { sessionId, isSolved: true } }) would benefit from         │
+│   @@index([sessionId, isSolved]).                                            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-28: Redis lazyConnect Swallows Connection Error                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Robustness                                                         │
+│ File: src/redis/redis.service.ts (lines 54-57)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   this.client.connect().catch(() => {});                                     │
+│   Connection errors silently swallowed. If Redis unreachable at startup,     │
+│   all Redis operations fail with unhelpful errors.                           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (25 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Encryption Key Exposed in Client Bundle (NEXT_PUBLIC_ Prefix)    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/constants/api.ts                                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   NEXT_PUBLIC_ENCRYPTION_KEY → AES-256-GCM key shipped in browser bundle.   │
+│   Any user extracts it from DevTools/source maps. Renders "encryption"       │
+│   meaningless — localStorage tokens trivially decryptable.                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Move to httpOnly cookies for auth. Remove client-side encryption.          │
+│   If obfuscation only, document it as such.                                  │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Auth tokens decryptable by any user/XSS payload              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: API Base URLs Not Validated (Supply Chain Risk)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/services/axios.ts (lines 22-26)                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   Multiple API URLs from NEXT_PUBLIC_ env vars without validation.           │
+│   If build pipeline compromised → tokens sent to attacker's domain.         │
+│   No CSP connect-src restriction configured.                                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Validate URLs match *.zubaco.com. Add CSP connect-src in next.config.ts.  │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Theoretical credential leakage via build compromise           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: DevTools Disabler Blocks Accessibility (False Security)          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Accessibility / UX                                                 │
+│ File: src/utils/dev-tools.ts                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Blocks Ctrl+A, Ctrl+C, right-click, drag. Provides ZERO actual            │
+│   security (trivially bypassed via devtools protocol). Harms:                │
+│   - Screen reader users (keyboard shortcuts blocked)                         │
+│   - Users with motor disabilities (drag disabled)                            │
+│   - Anyone selecting text for accessibility reasons                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove entirely. Server-side validation handles anti-cheat.                │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Accessibility violation + user frustration                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Full Grid Re-render on Every Tile Rotation (Phaser)              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/lib/game/phaser/loop-scene.ts (lines 200-350)                      │
+│                                                                              │
+│ Description:                                                                 │
+│   renderGrid() called on every updateGrid(). Iterates ALL cells,             │
+│   clears and redraws graphics, repositions containers even when only         │
+│   one tile rotated. For 8×8 grid (64 tiles): expensive per frame.           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Only redraw the changed cell(s). Track previous rotation per cell.         │
+│   Skip unchanged tiles' graphics clear/redraw.                               │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Frame drops on low-end mobile during rapid tapping            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: Puzzle Generator Unreliable — Falls Back to Trivial Border       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/lib/game/logic/generator-legacy.ts (lines 66-80)                   │
+│                                                                              │
+│ Description:                                                                 │
+│   generateSolvableGrid tries 20 random attempts. If all fail,                │
+│   falls back to border-only loop (empty interior). For larger grids          │
+│   with Math.random() > 0.4 connectivity, most attempts fail                  │
+│   checkWinCondition → trivial puzzle generated.                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use guaranteed spanning-tree approach (randomized DFS) for grid            │
+│   generation. Maps edges to tile types. 100% valid every time.               │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Tutorial may show boring border-only puzzle                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Phaser setTimeout Polling Has No Retry Limit                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / Robustness                                           │
+│ File: src/components/organisms/phaser-game-grid.tsx (lines 57-95)            │
+│                                                                              │
+│ Description:                                                                 │
+│   If scene isn't ready, updateScene() recursively calls                      │
+│   setTimeout(updateScene, 50) with NO maximum retry count.                   │
+│   If Phaser fails to initialize: infinite polling.                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add retry counter (max 10). Use scene.events.on('ready') instead.          │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Infinite loop / battery drain if Phaser fails                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: CSS Grid Fallback Wrong Rotation Direction on Wrap-Around        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic / UX                                                    │
+│ File: src/components/molecules/tile-card.tsx (lines 35-48)                    │
+│                                                                              │
+│ Description:                                                                 │
+│   TileCard animates rotate: cell.rotation * 90 as absolute value.            │
+│   When wrapping from rotation 3→0: animation goes 270°→0° (backwards!)     │
+│   instead of expected +90°.                                                  │
+│   Phaser scene handles this correctly via getRotationStepDelta.              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Track previous rotation. Compute minimal delta. Animate relative.          │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Wrong animation direction if CSS fallback used                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: Auth Token in Socket Object (Not Enforcing WSS)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/lib/socket-provider.tsx (lines 75-82)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   auth: { authorization: authToken, token: authToken }                       │
+│   Token in both fields. If WS connection is ws:// (non-TLS), leaked.         │
+│   No enforcement that NEXT_PUBLIC_SOCKET_URL starts with wss://.             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Validate wss:// in production. Remove redundant token field.               │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: isCellConnectedCorrect Called for ALL 64 Cells Per Rotation      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/hooks/use-game-state.ts (lines 340-390)                            │
+│                                                                              │
+│ Description:                                                                 │
+│   Every rotation triggers isCorrect check for ALL cells:                     │
+│   64 cells × 4 neighbors = 256 connection checks per tap.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Only recompute for rotated cell + 4 direct neighbors (max 5 cells).        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Slight overhead per tap (imperceptible on modern devices)     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: No Haptic Feedback on Tile Rotation                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Feel                                                          │
+│ File: Rotation handler (game-section.tsx)                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   playTap() audio called on rotation but no navigator.vibrate().             │
+│   Competing puzzle games provide haptic feedback on interaction.             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   navigator.vibrate?.(15) in rotateTileWithSound.                            │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Less satisfying than competitors                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: hintedCells.some() in Render Loop — O(n×m)                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/components/organisms/game-grid.tsx (lines 25-35)                   │
+│                                                                              │
+│ Description:                                                                 │
+│   For each cell: hintedCells.some() iterates hints array.                    │
+│   64 cells × N hints per render cycle.                                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Convert hintedCells to Set<"x,y"> before render.                           │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: No Error Boundary Around Phaser Canvas                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Robustness                                                         │
+│ File: src/components/organisms/phaser-game-grid.tsx                           │
+│                                                                              │
+│ Description:                                                                 │
+│   If Phaser crashes (GPU context lost, memory pressure), no error            │
+│   boundary catches it. Leaves blank area with no recovery.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Wrap in error boundary that shows SVG GameGrid fallback.                   │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Black game area, forced page refresh                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: Empty Next.js Config — No Security Headers or CSP                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: next.config.ts                                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   No headers() for CSP/HSTS/X-Frame-Options, no images.domains,             │
+│   no transpilePackages for Phaser.                                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add security headers configuration.                                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: Audio URLs Point to External CDN (mixkit.co)                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Reliability                                                        │
+│ File: src/config/game-config.ts (lines 51-55)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   tapSoundUrl: "https://assets.mixkit.co/.../270-preview.mp3"                │
+│   successSoundUrl: "https://assets.mixkit.co/.../2016-preview.mp3"           │
+│   Third-party preview URLs could change/rate-limit/block anytime.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Host audio files locally in /public/assets/sounds/.                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Audio silently fails if CDN down                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: Tile Click Silently Swallowed During Loading (No Visual Cue)     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/section/game/game-section.tsx (lines 1040-1060)                    │
+│                                                                              │
+│ Description:                                                                 │
+│   Multiple blocking conditions silently return without feedback:             │
+│   - hasBlockingOverlay, isAwaitingStartResponse, hasBoardSolvedAckRef        │
+│   Player taps tiles, nothing happens, thinks game is broken.                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Show visual disabled state (opacity reduction) during these states.        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Confusing unresponsiveness                                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: getEnvStageId() at Module Scope (Hydration Mismatch Risk)        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Build / SSR                                                        │
+│ File: src/components/custom/game-play-area.tsx (lines 22-40)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Module-scope env var read. If unavailable during SSR/hydration →           │
+│   theme mismatch flash.                                                      │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: Duplicate useAudio Export Names (Confusing)                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ Files: src/hooks/use-audio-effects.ts, src/hooks/use-audio.ts                │
+│                                                                              │
+│ Description:                                                                 │
+│   Both export `useAudio`. Works but confusing for developers.                │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: console.log Statements in Production Code                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/components/custom/game-play-area.tsx (lines 34-38)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   console.log("loading") and Phaser loader debug logs left in.               │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: Timer Uses 250ms Interval (Stale Display)                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/hooks/use-game-state.ts (lines 460-470)                            │
+│                                                                              │
+│ Description:                                                                 │
+│   250ms intervals → displayed time up to 250ms stale.                       │
+│   Shows whole seconds but updates at non-standard rate.                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   1000ms for second-resolution, or rAF for sub-second.                       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: Phaser Canvas Has No ARIA Labels / Keyboard Support              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Accessibility                                                      │
+│ File: src/components/organisms/phaser-game-grid.tsx                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Canvas not focusable, no role, no aria-label, no keyboard events.          │
+│   Screen reader users cannot interact with the game at all.                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add role="application" aria-label to container.                            │
+│   Implement keyboard navigation (arrows + Enter/Space to rotate).            │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Game inaccessible to keyboard/screen reader users             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: Auto-Redirect Countdown With No Cancel Button                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/components/organisms/game-clear-modal.tsx (lines 42-48)            │
+│                                                                              │
+│ Description:                                                                 │
+│   GameClearModal auto-redirects after 5 seconds. No cancel button.           │
+│   Player can't review score or take screenshot.                              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add "Stay" button that clears countdown.                                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Forced away from results screen                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-22: Barrel Re-exports from -legacy Files (Unnecessary Indirection)   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ Files: src/lib/game/logic/levels.ts, generator.ts                            │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-23: Tile Entrance Animation = 3 Seconds on 8×8 Grid                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/lib/game/phaser/loop-scene.ts (line 402)                           │
+│                                                                              │
+│ Description:                                                                 │
+│   delay: index * 45 → 64 tiles × 45ms = 2.88 seconds before playable.      │
+│   Input locked during animation.                                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Cap total: delay = index * Math.min(45, 1200/flatTiles.length)             │
+│   Ensures max 1.2s animation regardless of grid size.                        │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: ~3 second forced wait before playing                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-24: No Undo/Counter-Clockwise Rotation                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Entire rotation system                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Only forward rotation (+90°). No way to reverse misclick.                  │
+│   Must rotate 3 more times to get back.                                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Long-press or swipe-left for counter-clockwise. Or undo button.            │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Frustration on misclicks, 3 extra taps to fix                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-25: iOS Audio Init May Fail Before User Gesture                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Mobile UX                                                          │
+│ File: src/hooks/use-audio.ts                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Howl instances + restartPlayback can fire before user interaction.          │
+│   iOS Safari requires gesture for first audio. unlock handler exists          │
+│   but explicit restartPlayback call may precede it.                          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Background music silent on iOS until first tap                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Bottlenecks (sorted by impact):
+
+1. Full Grid Re-render in Phaser on Every Rotation (WORST ISSUE)
+   - renderGrid() redraws ALL 64 tiles when only 1 changed
+   - Clears + repositions + redraws graphics for entire grid
+   - On rapid tapping: multiple full re-renders per second
+   - Fix: Track changed cells, only redraw those
+
+2. getGameMeta() Loads ALL Boards on WebSocket Connect
+   - 100 stages × N levels × large JSON grid data
+   - Called on EVERY new connection
+   - Fix: Select only IDs, cache in Redis
+
+3. isCellConnectedCorrect for ALL 64 Cells Per Rotation
+   - 256 connection checks per tap (could be 20)
+   - Fix: Only check rotated cell + 4 neighbors
+
+4. BFS Uses Array.shift() — O(n²) for Large Puzzles
+   - For 20×20 grids: 400 cells × multiple BFS calls
+   - Fix: Index-based queue
+
+5. 3-Second Tile Entrance Animation (8×8 Grid)
+   - Player stares at animation before interacting
+   - Fix: Cap total duration at 1.2s
+
+ESTIMATED PERFORMANCE PROFILE:
+- Idle: 0ms/frame (Phaser only renders on demand — good!)
+- Single rotation: ~8ms (full re-render of 64 tiles)
+- Rapid tapping (5 taps/sec): up to 40ms/frame = borderline
+- Budget phone: 2× → 80ms/frame during rapid input = JANK
+- With fix (only redraw changed tile): ~1ms per rotation = smooth
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Phaser 4 WebGL rendering with SVG fallback (graceful degradation)
+✓ Optimistic rotation with recovery (responsive feel)
+✓ Dynamic color theming per stage (visual variety)
+✓ Tilt detection (phone vs tablet orientation handling)
+✓ Sound effects on rotation (audio feedback)
+✓ Mobile viewport handling (min-h-dvh, safe-area-inset)
+✓ Responsive grid sizing
+✓ i18n from day one (English + Hindi + RTL-aware)
+✓ Error boundary exists
+✓ Offline detection
+
+UX PROBLEMS:
+
+1. DevTools Disabler Blocks Accessibility
+   - Screen readers can't use keyboard shortcuts
+   - Motor-impaired users affected
+   - FRUSTRATION LEVEL: BLOCKING for accessibility users
+
+2. 3-Second Wait Before Playing (Entrance Animation)
+   - Forced to watch tiles animate in
+   - Can't skip or interact
+   - FRUSTRATION LEVEL: HIGH on replays
+
+3. No Counter-Clockwise Rotation / Undo
+   - Misclick = 3 extra taps to fix
+   - On mobile: fat-finger taps common
+   - FRUSTRATION LEVEL: MEDIUM
+
+4. Clicks Silently Swallowed During Loading
+   - Player taps, nothing happens
+   - No visual cue that game is in transition
+   - FRUSTRATION LEVEL: MEDIUM
+
+5. Auto-Redirect After Win (5 seconds, no cancel)
+   - Can't screenshot score
+   - Can't savor the win
+   - FRUSTRATION LEVEL: MEDIUM
+
+6. No Haptic Feedback
+   - Audio exists but no vibration
+   - FRUSTRATION LEVEL: LOW
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features that players of pipe/rotation puzzle games EXPECT:
+
+1.  [!] Counter-clockwise rotation (long-press / swipe)
+2.  [ ] Undo last move button
+3.  [ ] Haptic feedback on rotation
+4.  [ ] Skip entrance animation option
+5.  [ ] Color blind mode (additional symbols on tiles)
+6.  [ ] Hints system (highlight misaligned tiles)
+7.  [ ] Zoom/pan for large grids
+8.  [ ] Move counter display
+9.  [ ] Best time / best moves personal record
+10. [ ] "Stay" button on completion modal
+11. [ ] Keyboard controls (arrow keys + space/enter)
+12. [ ] Difficulty progression display
+13. [ ] Share score / challenge friends
+14. [ ] Daily challenge mode
+15. [ ] Replay same puzzle button
+16. [ ] Grid size selector (for casual vs hard)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add satisfying "click" sound with slight pitch variation per tile
+2. Add haptic pulse on rotation (15ms vibration)
+3. Connected tiles glow/pulse when fully correct
+4. Particle burst on puzzle completion
+5. Smooth camera zoom on large grids (pinch to zoom)
+6. Counter-clockwise rotation on long-press/right-click
+7. "Perfect!" text for solving with minimum moves
+8. Speed-up entrance animation (cap at 1.2s)
+9. Add "stay" button to completion modal
+10. Show move counter + personal best comparison
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Only redraw changed tile(s) in Phaser (not full grid)
+2. Only check isCorrect for rotated cell + 4 neighbors
+3. Convert hintedCells to Set before render
+4. Add retry limit to Phaser polling (max 10 attempts)
+5. Cap entrance animation at 1.2s total
+6. Host audio locally (remove CDN dependency)
+7. Add error boundary around Phaser canvas
+8. Remove DevTools disabler (zero security value, blocks a11y)
+
+Backend:
+1. Remove ALL console.log statements (CRITICAL — leaks secrets)
+2. Cache getGameMeta() result in Redis (currently loads full boards on connect)
+3. Add bounds checking on rotateTile/rotateTileBatch coordinates
+4. Cap batch moves array size
+5. Replace Redis KEYS with SCAN
+6. Use index-based queue for BFS (not Array.shift())
+7. Add @RequireSession to cache flush endpoints
+8. Use server timestamps for anti-cheat (not client-provided)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: LOG LEAKAGE (UNIQUE TO THIS GAME — WORST EVER)
+- Token utility logs EVERY user's full JWT token
+- Token utility logs THE JWT SIGNING SECRET
+- User HTTP service logs EVERY bearer token
+- Session guard logs token processing details
+- ALL unconditional (no dev/prod check)
+- Severity: CRITICAL — anyone with log access owns ALL users
+- IMMEDIATE ACTION: Delete console.log, rotate JWT_SECRET
+
+Attack Surface 2: Secret Management
+- .env committed with real credentials + encryption key
+- HMAC fallback 'dev-hmac-secret'
+- Env validation only warns in non-production
+- Severity: CRITICAL
+
+Attack Surface 3: WebSocket
+- CORS allows ALL origins (cross-site socket hijacking)
+- No bounds checking on grid coordinates (crash)
+- No batch size limit (CPU DoS)
+- Severity: HIGH
+
+Attack Surface 4: Cache/Admin
+- Cache flush endpoints missing auth (DoS)
+- TestAuthController risk if ENABLE_DEV_AUTH leaks to prod
+- Severity: HIGH
+
+Attack Surface 5: Anti-Cheat
+- Client timestamps trusted for timing analysis
+- Flags but doesn't block superhuman speed
+- Score is time-only (move efficiency ignored)
+- Severity: MEDIUM
+
+Attack Surface 6: Frontend
+- Encryption key in NEXT_PUBLIC_ bundle
+- No CSP headers configured
+- Source maps likely shipped
+- Severity: MEDIUM
+
+OVERALL SECURITY POSTURE:
+The Restate architecture provides excellent state isolation and durable
+execution. The puzzle validation is server-authoritative. But the console.log
+statements that dump JWT_SECRET and all tokens to logs are the SINGLE WORST
+security issue found across ALL 5 games audited so far.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Positive" - 7/10
+
+POSITIVE REVIEWS WOULD SAY:
+"Clean, satisfying puzzle game. Tiles click into place with a nice sound."
+"Good variety of tile types. Puzzles get properly challenging."
+"Smooth rendering — runs well even on my older phone."
+"Fair scoring — server validates everything, no cheaters."
+"The color themes per stage are a nice touch."
+"Works well with one hand in portrait mode."
+
+NEGATIVE REVIEWS WOULD SAY:
+"WHY can't I rotate counter-clockwise? Misclick = 3 extra taps!"
+"The entrance animation is pretty the first time. By the 50th time? Let me skip it."
+"Auto-redirected away from my score. I wanted a screenshot!"
+"Right-click doesn't work on this page. Annoying."
+"No keyboard controls? My touchscreen is cracked, can't play."
+"Some puzzles seem too easy (just a rectangle around the edge)."
+"Takes a noticeable moment to connect when I open the game."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Top 10 player complaints (predicted):
+
+1. "No counter-clockwise rotation!" — #1 annoyance in pipe games
+2. "3 second wait every level!" — Entrance animation too long
+3. "Redirected before I could screenshot!" — Auto-redirect on clear
+4. "Right-click/select disabled for no reason" — DevTools blocker
+5. "Tapped during loading, nothing happened" — Silent click swallowing
+6. "Easy puzzles sometimes" — Generator fallback to trivial border
+7. "No vibration when I tap" — Missing haptic feedback
+8. "Audio didn't play" — CDN dependency / iOS autoplay
+9. "Can't use keyboard" — No accessibility
+10. "Slow to connect" — getGameMeta loading all boards
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Satisfying "click" when tile locks into correct position
+✓ Visual feedback — correct connections glow/highlight
+✓ Deterministic — skill not luck (optimal path exists)
+✓ Escalating complexity (more tile types, larger grids)
+✓ Beautiful when solved (complete loop is aesthetically pleasing)
+✓ Quick sessions — each board is 1-3 minutes
+✓ One-touch interaction (tap to rotate)
+✓ Flow state — pattern recognition improves with practice
+
+Flow State Enablers:
+✓ Clear visual language (pipe connections obvious)
+✓ Instant feedback on correct/incorrect connections
+✓ Timer pressure (optional challenge)
+✓ No randomness — pure logic puzzle
+✓ Growing mastery feeling with larger grids
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. MISSING COUNTER-CLOCKWISE ROTATION
+   - Every misclick = 3 extra taps
+   - Frustration accumulates
+   - Players blame the game, not themselves
+   - Competitors all have both directions
+
+2. FORCED WAIT (ENTRANCE ANIMATION)
+   - 3 seconds before each puzzle
+   - Breaks flow between puzzles
+   - "One more level" killed by waiting
+
+3. AUTO-REDIRECT AFTER WIN
+   - Can't screenshot → can't share
+   - Can't share → no organic virality
+   - No "share score" button either
+
+4. OCCASIONALLY TRIVIAL PUZZLES
+   - Generator fallback produces boring border loops
+   - "Is this game too easy?" → quit
+
+5. NO DAILY CHALLENGE / STREAK
+   - No reason to come back daily
+   - No competition with friends
+   - No viral social mechanic
+
+6. DEVTOOLS BLOCKER ANNOYS POWER USERS
+   - Power users are your first evangelists
+   - Annoying them = negative reviews
+   - Zero actual cheat prevention (server validates)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     85/100 (BEST in lineup — Restate + Phaser)
+- Security:                         20/100 (JWT SECRET LOGGED TO STDOUT!)
+- Performance:                      55/100 (full grid re-render, getGameMeta)
+- Game Logic & Correctness:         70/100 (generator fallback, bounds checks)
+- UX & Polish:                      55/100 (good rendering, poor controls)
+- Anti-Cheat:                       60/100 (server-authoritative but timing exploitable)
+- Accessibility:                    20/100 (DevTools blocker + no keyboard + no ARIA)
+- Retention & Engagement:           40/100 (no daily, no share, auto-redirect)
+- Error Handling:                   50/100 (no error boundary on Phaser, polling)
+- Production Readiness:             35/100 (console.log secrets, dead code, CDN deps)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 59/100
+═══════════════════════════════════════
+
+VERDICT: NOT READY FOR PUBLIC LAUNCH
+The console.log statements that dump JWT_SECRET and all user tokens to stdout
+are a SHOWSTOPPER. This must be fixed BEFORE any deployment — it's the single
+worst security issue found across all games audited. Beyond that, the game has
+the best architecture in the lineup (Restate + Phaser) and needs relatively
+minor UX fixes to be competitive.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: EMERGENCY — LOG LEAKAGE (30 minutes)
+  □ DELETE all console.log in token.util.ts (IMMEDIATELY)
+  □ DELETE all console.log in user-http.service.ts (IMMEDIATELY)
+  □ DELETE all console.log in session.guard.ts
+  □ ROTATE JWT_SECRET (old one is in logs)
+  □ Remove .env from version control
+
+PHASE 2: SECURITY (1 day)
+  □ Remove HMAC fallback secret
+  □ Fix WS CORS (read from CORS_ORIGINS, not origin: true)
+  □ Add @RequireSession to cache flush endpoints
+  □ Add bounds checking on rotateTile coordinates
+  □ Cap batch moves array size
+  □ Add defense-in-depth to TestAuthController
+  □ Use server timestamps for anti-cheat (not client-provided)
+  □ Add CSP headers to next.config.ts
+  □ Remove DevTools disabler
+
+PHASE 3: PERFORMANCE (1 day)
+  □ Only redraw changed tile(s) in Phaser renderGrid
+  □ Cache getGameMeta() in Redis (don't load all boards on connect)
+  □ Only check isCorrect for rotated cell + 4 neighbors
+  □ Replace Redis KEYS with SCAN
+  □ Fix BFS Array.shift() → index-based queue
+  □ Add retry limit to Phaser polling
+
+PHASE 4: UX (2 days)
+  □ Add counter-clockwise rotation (long-press / right-click)
+  □ Cap entrance animation at 1.2s total
+  □ Add "Stay" button to completion modal
+  □ Show visual disabled state during loading (not silent swallow)
+  □ Add haptic feedback on rotation
+  □ Host audio files locally (remove mixkit.co dependency)
+  □ Add error boundary around Phaser canvas
+
+PHASE 5: POLISH (2 days)
+  □ Fix CSS fallback rotation direction (wrap-around animation)
+  □ Fix puzzle generator (guaranteed valid, not 20 random attempts)
+  □ Add keyboard navigation (arrows + space)
+  □ Add move counter / personal best display
+  □ Add share score button
+  □ Factor move efficiency into scoring
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ranked by (Player Impact × Effort Efficiency):
+
+#1  Remove all console.log (token + secret leakage)
+    Effort: 15 minutes | Impact: Prevents total platform compromise
+    ROI: ∞ (MOST CRITICAL SECURITY FIX IN ALL 20 GAMES)
+
+#2  Remove DevTools disabler
+    Effort: 5 minutes | Impact: Game accessible to disabled users
+    ROI: ∞ (delete one file, fixes accessibility + stops annoying users)
+
+#3  Fix WS CORS (origin: true → read from env)
+    Effort: 10 minutes | Impact: Prevents cross-site socket hijacking
+    ROI: 10x (trivial fix, major security improvement)
+
+#4  Add bounds checking on grid coordinates
+    Effort: 15 minutes | Impact: Prevents crash via malformed input
+    ROI: 9x (simple validation, prevents DoS)
+
+#5  Only redraw changed tile in Phaser
+    Effort: 1 hour | Impact: Eliminates jank during rapid tapping
+    ROI: 8x (major perf fix, moderate effort)
+
+#6  Cap entrance animation at 1.2s
+    Effort: 5 minutes | Impact: Eliminates forced 3-second wait
+    ROI: 8x (one-line fix, big UX improvement)
+
+#7  Add counter-clockwise rotation (long-press)
+    Effort: 2 hours | Impact: Eliminates #1 player frustration
+    ROI: 7x (genre expectation met)
+
+#8  Cache getGameMeta() in Redis
+    Effort: 30 minutes | Impact: Fast WebSocket connects
+    ROI: 6x
+
+#9  Add "Stay" button to completion modal
+    Effort: 15 minutes | Impact: Players can screenshot/savor wins
+    ROI: 6x (enables organic sharing)
+
+#10 Host audio locally (remove CDN dependency)
+    Effort: 15 minutes | Impact: Reliable audio, no external failure point
+    ROI: 5x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+What's WELL DONE in this game (credit where due):
+
+BACKEND (BEST ARCHITECTURE IN THE LINEUP):
+✓ Restate Virtual Objects — eliminates DB writes during gameplay!
+  (State stored in Restate, only written to DB on finalization)
+✓ Lazy board fetching — only loads next board when needed
+✓ Single atomic finalize — all game data written in one transaction
+✓ Durable expiry scheduling via Restate delayed RPC (no cron!)
+✓ Deterministic seeded PRNG — reproducible puzzles, bitmask tile system
+✓ Anti-cheat multi-signal (timing + impossible solve detection)
+✓ WebSocket Redis adapter (horizontal WS scaling)
+✓ Transparent transaction via Prisma Proxy pattern (elegant)
+✓ timingSafeEqual for HMAC (prevents timing attacks)
+✓ Graceful shutdown with dedicated module
+✓ Helmet + compression + security headers
+✓ Zod DTOs with nestjs-zod for admin endpoints
+
+FRONTEND (MOST COMPLETE IN THE LINEUP):
+✓ Phaser 4 WebGL + SVG fallback (graceful degradation!)
+✓ Optimistic rotation with recovery (responsive feel + correctness)
+✓ Tile bitmask system (clean, well-structured NSEW connections)
+✓ Dynamic color theming per stage (CSS custom properties)
+✓ Tilt detection for phone vs tablet orientation
+✓ Encrypted session storage (AES-GCM with IV/tag)
+✓ Socket-authoritative win validation (anti-cheat)
+✓ Mobile viewport handling (safe-area-inset, min-h-dvh)
+✓ TypeScript strict mode + Zod schema validation
+✓ i18n from day one (react-i18next, Hindi + RTL-aware)
+✓ Howler.js for audio (proper Web Audio API usage)
+✓ Zustand store + React state (clean separation of concerns)
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+vs Arrows (58/100):
+- Better: Much more sophisticated architecture (Restate, Phaser, optimistic UI)
+- Worse: console.log leaks secrets (unique, worst security issue across all games)
+- Same: Dead engine code (booster/achievement/combo)
+
+vs Block Fill (62/100):
+- Better: Real-time socket gameplay (not just HTTP submit)
+- Better: WebGL rendering with fallback
+- Worse: No input validation on grid coordinates (crash risk)
+- Same: Encryption key exposed in bundle
+
+vs Colour Sorting (61/100):
+- Better: Socket-authoritative (not just HTTP replay)
+- Better: Phaser rendering vs pure React/CSS
+- Worse: 3-second entrance animation (no skip)
+- Same: No undo/counter-clockwise
+
+vs Flash Spot (56/100):
+- Better: No timing accuracy issue (not a reaction game)
+- Better: Phaser rendering (not 60fps React state updates)
+- Worse: WS CORS allows all origins (unique to this game)
+- Worse: console.log dumps secrets (unique, far worse than env mismatch)
+
+INFINITY LOOP UNIQUE ISSUES (not found in other games):
+★ console.log DUMPS JWT_SECRET to stdout (worst security issue across all 5)
+★ console.log DUMPS every user's full token to stdout
+★ WebSocket CORS allows ALL origins (cross-site hijacking)
+★ Cache flush endpoints missing authentication (DoS)
+★ Out-of-bounds grid coordinate crash (no validation)
+★ Phaser 4 + Next.js 16 stack (most advanced frontend)
+★ DevTools disabler blocks accessibility (false security)
+★ External CDN audio dependency (fragile)
+★ Auto-redirect after win (no cancel)
+★ Generator fallback to trivial border puzzle
+
+================================================================================
+END OF AUDIT — GAME #5: INFINITY LOOP
+================================================================================

@@ -1,0 +1,218 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    LIVE ROUTE BUILDER — TEST CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════
+
+Game: Live Route Builder
+Stack: React 19 + Vite + TypeScript + TailwindCSS + Framer Motion
+Last Updated: 2025
+
+───────────────────────────────────────────────────────────────────────────────
+ 1. TUTORIAL SCREEN (5 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 1.1  Tutorial shows on first visit (no localStorage flag)
+[ ] 1.2  5 steps navigate forward/back correctly
+[ ] 1.3  Progress indicators update for each step
+[ ] 1.4  "Skip" button available on all steps
+[ ] 1.5  On completion, sets localStorage flag and transitions to menu
+
+───────────────────────────────────────────────────────────────────────────────
+ 2. MENU SCREEN (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 2.1  Menu shows after tutorial is seen
+[ ] 2.2  "Play" button starts game at highest unlocked level
+[ ] 2.3  "Levels" button opens LevelSelector
+[ ] 2.4  "Daily Challenge" button opens DailyChallenge
+[ ] 2.5  "Achievements" button opens Achievements
+[ ] 2.6  "Stats" button opens StatsScreen
+[ ] 2.7  "Settings" button opens Settings
+[ ] 2.8  All buttons have hover/press animations
+
+───────────────────────────────────────────────────────────────────────────────
+ 3. LEVEL SELECTOR (10 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 3.1  Shows 10 levels in grid layout
+[ ] 3.2  Level 1 is always unlocked
+[ ] 3.3  Locked levels show lock icon and are non-interactive
+[ ] 3.4  Stars (0-3) displayed for completed levels
+[ ] 3.5  Selecting an unlocked level starts the game with correct config
+[ ] 3.6  Node count scales: 5→16 across levels
+[ ] 3.7  Time limit decreases: 60s→35s across levels
+[ ] 3.8  Back button returns to menu
+[ ] 3.9  Highest level persists across page refreshes (localStorage)
+[ ] 3.10 Completing a level unlocks the next level
+
+───────────────────────────────────────────────────────────────────────────────
+ 4. SETTINGS (7 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 4.1  Sound toggle works (on/off)
+[ ] 4.2  Volume slider adjusts from 0-100%
+[ ] 4.3  Theme toggle between dark/light modes
+[ ] 4.4  Settings persist across page refreshes
+[ ] 4.5  Back button returns to menu
+[ ] 4.6  Default values are sensible (sound on, volume 80%, dark theme)
+[ ] 4.7  Volume slider disabled when sound is off
+
+───────────────────────────────────────────────────────────────────────────────
+ 5. STATS SCREEN (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 5.1  Shows all 10 stats (games played, wins, edges, efficiency, streak, 
+         level, perfect, fast, time, high score)
+[ ] 5.2  Stats update correctly after game completion
+[ ] 5.3  Stats persist across page refreshes (localStorage)
+[ ] 5.4  Stats display formatted correctly (time as h:mm, % for efficiency)
+[ ] 5.5  Back button returns to menu
+[ ] 5.6  Zero/empty state shows "0" or "—" for unplayed stats
+[ ] 5.7  High score updates only when new score exceeds previous
+[ ] 5.8  Total time accumulates across multiple games
+
+───────────────────────────────────────────────────────────────────────────────
+ 6. ACHIEVEMENTS (9 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 6.1  10 achievements displayed with icons and descriptions
+[ ] 6.2  Unlocked achievements show colored/filled state
+[ ] 6.3  Locked achievements show grayed-out state
+[ ] 6.4  Achievement popup appears when new achievement unlocked
+[ ] 6.5  Popup auto-dismisses or can be tapped to close
+[ ] 6.6  Achievement state persists across refreshes
+[ ] 6.7  Back button returns to menu
+[ ] 6.8  First Win achievement triggers after first level completion
+[ ] 6.9  All 10 achievements have unique trigger conditions
+
+───────────────────────────────────────────────────────────────────────────────
+ 7. DAILY CHALLENGE (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 7.1  Calendar week shows 7 days with completion status
+[ ] 7.2  Today is highlighted with target emoji
+[ ] 7.3  Completed days show checkmark
+[ ] 7.4  Difficulty scales with day of week (Mon=easy, Sun=hard)
+[ ] 7.5  "Start Challenge" button disabled/hidden when already completed today
+[ ] 7.6  Completion state persists per date key in localStorage
+[ ] 7.7  Bonus multiplier displayed (1.5x→2.4x)
+[ ] 7.8  Back button returns to menu
+
+───────────────────────────────────────────────────────────────────────────────
+ 8. GAME HEADER / HUD (10 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 8.1  Level badge shows "LVL X" with correct number
+[ ] 8.2  Score updates in real-time as edges are placed
+[ ] 8.3  Nodes counter shows "connected/total"
+[ ] 8.4  Combo display appears at ×2+ with fire emoji
+[ ] 8.5  Combo animates on increment
+[ ] 8.6  Timer counts down in seconds
+[ ] 8.7  Timer turns red and pulses when ≤10 seconds
+[ ] 8.8  Mute button is functional
+[ ] 8.9  Pause button opens PauseDialog
+[ ] 8.10 HUD is fixed at top and doesn't scroll with canvas
+
+───────────────────────────────────────────────────────────────────────────────
+ 9. GAME CANVAS / PLAYING STATE (12 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 9.1  Nodes appear on canvas with proper positioning
+[ ] 9.2  Clicking two nodes creates an edge between them
+[ ] 9.3  Edge renders as a line/path connecting the two nodes
+[ ] 9.4  Invalid connections are rejected (no visual artifact)
+[ ] 9.5  Nodes animate in as they become visible
+[ ] 9.6  Canvas is non-interactive when paused
+[ ] 9.7  Canvas is non-interactive when game ended
+[ ] 9.8  "Submit Early" button ends game and transitions to result
+[ ] 9.9  Game auto-ends when timer reaches 0
+[ ] 9.10 Canvas aspect ratio is 6:5
+[ ] 9.11 Touch/click interactions work on mobile viewports
+[ ] 9.12 Efficient paths score higher than redundant paths
+
+───────────────────────────────────────────────────────────────────────────────
+ 10. PAUSE DIALOG (7 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 10.1  Opens when pause button tapped
+[ ] 10.2  Shows current edges count and elapsed time
+[ ] 10.3  Shows current level number
+[ ] 10.4  "Resume" closes dialog and game continues
+[ ] 10.5  "Restart Level" resets and starts same level fresh
+[ ] 10.6  "Exit to Menu" returns to menu screen
+[ ] 10.7  Backdrop blur prevents canvas interaction
+
+───────────────────────────────────────────────────────────────────────────────
+ 11. RESULT SCREEN (9 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 11.1  Shows "Route Complete!" heading
+[ ] 11.2  Displays level number
+[ ] 11.3  Star rating shown (1-3 stars based on efficiency)
+[ ] 11.4  Score breakdown: edges + score + time
+[ ] 11.5  "Next Level" button advances to next level (hidden if max)
+[ ] 11.6  "Replay" button restarts same level
+[ ] 11.7  "Menu" button returns to menu
+[ ] 11.8  Confetti animation plays for 3 seconds on game end
+[ ] 11.9  Stars: ≥90% efficiency = 3★, ≥70% = 2★, else = 1★
+
+───────────────────────────────────────────────────────────────────────────────
+ 12. CONFETTI (4 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 12.1  60 particles spawn on activation
+[ ] 12.2  Particles have varied colors, sizes, and shapes
+[ ] 12.3  Particles fall with gravity and fade out
+[ ] 12.4  Component unmounts cleanly (no interval leaks)
+
+───────────────────────────────────────────────────────────────────────────────
+ 13. COMBO SYSTEM (5 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 13.1  Combo increments with each valid edge connection
+[ ] 13.2  Combo ×2+ shown in header with animation
+[ ] 13.3  Max combo tracked for stats/achievements
+[ ] 13.4  Combo display uses fire emoji indicator
+[ ] 13.5  Combo affects final score calculation
+
+───────────────────────────────────────────────────────────────────────────────
+ 14. PERSISTENCE & STORAGE (8 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 14.1  Tutorial seen flag persists
+[ ] 14.2  Level unlock progress persists
+[ ] 14.3  Level star ratings persist
+[ ] 14.4  Settings persist (sound, volume, theme)
+[ ] 14.5  Stats persist and accumulate
+[ ] 14.6  Achievements persist
+[ ] 14.7  Daily challenge completion persists per date
+[ ] 14.8  Clearing localStorage resets everything to defaults
+
+───────────────────────────────────────────────────────────────────────────────
+ 15. ANIMATIONS & TRANSITIONS (6 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 15.1  Tutorial steps animate in/out (slide or fade)
+[ ] 15.2  Menu buttons have hover/press feedback
+[ ] 15.3  Pause dialog animates in with spring physics
+[ ] 15.4  Achievement popup slides in from top
+[ ] 15.5  Combo counter scales on increment
+[ ] 15.6  Nodes animate appearance on canvas
+
+───────────────────────────────────────────────────────────────────────────────
+ 16. ERROR HANDLING & EDGE CASES (7 tests)
+───────────────────────────────────────────────────────────────────────────────
+[ ] 16.1  API failure falls back to local seed generation
+[ ] 16.2  No crash when localStorage is full or unavailable
+[ ] 16.3  Invalid JSON in localStorage doesn't crash app
+[ ] 16.4  Double-clicking same node doesn't create self-edge
+[ ] 16.5  Rapid phase transitions don't cause state corruption
+[ ] 16.6  Refreshing during gameplay returns to menu
+[ ] 16.7  ErrorBoundary catches unhandled render errors
+
+───────────────────────────────────────────────────────────────────────────────
+ TOTAL: 123 TEST CASES
+───────────────────────────────────────────────────────────────────────────────
+
+ Star Rating System:
+   ★★★ (3 stars) — Path efficiency ≥ 90% or score ≥ nodeCount × 15
+   ★★☆ (2 stars) — Path efficiency ≥ 70% or score ≥ nodeCount × 10
+   ★☆☆ (1 star)  — Level completed (any score)
+
+ Achievement Triggers:
+   FIRST_WIN         — Complete 1 level
+   STREAK_3          — 3-combo streak
+   STREAK_5          — 5-combo streak
+   PERFECT_ROUTE     — 3 perfect games
+   SPEED_DEMON       — 3 fast completions
+   LEVEL_5           — Reach level 5
+   LEVEL_10          — Reach level 10
+   SCORE_1000        — Score 1000+ in single game
+   DEDICATED         — Play 50+ games
+   NO_MISTAKES       — (reserved for future)
+
+═══════════════════════════════════════════════════════════════════════════════

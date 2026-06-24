@@ -1,0 +1,1074 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #13: PATTERN SURVIVAL (Simon Says / Sequence Memory)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Simon Says survival — colored cells flash in a sequence. Player must
+          repeat the pattern by tapping cells in order. Each round adds one more
+          to the sequence. Game ends on first mistake or timeout.
+Stack: NestJS 11 + Prisma 7 + Restate + Redis + BullMQ + Socket.IO (backend),
+       React 19 + Vite 6 + Framer Motion + TailwindCSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Pattern Survival implements the classic "Simon Says" mechanic: watch a sequence
+of flashing colored cells, then repeat it. Each round adds one more cell to the
+sequence. The game is well-architected with server-side validation that
+regenerates expected sequences and verifies player inputs step-by-step.
+
+GAME-BREAKING BUG FOUND: The frontend's submitGame() sends `roundsReached`,
+`perfectRounds`, and `clientScore` — but the backend DTO REQUIRES `roundInputs`
+(an array of arrays with every tap sequence). The NestJS validation pipe with
+`forbidNonWhitelisted: true` will REJECT every submit request. The game cannot
+save scores. This is a critical integration bug.
+
+ADDITIONALLY: The backend has a sophisticated `timingAnalyzer.ts` that exists
+but is NEVER CALLED. This game has the infrastructure for anti-cheat timing
+analysis but it's completely unused.
+
+UNIQUE POSITIVE: The server properly regenerates sequences from the seed and
+validates each round step-by-step. If the frontend sent roundInputs, the
+anti-cheat would actually be robust.
+
+TOTAL ISSUES: 32 (4 Critical, 6 High, 13 Medium, 9 Low)
+
+RELEASE READINESS SCORE: 52/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Frontend does NOT send roundInputs in submit request. Backend DTO
+           REQUIRES it. NestJS validation rejects every submit → 400 error.
+           GAME IS COMPLETELY BROKEN — scores never save.
+
+BLOCKER-2: Seed sent to client → frontend has identical generateSequence() →
+           all future sequences computable from round 0 to infinity.
+
+BLOCKER-3: .env committed with JWT_SECRET="zubaco-pattern-survival-jwt-secret-2025"
+           + 3 different fallback secrets across guards/gateway/config.
+
+BLOCKER-4: VITE_ENCRYPTION_KEY exposed in client bundle.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (16 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: Frontend Submit DTO Mismatch — Game Cannot Save Scores           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Integration Bug                                                    │
+│ Files: Backend: dto/submit-game.dto.ts                                       │
+│        Frontend: hooks/useGameSession.ts                                     │
+│                                                                              │
+│ Backend DTO requires:                                                        │
+│   { gameSessionId, roundInputs: number[][], perfectRounds, clientScore }     │
+│                                                                              │
+│ Frontend sends:                                                              │
+│   { gameSessionId, roundsReached, perfectRounds, clientScore }               │
+│                                                                              │
+│ Problems:                                                                    │
+│ 1. `roundInputs` is REQUIRED by Zod schema → validation fails               │
+│ 2. `roundsReached` is NOT in schema + forbidNonWhitelisted → rejected       │
+│ 3. Even if it passed, frontend discards all player tap sequences             │
+│                                                                              │
+│ The NestJS ValidationPipe with `whitelist: true, forbidNonWhitelisted: true` │
+│ will throw a 400 BadRequest on EVERY submit because:                         │
+│ - `roundsReached` is non-whitelisted → throws                               │
+│ - `roundInputs` is missing → throws                                          │
+│                                                                              │
+│ Impact: THE GAME CANNOT SUBMIT SCORES. Every game ends in a silent error.    │
+│ All the beautiful server-side validation in submitGame() is UNREACHABLE.      │
+│                                                                              │
+│ Fix (Frontend): Collect roundInputs in usePatternGame. On each round          │
+│ completion, push the player's input array. On submit, send roundInputs.      │
+│                                                                              │
+│ Fix (Backend alternative): Accept roundsReached if roundInputs validation    │
+│ is too complex for initial release.                                          │
+│                                                                              │
+│ Priority Score: 10/10 (GAME IS BROKEN)                                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Seed Sent to Client → All Sequences Computable                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (startGame return)                            │
+│                                                                              │
+│ Code:                                                                        │
+│   return { gameSessionId, seed, config, ... };                               │
+│                                                                              │
+│ Frontend has identical generateSequence(seed, round):                         │
+│   const rng = mulberry32(seed + round * 7919);                               │
+│   sequence.push(Math.floor(rng() * 9)); // for each step                    │
+│                                                                              │
+│ A cheater can precompute ALL rounds:                                         │
+│   for (let r = 0; r < 1000; r++) console.log(generateSequence(seed, r));    │
+│                                                                              │
+│ This is especially bad for a "survival" game — knowing future sequences      │
+│ removes ALL cognitive challenge.                                             │
+│                                                                              │
+│ Fix: Server sends sequence for current round only. After player submits      │
+│ correct answer, server sends next sequence. No client-side generation.        │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: .env Committed + Three Fallback Secrets                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: .env, session.guard.ts, game.gateway.ts, app.config.ts                │
+│                                                                              │
+│ .env contents:                                                               │
+│   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pattern_survival │
+│   JWT_SECRET="zubaco-pattern-survival-jwt-secret-2025"                       │
+│                                                                              │
+│ Fallback secrets:                                                            │
+│   - session.guard.ts: process.env.JWT_SECRET || 'fallback'                   │
+│   - game.gateway.ts: process.env.JWT_SECRET || 'dev-secret'                  │
+│   - app.config.ts: process.env.JWT_SECRET || 'dev-secret-pattern-survival'   │
+│                                                                              │
+│ Three DIFFERENT fallback secrets. If JWT_SECRET is unset, the gateway uses   │
+│ 'dev-secret', the guard uses 'fallback', and the config uses                 │
+│ 'dev-secret-pattern-survival'. Inconsistency + hardcoded secrets.            │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: timingAnalyzer.ts Exists But Never Used                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat (Missing Integration)                                   │
+│ File: src/game/engine/timingAnalyzer.ts                                      │
+│                                                                              │
+│ Description: A complete timing analysis module exists with proper threshold   │
+│ detection (minAvgResponseMs: 150ms, minSingleResponseMs: 50ms). It's        │
+│ NEVER CALLED from game.service.ts. Even if roundInputs were received, the    │
+│ DTO doesn't include timestamps.                                              │
+│                                                                              │
+│ Impact: Bot detection is impossible even with the infrastructure built.       │
+│                                                                              │
+│ Fix: Add timestamps to DTO, call analyzeInputTiming in submitGame.           │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 52-56)                                               │
+│                                                                              │
+│ Code:                                                                        │
+│   const document = SwaggerModule.createDocument(app, swaggerConfig);          │
+│   SwaggerModule.setup('api/docs', app, document);                            │
+│                                                                              │
+│ No environment check. Swagger visible in production.                         │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: In-Memory Rate Limiter Unbounded Growth                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/ip-rate-limiter.middleware.ts                             │
+│                                                                              │
+│ Code:                                                                        │
+│   private readonly store = new Map<string, RateEntry>();                      │
+│                                                                              │
+│ Description: Map grows without bound. Expired entries never pruned.           │
+│ Under sustained unique-IP traffic, memory grows linearly forever.            │
+│                                                                              │
+│ Fix: Add periodic cleanup (e.g., every 10 minutes, delete expired).          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: WebSocket join-session No Session Ownership Check                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts                                                 │
+│                                                                              │
+│ Description: @SubscribeMessage handlers in gateway don't verify that          │
+│ the connected user owns the game session they're joining.                    │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: scoreMultiplier Never Applied in submitGame                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (submitGame scoring)                          │
+│                                                                              │
+│ Code:                                                                        │
+│   const serverScore = verifiedRounds * config.pointsPerRound                 │
+│                      + verifiedPerfectRounds * config.perfectBonus;           │
+│                                                                              │
+│ Description: getLevelConfig() provides scoreMultiplier (1.0x to 3.5x).       │
+│ startGame returns it to client. submitGame NEVER applies it.                 │
+│ Level 10 (300ms flash, 8-length starting) earns same as Level 1.            │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: No Concurrent Session Prevention                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (startGame)                                   │
+│                                                                              │
+│ Description: Unlike Object Placement Memory, no check for existing active    │
+│ sessions before creating a new one. Player can start many parallel           │
+│ sessions and submit only the best one.                                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: perfectRounds Server Calculation Trusts Client                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (submitGame line ~83)                         │
+│                                                                              │
+│ Code:                                                                        │
+│   verifiedPerfectRounds = Math.min(dto.perfectRounds, verifiedRounds);       │
+│                                                                              │
+│ Description: Server takes client's perfectRounds and only caps it at         │
+│ verifiedRounds. But client could send perfectRounds = 999. After capping,    │
+│ it becomes verifiedRounds. Result: ALL verified rounds count as "perfect"    │
+│ regardless of whether they actually were. Client gets perfectBonus for ALL.  │
+│                                                                              │
+│ Fix: Server should determine perfect rounds independently (requires          │
+│ timing data or define "perfect" as no hesitation > Xms).                    │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: "Too Fast" Check Missing                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (submitGame)                                  │
+│                                                                              │
+│ Description: No minimum elapsed time check. A bot could submit 100 correct   │
+│ rounds in 1 second. Without timing analysis, impossible to detect.           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Sequence Formula Uses Magic Constant 7919                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Architecture                                                       │
+│ File: src/game/game.service.ts (generateSequence, line 22)                   │
+│                                                                              │
+│ Code:                                                                        │
+│   const rng = mulberry32(seed + round * 7919);                               │
+│                                                                              │
+│ Description: Multiplier 7919 is a prime number to spread seeds apart.        │
+│ This is sound but undocumented. The SAME formula is duplicated in            │
+│ frontend (sequenceGenerator.ts) creating tight coupling.                     │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: startingLength in LevelConfig Never Used by Backend              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Design                                                        │
+│ File: src/game/engine/levelConfig.ts                                         │
+│                                                                              │
+│ Description: LEVELS defines startingLength (3→8 across levels) but the      │
+│ backend's generateSequence always starts with round=0 producing 1 cell.     │
+│ The startingLength is NEVER communicated to the game logic. Higher levels    │
+│ should START with longer sequences but they don't.                           │
+│                                                                              │
+│ Fix: Pass startingLength to frontend. First round should show               │
+│ startingLength cells instead of just 1.                                     │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Dead Engine Modules (6 Files)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ Files: achievementEngine.ts, boosterEngine.ts, comboEngine.ts,               │
+│        dailyChallenge.ts, leaderboard.ts, scoreHistory.ts                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: getMaxLevel() Exported But Never Used                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/game/engine/levelConfig.ts                                         │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: CORS Allows All in Non-Production                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 38-41)                                               │
+│                                                                              │
+│ Description: Good — production throws on missing CORS_ORIGINS. But dev       │
+│ defaults to `origin: true` which permits any origin. Standard for dev        │
+│ but could leak to staging.                                                   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (16 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: VITE_ENCRYPTION_KEY Bundled in Client JS                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 5)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || '';           │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Submit Does NOT Send roundInputs — Game Broken                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL (same as B-01)                                            │
+│ Category: Integration Bug                                                    │
+│ File: src/features/pattern/hooks/useGameSession.ts (line 19-21)              │
+│                                                                              │
+│ Code:                                                                        │
+│   const { data } = await httpClient.post('/game/submit', {                   │
+│     gameSessionId: sessionId,                                                │
+│     roundsReached,        ← NOT IN BACKEND DTO                               │
+│     perfectRounds,                                                           │
+│     clientScore                                                              │
+│   });                      ← MISSING: roundInputs                            │
+│                                                                              │
+│ Description: usePatternGame tracks playerInput per round but DISCARDS IT     │
+│ after each round. On submit, the accumulated roundInputs are not available.  │
+│                                                                              │
+│ Fixes needed:                                                                │
+│ 1. usePatternGame: accumulate all roundInputs in a ref/state                 │
+│ 2. useGameSession: send roundInputs array                                    │
+│ 3. GamePage: pass roundInputs to submitGame                                  │
+│                                                                              │
+│ Priority Score: 10/10 (GAME BROKEN)                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Client Has generateSequence + Seed → Infinite Lookahead         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/pattern/engine/sequenceGenerator.ts                       │
+│                                                                              │
+│ Code:                                                                        │
+│   export function generateSequence(seed, round, colors) { ... }              │
+│                                                                              │
+│ Description: With seed from server + this function, player can compute       │
+│ ALL sequences for all future rounds. In a survival game, this means          │
+│ unlimited scores with zero cognitive effort.                                 │
+│                                                                              │
+│ Fix: Remove client-side generation entirely. Server sends sequence per       │
+│ round via WebSocket or HTTP after each correct submission.                   │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Every Completed Round Counted as "Perfect"                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic Bug                                                     │
+│ File: src/features/pattern/hooks/usePatternGame.ts (line 68)                 │
+│                                                                              │
+│ Code:                                                                        │
+│   if (newInput.length === sequence.length) {                                 │
+│     // Completed round                                                       │
+│     setPerfectRounds((p) => p + 1);  ← ALWAYS increments                    │
+│   }                                                                          │
+│                                                                              │
+│ Description: There is NO "perfect" vs "non-perfect" distinction. Every       │
+│ round completion increments perfectRounds. The "perfect" bonus is just       │
+│ the same as completing a round — double counting. Perfect should mean        │
+│ "no hesitation" or "under X seconds" but it's never defined.                │
+│                                                                              │
+│ Impact: Client sends perfectRounds = verifiedRounds. Server caps at          │
+│ verifiedRounds anyway. So every round gets perfectBonus. The 10pt bonus     │
+│ is just extra free points.                                                   │
+│                                                                              │
+│ Fix: Define "perfect" as completing in < X seconds. Track round timing.      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: showSequence Uses Nested setTimeout — Not Cleaned                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / Memory Leak                                                  │
+│ File: src/features/pattern/hooks/usePatternGame.ts (lines 23-35)             │
+│                                                                              │
+│ Code:                                                                        │
+│   const show = () => {                                                       │
+│     setHighlightIdx(seq[i]!);                                                │
+│     setTimeout(() => {                                                       │
+│       setHighlightIdx(-1);                                                   │
+│       setTimeout(show, 200);  ← recursive setTimeout                        │
+│     }, flashMs);                                                             │
+│   };                                                                         │
+│   setTimeout(show, 500);                                                     │
+│                                                                              │
+│ Description: Recursive chain of setTimeouts. If component unmounts during    │
+│ sequence display (navigate away, error), setTimeouts fire on unmounted       │
+│ component causing React warnings and potentially incorrect state.            │
+│                                                                              │
+│ Fix: Store timeout IDs in ref array, clear all on unmount.                   │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Game Ends Silently on Submit Error                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Error Handling / UX                                                │
+│ File: src/features/pattern/components/GamePage.tsx (line 21-22)              │
+│                                                                              │
+│ Code:                                                                        │
+│   const handleSubmit = async () => { await submitGame(...); };                │
+│   useEffect(() => { if (phase === 'ended') { handleSubmit(); } }, [phase]);  │
+│                                                                              │
+│ Description: No try/catch around handleSubmit. Due to B-01/F-02, this        │
+│ WILL throw a 400 error. The error is unhandled — player sees game end        │
+│ with no score saved and no error message. Silent failure.                    │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: handleSubmit Stale Closure in useEffect                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/features/pattern/components/GamePage.tsx (line 22)                 │
+│                                                                              │
+│ Code:                                                                        │
+│   useEffect(() => { if (phase === 'ended') { handleSubmit(); } }, [phase]);  │
+│                                                                              │
+│ Description: Missing handleSubmit in dependency array. ESLint exhaustive-    │
+│ deps would flag this. handleSubmit captures stale round/perfectRounds/       │
+│ score from closure. This means submit might send round=0, score=0 values    │
+│ if handleSubmit was created before the latest state update.                  │
+│                                                                              │
+│ Fix: Use a ref for the values, or add handleSubmit to deps with proper       │
+│ useCallback wrapping.                                                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Audio (useAudio Built But Unused)                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature / Dead Code                                        │
+│ File: src/hooks/useAudio.ts                                                  │
+│                                                                              │
+│ Description: Simon Says NEEDS sound. Each cell should have a unique tone.    │
+│ The original Simon game used distinct tones for each color. Without          │
+│ audio, pattern memory is VISUAL ONLY (much harder + less satisfying).        │
+│                                                                              │
+│ Fix: Wire useAudio. Play unique tone per cell during both showing + input.   │
+│                                                                              │
+│ Priority Score: 8/10 (Simon without sound is fundamentally wrong)            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: Grid Is Always 3×3 (gridSize Config Ignored)                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: src/features/pattern/engine/sequenceGenerator.ts (line 6)              │
+│                                                                              │
+│ Code:                                                                        │
+│   const totalCells = 9; // 3x3 grid                                         │
+│                                                                              │
+│ Description: GameConfig has `gridSize` parameter but both frontend and        │
+│ backend hardcode `9` cells / `3x3` grid. Config is dead.                    │
+│                                                                              │
+│ Frontend GamePage.tsx:                                                        │
+│   <div className="grid grid-cols-3 gap-3">  ← hardcoded 3 columns          │
+│                                                                              │
+│ Fix: Use config.gridSize. gridSize² = totalCells. Dynamic grid-cols.        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: No Visual Feedback on Wrong Tap                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/pattern/hooks/usePatternGame.ts (tapCell)                 │
+│                                                                              │
+│ Description: On wrong tap, phase immediately changes to 'ended'. No          │
+│ visual indication of which cell was wrong. Player doesn't know what the      │
+│ correct answer was.                                                          │
+│                                                                              │
+│ Fix: Show wrong tap (red flash), then show correct position, THEN end.       │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: No Timer Warning Visual                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/pattern/components/GamePage.tsx                            │
+│                                                                              │
+│ Description: Timer turns red at <30s (good!) but no pulse/animation or       │
+│ audio warning. For a survival game, urgency cues are important.             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: No Replay Without Error                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx (ResultScreen onReplay={handleStart})                      │
+│                                                                              │
+│ Description: handleStart calls startSession (API call) + startEngine.        │
+│ But timerRef from previous game may not be fully cleared. The cleanup        │
+│ effect only runs on unmount. State-based replay needs manual reset.          │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: No "Best Round" / High Score Display                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: GamePage.tsx                                                            │
+│                                                                              │
+│ Description: Survival games NEED high score display. "Your best: Round 14"   │
+│ is the core retention loop. Not implemented.                                 │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: useSocket Hook Unused                                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/hooks/useSocket.ts                                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: computeFinalSeed in Client (Unnecessary)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code / Security                                               │
+│ File: src/features/pattern/engine/random.ts                                  │
+│                                                                              │
+│ Description: computeFinalSeed exported but never called (server sends         │
+│ pre-computed seed). Documents seed computation for attackers.                │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: Source Maps Likely Shipped                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Profile:
+
+1. Grid: 3×3 = 9 cells (trivial to render)
+2. Sequence Display: setTimeout chain — lightweight
+3. Timer: setInterval at 100ms — standard pattern
+4. State Updates: Per-tap setState — minimal
+5. Framer Motion: animate scale on highlight only (1 cell at a time)
+6. Bundle: Framer Motion + socket.io-client (unused ~40KB waste)
+
+PERFORMANCE VERDICT: Excellent. This is a very lightweight game (9 cells,
+simple tap interactions, no complex animations). No performance concerns.
+
+Memory: Only concern is the rate limiter (backend) growing unbounded and the
+setTimeout chain not being cleaned on unmount.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Classic Simon Says mechanic (universally understood)
+✓ 3×3 grid with distinct colors (easy to distinguish)
+✓ Phase labels: "Watch the pattern..." / "Your turn!" (clear)
+✓ Timer with color change at <30s (red urgency)
+✓ Round counter visible (progress awareness)
+✓ Score display real-time (feedback)
+✓ Cell scale animation on highlight (clear which cell is active)
+✓ Opacity change for disabled vs active state
+✓ active:scale-95 on tap (physical feedback)
+✓ Framer Motion smooth animations
+✓ InstructionScreen before start (explains game)
+
+UX PROBLEMS:
+
+1. NO SOUND (CRITICAL for Simon Says)
+   - Original Simon game is 50% audio memory
+   - Each color should have a UNIQUE tone
+   - Without tones, game relies 100% on visual memory (much harder)
+   - FRUSTRATION LEVEL: EXTREME
+
+2. No Wrong Tap Feedback
+   - Game ends instantly on wrong tap
+   - No "you pressed HERE, correct was THERE" indication
+   - FRUSTRATION LEVEL: HIGH
+
+3. No High Score Display
+   - Survival game's core hook is "beat your best"
+   - No personal best shown
+   - FRUSTRATION LEVEL: MEDIUM
+
+4. Game Cannot Submit (Bug)
+   - Score is lost silently after every game
+   - FRUSTRATION LEVEL: GAME-BREAKING
+
+5. No Post-Round Celebration
+   - Completing a long round should feel GREAT
+   - No animation, no sound, no "Nice!" text
+   - FRUSTRATION LEVEL: MEDIUM
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  [!!!] Sound per cell (Simon Says REQUIRES this)
+2.  [!!!] Submit roundInputs (game is broken without it)
+3.  [!] Wrong tap feedback (show correct answer)
+4.  [!] High score / personal best display
+5.  [!] Post-round celebration (streak animation)
+6.  [ ] Dynamic grid size (4×4, 5×5 at higher levels)
+7.  [ ] Haptic feedback on tap
+8.  [ ] Timer warning audio
+9.  [ ] Score breakdown post-game
+10. [ ] Share results ("I survived 23 rounds!")
+11. [ ] Speed increase per round (flash gets faster)
+12. [ ] Proper startingLength from level config
+13. [ ] Combo meter visual
+14. [ ] Round preview (show number before starting)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. UNIQUE TONE PER CELL (the #1 most important feature for Simon)
+2. Cell lights up WITH sound during showing phase
+3. Player tap produces SAME tone (audio confirmation)
+4. Wrong tap: dissonant sound + red flash + show correct position
+5. Round complete: rising chime + "Round 5!" text
+6. Streak milestone: confetti at 10, 20, 30 rounds
+7. Flash speed increases subtly per round (building intensity)
+8. Timer low: heartbeat sound
+9. Game over: show "You reached Round X!" prominently
+10. Personal best: "NEW RECORD!" animation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. FIX: Accumulate roundInputs, send in submit
+2. FIX: Wrap handleSubmit in try/catch
+3. FIX: Fix stale closure in useEffect
+4. Add sound per cell (Web Audio API oscillator tones)
+5. Clean setTimeout chain on unmount
+6. Remove socket.io-client (unused)
+7. Remove computeFinalSeed (dead code)
+8. Use config.gridSize instead of hardcoded 3
+9. Implement startingLength from config
+10. Add high score to localStorage
+
+Backend:
+1. FIX: Either accept the DTO format frontend sends OR fix frontend
+2. Wire up timingAnalyzer.ts in submitGame
+3. Remove fallback secrets
+4. Remove .env from VCS
+5. Gate Swagger behind NODE_ENV
+6. Apply scoreMultiplier
+7. Add concurrent session check
+8. Define "perfect round" properly
+9. Add rate limiter cleanup
+10. Remove dead engine modules
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Anti-Cheat
+- Seed + generateSequence in client = infinite lookahead
+- No timing analysis (timingAnalyzer never called)
+- No "too fast" check
+- perfectRounds trusts client
+- No concurrent session prevention
+- IF roundInputs were sent: server validation is SOLID
+- Anti-cheat score: 20/100 (infrastructure exists but unused)
+
+Attack Surface 2: Secrets
+- .env committed with real JWT secret (not just placeholder)
+- THREE different fallback secrets
+- VITE_ENCRYPTION_KEY in bundle
+- Severity: CRITICAL
+
+Attack Surface 3: Integration Bug
+- Game CANNOT submit scores → no data integrity concern
+  (but also no functionality!)
+- Severity: GAME-BREAKING
+
+OVERALL SECURITY POSTURE:
+The server-side validation code in submitGame() is actually EXCELLENT — it
+regenerates every sequence, validates step-by-step, detects cheating. The
+tragedy is it's UNREACHABLE because the frontend doesn't send the right data.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Negative" - 4/10
+
+POSITIVE:
+"The core Simon Says mechanic is solid."
+"Colors are bright and distinguishable."
+"Gets harder naturally as sequences grow."
+
+NEGATIVE:
+"IT HAS NO SOUND! Simon without sound is like a piano with no keys!"
+"My score never saves! I got to Round 20 and... nothing."
+"Wrong tap just instantly ends — I don't even know what I pressed wrong."
+"Every round feels the same — no celebration, no 'nice streak' moment."
+"It's a 3×3 grid forever. Where's the difficulty increase?"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "NO SOUND!" — Simon Says without audio is fundamentally broken
+2. "Score never saves!" — Submit always fails silently
+3. "Instant game over with no explanation!" — No wrong tap feedback
+4. "Where's my high score?" — No personal best
+5. "It's the same 3×3 grid forever!" — Grid never grows
+6. "No celebration for streaks!" — Completing round 15 feels same as 1
+7. "I can't tell which cell I pressed wrong!" — No correction display
+8. "The timer just ran out!" — No audio urgency cue
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Simon Says is a proven, universally known mechanic
+✓ Progressive difficulty (sequence grows each round)
+✓ Survival format (one mistake = game over = tension)
+✓ Pattern recognition engages working memory
+✓ Quick rounds (a few seconds each)
+✓ Infinite depth (how long can you survive?)
+✓ "I can do one more" hook (always feels beatable)
+✓ Clear goal (just repeat what you saw)
+✓ Immediate feedback on each tap (right = continue, wrong = done)
+✓ Colors make it visually engaging
+
+Flow State Enablers:
+✓ Difficulty scales exactly with skill (one more per round)
+✓ Quick restart
+✓ "Just one more try" loop
+✓ Clear success/failure signal
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. NO SOUND (FATAL for Simon Says)
+   - Original Simon game is DEFINED by its tones
+   - Audio memory + visual memory = much easier/more fun
+   - Without sound, it's just "stare at colored squares"
+   - 90% of Simon's appeal is audio-visual combo
+
+2. GAME BROKEN (Scores don't save)
+   - Can't show friends your round 25 achievement
+   - Leaderboards impossible without saved scores
+
+3. NO HIGH SCORE DISPLAY
+   - "Beat my best of 18!" is the share hook
+   - Without it, no bragging, no sharing
+
+4. NO SHARE
+   - "I survived 23 rounds!" is perfect tweet content
+   - Not implemented
+
+5. NO CELEBRATION
+   - Surviving round 20+ should feel AMAZING
+   - No confetti, no milestone acknowledgment
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     55/100 (good server code, broken integration)
+- Security:                         25/100 (3 fallback secrets, .env committed)
+- Performance:                      80/100 (lightweight game, no issues)
+- Game Logic & Correctness:         35/100 (submit broken, perfect always true)
+- UX & Polish:                      30/100 (no sound = Simon is broken)
+- Anti-Cheat:                       20/100 (great code exists but unreachable)
+- Accessibility:                    25/100 (no keyboard, no screen reader)
+- Retention & Engagement:           40/100 (no high score, no celebration)
+- Error Handling:                   30/100 (silent submit failure)
+- Production Readiness:             40/100 (dead code, broken integration)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 52/100
+═══════════════════════════════════════
+
+VERDICT: GREAT ARCHITECTURE, BROKEN INTEGRATION, MISSING SOUL (AUDIO)
+The server-side validation is one of the BEST in the platform — step-by-step
+sequence verification, score divergence detection, timing analyzer exists.
+The tragedy is the frontend-backend integration is BROKEN (wrong DTO fields)
+and the game has NO SOUND (which is 50% of Simon Says).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL FIXES (1 day)
+  □ FIX SUBMIT: Frontend must accumulate & send roundInputs
+  □ FIX SUBMIT: Add try/catch + error display around handleSubmit
+  □ FIX SUBMIT: Fix stale closure in useEffect
+  □ Remove fallback secrets (crash on missing)
+  □ Remove .env from VCS
+  □ Gate Swagger behind NODE_ENV
+
+PHASE 2: AUDIO (THE SOUL) (1 day)
+  □ Assign unique oscillator tone per cell (C4, D4, E4, F4, G4, A4, B4, C5, D5)
+  □ Play tone during showing phase (cell highlights + sound)
+  □ Play tone on player tap (same cell = same sound)
+  □ Dissonant buzz on wrong tap
+  □ Rising chime on round complete
+  □ Heartbeat on timer low
+
+PHASE 3: GAME LOGIC (0.5 day)
+  □ Wire up timingAnalyzer.ts in submitGame
+  □ Apply scoreMultiplier
+  □ Implement startingLength from level config
+  □ Define "perfect" properly (under Xms per tap)
+  □ Add concurrent session check
+
+PHASE 4: UX (0.5 day)
+  □ Wrong tap: red flash + show correct position
+  □ Round complete: "Round X!" celebration
+  □ High score in localStorage + display
+  □ Streak milestones (confetti at 10, 20, 30)
+  □ Timer warning pulse
+
+PHASE 5: POLISH (0.5 day)
+  □ Clean setTimeout chain on unmount
+  □ Use dynamic gridSize
+  □ Remove dead code (socket, computeFinalSeed, engine modules)
+  □ Add share results
+  □ Don't send seed (server sends sequence per round)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Fix submit: accumulate roundInputs + send to server
+    Effort: 1-2 hours | Impact: GAME LITERALLY DOESN'T WORK WITHOUT THIS
+    ROI: ∞ (prerequisite for everything)
+
+#2  Add unique tone per cell (Web Audio oscillator)
+    Effort: 2-3 hours | Impact: Simon Says without sound is 50% of a game
+    ROI: ∞ (defines the genre)
+
+#3  Remove fallback secrets
+    Effort: 30 min | Impact: Prevents auth bypass
+    ROI: ∞ (security)
+
+#4  Add wrong tap feedback (red flash + show correct)
+    Effort: 30 min | Impact: Players understand their mistake
+    ROI: 10x
+
+#5  Add high score to localStorage + display
+    Effort: 30 min | Impact: "Beat my best" is the retention loop
+    ROI: 9x
+
+#6  Wire timingAnalyzer in submitGame
+    Effort: 30 min | Impact: Bot detection (already built!)
+    ROI: 8x (0 new code needed)
+
+#7  Apply scoreMultiplier
+    Effort: 5 min | Impact: Higher levels feel rewarding
+    ROI: 8x (one line)
+
+#8  Round completion celebration
+    Effort: 45 min | Impact: Streaks feel amazing
+    ROI: 7x
+
+#9  Don't send seed (server sends sequence per round)
+    Effort: 2-3 hours | Impact: Prevents infinite lookahead cheating
+    ROI: 6x
+
+#10 Implement startingLength from config
+    Effort: 20 min | Impact: Higher levels actually feel different
+    ROI: 5x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND:
+✓ SERVER-SIDE VALIDATION: Regenerates EVERY sequence from seed, verifies
+  player input step-by-step. This is one of the BEST validation
+  implementations in the platform.
+✓ First wrong answer = game over (can't skip rounds to inflate score)
+✓ Score divergence detection (>10 threshold)
+✓ Session expiry enforcement (timeLimitMs + 5000ms grace)
+✓ Atomic double-submit prevention (updateMany where status: 'active')
+✓ Cheat flag persistence + event publishing
+✓ Round input limit (500 max = DoS protection)
+✓ Zod DTO validation with strict schemas
+✓ timingAnalyzer.ts — COMPLETE implementation (just needs wiring)
+✓ Environment validation at startup
+✓ Production CORS check (throws on missing)
+✓ Helmet + compression enabled
+✓ Restate integration for session expiry
+✓ 10-level config with good difficulty curve
+
+FRONTEND:
+✓ Clean phase state machine (idle → showing → input → ended)
+✓ Timer properly cleaned on unmount (useEffect cleanup)
+✓ Cell disabled during showing phase (cursor-not-allowed)
+✓ Immediate wrong-tap detection (per-tap validation)
+✓ Framer Motion for smooth cell animations
+✓ InstructionScreen before start
+✓ ResultScreen with replay
+✓ Timer color change at <30s
+✓ Round + Score visible at all times
+✓ active:scale-95 tap feedback
+✓ Clean separation: GamePage, usePatternGame, useGameSession
+
+GAME DESIGN:
+✓ Simon Says = proven, universal mechanic
+✓ Progressive difficulty (one more per round)
+✓ Survival format = high tension
+✓ Quick sessions
+✓ "One more try" hook
+✓ Mulberry32 RNG = deterministic, reproducible
+✓ Sequence formula produces good distribution
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1 (Arrows):             58/100
+  Game #2 (Block Fill):         62/100
+  Game #3 (Colour Sorting):     61/100
+  Game #4 (Flash Spot):         56/100
+  Game #5 (Infinity Loop):      59/100
+  Game #6 (Live Route Builder): 48/100 ← LOWEST
+  Game #7 (Logic Reflector):    72/100 ← HIGHEST
+  Game #8 (Maze Navigation):    58/100
+  Game #9 (Memory Card Match):  68/100
+  Game #10 (Memory Groups):     45/100
+  Game #11 (Number Grid Sprint):62/100
+  Game #12 (Object Placement):  60/100
+  Game #13 (Pattern Survival):  52/100
+
+UNIQUE STRENGTHS (vs other games):
+★ BEST server-side validation code (step-by-step sequence verification)
+★ timingAnalyzer.ts EXISTS (no other game has this built out)
+★ Environment validation at startup (validateEnvironment())
+★ Production CORS check (throws on missing — only game that does this!)
+★ Proper client seed + nonce in session (cryptographically sound)
+★ Clean GameConfig typing shared between frontend/backend
+
+UNIQUE ISSUES:
+★ GAME IS BROKEN (frontend doesn't send roundInputs) — ONLY broken game!
+★ No sound (critical for Simon Says specifically)
+★ startingLength defined but never used
+★ THREE different fallback secrets (worst inconsistency)
+★ Every round is "perfect" (no meaningful distinction)
+
+vs Number Grid Sprint (62/100):
+- BETTER: Server validation is step-by-step (not just score comparison)
+- BETTER: timingAnalyzer exists
+- WORSE: Submit is BROKEN
+- WORSE: No sound (critical for Simon)
+- SAME: Seed sent to client
+
+vs Memory Groups (45/100):
+- BETTER: Server validates independently
+- BETTER: Proper Zod DTOs
+- BETTER: Environment validation
+- WORSE: Submit is BROKEN (Memory Groups at least saves scores)
+- WORSE: No sound
+
+================================================================================
+END OF AUDIT — GAME #13: PATTERN SURVIVAL
+================================================================================

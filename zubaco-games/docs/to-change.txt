@@ -1,0 +1,168 @@
+========================================================
+ZUBACO — REMAINING CHANGES (Require External Assets)
+========================================================
+
+Last Updated: May 22, 2026
+
+
+1. AUDIO FILES (Replace all game sounds)
+-----------------------------------------
+Current audio references in code:
+  - /audio/bgm.mp3 (background music)
+  - /sounds/background_sound.mp3
+  - /sounds/tap_sound.mp3
+  - /sounds/success_sound.mp3
+  - /sounds/wrong_step.mp3
+  - /sounds/whoosh_sound.mp3
+  - Kenney UI Audio CDN URLs (used in some games)
+  - Mixkit CDN URLs (used in some games)
+
+Action needed:
+  - Source new royalty-free BGM (dark electronic/ambient feel)
+  - Source new tap, success, fail, whoosh SFX
+  - Replace files in each game's /public/audio/ or /public/sounds/ folder
+  - Update any CDN URLs in code to point to new self-hosted files
+  - Games using audio: arrows, sliding-puzzle, block-fill, memory-card-matching,
+    sequence-recall, maze-navigation, logic-reflector, infinity-loop
+
+
+2. CLOUDFRONT STAGE OVERLAY IMAGES (7 stages per game)
+-------------------------------------------------------
+Loaded via getCloudFrontAssetUrl() in micro-screens.
+Current files on CDN:
+  - Stage_1.png through Stage_7.png (instruction screen overlays)
+  - Ending overlay images (result screen backgrounds)
+
+Action needed:
+  - Design 7 new stage overlay artworks matching Zubaco palette
+    (dark purple/cyan/violet theme, NOT the original amber/warm style)
+  - Upload to your own CloudFront distribution / S3 bucket
+  - Update the CloudFront base URL in environment variables (.env files)
+
+
+3. PNG ICONS FOR STAGES 5, 6, 7 (Raster — cannot text-replace)
+----------------------------------------------------------------
+Location in each game:
+  micro-screens/src/assets/icons/stage-5/star.svg (actually PNG in some)
+  micro-screens/src/assets/icons/stage-5/running.svg
+  micro-screens/src/assets/icons/stage-6/star.svg
+  micro-screens/src/assets/icons/stage-6/running.svg
+  micro-screens/src/assets/icons/stage-7/star.svg
+  micro-screens/src/assets/icons/stage-7/running.svg
+
+Note: Stages 1-4 SVGs were already recolored (cyan/violet).
+      Stages 5-7 may use PNG format or embedded raster — need manual replacement.
+
+Action needed:
+  - Create new icon set for stages 5-7 in Zubaco color scheme
+  - Replace files in all 8 games' assets folders
+
+
+4. GAME-SPECIFIC VISUAL ASSETS
+-------------------------------
+a) Arrows game:
+   - Arrow/snake SVG sprites (if any custom path artwork)
+   - src/app/globals.css has shadcn oklch tokens — review if needed
+
+b) Memory Card Matching:
+   - Card back design (the pattern shown when cards are face-down)
+   - Card flip animation assets
+   - Location: memory-card-matching-frontend/src/assets/
+
+c) Sliding Puzzle:
+   - Puzzle tile textures/borders
+   - Any custom grid artwork
+
+d) Block Fill:
+   - Block piece shapes/colors already updated in Phaser theme
+   - But check if any sprite sheets exist in /public/
+
+e) Infinity Loop:
+   - Night sky background component (night-sky-background.tsx)
+     Already updated colors but verify particle/star effects visually
+   - Pipe/node connection artwork
+
+f) Logic Reflector:
+   - Beam/mirror/reflector sprites
+   - Grid cell artwork
+   - game-container.css already updated
+
+g) Maze Navigation:
+   - Player avatar sprite
+   - Wall/path textures (if using images beyond PixiJS drawing)
+   - Logo already replaced (public/assets/logo.svg)
+
+
+5. ADMIN PANEL BRANDING
+-------------------------
+Location: c:\game\zubaco-admin-panel-repo\zubaco-admin-panel\
+  - frontend/ (Next.js)
+  - backend/ (NestJS)
+
+STATUS: ✅ DONE
+  - Sidebar SVG logo colors updated (#844C1D → #8b5cf6)
+  - globals.css primary color updated
+  - favicon.svg + icon.svg deployed
+  - Backend is clean — no old branding references
+  - Zero "Shunya" references remain
+
+
+6. FAVICON & APP ICONS
+------------------------
+Each game has:
+  - /public/favicon.svg (NEW — Zubaco Z logo, already deployed)
+  - index.html updated to reference favicon.svg
+  - Infinity Loop: app/icon.svg placed for Next.js auto-detection
+
+STATUS: ✅ SVG FAVICONS DONE
+Remaining:
+  - Generate favicon.ico (for older browsers) from the SVG
+    Use: https://realfavicongenerator.net or similar tool
+  - PWA manifest icons (192x192, 512x512 PNG) if you add PWA support later
+
+
+7. META / OG IMAGES (Social sharing)
+--------------------------------------
+If games have Open Graph preview images for social sharing:
+  - /public/og-image.png or similar
+  - Check index.html meta tags for og:image URLs
+
+Action needed:
+  - Create Zubaco-branded OG images
+  - Update meta tags if URLs change
+
+
+8. ENVIRONMENT VARIABLES / BACKEND CONFIG
+------------------------------------------
+STATUS: ✅ DONE — All .env.example files are clean.
+No "Shunya" references in any environment config.
+
+When deploying:
+  - Set up YOUR OWN CloudFront distribution + S3 bucket
+  - Update CLOUDFRONT_URL in .env for each game
+  - Use your own database names (not inherited from previous owner)
+  - Set up your own Redis instance
+  - Configure your own AWS SNS/SQS topics
+
+
+========================================================
+WHAT'S ALREADY DONE (Code changes completed):
+========================================================
+✅ All "Shunya" text references removed from source code
+✅ Fonts changed: Outfit (body) + Orbitron (display) everywhere
+✅ Color palette: dark purple bg + cyan accent + violet actions (all 8 games)
+✅ 7 stage themes per game — new palette applied
+✅ Block-fill Phaser board design system updated
+✅ 40 SVG icons recolored (stages 1-4, 5 games)
+✅ Result screen labels completely rewritten (all 6 micro-screen games)
+✅ Instruction configs rewritten (labels, anti-cheat text, button copy)
+✅ CTA buttons: gold pill → violet rounded-rect (all games)
+✅ Heading gradients: gold → cyan/purple (all games)
+✅ Eclipse effects repositioned (bottom-right → top-left)
+✅ All index.html titles/descriptions updated to "Zubaco"
+✅ Logo SVG + favicon.svg deployed to ALL 8 games + admin panel
+✅ All package.json names branded ("zubaco-*")
+✅ Admin panel frontend rebranded (colors, sidebar logo SVG)
+✅ Admin panel backend — clean (no old references)
+✅ All .env files — clean (no Shunya references)
+✅ Audio paths are local & generic (just drop new files, no code change needed)

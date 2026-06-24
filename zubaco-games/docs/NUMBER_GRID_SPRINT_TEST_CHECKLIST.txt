@@ -1,0 +1,239 @@
+========================================================================
+NUMBER GRID SPRINT – COMPREHENSIVE TEST CHECKLIST
+========================================================================
+Total Test Cases: 148
+Version: 1.0
+Game: Number Grid Sprint
+Stack: React 19 + Vite + TypeScript + TailwindCSS 3 + Framer Motion + i18next
+
+========================================================================
+SECTION 1: MENU SCREEN (14 tests)
+========================================================================
+[ ] 1.1  Menu renders with game title "Number Grid Sprint" and 🔢 emoji
+[ ] 1.2  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.3  Buttons animate in sequentially with stagger delay (0.06s)
+[ ] 1.4  Tapping "Play" transitions to game (appPhase='game')
+[ ] 1.5  Tapping "Levels" transitions to level selector
+[ ] 1.6  Tapping "Daily Challenge" transitions to daily screen
+[ ] 1.7  Tapping "Achievements" transitions to achievements screen
+[ ] 1.8  Tapping "Statistics" transitions to stats screen
+[ ] 1.9  Tapping "Settings" transitions to settings screen
+[ ] 1.10 Each button has unique color (blue/purple/amber/emerald/cyan/slate)
+[ ] 1.11 Menu is the initial screen (appPhase = 'menu')
+[ ] 1.12 Active button scale animation on tap (scale 0.97)
+[ ] 1.13 Subtitle text "Memorize flashing numbers, fill the grid!" visible
+[ ] 1.14 Menu takes full screen height (min-h-screen)
+
+========================================================================
+SECTION 2: LEVEL SELECTOR (18 tests)
+========================================================================
+[ ] 2.1  Level grid renders 10 levels in 5-column layout
+[ ] 2.2  Level 1 is unlocked by default
+[ ] 2.3  Levels 2-10 are locked initially (show 🔒)
+[ ] 2.4  Unlocked levels show level number and star display
+[ ] 2.5  Grid size label shown per level (4×4 through 8×8)
+[ ] 2.6  Stars display (0-3) for each completed level
+[ ] 2.7  Locked levels have reduced opacity and disabled click
+[ ] 2.8  Tapping unlocked level triggers game start via API
+[ ] 2.9  Completing level N unlocks level N+1
+[ ] 2.10 Star calculation: 3★ = all cells correct (perfect)
+[ ] 2.11 Star calculation: 2★ = ≥75% correct
+[ ] 2.12 Star calculation: 1★ = completed (any correctness)
+[ ] 2.13 "← Back" button returns to menu
+[ ] 2.14 Level configs scale: grid 4×4→8×8, time 60s→30s
+[ ] 2.15 localStorage persistence survives page refresh
+[ ] 2.16 Level grid entrance animation (scale from 0.8)
+[ ] 2.17 Score multiplier increases per level (1.0× to 3.5×)
+[ ] 2.18 Corrupted localStorage gracefully falls back to defaults
+
+========================================================================
+SECTION 3: SETTINGS (12 tests)
+========================================================================
+[ ] 3.1  Settings screen renders with Sound, Volume, Dark Mode toggles
+[ ] 3.2  Sound toggle reflects current state from localStorage
+[ ] 3.3  Toggling sound updates state and saves immediately
+[ ] 3.4  Volume slider shows current percentage (0-100)
+[ ] 3.5  Volume slider disabled when sound is off
+[ ] 3.6  Volume changes persist across page refresh
+[ ] 3.7  Dark Mode toggle switches theme
+[ ] 3.8  Theme preference persists in localStorage
+[ ] 3.9  Toggle pill animation slides correctly (framer-motion)
+[ ] 3.10 "← Back" button returns to menu
+[ ] 3.11 Settings load default values if no localStorage data
+[ ] 3.12 Invalid localStorage values handled gracefully
+
+========================================================================
+SECTION 4: STATISTICS (12 tests)
+========================================================================
+[ ] 4.1  Stats screen renders all 10 stat cards in 2-column grid
+[ ] 4.2  Displays: Games Played, Games Won, Accuracy %, Correct Cells
+[ ] 4.3  Displays: Perfect Games, Best Streak, Highest Level, Speed Runs
+[ ] 4.4  Displays: Total Time (formatted), High Score
+[ ] 4.5  All stats start at 0 for new player
+[ ] 4.6  Accuracy calculated from totalCorrect / totalCells
+[ ] 4.7  Time format: "0m" / "Xm" / "Xh Xm"
+[ ] 4.8  Stats entrance animation (opacity + y translate)
+[ ] 4.9  "← Back" button returns to menu
+[ ] 4.10 Stats survive page refresh via localStorage
+[ ] 4.11 Number formatting uses toLocaleString
+[ ] 4.12 updateStats helper correctly increments/maxes values
+
+========================================================================
+SECTION 5: ACHIEVEMENTS (16 tests)
+========================================================================
+[ ] 5.1  Achievements screen renders all 10 achievement cards
+[ ] 5.2  Unlocked achievements show icon, title, description, ✓
+[ ] 5.3  Locked achievements show at 50% opacity
+[ ] 5.4  "First Victory" unlocks after first win
+[ ] 5.5  "On Fire" unlocks at 5-cell correct streak
+[ ] 5.6  "Unstoppable" unlocks at 10-cell streak
+[ ] 5.7  "Perfectionist" unlocks with all cells correct
+[ ] 5.8  "Speed Demon" unlocks with >50% time remaining
+[ ] 5.9  "Dedicated" unlocks after 50 games played
+[ ] 5.10 "Rising Star" unlocks at level 5
+[ ] 5.11 "Master" unlocks at level 10
+[ ] 5.12 "High Scorer" unlocks at 1000+ points
+[ ] 5.13 "Flawless" unlocks with no errors
+[ ] 5.14 AchievementPopup appears at top with animation
+[ ] 5.15 Popup auto-dismisses after 4 seconds
+[ ] 5.16 "← Back" button returns to menu
+
+========================================================================
+SECTION 6: DAILY CHALLENGE (14 tests)
+========================================================================
+[ ] 6.1  Daily screen renders calendar week (Sun-Sat)
+[ ] 6.2  Current day highlighted with blue border
+[ ] 6.3  Completed days show ✓, incomplete show ○
+[ ] 6.4  Current streak and best streak displayed
+[ ] 6.5  Streak increments on daily completion
+[ ] 6.6  Best streak updates when current surpasses it
+[ ] 6.7  "Start Daily Grid" button active for incomplete day
+[ ] 6.8  Button disabled with "✓ Completed Today" after completion
+[ ] 6.9  Daily seed is date-based (deterministic SHA-256)
+[ ] 6.10 Score multiplier info (1.5×) displayed
+[ ] 6.11 "← Back" button returns to menu
+[ ] 6.12 Daily completion persists in localStorage
+[ ] 6.13 Calendar week resets at start of new week
+[ ] 6.14 markDailyComplete prevents double completion
+
+========================================================================
+SECTION 7: PAUSE DIALOG (10 tests)
+========================================================================
+[ ] 7.1  Pause overlay covers full screen with backdrop blur
+[ ] 7.2  Dialog shows cells filled (X/Y format)
+[ ] 7.3  Dialog shows elapsed time (MM:SS format)
+[ ] 7.4  "Resume" button calls onResume and closes
+[ ] 7.5  "Restart" button calls onRestart
+[ ] 7.6  "Exit to Menu" calls onExit → returns to menu
+[ ] 7.7  Dialog entrance animation (scale from 0.9)
+[ ] 7.8  Buttons have correct visual hierarchy (Resume = primary blue)
+[ ] 7.9  Game timer paused while dialog is open
+[ ] 7.10 Dialog rendered above all game UI (z-50)
+
+========================================================================
+SECTION 8: CONFETTI (10 tests)
+========================================================================
+[ ] 8.1  Confetti does not render when active=false
+[ ] 8.2  Confetti renders 60 particles when active=true
+[ ] 8.3  Particles have random colors from 8-color palette
+[ ] 8.4  Particles animate outward from center
+[ ] 8.5  Particles fade to opacity 0
+[ ] 8.6  Confetti disappears after duration (default 3000ms)
+[ ] 8.7  pointer-events-none so confetti doesn't block interaction
+[ ] 8.8  Particles have mixed shapes (circle and rectangle)
+[ ] 8.9  Re-triggering creates fresh particle set
+[ ] 8.10 No memory leaks (timeout cleared on unmount)
+
+========================================================================
+SECTION 9: CORE GAMEPLAY – GRID & REVEAL (22 tests)
+========================================================================
+[ ] 9.1  Idle phase shows InstructionScreen with Start button
+[ ] 9.2  Start button calls API POST /game/start
+[ ] 9.3  API returns seed, config, gameSessionId
+[ ] 9.4  Grid generated: values 1..N placed via Fisher-Yates shuffle
+[ ] 9.5  Grid size matches config (default 6×6 = 36 cells)
+[ ] 9.6  Reveal cycle starts: ~25% of cells flash every hideIntervalMs
+[ ] 9.7  Revealed cells show green number + green border + scale pulse
+[ ] 9.8  Cells hide after revealDurationMs (default 1000ms)
+[ ] 9.9  Reveal schedule is deterministic (same seed = same pattern)
+[ ] 9.10 Schedule uses offset seed (seed + 7919) for independence
+[ ] 9.11 Timer counts down from timeLimitMs (default 120s)
+[ ] 9.12 Timer turns red + pulses at ≤15 seconds
+[ ] 9.13 GameHeader shows filled count "X / Y"
+[ ] 9.14 "Watch the grid!" hint text visible
+[ ] 9.15 Selected cell highlighted with blue border/bg
+[ ] 9.16 NumberPad appears when a cell is selected
+[ ] 9.17 NumberPad shows 1..totalCells buttons in 6-col grid
+[ ] 9.18 Tapping number assigns value to selected cell
+[ ] 9.19 Filled cells show slate text + slate border
+[ ] 9.20 Player can overwrite previously filled cells
+[ ] 9.21 "Submit Early" button always visible during filling
+[ ] 9.22 All cells filled → auto-finish game
+
+========================================================================
+SECTION 10: SCORING & RESULTS (14 tests)
+========================================================================
+[ ] 10.1  Score = correctCells × pointsPerCorrect (default 10)
+[ ] 10.2  Time bonus = floor(secondsRemaining × timeBonusMultiplier)
+[ ] 10.3  Final score = cell score + time bonus
+[ ] 10.4  Timer expiry → phase 'finished'
+[ ] 10.5  Submit Early → phase 'finished' with remaining time
+[ ] 10.6  ResultScreen shows finalScore
+[ ] 10.7  "Replay" now returns to menu (not window.reload)
+[ ] 10.8  Score submitted to API: POST /game/submit
+[ ] 10.9  API receives: gameSessionId, answers[], clientScore
+[ ] 10.10 GameOverScreen shows correct/total breakdown
+[ ] 10.11 GameOverScreen shows time bonus separately
+[ ] 10.12 Confetti on high-scoring game
+[ ] 10.13 Sound: numberTap on cell selection
+[ ] 10.14 Sound: numberCorrect/numberWrong on value submit
+
+========================================================================
+SECTION 11: APP INTEGRATION (10 tests)
+========================================================================
+[ ] 11.1  App.tsx renders: ErrorBoundary → ThemeProvider → OfflineBanner → GamePage
+[ ] 11.2  GamePage appPhase starts at 'menu'
+[ ] 11.3  All phase transitions work correctly
+[ ] 11.4  Back buttons return to menu from all screens
+[ ] 11.5  Game session maintained across phase transitions
+[ ] 11.6  ThemeProvider context available in all components
+[ ] 11.7  ErrorBoundary catches rendering errors
+[ ] 11.8  OfflineBanner shows when network disconnected
+[ ] 11.9  All imports resolve correctly (@ aliases)
+[ ] 11.10 Save-progress outbox for offline resilience
+
+========================================================================
+SECTION 12: ENGINE & GENERATORS (16 tests)
+========================================================================
+[ ] 12.1  Mulberry32 PRNG produces deterministic results from seed
+[ ] 12.2  generateGrid creates N×N cells with unique values 1..N²
+[ ] 12.3  Fisher-Yates shuffle is correct (no bias)
+[ ] 12.4  generateRevealSchedule: total intervals = timeLimit / hideInterval
+[ ] 12.5  Each reveal batch contains ~25% of cells (totalCells/4)
+[ ] 12.6  Schedule offset seed prevents correlation with grid
+[ ] 12.7  calculateScore: correct cell check (row+col+value match)
+[ ] 12.8  calculateScore: time bonus formula correct
+[ ] 12.9  calculateScore: 0 time remaining → 0 time bonus
+[ ] 12.10 Backend level config: 10 levels (4×4→8×8)
+[ ] 12.11 Backend scorer verifies client score server-side
+[ ] 12.12 Backend combo engine: streak milestone every 3 correct
+[ ] 12.13 Backend combo multiplier capped at 4×
+[ ] 12.14 Backend daily challenge: SHA-256 seeded per date
+[ ] 12.15 Backend timing analyzer: anti-cheat checks
+[ ] 12.16 Backend leaderboard: top 100
+
+========================================================================
+NOTES
+========================================================================
+- Default config: 6×6 grid, 1s reveal, 3s interval, 120s time limit
+- Scoring: 10pts/correct cell + (sec × 2) time bonus
+- Level progression: 4×4/60s → 8×8/30s with ×1.0→×3.5 multiplier
+- Reveal shows ~25% of cells per interval (9 of 36 in 6×6)
+- Audio: 8 sounds (numberTap, numberCorrect, numberWrong, combo, etc.)
+- State: Custom hooks (useState + useCallback + useRef), NOT Zustand
+- No React Router — single GamePage with appPhase state machine
+- Backend: 5 boosters (TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO)
+- Backend: Combo engine (max 4× multiplier, milestone every 3)
+- Backend: Daily challenge with date-seeded grid + 1.5× bonus
+- Save progress outbox pattern for offline resilience
+========================================================================

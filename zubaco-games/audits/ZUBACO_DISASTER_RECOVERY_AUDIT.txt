@@ -1,0 +1,285 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║      ZUBACO GAMING PLATFORM - DISASTER RECOVERY & BUSINESS CONTINUITY AUDIT     ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: Backup, recovery, failover, data durability, RTO/RPO targets            ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DR/BC SCORE: 30/100 (HIGH RISK - PARTIAL PROTECTION ONLY)
+
+The infrastructure has SOME disaster recovery capabilities baked into AWS managed
+services (RDS Multi-AZ, automated backups), but there is ZERO application-level
+DR planning. No defined RTO/RPO, no tested recovery procedures, no cross-region
+replication, no Redis backup, and no documented failover process.
+
+CURRENT PROTECTION:
+  Database (RDS):      ⚠️ 7-day automated backups + Multi-AZ (production)
+  Redis:               ❌ No backup, no persistence, no cluster mode
+  Application State:   ✓ Stateless (ECS Fargate) - easily replaceable
+  File Storage (S3):   ✓ 99.999999999% durability
+  Secrets:             ⚠️ AWS Secrets Manager (single region)
+  Source Code:         ✓ GitHub (distributed)
+  Terraform State:     ⚠️ S3 + DynamoDB lock (single region)
+
+UNDEFINED:
+  RTO (Recovery Time Objective):    Not defined
+  RPO (Recovery Point Objective):   Not defined
+  DR Testing Schedule:              None
+  Failover Procedures:              None documented
+  Communication Plan:               None
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: DATA LAYER RESILIENCE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 RDS POSTGRESQL                                                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ WHAT EXISTS:                                                                    │
+│   ✓ backup_retention_period = 7 days                                          │
+│   ✓ multi_az = true (production) → automatic failover                        │
+│   ✓ storage_encrypted = true                                                  │
+│   ✓ deletion_protection = true (production)                                   │
+│   ✓ performance_insights_enabled = true                                       │
+│   ✓ skip_final_snapshot = false (production)                                  │
+│                                                                                 │
+│ WHAT'S MISSING:                                                                 │
+│   ☐ Point-in-time recovery testing (never tested)                             │
+│   ☐ Cross-region read replica (for DR)                                        │
+│   ☐ Manual snapshot before deployments                                        │
+│   ☐ Snapshot copy to another region                                           │
+│   ☐ Backup verification (restore to test instance weekly)                     │
+│   ☐ Recovery runbook                                                          │
+│                                                                                 │
+│ RISK ASSESSMENT:                                                                │
+│   - AZ failure: PROTECTED (Multi-AZ failover ~60 seconds)                     │
+│   - Data corruption: PROTECTED (7-day PITR)                                   │
+│   - Region failure: NOT PROTECTED (all backups in ap-south-1)                 │
+│   - Accidental deletion: PROTECTED (deletion_protection + final snapshot)     │
+│   - Ransomware/encryption: PARTIAL (backups exist but same account)           │
+│                                                                                 │
+│ RPO for database: ~5 minutes (RDS continuous backup)                           │
+│ RTO for database: ~5 minutes (Multi-AZ automatic failover)                    │
+│ RTO for region failure: UNDEFINED (no cross-region plan)                       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.2 REDIS (ElastiCache)                                                         │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ FROM TERRAFORM:                                                                 │
+│   Engine: Redis 7.1                                                            │
+│   Instance: cache.t3.medium                                                   │
+│   Cluster mode: NOT CONFIGURED (single node)                                  │
+│   Multi-AZ: NOT CONFIGURED                                                    │
+│   Automatic backups: NOT CONFIGURED                                           │
+│   Snapshot retention: 0 (no snapshots)                                        │
+│                                                                                 │
+│ WHAT REDIS STORES:                                                              │
+│   - Rate limiting counters (ThrottlerModule)                                  │
+│   - OTP verification codes (temporary)                                        │
+│   - Possibly session cache                                                    │
+│   - Leaderboard cache (if implemented)                                        │
+│                                                                                 │
+│ IF REDIS DIES:                                                                  │
+│   - Rate limiting resets (temporary DDoS exposure)                            │
+│   - Active OTPs lost (users must request new OTP)                             │
+│   - Cached data regenerated from PostgreSQL                                   │
+│   - Application may crash if ioredis not configured for reconnect             │
+│                                                                                 │
+│ RISK: MEDIUM-HIGH                                                               │
+│   Redis failure = temporary service degradation + rate limit bypass.           │
+│   No financial data loss (all financial state is in PostgreSQL).              │
+│                                                                                 │
+│ MISSING:                                                                        │
+│   ☐ Enable AOF persistence (at minimum)                                      │
+│   ☐ Multi-AZ with automatic failover                                         │
+│   ☐ Cluster mode for horizontal scaling                                       │
+│   ☐ Backup snapshots (daily)                                                 │
+│   ☐ Redis connection retry/circuit breaker in application                    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.3 S3 (ASSETS & KYC DOCUMENTS)                                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ S3 provides 99.999999999% (11 nines) durability by default.                   │
+│ Data loss risk: Negligible.                                                    │
+│                                                                                 │
+│ HOWEVER:                                                                        │
+│   ☐ No versioning enabled (accidental overwrite = data loss)                  │
+│   ☐ No cross-region replication                                               │
+│   ☐ No lifecycle policies (cost management)                                   │
+│   ☐ KYC documents should have access audit trail                             │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: APPLICATION LAYER RESILIENCE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.1 ECS FARGATE (STATELESS SERVICES)                                            │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ STRENGTHS:                                                                      │
+│   ✓ Stateless design → any instance replaceable                               │
+│   ✓ Auto-scaling configured (min 1, max 10 for platform)                     │
+│   ✓ Multi-AZ distribution (3 AZs in VPC)                                     │
+│   ✓ Docker images in ECR (durable)                                            │
+│   ✓ Task restart on failure (ECS default)                                     │
+│                                                                                 │
+│ WEAKNESSES:                                                                     │
+│   ☐ No health check endpoint → ALB may route to unhealthy task               │
+│   ☐ Graceful shutdown not configured (inflight requests may be lost)          │
+│   ☐ No circuit breaker for downstream failures                                │
+│   ☐ Single cluster (no warm standby in another region)                        │
+│   ☐ 22 services on one cluster → noisy neighbor                              │
+│                                                                                 │
+│ MISSING RESILIENCE PATTERNS:                                                    │
+│   ☐ Circuit breaker (e.g., if Razorpay is down, fail fast)                   │
+│   ☐ Bulkhead (isolate payment service from game service)                     │
+│   ☐ Retry with exponential backoff (for Razorpay/SMS calls)                  │
+│   ☐ Timeout configuration (prevent cascading slowdowns)                      │
+│   ☐ Dead letter queue processing (SQS DLQ exists but no processor)           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.2 DEPLOYMENT RECOVERY                                                         │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Current deployment: force-new-deployment (rolling update)                      │
+│                                                                                 │
+│ IF DEPLOYMENT IS BAD:                                                           │
+│   - New task starts with bad code                                             │
+│   - Health check (if it exists) may pass (bad logic, not crash)              │
+│   - Old tasks drain and terminate                                             │
+│   - All traffic hits bad code                                                 │
+│   - ROLLBACK: Must manually deploy previous image tag                        │
+│                                                                                 │
+│ MISSING:                                                                        │
+│   ☐ Blue/green deployment (instant rollback)                                  │
+│   ☐ Canary deployment (test with 5% traffic first)                           │
+│   ☐ Automatic rollback on CloudWatch alarm                                   │
+│   ☐ Database migration rollback plan                                         │
+│   ☐ Feature flags (deploy code without activating it)                        │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: DISASTER SCENARIOS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 1: Single AZ Failure                                                    │
+│ Impact: LOW - Multi-AZ handles this                                             │
+│ RTO: < 5 minutes                                                                │
+│ Data Loss: None (synchronous replication)                                       │
+│ Action Required: None (automatic)                                               │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 2: Full Region Failure (ap-south-1 down)                                │
+│ Impact: CRITICAL - Complete platform outage                                     │
+│ RTO: UNDEFINED (no cross-region DR)                                             │
+│ Data Loss: Up to 7 days (last backup was 7 days ago)                           │
+│ Action Required: Manual setup in new region (DAYS of work)                     │
+│ Financial Impact: All active tournaments disrupted, pending withdrawals stuck  │
+│ Current Plan: NONE                                                              │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 3: Database Corruption                                                  │
+│ Impact: HIGH - Financial data integrity at risk                                 │
+│ RTO: 30-60 minutes (PITR restore)                                               │
+│ Data Loss: Transactions since last backup point                                 │
+│ Action Required: PITR restore + reconcile with Razorpay                        │
+│ Current Plan: NONE documented                                                   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 4: AWS Account Compromise                                               │
+│ Impact: CATASTROPHIC - Total data loss possible                                 │
+│ RTO: DAYS to WEEKS                                                              │
+│ Data Loss: Potentially everything                                               │
+│ Action Required: AWS support, security audit, full rebuild                     │
+│ Current Plan: NONE                                                              │
+│ Mitigation: ☐ MFA on root, ☐ SCPs, ☐ cross-account backup                    │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 5: Bad Database Migration in Production                                 │
+│ Impact: HIGH - Data modification may be irreversible                            │
+│ RTO: 30 min (restore from pre-migration snapshot)                               │
+│ Data Loss: All transactions since migration ran                                 │
+│ Action Required: Manual snapshot before migration (not automated)              │
+│ Current Plan: NONE (CI just runs prisma db push --force-reset in test only)    │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: RECOMMENDED RTO/RPO TARGETS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Service                 │ Target RTO │ Target RPO │ Current │ Status
+────────────────────────────────────────────────────────────────────
+Platform API            │ 5 min      │ 0          │ ~5 min  │ ⚠️ (needs health check)
+Database (financial)    │ 5 min      │ 0          │ ~5 min  │ ✓ (Multi-AZ)
+Database (region DR)    │ 4 hours    │ 1 hour     │ N/A     │ ❌ (not configured)
+Redis                   │ 15 min     │ 5 min      │ TOTAL   │ ❌ (no backup)
+Game Backends           │ 10 min     │ N/A        │ ~10 min │ ⚠️
+Admin Panel             │ 30 min     │ N/A        │ ~10 min │ ⚠️
+Active Tournaments      │ 0 (pause)  │ 0          │ N/A     │ ❌ (no pause mechanism)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 5: SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Component                         │ Score  │ Status
+──────────────────────────────────────────────────────
+Database Backup                   │ 60/100 │ 7-day PITR, Multi-AZ
+Redis Backup                      │ 0/100  │ No backup at all
+Cross-Region DR                   │ 0/100  │ Not configured
+Deployment Rollback               │ 15/100 │ Manual only
+Recovery Procedures               │ 0/100  │ No runbooks
+DR Testing                        │ 0/100  │ Never tested
+Application Resilience            │ 30/100 │ Stateless but no circuit breakers
+Financial Data Protection         │ 50/100 │ DB encrypted + backed up
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 30/100 │ PARTIAL PROTECTION
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+              END OF DISASTER RECOVERY & BUSINESS CONTINUITY AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

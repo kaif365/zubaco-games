@@ -1,0 +1,250 @@
+========================================================================
+MEMORY CARD MATCHING – COMPREHENSIVE TEST CHECKLIST
+========================================================================
+Total Test Cases: 156
+Version: 1.0
+Game: Memory Card Matching
+Stack: React 19 + Vite + TypeScript + TailwindCSS/CSS + Framer Motion + React Query + i18next
+
+========================================================================
+SECTION 1: MENU SCREEN (14 tests)
+========================================================================
+[ ] 1.1  Menu renders with game title "Memory Match" and card emoji
+[ ] 1.2  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.3  Buttons animate in sequentially with stagger delay (0.06s)
+[ ] 1.4  Tapping "Play" transitions to instructions screen
+[ ] 1.5  Tapping "Levels" transitions to level selector
+[ ] 1.6  Tapping "Daily Challenge" transitions to daily screen
+[ ] 1.7  Tapping "Achievements" transitions to achievements screen
+[ ] 1.8  Tapping "Statistics" transitions to stats screen
+[ ] 1.9  Tapping "Settings" transitions to settings screen
+[ ] 1.10 Each button has unique accent color
+[ ] 1.11 Menu renders full-screen over dark gradient background
+[ ] 1.12 Active button scale animation on tap (scale 0.97)
+[ ] 1.13 Menu is the initial screen for new users (no stored session)
+[ ] 1.14 Stored session resumes directly to gameplay (bypass menu)
+
+========================================================================
+SECTION 2: LEVEL SELECTOR (18 tests)
+========================================================================
+[ ] 2.1  Level grid renders 10 levels in 5-column layout
+[ ] 2.2  Level 1 is unlocked by default
+[ ] 2.3  Levels 2-10 are locked initially (show 🔒)
+[ ] 2.4  Unlocked levels show level number and star display
+[ ] 2.5  Stars display (0-3) for each completed level
+[ ] 2.6  Locked levels have reduced opacity and disabled click
+[ ] 2.7  Tapping unlocked level triggers game start
+[ ] 2.8  Completing level N unlocks level N+1 (persistence check)
+[ ] 2.9  Star calculation: 3★ = 0 mismatches (perfect)
+[ ] 2.10 Star calculation: 2★ = 1-2 mismatches
+[ ] 2.11 Star calculation: 1★ = 3+ mismatches (still completed)
+[ ] 2.12 Best stars are saved (won't overwrite with worse)
+[ ] 2.13 "← Back" button returns to menu
+[ ] 2.14 Level configs scale difficulty (rows, cols, pairs, preview time)
+[ ] 2.15 localStorage persistence survives page refresh
+[ ] 2.16 Level grid entrance animation (scale from 0.8)
+[ ] 2.17 Level selector scrolls if content overflows
+[ ] 2.18 Corrupted localStorage gracefully falls back to defaults
+
+========================================================================
+SECTION 3: SETTINGS (14 tests)
+========================================================================
+[ ] 3.1  Settings screen renders with Sound, Volume, Card Theme options
+[ ] 3.2  Sound toggle reflects current state from localStorage
+[ ] 3.3  Toggling sound updates state and saves immediately
+[ ] 3.4  Volume slider shows current percentage (0-100)
+[ ] 3.5  Volume slider disabled when sound is off
+[ ] 3.6  Volume changes persist across page refresh
+[ ] 3.7  Card theme options: Symbols, Colors, Jewels
+[ ] 3.8  Selected theme has purple border highlight
+[ ] 3.9  Theme selection persists in localStorage
+[ ] 3.10 Toggle pill animation slides left/right correctly
+[ ] 3.11 "← Back" button returns to menu
+[ ] 3.12 Settings load default values if no localStorage data
+[ ] 3.13 Invalid localStorage values handled gracefully
+[ ] 3.14 Theme icons display correctly (♠, 🎨, 💎)
+
+========================================================================
+SECTION 4: STATISTICS (12 tests)
+========================================================================
+[ ] 4.1  Stats screen renders all 10 stat cards in 2-column grid
+[ ] 4.2  Displays: Games Played, Games Won, Pairs Matched, Mismatches
+[ ] 4.3  Displays: Perfect Games, Best Streak, Highest Level, Speed Runs
+[ ] 4.4  Displays: Total Time (formatted as Xh Xm), High Score
+[ ] 4.5  All stats start at 0 for new player
+[ ] 4.6  Stats update correctly after game completion
+[ ] 4.7  Time format: shows "0m" when no time, "Xm" when <1h, "Xh Xm" when ≥1h
+[ ] 4.8  Stats entrance animation (opacity + y translate)
+[ ] 4.9  "← Back" button returns to menu
+[ ] 4.10 Stats survive page refresh via localStorage
+[ ] 4.11 Number formatting uses locale-aware toLocaleString
+[ ] 4.12 updateStats helper correctly increments/maxes values
+
+========================================================================
+SECTION 5: ACHIEVEMENTS (16 tests)
+========================================================================
+[ ] 5.1  Achievements screen renders all 10 achievement cards
+[ ] 5.2  Unlocked achievements show icon, title, description, and ✓
+[ ] 5.3  Locked achievements show at 50% opacity
+[ ] 5.4  "First Victory" unlocks after first win
+[ ] 5.5  "On Fire" unlocks at 5-match streak
+[ ] 5.6  "Unstoppable" unlocks at 10-match streak
+[ ] 5.7  "Perfectionist" unlocks with zero mismatches
+[ ] 5.8  "Speed Demon" unlocks with >50% time remaining
+[ ] 5.9  "Dedicated" unlocks after 50 games played
+[ ] 5.10 "Rising Star" unlocks at level 5
+[ ] 5.11 "Master" unlocks at level 10
+[ ] 5.12 "High Scorer" unlocks at 1000+ points
+[ ] 5.13 "Flawless" unlocks on zero errors
+[ ] 5.14 AchievementPopup appears at top of screen with animation
+[ ] 5.15 Popup auto-dismisses after 4 seconds
+[ ] 5.16 "← Back" button returns to menu
+
+========================================================================
+SECTION 6: DAILY CHALLENGE (14 tests)
+========================================================================
+[ ] 6.1  Daily screen renders calendar week (Sun-Sat)
+[ ] 6.2  Current day highlighted with blue border
+[ ] 6.3  Completed days show ✓, incomplete show ○
+[ ] 6.4  Current streak and best streak displayed
+[ ] 6.5  Streak increments on daily completion
+[ ] 6.6  Best streak updates when current surpasses it
+[ ] 6.7  "Start Daily Match" button active for incomplete day
+[ ] 6.8  Button disabled and shows "✓ Completed Today" after completion
+[ ] 6.9  Daily seed is date-based (same layout for all users on same day)
+[ ] 6.10 Score multiplier info (1.5×) displayed
+[ ] 6.11 "← Back" button returns to menu
+[ ] 6.12 Daily completion persists in localStorage
+[ ] 6.13 Calendar week resets at start of new week
+[ ] 6.14 markDailyComplete prevents double completion
+
+========================================================================
+SECTION 7: PAUSE DIALOG (10 tests)
+========================================================================
+[ ] 7.1  Pause overlay covers full screen with backdrop blur
+[ ] 7.2  Dialog shows matched pairs count (X/Y format)
+[ ] 7.3  Dialog shows elapsed time (MM:SS format)
+[ ] 7.4  "Resume" button calls onResume and closes
+[ ] 7.5  "Restart" button calls onRestart
+[ ] 7.6  "Exit to Menu" button calls onExit and returns to menu
+[ ] 7.7  Dialog entrance animation (scale from 0.9)
+[ ] 7.8  Buttons have correct visual hierarchy (Resume = primary blue)
+[ ] 7.9  Game timer is paused while dialog is open
+[ ] 7.10 Dialog rendered above all game UI (z-50)
+
+========================================================================
+SECTION 8: CONFETTI (10 tests)
+========================================================================
+[ ] 8.1  Confetti does not render when active=false
+[ ] 8.2  Confetti renders 60 particles when active=true
+[ ] 8.3  Particles have random colors from 8-color palette
+[ ] 8.4  Particles animate outward from center
+[ ] 8.5  Particles fade to opacity 0 during animation
+[ ] 8.6  Confetti disappears after duration (default 3000ms)
+[ ] 8.7  pointer-events: none so confetti doesn't block interaction
+[ ] 8.8  Particles have mixed shapes (circle and rectangle)
+[ ] 8.9  Re-triggering active creates fresh particle set
+[ ] 8.10 No memory leaks (timeout cleared on unmount)
+
+========================================================================
+SECTION 9: CORE GAMEPLAY (28 tests)
+========================================================================
+[ ] 9.1  Game starts with API call to POST /api/v1/game/start
+[ ] 9.2  Cards render in grid layout (rows × columns from level data)
+[ ] 9.3  Preview phase: all cards shown face-up for previewDurationSeconds
+[ ] 9.4  After preview, cards flip face-down
+[ ] 9.5  Tapping a card flips it face-up with 400ms animation
+[ ] 9.6  Tapping second card: if pair matches, both stay face-up
+[ ] 9.7  Tapping second card: if mismatch, both flip back after delay
+[ ] 9.8  Cannot tap more than 2 unmatched cards simultaneously
+[ ] 9.9  Cannot tap already-matched cards
+[ ] 9.10 Cannot tap during CHECKING_MATCH state
+[ ] 9.11 Cannot tap during PREVIEW or LOADING states
+[ ] 9.12 Timer counts down from gameTimeLimitSeconds
+[ ] 9.13 Timer syncs with server (useTimeSync)
+[ ] 9.14 Timer turns urgent (red) at ≤10 seconds
+[ ] 9.15 Game ends LOSE when timer reaches 0
+[ ] 9.16 All pairs matched → level complete celebration (800ms)
+[ ] 9.17 Multi-level: completing one level loads next via API
+[ ] 9.18 Level transition overlay shows between levels
+[ ] 9.19 Completing all levels → game WIN
+[ ] 9.20 GameHeader shows current level label
+[ ] 9.21 Sound: cardFlip plays on card tap
+[ ] 9.22 Sound: cardMatch plays on successful match
+[ ] 9.23 Sound: cardMismatch plays on failed match
+[ ] 9.24 Sound: combo plays on streak
+[ ] 9.25 Sound: levelComplete plays on level finish
+[ ] 9.26 Sound: gameOver plays on game end
+[ ] 9.27 Sound: uiClick plays on button interactions
+[ ] 9.28 Card content types work: symbol, image, color, wordImage
+
+========================================================================
+SECTION 10: RESULT SCREEN & FLOW (12 tests)
+========================================================================
+[ ] 10.1  Win screen (GameSuccessScreen) shows on all levels completed
+[ ] 10.2  Lose screen (GameFailureScreen) shows on timer expiration
+[ ] 10.3  Win screen displays: score, levels completed/total
+[ ] 10.4  Win screen triggers confetti animation
+[ ] 10.5  "Continue" button returns to menu (INITIAL_STATE)
+[ ] 10.6  Session storage cleared on continue
+[ ] 10.7  Stats update on game completion (win or lose)
+[ ] 10.8  Achievement check runs after every game end
+[ ] 10.9  Score based on speed + accuracy + combo
+[ ] 10.10 API game-over call sent with result
+[ ] 10.11 Stage-specific content renders on result screen
+[ ] 10.12 Rank/position shown in win screen
+
+========================================================================
+SECTION 11: APP INTEGRATION & STATE (18 tests)
+========================================================================
+[ ] 11.1  Initial state → MENU screen for new users
+[ ] 11.2  Stored session → direct to GAMEPLAY (resume)
+[ ] 11.3  Menu → Instructions → Gameplay flow works
+[ ] 11.4  Menu → Levels → Gameplay flow works
+[ ] 11.5  Menu → Daily → Gameplay flow works
+[ ] 11.6  GameOver → Continue → back to Menu
+[ ] 11.7  Demo → DemoComplete modal → Instructions
+[ ] 11.8  All screen transitions use APP_SCREENS constants
+[ ] 11.9  gameKey increments on new game (forces remount)
+[ ] 11.10 Unauthorized event → reset to INITIAL_STATE
+[ ] 11.11 Background music plays only during demo/gameplay
+[ ] 11.12 Compact landscape shows TiltOverlay
+[ ] 11.13 Theme colors applied from stage config
+[ ] 11.14 Save progress: encrypted session ID in localStorage
+[ ] 11.15 Save progress: batch pending moves (2-8 clicks)
+[ ] 11.16 Stage content loading shows skeleton
+[ ] 11.17 Demo complete modal with accent color from theme
+[ ] 11.18 All imports resolve correctly (no missing modules)
+
+========================================================================
+SECTION 12: CARD RENDERING (10 tests)
+========================================================================
+[ ] 12.1  Cards maintain correct aspect ratio (1.35)
+[ ] 12.2  Grid responsive to container size
+[ ] 12.3  Card flip animation smooth (CSS 3D transform)
+[ ] 12.4  Matched cards stay face-up permanently
+[ ] 12.5  Card content renders based on contentType
+[ ] 12.6  Image cards preload images before gameplay
+[ ] 12.7  Symbol cards display from 24-symbol set
+[ ] 12.8  Color cards display from 12-jewel palette
+[ ] 12.9  Card grid center calculated for mandala effect
+[ ] 12.10 ResizeObserver updates grid metrics on resize
+
+========================================================================
+NOTES
+========================================================================
+- Backend supports: 5 boosters (TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO)
+- Backend has: achievement engine, combo engine, leaderboard (top 100), score history
+- Combo: max 4× multiplier, milestone every 3, +0.25 per milestone, 10 bonus per level
+- State management: useReducer (NOT Zustand) — all transitions via dispatch
+- No React Router — single App.tsx with screen state machine
+- Session encrypted with AES via VITE_ENCRYPTION_KEY
+- Timer syncs with server (not pure client-side)
+- Card flip animation: 400ms (FLIP_ANIMATION_DURATION_MS)
+- Level complete celebration: 800ms delay
+- Preview duration: varies per level (1-5 seconds)
+- Mismatch display duration: from level config
+- Daily challenge: SHA-256 seeded, level scales by day of week
+- Star rating: 3★ = 0 mismatches, 2★ = ≤2, 1★ = completed
+- Multiple card content types from API (symbol, image, color, wordImage)
+========================================================================

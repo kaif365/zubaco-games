@@ -1,0 +1,193 @@
+========================================================================
+SEQUENCE RECALL – FULL GAME ANALYSIS
+========================================================================
+Version: 1.0
+Location: C:\game\zubaco-games-repo\zubaco-games\sequence-recall\sequence-recall-frontend\
+
+========================================================================
+1. OVERVIEW
+========================================================================
+Sequence Recall is a Simon-Says style tile memory game. Colored tiles 
+flash in a sequence, and the player must repeat the pattern in order. 
+Each successful round adds one more tile to the sequence. The game 
+features a session timer (countdown), multiple difficulty levels, 
+demo/tutorial mode, and wrong-move handling strategies.
+
+Genre: Memory / Sequence / Pattern Recall
+Core loop: Watch tiles flash → Repeat in order → Sequence grows → Survive
+
+========================================================================
+2. TECH STACK
+========================================================================
+- React 19 + Vite + TypeScript
+- TailwindCSS (with custom CSS, gradient-layer-top, game themes)
+- framer-motion (animations)
+- react-i18next (translations with locale files)
+- @tanstack/react-query (QueryClient for API/game state)
+- react-router-dom (BrowserRouter: /, /404)
+- lucide-react (icons)
+- Custom path aliases (@/, @app/, @hooks/, @features/, @components/, @styles/, @pages/)
+- WebSocket/API game session (socket-based real-time play)
+
+========================================================================
+3. PROJECT STRUCTURE
+========================================================================
+src/
+├── App.tsx                     (appConfig, AppProviders, AppRouter, theme, security)
+├── main.tsx
+├── app/
+│   ├── config/appConfig        (stage config)
+│   ├── providers/AppProviders  (I18nProvider, AudioProvider, AppBootstrapGate, ApiErrorProvider)
+│   └── router/AppRouter        (BrowserRouter: HomePage, NotFoundPage)
+├── audio/                      (AudioManager, AudioProvider, soundRegistry, types, useAudio)
+├── components/
+│   ├── shared/                 (AuthGateScreen, ConfirmationDialog, ErrorBoundary, GameClearModal, OfflineStatusModal)
+│   └── ui/                     (Card, CardContent etc.)
+├── features/sequence-recall/
+│   ├── api/                    (game.api.ts)
+│   ├── components/
+│   │   ├── GameBoardFrame.tsx      (tile grid container)
+│   │   ├── GameHud.tsx             (score/round/lives display)
+│   │   ├── GameResultOverlay.tsx   (end-of-game overlay)
+│   │   ├── InstructionsLobbyScreen.tsx (idle/lobby state)
+│   │   ├── RoundFeedback.tsx       (per-round success/fail feedback)
+│   │   ├── SequenceBoard.tsx       (interactive tile board)
+│   │   ├── SequenceDots.tsx        (progress dots)
+│   │   ├── SequenceRecallGameShell.tsx (main orchestrator, ~700+ lines)
+│   │   ├── SessionTimerBar.tsx     (countdown timer bar)
+│   │   └── TutorialOverlay.tsx     (first-time tutorial)
+│   ├── constants.ts            (BOARD_INSTRUCTION, WRONG_MOVE_HANDLING, delays)
+│   ├── engine/
+│   │   ├── gameEngine.ts       (createInitialGameState, startRound, finishPlayback, applyMove, etc.)
+│   │   ├── random.ts           (randomTileId)
+│   │   └── sequence.ts         (generateSequence, isMoveCorrect)
+│   ├── hooks/                  (16 hooks: useGameCommands, useGameConfig, useSequencePlayback, etc.)
+│   └── repositories/
+├── config/
+├── constants/                  (stageTheme, storageKeys)
+├── hooks/
+├── lib/
+├── locales/
+├── pages/
+│   ├── HomePage.tsx            (renders SequenceRecallGameShell)
+│   └── NotFoundPage.tsx
+├── services/                   (authService)
+├── store/
+├── styles/                     (sequence-recall.css)
+├── types/
+│   └── game.ts                 (TileId, BoardMode, GameConfig, GamePhase, GameState)
+└── utils/                      (gameThemeStyle, sequence, storage, security)
+
+========================================================================
+4. GAME MECHANICS
+========================================================================
+
+4.1 PHASES (GAME_PHASE enum)
+- loading: Initial load
+- ready: Lobby/instructions shown
+- tutorial: Tutorial overlay
+- showing-sequence: Tiles flash in order (playback)
+- awaiting-input: Player taps tiles in sequence
+- round-success: Round complete, advancing
+- round-failure: Wrong tile, handling failure
+- game-over: Game ended (timer/wrong move)
+- session-complete: All rounds completed
+
+4.2 TILE SYSTEM
+- boxCount: configurable 2-6 tiles
+- Tiles numbered 1..boxCount
+- 4 colors: green(1), red(2), blue(3), yellow(4) + extras for 5/6
+- Each tile plays unique sound (piano or retro audio pack)
+- Sequence no triple-repeat constraint
+
+4.3 SEQUENCE GENERATION
+- generateSequence(length, boxCount, rng)
+- No three consecutive same tiles
+- Sequence grows each round: revealedSequence = sequence[0..currentLength]
+- initialSequenceLength: configurable start (e.g., 2 tiles)
+
+4.4 PLAYBACK
+- tileFlashMs: duration of each tile highlight
+- tileGapMs: gap between tile flashes
+- speedMultiplier: accelerates over time
+- inputGlowMs: visual feedback on player tap
+
+4.5 SCORING
+- baseScorePerSound × sequenceLength per round
+- streakMultiplier: bonus for consecutive correct rounds
+- perfectRoundBonus: bonus for no mistakes
+- Score calculated per validated round
+
+4.6 WRONG MOVE HANDLING (4 strategies)
+- GAME_END (1): Game over immediately
+- PLAY_AGAIN (2): Replay same round
+- PREV_SEQUENCE (3): Go back one step
+- NEXT_SEQUENCE (4): Move forward (skip)
+
+4.7 TIMER
+- sessionTimerSeconds: whole-session countdown
+- endTime from server (ms epoch)
+- Timer expiry → game over
+
+4.8 LIVES
+- initialLives: configurable (usually 1-3)
+- Wrong move costs a life (strategy-dependent)
+
+4.9 DEFAULT CONFIG
+- boxCount: 4 tiles
+- initialLives: 1-3
+- sessionTimerSeconds: 60+ (server-configured)
+- initialSequenceLength: 2
+- turnLimit: 0 = unlimited
+- baseScorePerSound: 10
+
+========================================================================
+5. BACKEND ENGINES
+========================================================================
+- achievementEngine: 10 achievements (First Win, Streak 5/10, Perfect, Speed Demon, etc.)
+- boosterEngine: boosters
+- comboEngine: streak tracking
+- dailyChallenge: SHA-256 date-based seed
+- leaderboard: standard
+- scoreHistory: standard
+
+(Note: No levelConfig.ts found in backend — levels configured via API/socket)
+
+========================================================================
+6. AUDIO
+========================================================================
+Tile sounds (piano pack):
+- tileGreen (sound1.mp3)
+- tileRed (sound2.mp3)
+- tileBlue (sound3.mp3)
+- tileYellow (sound4.mp3)
+Retro variants (same paths but separate keys)
+Plus: UI sounds, round-complete, game-over, etc.
+
+========================================================================
+7. API ENDPOINTS (socket-based)
+========================================================================
+- game:start → { gameSessionId, endTime, isResumed, maxRounds, serverConfig }
+- game:new_round → { sequence data, endTime }
+- game:validate → { isCorrect, completedRound, wonGame, state }
+- game:game_over → { finalScore, bonus, completedRounds, reason }
+- game:time_sync → { endTime, serverTime }
+
+========================================================================
+8. INTEGRATION NOTES
+========================================================================
+- This game is VERY complex (~700+ line SequenceRecallGameShell.tsx)
+- Uses WebSocket + REST API hybrid
+- Has session persistence (localStorage recovery)
+- Has demo/tutorial mode
+- Uses @tanstack/react-query for state management
+- Uses react-router-dom (BrowserRouter: /, /404)
+- AppProviders: I18nProvider → AudioProvider → AppBootstrapGate → ApiErrorProvider
+- The Gold Standard components will be added to the features/sequence-recall/components/ directory
+- Since SequenceRecallGameShell is the main orchestrator (not GamePage), 
+  the appPhase state machine wraps around the SequenceRecallGameShell rendering
+- GameResultOverlay.tsx handles the end-game display
+- InstructionsLobbyScreen.tsx handles the idle/start state
+- Need to create a lightweight GamePage wrapper that shows menu screens 
+  before rendering SequenceRecallGameShell
+========================================================================

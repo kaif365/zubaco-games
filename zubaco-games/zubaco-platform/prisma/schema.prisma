@@ -1,0 +1,788 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ═══════════════════════════════════════════════════════════════
+// USER & AUTH
+// ═══════════════════════════════════════════════════════════════
+
+model User {
+  id              String    @id @default(uuid())
+  username        String?   @unique
+  display_name    String?
+  email           String?   @unique
+  phone           String?   @unique
+  avatar_url      String?
+  date_of_birth   DateTime?
+  age_verified    Boolean   @default(false)
+  state           String?   // Indian state code for geo-compliance
+  xp              Int       @default(0)
+  level           Int       @default(1)
+  is_verified     Boolean   @default(false)
+  is_banned       Boolean   @default(false)
+  ban_reason      String?
+  last_login_at   DateTime?
+  terms_accepted_at DateTime?
+  privacy_accepted_at DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  // Relations
+  auth_providers  AuthProvider[]
+  refresh_tokens  RefreshToken[]
+  devices         UserDevice[]
+  game_progress   GameProgress[]
+  season_entries  SeasonEntry[]
+  game_sessions   GameSession[]
+  leaderboard_entries LeaderboardEntry[]
+  wallet          Wallet?
+  transactions    Transaction[]
+  sent_referrals  Referral[]       @relation("referrer")
+  received_referral Referral?      @relation("referee")
+  notifications   Notification[]
+  friendships_initiated Friendship[] @relation("initiator")
+  friendships_received  Friendship[] @relation("receiver")
+  achievements    UserAchievement[]
+  energy          UserEnergy?
+  tds_records     TdsRecord[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([username])
+  @@map("users")
+}
+
+model AuthProvider {
+  id              String   @id @default(uuid())
+  user_id         String
+  provider        AuthProviderType
+  provider_id     String
+  provider_email  String?
+  created_at      DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_id])
+  @@index([user_id])
+  @@map("auth_providers")
+}
+
+enum AuthProviderType {
+  GOOGLE
+  APPLE
+  PHONE
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  user_id     String
+  token_hash  String   @unique
+  device_id   String?
+  expires_at  DateTime
+  created_at  DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([expires_at])
+  @@map("refresh_tokens")
+}
+
+model OtpVerification {
+  id          String   @id @default(uuid())
+  phone       String
+  otp_hash    String
+  attempts    Int      @default(0)
+  verified    Boolean  @default(false)
+  expires_at  DateTime
+  created_at  DateTime @default(now())
+
+  @@index([phone, expires_at])
+  @@map("otp_verifications")
+}
+
+model UserDevice {
+  id              String   @id @default(uuid())
+  user_id         String
+  device_id       String
+  platform        Platform
+  push_token      String?
+  app_version     String?
+  last_active_at  DateTime @default(now())
+  created_at      DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, device_id])
+  @@index([user_id])
+  @@map("user_devices")
+}
+
+enum Platform {
+  ANDROID
+  IOS
+  WEB
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FREE PLAY - LEVEL PROGRESSION
+// ═══════════════════════════════════════════════════════════════
+
+model GameProgress {
+  id              String   @id @default(uuid())
+  user_id         String
+  game_type       GameType
+  current_level   Int      @default(1)
+  highest_level   Int      @default(1)
+  total_xp        Int      @default(0)
+  total_plays     Int      @default(0)
+  best_score      Int      @default(0)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  user           User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  level_results  LevelResult[]
+
+  @@unique([user_id, game_type])
+  @@index([user_id])
+  @@map("game_progress")
+}
+
+model LevelResult {
+  id              String   @id @default(uuid())
+  progress_id     String
+  level           Int
+  stars           Int      @default(0) // 0-3
+  best_score      Int      @default(0)
+  attempts        Int      @default(0)
+  completed       Boolean  @default(false)
+  first_completed DateTime?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  progress GameProgress @relation(fields: [progress_id], references: [id], onDelete: Cascade)
+
+  @@unique([progress_id, level])
+  @@index([progress_id])
+  @@map("level_results")
+}
+
+model LevelConfig {
+  id          String   @id @default(uuid())
+  game_type   GameType
+  level       Int
+  config      Json     // Game-specific params (grid_size, time_limit, speed, etc.)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  stage_games StageGame[]
+
+  @@unique([game_type, level])
+  @@map("level_configs")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GAME SESSIONS (Unified across free play + tournament)
+// ═══════════════════════════════════════════════════════════════
+
+model GameSession {
+  id              String        @id @default(uuid())
+  user_id         String
+  game_type       GameType
+  mode            GameMode
+  level           Int?          // For free play
+  stage_entry_id  String?       // For tournament
+  server_seed     String
+  client_seed     String?
+  nonce           Int           @default(0)
+  config          Json          // Snapshot of level config used
+  score           Int?
+  max_score       Int?
+  duration_ms     Int?
+  outcome         SessionOutcome?
+  started_at      DateTime      @default(now())
+  completed_at    DateTime?
+  metadata        Json?         // Game-specific result data
+
+  user        User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  stage_entry StageEntry?  @relation(fields: [stage_entry_id], references: [id])
+
+  @@index([user_id, game_type])
+  @@index([stage_entry_id])
+  @@index([started_at])
+  @@map("game_sessions")
+}
+
+enum GameMode {
+  FREE_PLAY
+  TOURNAMENT
+}
+
+enum SessionOutcome {
+  COMPLETED
+  ABANDONED
+  TIMED_OUT
+  DISQUALIFIED
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TOURNAMENT / SEASON / ELIMINATION
+// ═══════════════════════════════════════════════════════════════
+
+model Season {
+  id              String       @id @default(uuid())
+  name            String
+  description     String?
+  start_date      DateTime
+  end_date        DateTime
+  status          SeasonStatus @default(UPCOMING)
+  prize_pool      Decimal?     @db.Decimal(12, 2)
+  entry_fee       Decimal?     @db.Decimal(10, 2)
+  max_players     Int?
+  rules           Json?        // Elimination rules, tiebreakers, etc.
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  stages        SeasonStage[]
+  cohorts       Cohort[]
+  entries       SeasonEntry[]
+  leaderboards  Leaderboard[]
+
+  @@index([status])
+  @@index([start_date])
+  @@map("seasons")
+}
+
+enum SeasonStatus {
+  UPCOMING
+  REGISTRATION
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model SeasonStage {
+  id                  String      @id @default(uuid())
+  season_id           String
+  stage_number        Int         // 1-5
+  name                String?
+  open_date           DateTime
+  close_date          DateTime
+  elimination_pct     Float       @default(50.0) // Bottom X% eliminated
+  status              StageStatus @default(LOCKED)
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+
+  season        Season          @relation(fields: [season_id], references: [id], onDelete: Cascade)
+  stage_games   StageGame[]
+  stage_entries StageEntry[]
+
+  @@unique([season_id, stage_number])
+  @@index([season_id])
+  @@map("season_stages")
+}
+
+enum StageStatus {
+  LOCKED
+  OPEN
+  CLOSED
+  ELIMINATED
+}
+
+model StageGame {
+  id              String   @id @default(uuid())
+  season_stage_id String
+  game_type       GameType
+  game_order      Int      // 1-4 (order within stage)
+  level_config_id String?  // Which difficulty config to use
+  created_at      DateTime @default(now())
+
+  season_stage SeasonStage @relation(fields: [season_stage_id], references: [id], onDelete: Cascade)
+  level_config LevelConfig? @relation(fields: [level_config_id], references: [id])
+
+  @@unique([season_stage_id, game_order])
+  @@index([season_stage_id])
+  @@map("stage_games")
+}
+
+model SeasonEntry {
+  id          String      @id @default(uuid())
+  user_id     String
+  season_id   String
+  cohort_id   String?
+  status      EntryStatus @default(ACTIVE)
+  registered_at DateTime  @default(now())
+
+  user          User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  season        Season        @relation(fields: [season_id], references: [id], onDelete: Cascade)
+  cohort        Cohort?       @relation(fields: [cohort_id], references: [id])
+  stage_entries StageEntry[]
+
+  @@unique([user_id, season_id])
+  @@index([season_id])
+  @@index([cohort_id])
+  @@map("season_entries")
+}
+
+enum EntryStatus {
+  ACTIVE
+  ELIMINATED
+  WINNER
+  WITHDRAWN
+}
+
+model StageEntry {
+  id              String       @id @default(uuid())
+  season_entry_id String
+  season_stage_id String
+  total_score     Int          @default(0)
+  total_time_ms   Int          @default(0)
+  games_played    Int          @default(0)
+  rank            Int?
+  eliminated      Boolean      @default(false)
+  completed_at    DateTime?
+  created_at      DateTime     @default(now())
+
+  season_entry SeasonEntry  @relation(fields: [season_entry_id], references: [id], onDelete: Cascade)
+  season_stage SeasonStage  @relation(fields: [season_stage_id], references: [id], onDelete: Cascade)
+  game_sessions GameSession[]
+
+  @@unique([season_entry_id, season_stage_id])
+  @@index([season_stage_id, total_score])
+  @@map("stage_entries")
+}
+
+model Cohort {
+  id          String   @id @default(uuid())
+  season_id   String
+  name        String
+  max_players Int      @default(10000)
+  region      String?
+  created_at  DateTime @default(now())
+
+  season  Season        @relation(fields: [season_id], references: [id], onDelete: Cascade)
+  entries SeasonEntry[]
+
+  @@index([season_id])
+  @@map("cohorts")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LEADERBOARD
+// ═══════════════════════════════════════════════════════════════
+
+model Leaderboard {
+  id          String          @id @default(uuid())
+  season_id   String?
+  game_type   GameType?
+  type        LeaderboardType
+  period      String?         // "2026-W21", "2026-05", "all-time"
+  created_at  DateTime        @default(now())
+
+  season  Season?            @relation(fields: [season_id], references: [id])
+  entries LeaderboardEntry[]
+
+  @@index([type, game_type, period])
+  @@map("leaderboards")
+}
+
+enum LeaderboardType {
+  GLOBAL_GAME       // Best score per game (all time / weekly / monthly)
+  SEASON_STAGE      // Rankings within a tournament stage
+  SEASON_OVERALL    // Overall season rankings
+  FRIENDS           // Friend circle rankings
+  ENDLESS           // Endless mode - how far you got
+}
+
+model LeaderboardEntry {
+  id              String   @id @default(uuid())
+  leaderboard_id  String
+  user_id         String
+  score           Int
+  rank            Int?
+  metadata        Json?    // extra info (level reached, time, etc.)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  leaderboard Leaderboard @relation(fields: [leaderboard_id], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([leaderboard_id, user_id])
+  @@index([leaderboard_id, score(sort: Desc)])
+  @@map("leaderboard_entries")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WALLET & TRANSACTIONS
+// ═══════════════════════════════════════════════════════════════
+
+model Wallet {
+  id              String   @id @default(uuid())
+  user_id         String   @unique
+  balance         Decimal  @default(0) @db.Decimal(12, 2)
+  bonus_balance   Decimal  @default(0) @db.Decimal(12, 2) // Non-withdrawable
+  currency        String   @default("INR")
+  kyc_verified    Boolean  @default(false)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id              String          @id @default(uuid())
+  user_id         String
+  type            TransactionType
+  amount          Decimal         @db.Decimal(12, 2)
+  balance_after   Decimal         @db.Decimal(12, 2)
+  status          TransactionStatus @default(PENDING)
+  reference_id    String?         // Payment gateway ref / season_id / etc.
+  description     String?
+  metadata        Json?
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@index([status])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  ENTRY_FEE
+  PRIZE_WIN
+  REFERRAL_BONUS
+  REFUND
+  TDS_DEDUCTION
+  GST
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SOCIAL - FRIENDS & REFERRALS
+// ═══════════════════════════════════════════════════════════════
+
+model Friendship {
+  id          String          @id @default(uuid())
+  user_id     String
+  friend_id   String
+  status      FriendshipStatus @default(PENDING)
+  created_at  DateTime        @default(now())
+  updated_at  DateTime        @updatedAt
+
+  user   User @relation("initiator", fields: [user_id], references: [id], onDelete: Cascade)
+  friend User @relation("receiver", fields: [friend_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, friend_id])
+  @@index([friend_id])
+  @@map("friendships")
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+model Referral {
+  id              String   @id @default(uuid())
+  referrer_id     String
+  referee_id      String   @unique
+  referral_code   String
+  bonus_credited  Boolean  @default(false)
+  created_at      DateTime @default(now())
+
+  referrer User @relation("referrer", fields: [referrer_id], references: [id], onDelete: Cascade)
+  referee  User @relation("referee", fields: [referee_id], references: [id], onDelete: Cascade)
+
+  @@index([referrer_id])
+  @@index([referral_code])
+  @@map("referrals")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════
+
+model Notification {
+  id          String           @id @default(uuid())
+  user_id     String
+  type        NotificationType
+  title       String
+  body        String
+  data        Json?            // Deep link data, action payload
+  read        Boolean          @default(false)
+  sent_push   Boolean          @default(false)
+  created_at  DateTime         @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, read, created_at])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  STAGE_OPEN
+  STAGE_CLOSING
+  ELIMINATION
+  PRIZE_WON
+  FRIEND_REQUEST
+  CHALLENGE
+  SYSTEM
+  PROMOTION
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACHIEVEMENTS
+// ═══════════════════════════════════════════════════════════════
+
+model Achievement {
+  id          String   @id @default(uuid())
+  key         String   @unique // e.g., "first_win", "play_100_games"
+  name        String
+  description String
+  icon_url    String?
+  xp_reward   Int      @default(0)
+  criteria    Json     // { type: "games_played", threshold: 100 }
+  created_at  DateTime @default(now())
+
+  user_achievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id              String   @id @default(uuid())
+  user_id         String
+  achievement_id  String
+  unlocked_at     DateTime @default(now())
+
+  user        User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievement_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, achievement_id])
+  @@index([user_id])
+  @@map("user_achievements")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENERGY / LIVES SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
+model UserEnergy {
+  id                String   @id @default(uuid())
+  user_id           String   @unique
+  current_lives     Int      @default(5)
+  max_lives         Int      @default(5)
+  last_recharged_at DateTime @default(now())
+  bonus_lives       Int      @default(0)  // Purchased/rewarded extra lives
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_energy")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ANTI-CHEAT FLAGS
+// ═══════════════════════════════════════════════════════════════
+
+model CheatFlag {
+  id              String       @id @default(uuid())
+  user_id         String
+  session_id      String?
+  game_type       GameType?
+  flag_type       CheatFlagType
+  severity        CheatSeverity @default(LOW)
+  details         Json?
+  reviewed        Boolean      @default(false)
+  reviewed_by     String?
+  reviewed_at     DateTime?
+  action_taken    String?
+  created_at      DateTime     @default(now())
+
+  @@index([user_id])
+  @@index([reviewed, severity])
+  @@index([created_at])
+  @@map("cheat_flags")
+}
+
+enum CheatFlagType {
+  SCORE_ANOMALY
+  TIMING_ANOMALY
+  IMPOSSIBLE_SCORE
+  RAPID_PROGRESSION
+  DEVICE_DUPLICATE
+  INPUT_BOT_PATTERN
+  SESSION_TAMPERING
+}
+
+enum CheatSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHALLENGES (Friend vs Friend)
+// ═══════════════════════════════════════════════════════════════
+
+model Challenge {
+  id              String          @id @default(uuid())
+  challenger_id   String
+  opponent_id     String
+  game_type       GameType
+  level           Int             @default(5)
+  server_seed     String
+  status          ChallengeStatus @default(PENDING)
+  challenger_score Int?
+  opponent_score  Int?
+  challenger_session_id String?
+  opponent_session_id   String?
+  expires_at      DateTime
+  completed_at    DateTime?
+  created_at      DateTime        @default(now())
+
+  @@index([challenger_id])
+  @@index([opponent_id])
+  @@index([status, expires_at])
+  @@map("challenges")
+}
+
+enum ChallengeStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  DECLINED
+  EXPIRED
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KYC DOCUMENTS
+// ═══════════════════════════════════════════════════════════════
+
+model KycDocument {
+  id              String      @id @default(uuid())
+  user_id         String
+  document_type   KycDocType
+  document_number String?
+  document_url    String      // S3 URL
+  status          KycStatus   @default(PENDING)
+  rejection_reason String?
+  reviewed_by     String?
+  reviewed_at     DateTime?
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+
+  @@index([user_id])
+  @@index([status])
+  @@map("kyc_documents")
+}
+
+enum KycDocType {
+  AADHAAR
+  PAN
+  DRIVING_LICENSE
+  PASSPORT
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BANK DETAILS (for withdrawals)
+// ═══════════════════════════════════════════════════════════════
+
+model BankDetail {
+  id              String   @id @default(uuid())
+  user_id         String
+  account_type    BankAccountType
+  account_holder  String
+  account_number  String?
+  ifsc_code       String?
+  upi_id          String?
+  is_primary      Boolean  @default(false)
+  verified        Boolean  @default(false)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@index([user_id])
+  @@map("bank_details")
+}
+
+enum BankAccountType {
+  BANK_ACCOUNT
+  UPI
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TDS RECORDS (Tax Deducted at Source on net winnings)
+// ═══════════════════════════════════════════════════════════════
+
+model TdsRecord {
+  id              String   @id @default(uuid())
+  user_id         String
+  financial_year  String   // "2026-27"
+  gross_winnings  Decimal  @db.Decimal(12, 2)
+  net_winnings    Decimal  @db.Decimal(12, 2) // gross - entry fees
+  tds_rate        Decimal  @db.Decimal(5, 4)  // 0.30 = 30%
+  tds_amount      Decimal  @db.Decimal(12, 2)
+  transaction_id  String?  // Link to withdrawal transaction
+  pan_number      String?
+  created_at      DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, financial_year])
+  @@map("tds_records")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENUMS - SHARED
+// ═══════════════════════════════════════════════════════════════
+
+enum GameType {
+  SEQUENCE_RECALL
+  MEMORY_CARD_MATCHING
+  FLASH_SPOT
+  OBJECT_PLACEMENT_MEMORY
+  SLIDING_PUZZLE
+  BLOCK_FILL
+  COLOUR_SORTING
+  RAPID_CATEGORY_SORT
+  MAZE_NAVIGATION
+  INFINITY_LOOP
+  WORD_UNSCRAMBLE
+  TRUE_FALSE_BLITZ
+  ARROWS
+  LOGIC_REFLECTOR
+  NUMBER_GRID_SPRINT
+  LIVE_ROUTE_BUILDER
+  MEMORY_GROUPS
+  REFLEX_ENDURANCE
+  PATTERN_SURVIVAL
+  SPEED_TYPE_ANSWER
+}

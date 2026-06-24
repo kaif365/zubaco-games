@@ -1,0 +1,424 @@
+================================================================================
+ZUBACO INFRASTRUCTURE (TERRAFORM) — COMPREHENSIVE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior DevOps / Cloud Architecture Review
+Component: Infrastructure as Code (infrastructure/terraform/)
+Stack: Terraform >= 1.5, AWS Provider ~> 5.0, ap-south-1 (Mumbai)
+Files: main.tf, infrastructure.tf, variables.tf, outputs.tf
+Services: VPC, ECS Fargate, RDS PostgreSQL 16, ElastiCache Redis 7.1,
+          ALB, CloudFront, S3, ECR, Route53, ACM, WAF v2, SQS, SNS,
+          Secrets Manager, CloudWatch, Auto Scaling
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Terraform infrastructure is WELL-ENGINEERED. It provisions a complete
+production-grade AWS setup with:
+
+- 3-AZ VPC with public/private subnets and NAT gateway
+- ECS Fargate for platform + admin + 20 game backends
+- RDS PostgreSQL 16 with encryption, multi-AZ, performance insights
+- ElastiCache Redis 7.1 with encryption at rest + in transit
+- ALB with TLS 1.3, WAF v2 (rate limiting + SQLi + common rules)
+- CloudFront CDN for game frontends + admin panel
+- S3 for static assets with OAI
+- SQS queues with DLQs, SNS fan-out pattern
+- Auto-scaling (CPU 70%, Memory 80%)
+- CloudWatch alarms + email alerts
+- Secrets Manager for DB credentials
+- ECR with scan-on-push for all images
+
+This is the BEST-ENGINEERED component in the entire Zubaco ecosystem.
+
+However, there are several issues:
+
+TOTAL ISSUES: 14 (2 Critical, 3 High, 5 Medium, 4 Low)
+
+INFRASTRUCTURE SCORE: 72/100
+
+The high score reflects solid architecture choices. The critical issues
+are about MISSING RESOURCES that would cause terraform plan to fail.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+MODULE: MISSING RESOURCES (terraform plan will FAIL) — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-MISSING-01: IAM Roles Referenced But Not Defined                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Broken Config                                                      │
+│ File: infrastructure.tf (lines 543-544, 606-607)                             │
+│                                                                              │
+│ Both ECS task definitions reference:                                         │
+│   execution_role_arn = aws_iam_role.ecs_execution.arn                        │
+│   task_role_arn      = aws_iam_role.ecs_task.arn                             │
+│                                                                              │
+│ But neither aws_iam_role "ecs_execution" nor aws_iam_role "ecs_task" is     │
+│ defined ANYWHERE in the Terraform files. terraform plan will fail with:     │
+│   Reference to undeclared resource                                           │
+│                                                                              │
+│ MISSING DEFINITIONS:                                                         │
+│ - aws_iam_role.ecs_execution — needs AmazonECSTaskExecutionRolePolicy       │
+│   + SecretsManager read + CloudWatch Logs permissions                       │
+│ - aws_iam_role.ecs_task — needs SQS, SNS, S3 permissions for app           │
+│ - aws_iam_role_policy_attachment for both                                    │
+│                                                                              │
+│ Priority Score: 10/10 (blocks all deployment)                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-MISSING-02: Admin ALB Target Group Referenced But Not Defined       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Broken Config                                                      │
+│ File: infrastructure.tf (line 642)                                           │
+│                                                                              │
+│ The admin_backend ECS service references:                                    │
+│   target_group_arn = aws_lb_target_group.admin.arn                           │
+│                                                                              │
+│ But aws_lb_target_group "admin" is NOT defined. Only                         │
+│ aws_lb_target_group "platform" exists. terraform plan will fail.            │
+│                                                                              │
+│ ALSO MISSING: ALB listener rule to route admin traffic (e.g.,               │
+│ admin.zubaco.com → admin target group, or path-based routing).             │
+│                                                                              │
+│ Priority Score: 10/10 (blocks admin deployment)                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: SECURITY — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-SEC-01: ECR Image Tag Mutability Set to MUTABLE                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Supply Chain Security                                              │
+│ File: infrastructure.tf (lines 34, 42, 66)                                   │
+│                                                                              │
+│ All ECR repos: image_tag_mutability = "MUTABLE"                              │
+│                                                                              │
+│ This means a "latest" or "v1.0.0" tag can be overwritten with a different  │
+│ image. An attacker with ECR push access can replace a trusted image with    │
+│ malware, and ECS will pull the compromised image on next deployment.        │
+│                                                                              │
+│ FIX: Set image_tag_mutability = "IMMUTABLE" and use unique tags             │
+│ (git SHA or timestamp) instead of "latest".                                 │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-SEC-02: S3 Buckets Missing Block Public Access                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Data Exposure                                                      │
+│ File: infrastructure.tf (games_cdn, admin_cdn, assets buckets)               │
+│                                                                              │
+│ Three S3 buckets are created with NO public access block configuration:     │
+│   - zubaco-games-cdn-${env}                                                  │
+│   - zubaco-admin-cdn-${env}                                                  │
+│   - zubaco-assets-${env}                                                     │
+│                                                                              │
+│ Missing aws_s3_bucket_public_access_block for all three. Default AWS        │
+│ behavior blocks public access for NEW accounts (2023+), but relying on     │
+│ defaults is fragile.                                                         │
+│                                                                              │
+│ ALSO MISSING:                                                                │
+│ - aws_s3_bucket_policy to restrict access to CloudFront OAI only           │
+│ - aws_s3_bucket_versioning for assets bucket                                │
+│ - aws_s3_bucket_server_side_encryption_configuration                        │
+│                                                                              │
+│ FIX: Add explicit public access block + bucket policy + encryption for     │
+│ all S3 buckets.                                                              │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-SEC-03: JWT Secret in Secrets Manager — No Value Set                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Incomplete Config                                                  │
+│ File: infrastructure.tf (line 392)                                           │
+│                                                                              │
+│ aws_secretsmanager_secret "jwt_secrets" is created but has NO               │
+│ aws_secretsmanager_secret_version. The secret EXISTS but is EMPTY.          │
+│ The ECS task definition also doesn't reference it — JWT secrets must       │
+│ be manually configured post-deploy.                                          │
+│                                                                              │
+│ FIX: Add secret_version with generated values, or at minimum document      │
+│ the manual step in a README.                                                 │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: ARCHITECTURE / COMPLETENESS — 4 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-ARCH-01: No ECS Task Definitions for 20 Game Backends               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Incomplete Infrastructure                                          │
+│ File: infrastructure.tf                                                      │
+│                                                                              │
+│ ECR repositories are created for all 20 games via for_each:                  │
+│   resource "aws_ecr_repository" "game_backends" { for_each = toset(...) }   │
+│                                                                              │
+│ But NO ECS task definitions, services, target groups, or ALB listener       │
+│ rules exist for any game backend. Only platform and admin_backend have      │
+│ ECS services. The 20 game backends have nowhere to run.                     │
+│                                                                              │
+│ FIX: Add a for_each ECS task definition + service + target group for        │
+│ game backends, with ALB path-based routing (/api/game/{name}/*).           │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-ARCH-02: Single Database for All Services                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Scalability                                                        │
+│ File: infrastructure.tf (aws_db_instance.main)                               │
+│                                                                              │
+│ One RDS instance (db.t3.medium) for platform + admin + 20 game backends.   │
+│ That's 22 services sharing a single database. With t3.medium (2 vCPU,     │
+│ 4GB RAM), the connection pool will be exhausted quickly at scale.          │
+│                                                                              │
+│ db.t3.medium max connections ≈ 85 (formula: LEAST({DBInstanceClassMemory │
+│ /9531392}, 5000)). 22 services × 10 connections = 220 — EXCEEDS LIMIT.   │
+│                                                                              │
+│ RECOMMENDATION: Use db.r6g.large+ for production, or implement PgBouncer  │
+│ as a connection pooler sidecar.                                              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-ARCH-03: ECS Task Uses "latest" Image Tag                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Deployment Safety                                                  │
+│ File: infrastructure.tf (lines 548, 612)                                     │
+│                                                                              │
+│ image = "${aws_ecr_repository.platform.repository_url}:latest"              │
+│                                                                              │
+│ Using :latest means:                                                         │
+│ - No rollback to specific versions                                           │
+│ - No audit trail of which image is deployed                                  │
+│ - ECS may not detect new "latest" push (same tag = no redeploy)            │
+│                                                                              │
+│ FIX: Use git SHA or semantic version tags. Update via CI/CD variable.       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-ARCH-04: DATABASE_URL Secret Mapping Incorrect                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Configuration Error                                                │
+│ File: infrastructure.tf (line 555)                                           │
+│                                                                              │
+│ secrets = [                                                                  │
+│   { name = "DATABASE_URL",                                                   │
+│     valueFrom = "${aws_secretsmanager_secret.db_credentials.arn}:host::" } │
+│ ]                                                                            │
+│                                                                              │
+│ This extracts ONLY the "host" field from the JSON secret, not a full        │
+│ DATABASE_URL. The app expects a connection string like:                      │
+│   postgresql://user:pass@host:5432/dbname                                   │
+│                                                                              │
+│ FIX: Either store a full DATABASE_URL in Secrets Manager, or construct it   │
+│ from individual env vars (DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME).    │
+│                                                                              │
+│ Priority Score: 6/10 (app will fail to connect to DB)                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: NETWORKING — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-NET-01: No HTTP→HTTPS Redirect on ALB                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: infrastructure.tf                                                      │
+│                                                                              │
+│ ALB SG allows port 80, and an HTTPS listener exists on 443. But there's    │
+│ NO port 80 listener to redirect HTTP→HTTPS. Users hitting                  │
+│ http://api.zubaco.com will get "connection refused" instead of a redirect. │
+│                                                                              │
+│ FIX: Add aws_lb_listener on port 80 with redirect action to HTTPS.          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-NET-02: WAF Rate Limit May Be Too High                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Configuration                                                      │
+│ File: infrastructure.tf (WAF rate_based_statement)                           │
+│                                                                              │
+│ limit = 2000 (requests per 5-minute window per IP).                          │
+│ That's 400 req/min — high for an API. Combined with app-level throttle     │
+│ of 100/60s, WAF won't trigger until 4× the app limit.                     │
+│                                                                              │
+│ Consider lowering to 500-1000 for better DDoS protection.                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: OPERATIONAL — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-OPS-01: No Terraform Workspaces or Environment Separation           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Operations                                                         │
+│ File: main.tf, variables.tf                                                  │
+│                                                                              │
+│ Backend key is hardcoded to "production/terraform.tfstate". The             │
+│ environment variable defaults to "production". No .tfvars files for         │
+│ dev/staging. Running with different environments requires manual flag.      │
+│                                                                              │
+│ FIX: Use Terraform workspaces or separate .tfvars per environment.          │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-OPS-02: No RDS Read Replicas for Production                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ File: infrastructure.tf                                                      │
+│                                                                              │
+│ Single RDS instance (multi-AZ for HA) but no read replicas.                │
+│ Leaderboards, analytics, and reporting queries share the primary.           │
+│                                                                              │
+│ FIX: Add aws_db_instance read replica for read-heavy workloads.             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE TF-OPS-03: CloudWatch Log Retention Short for Financial App            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Compliance                                                         │
+│ File: infrastructure.tf (log groups)                                         │
+│                                                                              │
+│ Production: 30 days. For a financial app handling real money, RBI/FEMA      │
+│ guidelines may require 1-3 year log retention for audit trails.            │
+│                                                                              │
+│ FIX: Increase to 365 days or archive to S3 Glacier.                         │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. POSITIVE OBSERVATIONS — WHAT TERRAFORM DOES RIGHT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECURITY BEST PRACTICES:
+✓ Remote state in S3 with DynamoDB locking + encryption
+✓ RDS storage_encrypted = true
+✓ Redis at_rest_encryption_enabled + transit_encryption_enabled
+✓ TLS 1.3 policy on ALB (ELBSecurityPolicy-TLS13-1-2-2021-06)
+✓ WAF v2 with rate limiting + AWS managed rule sets (Common + SQLi)
+✓ Secrets Manager for DB credentials (not hardcoded)
+✓ ECR scan_on_push = true on all repositories
+✓ ECS tasks in private subnets (no public IP)
+✓ RDS in private subnet, only accessible from ECS SG
+✓ Redis in private subnet, only accessible from ECS SG
+✓ ACM wildcard certificate (*.zubaco.com)
+✓ CloudFront viewer_protocol_policy = "redirect-to-https"
+
+ARCHITECTURE:
+✓ 3-AZ VPC for high availability
+✓ NAT gateway for private subnet internet access
+✓ RDS multi-AZ in production
+✓ Redis automatic failover in production
+✓ ECS deployment circuit breaker with rollback
+✓ Auto-scaling on CPU (70%) and Memory (80%)
+✓ SQS dead-letter queues on all queues
+✓ SNS fan-out pattern (game events → SQS)
+✓ CloudFront CDN with S3 OAI for game frontends
+✓ Performance Insights enabled on RDS
+✓ Container Insights enabled on ECS
+
+MONITORING:
+✓ CloudWatch alarms for CPU, Memory, 5xx errors, latency
+✓ SNS email alerts for all alarms
+✓ Log groups for all ECS services
+✓ WAF metrics enabled with sampled requests
+
+TAGGING:
+✓ Default tags on all resources (Project, Environment, ManagedBy)
+✓ Consistent naming convention: zubaco-${environment}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture Design:              85/100 (excellent choices, complete stack)
+- Security Configuration:           75/100 (encryption, WAF, private subnets)
+- State Management:                 90/100 (S3 + DynamoDB + encryption)
+- Networking:                       70/100 (3-AZ, NAT, missing HTTP redirect)
+- Monitoring:                       75/100 (alarms, logs, needs longer retention)
+- Completeness:                     50/100 (missing IAM, admin TG, game ECS)
+- Operational Readiness:            60/100 (no env separation, no read replicas)
+- Code Quality:                     80/100 (clean modules, good naming, DRY)
+
+═══════════════════════════════════════
+OVERALL INFRASTRUCTURE SCORE: 72/100
+═══════════════════════════════════════
+
+High score reflects excellent architecture decisions. The score is pulled
+down by missing resources that would cause terraform plan to fail (IAM roles,
+admin target group) and incomplete game backend provisioning.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. PRIORITY ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: FIX BROKEN REFERENCES (terraform plan must pass)
+  □ Define aws_iam_role.ecs_execution + ecs_task with policies
+  □ Define aws_lb_target_group.admin + listener rule
+  □ Fix DATABASE_URL secret mapping (full connection string)
+
+PHASE 2: SECURITY HARDENING
+  □ Set ECR image_tag_mutability = "IMMUTABLE"
+  □ Add aws_s3_bucket_public_access_block on all buckets
+  □ Add S3 bucket policies restricting to CloudFront OAI
+  □ Add S3 encryption configuration
+  □ Populate jwt_secrets secret version
+  □ Add HTTP→HTTPS redirect listener
+
+PHASE 3: COMPLETENESS
+  □ Add ECS task definitions + services for 20 game backends
+  □ Add ALB listener rules for game routing
+  □ Add .tfvars files for dev/staging/production
+  □ Increase log retention for compliance
+  □ Add RDS read replica for production
+
+================================================================================
+END OF AUDIT — ZUBACO INFRASTRUCTURE (TERRAFORM)
+================================================================================

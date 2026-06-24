@@ -1,0 +1,585 @@
+================================================================================
+ZUBACO GAMING PLATFORM - COMPLETE PROJECT GUIDE
+================================================================================
+Last Updated: May 24, 2026
+================================================================================
+
+TABLE OF CONTENTS
+1. Project Overview
+2. Architecture
+3. Folder Structure
+4. Technology Stack
+5. How to Run (Docker - RECOMMENDED)
+6. Port Mapping (All Services)
+7. Database Setup
+8. Authentication & Security
+9. Admin Panel
+10. Individual Game Structure
+11. Known Issues & Fixes
+12. What NOT To Do
+13. Web Lobby (Temporary Dev Tool)
+14. Mobile App
+15. Environment Variables Reference
+16. API Patterns
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+ZUBACO is a gaming platform with 20 cognitive/puzzle games. Players access games
+through a mobile app (React Native) or web browser. Each game is an independent
+microservice with its own backend, frontend, and database.
+
+The platform consists of:
+- Platform API: Central orchestrator (user auth, game catalog, sessions)
+- Admin Panel: Web dashboard for managing games, stages, content
+- 20 Game Microservices: Each with backend (NestJS) + frontend (Vite/React)
+- Mobile App: React Native app (the player-facing "lobby")
+- Web Lobby: Temporary dev tool for testing games in browser
+
+================================================================================
+2. ARCHITECTURE
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                         INFRASTRUCTURE                                │
+├──────────────────┬──────────────────┬───────────────────────────────┤
+│   PostgreSQL     │      Redis       │     (Future: AWS/GCP)         │
+│   Port 5432     │    Port 6379     │                               │
+└──────────────────┴──────────────────┴───────────────────────────────┘
+         │                    │
+┌────────┴────────────────────┴───────────────────────────────────────┐
+│                     BACKEND SERVICES                                  │
+├─────────────────┬───────────────────┬───────────────────────────────┤
+│ Platform API    │ Admin Backend     │ 20x Game Backends             │
+│ Port 3000      │ Port 3001         │ Ports 3006-3040 (even)        │
+│ NestJS + Prisma│ NestJS + Prisma   │ NestJS + Prisma + BullMQ      │
+└─────────────────┴───────────────────┴───────────────────────────────┘
+         │                    │                    │
+┌────────┴────────────────────┴────────────────────┴──────────────────┐
+│                     FRONTEND CLIENTS                                  │
+├─────────────────┬───────────────────┬───────────────────────────────┤
+│ Mobile App      │ Admin Frontend    │ 20x Game Frontends            │
+│ React Native    │ Next.js (3002)    │ Vite+React (odd ports)        │
+│ (Emulator/Phone)│                   │ Ports 3005-3039 (odd)         │
+└─────────────────┴───────────────────┴───────────────────────────────┘
+
+Communication Flow:
+1. Mobile App → Platform API (auth, game list, sessions)
+2. Mobile App → Game Frontend (WebView, receives JWT token)
+3. Game Frontend → Game Backend (REST API + WebSocket)
+4. Game Backend → PostgreSQL (game state, scores)
+5. Game Backend → Redis (caching, BullMQ job queues, WebSocket adapter)
+
+================================================================================
+3. FOLDER STRUCTURE
+================================================================================
+
+C:\game\ (or wherever you place it)
+├── docker-compose.yml              ← Platform + Admin (root level)
+├── package.json                    ← Root workspace
+├── zubaco-platform/                ← PLATFORM API (port 3000)
+│   ├── src/
+│   ├── prisma/
+│   ├── Dockerfile
+│   └── .env
+├── zubaco-admin-panel-repo/
+│   └── zubaco-admin-panel/
+│       ├── backend/                ← ADMIN BACKEND (port 3001/3002)
+│       │   ├── src/
+│       │   ├── prisma/
+│       │   └── .env.development
+│       └── frontend/               ← ADMIN FRONTEND (Next.js)
+│           ├── src/
+│           └── .env.local
+├── zubaco-games-repo/
+│   └── zubaco-games/
+│       ├── docker-compose.yml      ← ALL 20 GAMES (games level)
+│       ├── docker/
+│       │   ├── backend.Dockerfile
+│       │   ├── frontend.Dockerfile
+│       │   └── init-databases.sql
+│       ├── colour-sorting/
+│       │   ├── colour-sorting-backend/
+│       │   └── colour-sorting-frontend/
+│       ├── word-unscramble/
+│       │   ├── word-unscramble-backend/
+│       │   └── word-unscramble-frontend/
+│       ├── arrows/
+│       ├── block-fill/
+│       ├── flash-spot/
+│       ├── Infinity-loop/
+│       ├── live-route-builder/
+│       ├── logic-reflector/
+│       ├── maze-navigation/
+│       ├── memory-card-matching/
+│       ├── memory-groups/
+│       ├── number-grid-sprint/
+│       ├── object-placement-memory/
+│       ├── pattern-survival/
+│       ├── rapid-category-sort/
+│       ├── reflex-endurance/
+│       ├── sequence-recall/
+│       ├── sliding-puzzle/
+│       ├── speed-type-answer/
+│       ├── true-false-blitz/
+│       └── word-unscramble/
+├── zubaco-mobile/                  ← MOBILE APP (React Native)
+│   ├── App.tsx
+│   ├── src/
+│   └── package.json
+├── zubaco-web-lobby/               ← TEMPORARY DEV WEB LOBBY
+│   ├── index.html
+│   ├── package.json
+│   └── TEMPORARY_README.md
+├── things to take care/            ← Reference docs
+│   ├── CURRENT_scoring_rules.txt   ← USE THIS (scoring formulas)
+│   ├── CURRENT_games_scoring.pdf   ← USE THIS (scoring PDF)
+│   ├── LEGACY_*.txt/pdf           ← IGNORE (old Shunya-era docs)
+└── redis/                          ← Portable Redis (Windows dev only)
+
+================================================================================
+4. TECHNOLOGY STACK
+================================================================================
+
+Backend (all services):
+- Node.js 22 (Docker) / 24 (local dev OK too)
+- NestJS 11
+- Prisma 7.8 with @prisma/adapter-pg (PostgreSQL driver adapter)
+- PostgreSQL 16
+- Redis 7 (Docker) / 5.x (local OK)
+- BullMQ (job queues for game events)
+- WebSocket (Socket.IO via Redis adapter)
+- TypeScript 5.x
+
+Frontend (game clients):
+- Vite 6.x
+- React 19
+- TailwindCSS
+- TypeScript
+
+Admin Panel:
+- Next.js 16 (frontend)
+- NestJS 11 (backend)
+
+Mobile App:
+- React Native 0.76
+- React Navigation 7
+- React Query (TanStack Query)
+
+================================================================================
+5. HOW TO RUN (DOCKER - RECOMMENDED)
+================================================================================
+
+PREREQUISITES:
+- Docker Desktop installed and running
+- Git (if cloning)
+- Node.js (only needed for web lobby and mobile app, NOT for game services)
+
+STEP 1: Start Platform + Admin (from project root):
+
+    cd <project-root>
+    docker compose up -d
+
+    This starts:
+    - PostgreSQL (port 5432, database: zubaco_platform)
+    - Redis (port 6379)
+    - Platform API (port 3000)
+    - Admin Backend (port 3001)
+    - Admin Frontend (port 3002)
+
+STEP 2: Start all 20 games (from games folder):
+
+    cd zubaco-games-repo/zubaco-games
+    docker compose --profile all up -d
+
+    This starts all 20 game backends + frontends with their databases.
+    First run takes longer (building Docker images).
+
+    To start only specific games:
+    docker compose --profile colour-sorting up -d
+    docker compose --profile word-unscramble up -d
+
+STEP 3: Open the web lobby to play games:
+
+    cd zubaco-web-lobby
+    npx serve . -p 3009 -s
+
+    Open http://localhost:3009 in browser.
+    Green dots = running, Red dots = not started.
+    Click any green game to play.
+
+STOPPING EVERYTHING:
+
+    # Stop games
+    cd zubaco-games-repo/zubaco-games
+    docker compose --profile all down
+
+    # Stop platform
+    cd <project-root>
+    docker compose down
+
+    # Remove all data (databases reset):
+    docker compose down -v
+
+================================================================================
+6. PORT MAPPING (ALL SERVICES)
+================================================================================
+
+INFRASTRUCTURE:
+  PostgreSQL .............. 5432
+  Redis .................. 6379
+
+PLATFORM:
+  Platform API ........... 3000
+  Admin Backend .......... 3001
+  Admin Frontend ......... 3002
+
+GAMES (Backend → Frontend):
+  Colour Sorting ......... 3006 → 3005
+  Flash Spot ............. 3001 → 3002  (⚠️ conflicts with admin in full stack)
+  Object Placement ....... 3004 → 3003
+  Rapid Category Sort .... 3008 → 3007
+  True False Blitz ....... 3010 → 3009
+  Word Unscramble ........ 3012 → 3011
+  Number Grid Sprint ..... 3014 → 3013
+  Live Route Builder ..... 3016 → 3015
+  Memory Groups .......... 3018 → 3017
+  Reflex Endurance ....... 3020 → 3019
+  Pattern Survival ....... 3022 → 3021
+  Speed Type Answer ...... 3024 → 3023
+  Sequence Recall ........ 3026 → 3025
+  Memory Card Matching ... 3028 → 3027
+  Sliding Puzzle ......... 3030 → 3029
+  Block Fill ............. 3032 → 3031
+  Maze Navigation ........ 3034 → 3033
+  Infinity Loop .......... 3036 → 3035
+  Arrows ................. 3038 → 3037
+  Logic Reflector ........ 3040 → 3039
+
+DEV TOOLS:
+  Web Lobby (temp) ....... 3009
+
+================================================================================
+7. DATABASE SETUP
+================================================================================
+
+Docker handles this automatically via docker/init-databases.sql.
+
+Each game has its own database:
+  colour_sorting, flash_spot, object_placement, rapid_sort,
+  true_false_blitz, word_unscramble, number_grid, live_route,
+  memory_groups, reflex_endurance, pattern_survival, speed_type,
+  sequence_recall, memory_card_matching, sliding_puzzle, block_fill,
+  maze_navigation, infinity_loop, arrows, logic_reflector
+
+Platform uses: zubaco_platform
+Admin uses: zubaco_platform (same DB as platform)
+
+Database user in Docker: zubaco / zubaco_dev_2024
+Database user locally: postgres / postgres
+
+Each game backend runs Prisma schema push on startup (via Docker healthcheck
+or entrypoint). Schema is in: <game-backend>/prisma/schema.prisma
+
+DO NOT:
+- Create databases manually
+- Use embedded-postgres
+- Modify init-databases.sql unless adding a new game
+
+================================================================================
+8. AUTHENTICATION & SECURITY
+================================================================================
+
+PLAYER AUTH (Game Frontends):
+- JWT token passed via URL query param: ?token=<jwt>
+- Token contains: { sub: <userId>, sessionId: <sessionId> }
+- Each game backend verifies JWT using its own JWT_SECRET
+- Token is generated by Platform API when player starts a game session
+
+ADMIN AUTH:
+- Email/password login: admin@zubaco.com / Admin@123
+- JWT-based session (access + refresh tokens)
+- Admin backend: port 3001 (or 3002 in Docker)
+
+GAME BACKEND SECURITY:
+- SessionGuard validates JWT on all game endpoints
+- HMAC signature verification on sensitive requests (anti-tamper)
+- Rate limiting via @nestjs/throttler
+- Request correlation IDs for tracing
+- Encryption middleware for request/response payloads
+
+DO NOT:
+- Set NODE_TLS_REJECT_UNAUTHORIZED=0 (disables SSL verification)
+- Hardcode secrets in source code
+- Skip JWT validation
+- Expose admin endpoints without auth
+
+================================================================================
+9. ADMIN PANEL
+================================================================================
+
+URL: http://localhost:3002 (Docker) or http://localhost:3001 (local frontend)
+Login: admin@zubaco.com / Admin@123
+
+Features:
+- View/manage all 20 games
+- Configure game stages (difficulty levels, time limits, scoring)
+- Upload game content (word pools, image assets, etc.)
+- View player analytics and leaderboards
+- Manage game feature flags
+
+The admin panel talks to:
+- Admin Backend (/admin/* endpoints)
+- Individual game backends (for game-specific config)
+
+================================================================================
+10. INDIVIDUAL GAME STRUCTURE
+================================================================================
+
+Every game follows the same structure:
+
+<game-name>/
+├── <game-name>-backend/
+│   ├── src/
+│   │   ├── main.ts                 ← Entry point
+│   │   ├── app.module.ts           ← Root module
+│   │   ├── config/
+│   │   │   └── env.validation.ts   ← Env var validation
+│   │   ├── common/
+│   │   │   ├── config/
+│   │   │   │   └── app.config.ts   ← App configuration
+│   │   │   ├── prisma/
+│   │   │   │   ├── prisma.module.ts
+│   │   │   │   └── prisma.service.ts  ← DB connection
+│   │   │   ├── filters/
+│   │   │   │   └── global-exception.filter.ts
+│   │   │   └── middleware/
+│   │   ├── game/
+│   │   │   ├── game.controller.ts  ← Game API endpoints
+│   │   │   ├── game.service.ts     ← Game logic
+│   │   │   ├── game.module.ts
+│   │   │   └── dto/                ← Request/response DTOs
+│   │   ├── health/
+│   │   │   └── health.controller.ts ← Health check endpoint
+│   │   ├── queue/
+│   │   │   └── queue.module.ts     ← BullMQ job processing
+│   │   ├── ws/
+│   │   │   └── redis-io.adapter.ts ← WebSocket with Redis
+│   │   └── crypto/
+│   │       └── decryption.middleware.ts
+│   ├── prisma/
+│   │   ├── schema.prisma           ← Database schema
+│   │   └── seed.ts                 ← Seed data
+│   ├── generated/                   ← Prisma generated client
+│   ├── .env                         ← Environment variables
+│   ├── nest-cli.json
+│   ├── tsconfig.json
+│   └── package.json
+└── <game-name>-frontend/
+    ├── src/
+    │   ├── App.tsx
+    │   ├── components/
+    │   ├── hooks/
+    │   ├── services/               ← API client
+    │   └── types/
+    ├── .env                         ← VITE_API_BASE_URL etc.
+    ├── vite.config.ts
+    ├── tailwind.config.ts
+    └── package.json
+
+KEY API ENDPOINTS (every game):
+  GET  /api/v1/health          ← Health check (no auth)
+  POST /api/v1/game/start      ← Start new game session (auth required)
+  POST /api/v1/game/submit     ← Submit game input/move
+  POST /api/v1/game/end        ← End game session, get score
+  GET  /api/v1/game/state      ← Get current game state
+
+================================================================================
+11. KNOWN ISSUES & FIXES
+================================================================================
+
+ISSUE 1: Prisma 7.8 requires driver adapter
+  Symptom: "Missing configured driver adapter" or "PrismaClient needs valid options"
+  Fix: In src/common/prisma/prisma.service.ts:
+
+    import { PrismaPg } from '@prisma/adapter-pg';
+
+    constructor() {
+      const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+      super({ adapter });
+    }
+
+  Also install: npm install @prisma/adapter-pg pg
+
+ISSUE 2: Environment variables not loading in local dev
+  Symptom: "Missing env var" warnings, 503 on health check
+  Fix: Add at top of src/main.ts:
+
+    import 'dotenv/config';
+
+ISSUE 3: HealthModule missing BullMQ dependency
+  Symptom: "Nest can't resolve dependencies of QueueHealthIndicator"
+  Fix: In src/health/health.module.ts, add BullModule import:
+
+    imports: [TerminusModule, PrismaModule, BullModule.registerQueue({ name: QUEUE_NAMES.GAME_EVENTS })]
+
+ISSUE 4: Generated Prisma client not found at runtime
+  Symptom: "Cannot find module '../../../generated/prisma/client'"
+  Fix: In nest-cli.json, add assets config:
+
+    { "compilerOptions": { "deleteOutDir": true, "assets": [{ "include": "../generated/**/*", "outDir": "dist/generated" }] } }
+
+ISSUE 5: class-validator not installed
+  Symptom: "The class-validator package is missing"
+  Fix: npm install class-validator class-transformer
+
+ISSUE 6: CORS errors from game frontend
+  Symptom: "Access-Control-Allow-Origin" header missing
+  Fix: Ensure CORS_ORIGINS in .env matches the frontend URL.
+  Each game backend's main.ts has CORS config using enableCors() or manual middleware.
+
+NOTE: Issues 1-5 may affect ALL 20 games. Apply the same fix pattern to each.
+The Docker build handles most of these, but if a game fails to start in Docker,
+check its logs: docker compose logs <game-name>-backend
+
+================================================================================
+12. WHAT NOT TO DO
+================================================================================
+
+❌ Do NOT set NODE_TLS_REJECT_UNAUTHORIZED=0
+❌ Do NOT use embedded-postgres (use Docker or native PostgreSQL)
+❌ Do NOT modify docker-compose.yml unless absolutely necessary
+❌ Do NOT create custom database initialization scripts
+❌ Do NOT hardcode JWT secrets or API keys
+❌ Do NOT skip authentication/guards for game endpoints
+❌ Do NOT install PostgreSQL/Redis manually if Docker is available
+❌ Do NOT reference LEGACY_ files in "things to take care" folder (outdated)
+❌ Do NOT change game scoring logic without consulting CURRENT_scoring_rules.txt
+❌ Do NOT run npm install inside Docker containers (Dockerfile handles it)
+❌ Do NOT use port 3009 for anything other than the web lobby (conflicts with true-false-blitz frontend in Docker)
+
+================================================================================
+13. WEB LOBBY (TEMPORARY DEV TOOL)
+================================================================================
+
+Location: zubaco-web-lobby/
+Purpose: Browse and launch all 20 games from a browser during development.
+Port: 3009
+
+How it works:
+- Single HTML page with all 20 games listed as cards
+- Checks each game backend's health endpoint (green/red dot)
+- Generates a valid JWT token per game using Web Crypto API
+- Opens clicked game in a new tab with the token
+
+To run:
+    cd zubaco-web-lobby
+    npx serve . -p 3009 -s
+
+This is TEMPORARY. It will be replaced by a production web frontend (responsive
+web app matching the mobile UI). Delete this folder when the production web app
+is ready.
+
+The web lobby knows each game's JWT secret for dev token generation. These are
+only dev secrets and must never be used in production.
+
+================================================================================
+14. MOBILE APP
+================================================================================
+
+Location: zubaco-mobile/
+Tech: React Native 0.76, React Navigation, React Query
+
+To run the mobile app:
+1. Install Node.js
+2. Install Android Studio (Android) or Xcode (iOS)
+3. cd zubaco-mobile
+4. npm install
+5. npm run android (or npm run ios)
+
+The mobile app:
+- Authenticates users (Google Sign-In, etc.)
+- Shows game catalog from Platform API
+- Opens each game in a WebView with JWT token
+- Displays leaderboards, profiles, achievements
+
+Requirements to run mobile app:
+- Platform API must be running (port 3000)
+- Game backends must be running (for the games you want to play)
+- Android emulator / iOS simulator / physical device
+
+================================================================================
+15. ENVIRONMENT VARIABLES REFERENCE
+================================================================================
+
+PLATFORM API (.env):
+  DATABASE_URL=postgresql://postgres:postgres@localhost:5432/zubaco_platform
+  JWT_ACCESS_SECRET=<min 32 chars>
+  JWT_REFRESH_SECRET=<min 32 chars>
+  REDIS_HOST=localhost
+  REDIS_PORT=6379
+  PORT=3000
+
+ADMIN BACKEND (.env.development):
+  DATABASE_URL=postgresql://postgres:postgres@localhost:5432/zubaco_platform
+  PORT=3002
+  JWT_SECRET=<secret>
+
+GAME BACKENDS (.env):
+  DATABASE_URL=postgresql://postgres:postgres@localhost:5432/<game_db_name>
+  JWT_SECRET=<per-game-secret>
+  HMAC_SECRET=<per-game-hmac-secret>
+  ADMIN_API_KEYS=<comma-separated-keys>
+  PORT=<game-port>
+  CORS_ORIGINS=http://localhost:<frontend-port>
+  REDIS_HOST=localhost
+  REDIS_PORT=6379
+  NODE_ENV=development
+
+GAME FRONTENDS (.env):
+  VITE_API_BASE_URL=http://localhost:<backend-port>/api/v1
+  VITE_SOCKET_URL=http://localhost:<backend-port>
+  VITE_GAME_ID=<game-slug>
+
+================================================================================
+16. API PATTERNS
+================================================================================
+
+All game backends follow this pattern:
+
+Base URL: http://localhost:<port>/api/v1
+
+Headers required:
+  Authorization: Bearer <jwt-token>
+  Content-Type: application/json
+  X-Signature: <hmac-signature> (for submit/end endpoints)
+  X-Timestamp: <unix-ms> (for replay protection)
+
+Start Game:
+  POST /api/v1/game/start
+  Body: { "stageId": "<uuid>" }
+  Response: { "sessionId": "...", "config": {...}, "words": [...] }
+
+Submit Input:
+  POST /api/v1/game/submit
+  Body: { "sessionId": "...", "input": {...} }
+  Response: { "correct": true, "score": 10 }
+
+End Game:
+  POST /api/v1/game/end
+  Body: { "sessionId": "...", "clientScore": 150 }
+  Response: { "serverScore": 150, "verified": true }
+
+Health Check:
+  GET /api/v1/health
+  Response: { "status": "ok", "info": { "database": {"status":"up"}, "redis": {"status":"up"} } }
+
+Admin Config (requires admin API key):
+  GET /api/v1/admin/config
+  PUT /api/v1/admin/config
+  Headers: X-API-Key: <admin-api-key>
+
+================================================================================
+END OF GUIDE
+================================================================================

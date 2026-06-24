@@ -1,0 +1,224 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║       ZUBACO GAMING PLATFORM - REAL-TIME & WEBSOCKET AUDIT                       ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: WebSocket, real-time features, push notifications, live updates         ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REAL-TIME SCORE: 5/100 (CRITICAL - ZERO REAL-TIME CAPABILITY)
+
+A gaming platform REQUIRES real-time communication for competitive gameplay,
+live leaderboards, tournament notifications, and player-vs-player interaction.
+Zubaco has ZERO real-time infrastructure. No WebSocket server, no Socket.io,
+no Server-Sent Events, no push notification backend. The platform operates
+entirely on REST polling, which is inadequate for a competitive gaming experience.
+
+REAL-TIME FEATURES NEEDED (INDUSTRY STANDARD):
+  ❌ Live leaderboard updates during tournaments
+  ❌ Real-time tournament stage transitions
+  ❌ Live challenge notifications
+  ❌ In-game multiplayer communication
+  ❌ Push notifications for tournament events
+  ❌ Real-time wallet balance updates
+  ❌ Live anti-cheat alerts to admins
+  ❌ Player online/offline status
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: CURRENT STATE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 WEBSOCKET IMPLEMENTATION: NONE                                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ grep results for WebSocket/Socket.io across entire codebase:                   │
+│   - socket.io: 0 results                                                      │
+│   - @nestjs/websockets: 0 results                                             │
+│   - WebSocketGateway: 0 results                                               │
+│   - ws (websocket package): 0 results                                         │
+│   - Server-Sent Events: 0 results                                             │
+│   - EventSource: 0 results                                                    │
+│                                                                                 │
+│ CONCLUSION: Zero real-time server infrastructure exists.                       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.2 PUSH NOTIFICATIONS: TOKEN STORED, NEVER SENT                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Mobile app:                                                                    │
+│   ✅ @react-native-firebase/messaging (FCM token registration)                │
+│   ✅ Stores FCM token on server (POST /notifications/token)                   │
+│                                                                                 │
+│ Platform backend:                                                               │
+│   ✅ NotificationModule exists                                                 │
+│   ✅ Stores notification tokens in database                                   │
+│   ❌ NO firebase-admin SDK installed                                          │
+│   ❌ NO push notification sending logic                                       │
+│   ❌ NO notification queue/worker                                             │
+│   ❌ NO notification templates                                                │
+│                                                                                 │
+│ Admin backend:                                                                  │
+│   ✅ broadcast-notification endpoint exists                                    │
+│   ❌ Actually just stores notification in DB (doesn't push to device)         │
+│                                                                                 │
+│ RESULT: App registers for notifications. Server stores token.                  │
+│ Nobody ever SENDS a notification. The infrastructure is half-built.           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: FEATURES REQUIRING REAL-TIME
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Feature                    │ Priority │ Current UX        │ Expected UX         │
+│ ─────────────────────────────────────────────────────────────────────────────  │
+│ Tournament leaderboard     │ CRITICAL │ Manual refresh    │ Live auto-update    │
+│ Stage start/end alerts     │ CRITICAL │ User must check   │ Push + in-app alert │
+│ Wallet deposit confirmed   │ HIGH     │ Refresh page      │ Instant notification│
+│ Challenge from friend      │ HIGH     │ Not implemented   │ Real-time popup     │
+│ Anti-cheat admin alert     │ HIGH     │ Admin checks panel│ Instant dashboard   │
+│ Player online status       │ MEDIUM   │ Not implemented   │ Green dot on avatar │
+│ Live game spectating       │ LOW      │ Not implemented   │ Real-time game view │
+│ Chat/messaging             │ LOW      │ Not implemented   │ Real-time messages  │
+│                                                                                 │
+│ WITHOUT REAL-TIME:                                                              │
+│ - Players miss tournament starts → frustration                                │
+│ - Leaderboard feels "dead" → reduced engagement                               │
+│ - No social presence → less competition feeling                               │
+│ - Admin can't react to cheating in real-time                                  │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: RECOMMENDED ARCHITECTURE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.1 IMPLEMENTATION OPTIONS                                                      │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Option A: NestJS WebSocket Gateway (Socket.io)                                 │
+│   Pros: Native NestJS support, same codebase, guards/pipes work              │
+│   Cons: Sticky sessions needed with multiple ECS tasks                        │
+│   Cost: Redis adapter for multi-instance ($0 - uses existing Redis)           │
+│   Effort: 2-3 weeks                                                           │
+│                                                                                 │
+│ Option B: AWS API Gateway WebSocket                                             │
+│   Pros: Serverless, auto-scaling, managed                                     │
+│   Cons: Connection limit (500 concurrent default), Lambda cold starts        │
+│   Cost: $1/million messages + connection minutes                             │
+│   Effort: 3-4 weeks                                                           │
+│                                                                                 │
+│ Option C: Third-party (Pusher, Ably, Firebase Realtime)                        │
+│   Pros: Zero infrastructure, SDK for mobile                                   │
+│   Cons: Vendor lock-in, per-message pricing (expensive at scale)             │
+│   Cost: $49-499/month depending on connections                               │
+│   Effort: 1 week                                                              │
+│                                                                                 │
+│ RECOMMENDED: Option A (NestJS WebSocket Gateway)                               │
+│   - Already familiar tech stack                                               │
+│   - Uses existing Redis for pub/sub adapter                                   │
+│   - Full control, no vendor limits                                            │
+│   - JWT auth can be shared                                                    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.2 PUSH NOTIFICATION COMPLETION                                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ To complete the half-built notification system:                                │
+│                                                                                 │
+│ 1. Install firebase-admin in platform backend                                 │
+│ 2. Create notification worker (SQS consumer - queue already exists)           │
+│ 3. Define notification templates:                                              │
+│    - tournament_starting: "Tournament {name} starts in 10 minutes!"          │
+│    - stage_ended: "Stage {n} results are in! Check your ranking."            │
+│    - deposit_confirmed: "₹{amount} added to wallet successfully."            │
+│    - withdrawal_processed: "₹{amount} sent to your bank."                    │
+│    - challenge_received: "{friend} challenged you to {game}!"                │
+│    - eliminated: "You've been eliminated from {tournament}."                 │
+│ 4. Trigger notifications from existing service events                         │
+│ 5. Handle token refresh/invalidation                                          │
+│                                                                                 │
+│ INFRASTRUCTURE EXISTS (SQS + SNS configured in Terraform):                    │
+│   But the application code never publishes to SQS.                           │
+│   The consumer/worker never processes the queue.                             │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: ALB WEBSOCKET CONSIDERATIONS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Current ALB supports WebSocket natively (HTTP upgrade).                         │
+│ However, multi-task ECS requires:                                              │
+│                                                                                 │
+│ 1. STICKY SESSIONS on ALB target group (connection affinity)                  │
+│    OR                                                                          │
+│ 2. REDIS ADAPTER for Socket.io (broadcast across instances)                   │
+│                                                                                 │
+│ Current Terraform ALB config:                                                  │
+│   - stickiness not configured                                                 │
+│   - WebSocket idle timeout: default 60s (should be 3600s for gaming)         │
+│                                                                                 │
+│ NEEDED CHANGES:                                                                 │
+│   - ALB idle_timeout: 3600 (for long-lived WS connections)                   │
+│   - Target group stickiness OR Redis adapter                                  │
+│   - Health check path for WebSocket service                                   │
+│   - Separate target group for WebSocket traffic                              │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 5: SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Component                         │ Score  │ Status
+──────────────────────────────────────────────────────
+WebSocket Server                  │ 0/100  │ Does not exist
+Push Notifications (sending)      │ 5/100  │ Token stored, never sent
+Live Leaderboard                  │ 0/100  │ Not implemented
+Tournament Alerts                 │ 0/100  │ Not implemented
+Player Presence                   │ 0/100  │ Not implemented
+Real-time Admin Alerts            │ 0/100  │ Not implemented
+Infrastructure Readiness          │ 30/100 │ ALB supports WS, Redis available
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 5/100  │ ZERO REAL-TIME CAPABILITY
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                   END OF REAL-TIME & WEBSOCKET AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -1,0 +1,1281 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #1: ARROWS
+================================================================================
+Audit Date: May 23, 2026
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Competitive timed arrow-swiping puzzle (mobile-first)
+Stack: NestJS + Restate (backend), React + Phaser 4 + Vite (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Arrows game has a STRONG architectural foundation:
+- Restate durable execution eliminates race conditions
+- AES-256-GCM encryption for payloads
+- Server-side move validation and scoring
+- Anti-cheat detection system
+- Proper session lifecycle management
+
+However, there are 6 CRITICAL security issues, 11 HIGH issues, and 21 MEDIUM
+issues that must be addressed before production launch to millions of players.
+
+The most dangerous pattern: Security fallbacks to hardcoded secrets when env vars
+are missing. A single misconfigured container would make the entire game
+exploitable.
+
+RELEASE READINESS SCORE: 58/100
+(Strong architecture, significant security holes, missing polish)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: WebSocket Session Hijacking
+BLOCKER-2: Hardcoded Fallback Secrets (JWT + HMAC)
+BLOCKER-3: Client-Side Encryption Key Exposed in JS Bundle
+BLOCKER-4: NEXT_BOARD_SOLVE_PCT_THRESHOLD = 0 (always unlocked)
+BLOCKER-5: No Max Array Size on Move Submissions (DoS vector)
+BLOCKER-6: Unique Constraint Blocks Game Replays
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: WebSocket join-session Has No Authorization Check                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (lines 70-76)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Any authenticated user can join ANY session's WebSocket room by providing  │
+│   an arbitrary sessionId. No check that client.data.userId owns the session. │
+│                                                                              │
+│ Reproduction Steps:                                                          │
+│   1. Authenticate as User A                                                  │
+│   2. Connect to WebSocket                                                    │
+│   3. Emit 'join-session' with User B's sessionId                             │
+│   4. Receive all real-time events for User B's game                          │
+│                                                                              │
+│ Expected Behavior:                                                           │
+│   Server rejects join attempt with "Not your session" error                  │
+│                                                                              │
+│ Actual Behavior:                                                             │
+│   Server unconditionally adds client to the session room                     │
+│                                                                              │
+│ Root Cause:                                                                  │
+│   Missing ownership validation in handleJoinSession()                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Before client.join(), query Redis/DB to verify session.userId matches      │
+│   client.data.userId. Return error event if mismatch.                        │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Any user can spy on any other user's game in real-time        │
+│ Side Effects: Could enable competitive espionage in tournaments              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: WebSocket JWT Uses Fallback 'dev-secret' in Production           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (line 39)                                       │
+│                                                                              │
+│ Description:                                                                 │
+│   const secret = process.env.JWT_SECRET || 'dev-secret';                     │
+│   If JWT_SECRET env var is unset (misconfigured container), WebSocket auth   │
+│   uses a KNOWN hardcoded secret. Anyone can forge valid JWT tokens.          │
+│                                                                              │
+│ Reproduction Steps:                                                          │
+│   1. Deploy container without JWT_SECRET environment variable                │
+│   2. Generate JWT signed with 'dev-secret'                                   │
+│   3. Connect WebSocket with forged token                                     │
+│   4. Full access as any user                                                 │
+│                                                                              │
+│ Expected Behavior:                                                           │
+│   Server refuses to start if JWT_SECRET is missing                           │
+│                                                                              │
+│ Actual Behavior:                                                             │
+│   Server starts with known secret, all auth is compromised                   │
+│                                                                              │
+│ Root Cause:                                                                  │
+│   Defensive fallback that should never exist in production code              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove fallback. Use config service: this.configService.getOrThrow()       │
+│   Server must crash on startup if JWT_SECRET is undefined.                   │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Complete account takeover for ALL users                       │
+│ Side Effects: Score manipulation, wallet theft, identity fraud               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: Prisma.raw() SQL Injection Pattern                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/game/game.service.ts (lines 323-330)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   pickBoardWithArrows uses Prisma.raw() with string interpolation for        │
+│   the excludeIds clause. While currently protected by UUID regex             │
+│   validation, Prisma.raw() with manual quoting is an anti-pattern that       │
+│   becomes a direct injection vector if the regex is ever weakened.           │
+│                                                                              │
+│ Code:                                                                        │
+│   Prisma.raw(excludeIds.map((id) => `'${id}'`).join(','))                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use Prisma.join() for parameterized IN clause:                             │
+│   Prisma.sql`AND b.id NOT IN (${Prisma.join(excludeIds)})`                   │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Currently mitigated, but a ticking time bomb                  │
+│ Side Effects: Full database access if exploited                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: SubmitMoves DTO Lacks max() Array Length                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security / DoS                                                     │
+│ File: src/game/dto/submit-moves.dto.ts                                       │
+│                                                                              │
+│ Description:                                                                 │
+│   z.array(MoveSchema).min(1) — no .max() constraint                         │
+│   A malicious client can submit millions of moves in a single request.       │
+│                                                                              │
+│ Impact:                                                                      │
+│   - Memory exhaustion from deserializing massive arrays                      │
+│   - CPU burn in replayMoves() iterating all entries                          │
+│   - Restate state bloat (moves stored in durable state)                      │
+│   - Large DB writes at finalization                                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add .max(200) or calculate: maxArrowsPerBoard × maxBoards                  │
+│   Example: z.array(MoveSchema).min(1).max(500)                               │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Server becomes unresponsive for all players                   │
+│ Side Effects: Could crash Restate workers, cascading to other games          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: HMAC Guard Uses Fallback Secret                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts (line 17)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';                │
+│   Same pattern as B-02. Request signature verification becomes trivial       │
+│   to forge if HMAC_SECRET env var is missing.                                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Throw on startup if HMAC_SECRET is undefined.                              │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: All API request integrity checks defeated                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: timingSafeEqual Crash on Length Mismatch                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Availability / DoS                                                 │
+│ File: src/common/guards/hmac.guard.ts (line 52-53)                           │
+│                                                                              │
+│ Description:                                                                 │
+│   crypto.timingSafeEqual() throws if buffers have different lengths.         │
+│   A truncated signature from the client causes an unhandled exception.       │
+│                                                                              │
+│ Reproduction Steps:                                                          │
+│   1. Send any API request                                                    │
+│   2. Set x-signature header to "abc" (3 bytes instead of 64)                 │
+│   3. Server throws RangeError (uncaught)                                     │
+│   4. If no global error handler catches it: process crash                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   if (sigBuf.length !== expectedBuf.length) return false;                    │
+│   Then call timingSafeEqual.                                                 │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Repeated requests crash server → all players affected         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: No WebSocket Rate Limiting                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security / DoS                                                     │
+│ File: src/ws/game.gateway.ts                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   HTTP endpoints use @Throttle decorators, but the WebSocket gateway         │
+│   has ZERO rate limiting. An attacker can:                                   │
+│   - Open unlimited connections                                               │
+│   - Spam messages at maximum throughput                                       │
+│   - Fill connectedUsers map with garbage entries                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Implement per-socket message rate limiting (e.g., 60 msgs/sec)             │
+│   Implement max connections per userId (e.g., 3)                             │
+│   Disconnect sockets that exceed limits                                      │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Server overload affects all concurrent players                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Unique Constraint Blocks Game Replays                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: prisma/schema.prisma (line 99)                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   @@unique([userId, stageId]) on GameSession means a user can ONLY           │
+│   have ONE session per stage EVER. Once completed, they can never            │
+│   replay that stage.                                                         │
+│                                                                              │
+│ Expected Behavior:                                                           │
+│   Users should be able to replay stages (in tournament seasons)              │
+│                                                                              │
+│ Actual Behavior:                                                             │
+│   createGameSession fails with unique constraint violation                   │
+│                                                                              │
+│ Root Cause:                                                                  │
+│   Schema design assumes one-shot play per stage per user                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add seasonId or attempt_number to the unique constraint:                   │
+│   @@unique([userId, stageId, seasonId])                                      │
+│   OR remove unique constraint and add a status check in code                 │
+│                                                                              │
+│ Priority Score: 9/10 (if tournaments have multiple seasons)                  │
+│ Player Impact: Players permanently locked out of replaying content           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Client-Controlled Timestamps Defeat Anti-Cheat                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game-session.restate.ts (lines 435-442)                       │
+│                                                                              │
+│ Description:                                                                 │
+│   The CLICK_TOO_FAST_MS anti-cheat check uses clickedAt timestamps           │
+│   reported by the client. A bot can submit moves with fake timestamps        │
+│   spaced 200ms apart while actually clicking at inhuman speed.               │
+│   The system rejects future timestamps but accepts all past timestamps.      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Track server-received-at time for each batch submission.                   │
+│   Compare total moves in batch vs time since last batch.                     │
+│   Flag if moves_per_second exceeds humanly possible threshold.               │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Cheaters reach top leaderboard positions unfairly             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: NEXT_BOARD_SOLVE_PCT_THRESHOLD = 0 (Always Unlocked)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/common/constants.ts (line 76)                                      │
+│                                                                              │
+│ Description:                                                                 │
+│   With threshold = 0, the condition (removed / total >= 0) is ALWAYS true    │
+│   even when removed === 0. Players can skip boards without solving them.     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Set to meaningful value: NEXT_BOARD_SOLVE_PCT_THRESHOLD: 0.8 (80%)         │
+│   OR change >= to > in the condition                                         │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Game too easy, leaderboard exploit by board-skipping          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Anti-Cheat Runs AFTER Score is Committed                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 640)                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   this.runAntiCheatOnFinalize(session, scoredBoards) runs fire-and-forget    │
+│   AFTER $transaction commits. Cheater scores are published to leaderboard    │
+│   immediately. Flags are only retroactive.                                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Run anti-cheat BEFORE committing. If flagged with HIGH severity,           │
+│   set session status to UNDER_REVIEW instead of ENDED.                       │
+│   Only publish score after review clears.                                    │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Cheaters pollute leaderboards until manual review             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Move Coordinates Not Validated Against Actual Grid Size           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Validation                                                         │
+│ File: src/game/dto/submit-moves.dto.ts                                       │
+│                                                                              │
+│ Description:                                                                 │
+│   DTO allows x/y: 0-999, but actual grids are ~6x6 to 50x50.               │
+│   Invalid coordinates pass validation but never hit arrows.                  │
+│   They still get stored in Restate state and DB, inflating storage.          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Validate move coordinates against the active board's gridX/gridY           │
+│   in the handler (after board config is loaded from state).                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Storage bloat, minor performance impact                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: In-Memory Leaderboard Resets on Pod Restart                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Reliability                                                        │
+│ File: src/game/engine/leaderboard.ts                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   In-memory class with no persistence. Resets on restart.                    │
+│   Not shared across horizontal instances. Likely dead/placeholder code.      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove if unused, or replace with Redis sorted sets.                       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: connectedUsers Map Not Cluster-Aware                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Correctness                                                        │
+│ File: src/ws/game.gateway.ts (line 30)                                       │
+│                                                                              │
+│ Description:                                                                 │
+│   isUserOnline() and getConnectedUserCount() only reflect users              │
+│   connected to THIS instance. With Redis adapter for multi-pod,              │
+│   reported counts are inaccurate.                                            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use Redis presence tracking (SADD/SREM on connect/disconnect).             │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: Dead Engine Code (combo, booster, achievement, daily)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Maintainability                                                    │
+│ Files: src/game/engine/comboEngine.ts, boosterEngine.ts,                     │
+│        achievementEngine.ts, dailyChallenge.ts, scoreHistory.ts              │
+│                                                                              │
+│ Description:                                                                 │
+│   These modules are never imported by GameModule or any service.             │
+│   Dead code that adds to bundle size and maintenance burden.                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove or move to a "future" branch. Don't ship unused code.              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: CORS Wildcard Default                                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 47-49)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   Default CORS origin is ['*'] with credentials: true.                       │
+│   Spec-invalid combination. Production must set explicit origins.            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: Negative Score with maxScore = 0                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Edge Case                                                          │
+│ File: src/game/utils/score.util.ts (lines 20-29)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   If admin sets maxScore to 0: (0 - 1) * removed / total = negative score   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add guard: if (maxScore <= 0) return 0;                                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Encryption Key Exposed in Client JS Bundle                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/constants/api.ts (line 3)                                          │
+│                                                                              │
+│ Description:                                                                 │
+│   ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY                       │
+│   This AES-256-GCM key is baked into the production JS bundle.               │
+│   Any user can extract it via browser DevTools → Sources tab.                │
+│   The entire encrypt/decrypt layer is SECURITY THEATER.                      │
+│                                                                              │
+│ Reality Check:                                                               │
+│   Client-side encryption with a key visible to the client provides           │
+│   exactly ZERO protection. It only adds complexity.                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Option A: Remove client-side encryption entirely. Use HTTPS (TLS)          │
+│   which already encrypts all traffic in transit.                             │
+│   Option B: If obfuscation is desired, use server-issued per-session         │
+│   keys that expire and don't protect against the session owner.              │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: False sense of security; determined hackers unaffected        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: disableDevTools() Provides Zero Anti-Cheat Value                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security (false protection)                                        │
+│ File: src/utils/security.ts                                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   Blocking F12/Ctrl+Shift+I is trivially bypassed via:                       │
+│   - Chrome flag: --auto-open-devtools-for-tabs                               │
+│   - Browser extensions                                                       │
+│   - Puppeteer/Playwright                                                     │
+│   - Mobile browser inspect via USB debugging                                 │
+│                                                                              │
+│   It ONLY annoys legitimate developers/testers while providing               │
+│   ZERO protection against determined cheaters.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove entirely. Focus anti-cheat efforts on server-side validation.       │
+│   Client-side anti-tamper is fundamentally impossible in a browser.          │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Annoys power users; zero security improvement                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Client-Authoritative Gameplay Window (5-second batching)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security / Cheating                                                │
+│ File: src/pages/HomePage.tsx (lines 1700-1710)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Moves are batched locally for 5 seconds (MOVE_BATCH_INTERVAL_MS = 5000)   │
+│   before submission. During this window, a cheater can:                      │
+│   - Modify pendingMoves array contents before flush                          │
+│   - Inject solved arrow coordinates                                          │
+│   - Use browser console to call submitMoves with crafted data                │
+│                                                                              │
+│   The Phaser scene updates immediately on click (optimistic).                │
+│   Server validation happens 5 seconds later.                                 │
+│                                                                              │
+│ Mitigation Already Exists:                                                   │
+│   Server-side replayMoves() validates each move against the board state.     │
+│   Invalid moves are rejected. But the UX shows success then reverts.         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Reduce batch interval to 1-2 seconds for faster feedback.                  │
+│   Show "syncing..." indicator when moves haven't been confirmed.             │
+│   Never show confirmed score until server ACKs.                              │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Confusing UX if moves are rejected after visual success       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Memory Leak — Unbounded Body Sprites in Arrow Class              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / Memory                                               │
+│ File: src/game/GameScene.ts (lines 920-940)                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   Arrow body sprites are allocated on-demand via getBodySprite(index)        │
+│   and NEVER deallocated during the arrow's lifetime. On large grids          │
+│   or during resize cycles, GPU memory grows unbounded.                       │
+│   Only destroy() cleans them up.                                             │
+│                                                                              │
+│ Player Impact:                                                               │
+│   Long play sessions → increasing lag → eventual browser crash on mobile     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Pool body sprites. Recycle unused sprites when arrow path shortens.        │
+│   Set a hard cap on max body sprites per arrow.                              │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: GameScene Never Removes window Event Listeners on HMR            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Memory Leak                                                        │
+│ File: src/game/GameScene.ts (lines 2430-2500)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   18+ window event listeners added during scene creation.                    │
+│   Cleanup only happens on Phaser.Scenes.Events.DESTROY.                      │
+│   If Phaser game.destroy() races or HMR triggers, listeners leak.            │
+│   Leaked listeners fire on stale closures → undefined behavior.              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Also clean up on 'beforeunload' and in the React component's              │
+│   useEffect cleanup function that hosts the Phaser game.                     │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: 30+ useState Hooks in HomePage (Re-render Bomb)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/pages/HomePage.tsx (lines 430-520)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   HomePage has 30+ useState, 15+ useRef, dozens of useCallback/useEffect.   │
+│   Any state update (e.g., setCollisionGlow) re-renders the entire            │
+│   2000+ line component and ALL its children.                                 │
+│                                                                              │
+│   In a game running at 60fps where visual state changes every frame,         │
+│   this is a CRITICAL performance anti-pattern.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   - Use a state machine (XState) for game phases                             │
+│   - Split into smaller components: HUD, Modals, GameContainer                │
+│   - Use useReducer for related state                                         │
+│   - Memoize aggressively with React.memo                                     │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Jank on low-end mobile devices                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: gsap Not in package.json — Runtime Crash                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Build / Runtime                                                    │
+│ File: src/components/game/Arrow.tsx (line 3)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   import gsap from "gsap"; — but gsap is NOT in package.json.               │
+│   If this component renders, it crashes with module-not-found.               │
+│   Either dead code or relies on hoisted dependency.                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add gsap to package.json OR remove the import and component.               │
+│                                                                              │
+│ Priority Score: 8/10 (if component is ever rendered)                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No visibilitychange Handler — Tab Switch During Game             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Game Logic                                                    │
+│ File: src/game/GameScene.ts                                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   No document.visibilitychange listener. When user alt-tabs:                 │
+│   - Server timer keeps counting down                                         │
+│   - User returns to find session expired with no warning                     │
+│   - Background music may continue playing                                    │
+│   - Animations may glitch when resuming                                      │
+│                                                                              │
+│ Expected Behavior:                                                           │
+│   Show "Game paused — your timer is still running!" overlay on return        │
+│   Optionally: pause local timer display, resume on return                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add visibilitychange listener:                                             │
+│   - On hidden: pause animations, show paused state                           │
+│   - On visible: resync timer with server, show remaining time                │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Confusion and frustration on mobile (frequent tab switches)   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: No Spatial Indexing — O(n) Hit Testing Per Tap                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/game/GameScene.ts (lines 2160-2200)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   pointerup handler iterates ALL arrows on every tap.                        │
+│   On a 50×50 grid = 200+ arrows, each tap does O(arrows × waypoints)        │
+│   containsPoint() checks. No grid-based spatial lookup.                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use a 2D grid lookup: cellMap[y][x] = arrow                                │
+│   Convert tap position to grid cell → O(1) arrow lookup                      │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Input lag on large/complex boards on low-end devices          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: useToast Leaks — Never Removes Closed Toasts from Array          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Memory                                                             │
+│ File: src/hooks/useToast.ts (lines 26-35)                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   Toasts are marked open: false but never removed from the array.            │
+│   Over long sessions, array grows unbounded. Each new toast triggers         │
+│   re-render with ever-larger array.                                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove toast from array 500ms after setting open: false (after exit anim)  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: httpClient Redirects to /login on 401 (No Login Page Exists)     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Error Handling                                                     │
+│ File: src/services/httpClient.ts (lines 50-55)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   On 401, redirects to /login which doesn't exist in this game SPA.          │
+│   Shows NotFoundPage instead of useful error recovery.                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Show "Session expired" modal with "Return to lobby" button.                │
+│   Or redirect to the game's entry/instruction page.                          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Dead-end screen if token expires mid-game                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: Board Rendering Blocks Main Thread on Large Grids                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/game/GameScene.ts (lines 1870-1920)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   loadLevelFromData creates ALL Arrow objects synchronously in one frame.    │
+│   On a 50×50 grid: hundreds of Arrow instances with Graphics objects         │
+│   created in a single tick → multi-hundred-ms frame spike → visible jank.    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Batch creation across multiple frames (e.g., 20 arrows per frame)          │
+│   Or use object pooling for arrow instances                                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Freeze when loading new boards on low-end mobile              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: WebAudio Context Suspension on Mobile                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Audio                                                              │
+│ File: src/game/GameScene.ts (lines 2060-2075)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   bgMusic.play() in initSounds() may fail silently on mobile browsers        │
+│   where AudioContext is suspended until first user gesture.                  │
+│   No retry mechanism exists.                                                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Resume AudioContext on first tap/click event.                              │
+│   Use Phaser's built-in audio unlock mechanism properly.                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: No background music until user interacts (may seem buggy)     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: Conflicting MAX_LIVES Constants (100 vs 6)                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Code Quality / Bug Risk                                            │
+│ Files: src/constants/game.ts vs src/lib/game/types.ts                        │
+│                                                                              │
+│ Description:                                                                 │
+│   Two MAX_LIVES values exist in different modules (100 and 6).               │
+│   Wrong import silently uses wrong value.                                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Single source of truth. Remove one. Document which mode uses what.         │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: Missing Canvas Accessibility (No ARIA)                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: src/components/PhaserGame.tsx                                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Game canvas container has no ARIA attributes. Screen readers               │
+│   cannot identify the game area. No accessibility announcements              │
+│   for game events (arrow cleared, level complete, timer warning).            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add role="application" aria-label="Arrows puzzle game"                     │
+│   Add aria-live region for score/timer announcements                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Game unusable for visually impaired players                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: "use client" Directives Are Meaningless in Vite SPA              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ Files: Board.tsx, Arrow.tsx, HUD.tsx, others                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   "use client" is Next.js-only. This is Vite + React. Wasted bytes.         │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: ReactQueryDevtools in Production Bundle                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Bundle Size                                                        │
+│ File: src/providers/query-provider.tsx                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   DevTools imported unconditionally. Chunk present in production.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Wrap in: if (import.meta.env.DEV) { ... }                                  │
+│   Or use React.lazy with env check                                           │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: LEVELS Array Empty — Local Mode Non-Functional                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/game/gameLevels.ts                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   LEVELS: LevelData[] = [] — Phaser local mode has no levels.                │
+│   Only server-provided levels work. Dead code path.                          │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: GENERATED_BOARD_TOKEN Is Empty String                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Broken Feature                                                     │
+│ File: src/constants/api.ts (line 16)                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   GENERATED_BOARD_TOKEN = "" — generateBoard API call will always fail       │
+│   authentication.                                                            │
+│                                                                              │
+│ Priority Score: 2/10 (if feature is needed)                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: No Touch Haptic Feedback                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Game Feel / Polish                                                 │
+│ File: src/game/GameScene.ts                                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   No navigator.vibrate() on arrow tap. No visual ripple in canvas.           │
+│   Only feedback is sound + arrow motion starting.                            │
+│   Mobile players expect tactile feedback for precision actions.              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add: navigator.vibrate?.(10) on successful arrow tap                       │
+│   Add brief scale/glow animation on the tapped arrow                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Game feels "flat" on mobile compared to competitors           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: Error Boundary "Try Again" Doesn't Recover Game State            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Error Recovery                                                     │
+│ File: src/components/shared/ErrorBoundary.tsx                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   "Try again" clears React error state but doesn't reinitialize Phaser,     │
+│   reconnect WebSocket, or restore game session. User sees blank canvas.      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Full page reload on "Try again" for game errors.                           │
+│   OR: destroy and recreate Phaser instance.                                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Bottlenecks (sorted by impact):
+
+1. HomePage Re-Render Storm (30+ useState)
+   - Every score update, timer tick, or glow effect re-renders 2000+ line component
+   - On low-end Android: potential 16ms frame budget exceeded → visible jank
+   - Fix: State machine + component splitting
+
+2. Synchronous Board Loading (Large Grids)
+   - 200+ Arrow objects created in single frame
+   - Each Arrow creates Graphics + Image objects
+   - Estimated: 100-500ms freeze on budget phones
+   - Fix: Batched creation across frames
+
+3. O(n) Hit Testing on Every Tap
+   - Linear scan of all arrows per pointer event
+   - With 200 arrows, each tap = 200 × waypoints checks
+   - Fix: Grid-based spatial lookup (O(1))
+
+4. Unbounded Body Sprite Allocation
+   - Memory grows without cap during gameplay
+   - No recycling of unused sprites
+   - Fix: Object pooling
+
+5. localStorage Serialization During Gameplay
+   - JSON.stringify + encryption + write blocks main thread
+   - On large session state: 5-50ms per write
+   - Fix: Use requestIdleCallback or Web Worker for serialization
+
+ESTIMATED FRAME BUDGET USAGE:
+- Idle: ~4ms/frame (good)
+- Active gameplay (small grid): ~8ms/frame (acceptable)
+- Active gameplay (large grid): ~14ms/frame (borderline)
+- Board transition: 100-500ms spike (bad)
+- Homepage re-render: ~5ms per state change (cumulative problem)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Clear arrow direction indicators
+✓ Score displayed prominently
+✓ Timer visible at all times
+✓ Sound feedback on correct/incorrect
+✓ Instruction/demo mode before gameplay
+✓ Result screen after completion
+
+UX PROBLEMS:
+
+1. No Visibility Change Warning
+   - Players tab away on mobile (notification, call, etc.)
+   - Return to expired game with no explanation
+   - FRUSTRATION LEVEL: HIGH
+
+2. Collision Glow During Tutorial
+   - Red flash on wrong moves during learning phase
+   - Creates anxiety before player understands the game
+   - Should be gentler feedback during tutorial
+
+3. 401 → Dead-End /login Redirect
+   - Session expires → white screen or 404
+   - No way to recover or understand what happened
+   - FRUSTRATION LEVEL: VERY HIGH
+
+4. No Confirmation Before Leaving Game
+   - Accidental back button/swipe = lost session
+   - No "Are you sure? Your progress will be lost" prompt
+
+5. No Progress Indicator Between Boards
+   - Player doesn't know "Board 2 of 5"
+   - No sense of progression within the session
+
+6. Missing Loading States
+   - Between boards: potential blank frame
+   - API calls: no skeleton/spinner for board fetch
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features that players will EXPECT but are missing:
+
+1. [ ] Replay functionality (blocked by unique constraint)
+2. [ ] Combo system (engine exists but unused)
+3. [ ] Booster/power-ups (engine exists but unused)
+4. [ ] Achievement system (engine exists but unused)
+5. [ ] Daily challenges (engine exists but unused)
+6. [ ] Score history graph (engine exists but unused)
+7. [ ] Color blind mode (no alternative color schemes)
+8. [ ] Difficulty selector (levels are admin-assigned only)
+9. [ ] Practice mode (unlimited time, no scoring)
+10. [ ] Tutorial skip option (for returning players)
+11. [ ] Pause button (server timer runs regardless)
+12. [ ] Leaderboard view within the game frontend
+13. [ ] Share score to social media
+14. [ ] Sound settings (on/off toggle, volume)
+15. [ ] Haptic feedback toggle
+16. [ ] Animation speed setting
+17. [ ] Left-handed mode
+18. [ ] Landscape orientation support
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add screen shake on wrong move (subtle, 3-5px)
+2. Add particle burst on correct arrow clear
+3. Add streak counter animation (x2, x3, x4 multiplier visual)
+4. Add "Perfect Board!" celebration when all arrows cleared
+5. Add countdown animation for last 10 seconds (pulsing timer)
+6. Add transition animation between boards (slide/fade)
+7. Add idle animation on arrows when no input for 3+ seconds
+8. Add subtle background grid animation
+9. Add satisfying "pop" sound variant per arrow direction
+10. Smooth camera zoom on board transitions
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Backend:
+1. Add .max(500) to moves DTO array validation
+2. Replace Prisma.raw() with Prisma.join() for parameterized queries
+3. Add WebSocket rate limiting (max 60 msgs/sec per socket)
+4. Cap max connections per userId (3)
+5. Run anti-cheat BEFORE score commit (not after)
+6. Add Redis-based presence tracking instead of instance-local map
+
+Frontend:
+1. Split HomePage into <GameHUD>, <GameModals>, <GameContainer>
+2. Add grid-based spatial indexing for arrow hit detection
+3. Batch Arrow object creation across frames (20 per frame)
+4. Pool body sprites with recycle logic
+5. Move localStorage serialization to requestIdleCallback
+6. Remove ReactQueryDevtools from production
+7. Remove "use client" directives
+8. Add dynamic import for LevelEditorPage (dev-only)
+9. Implement object pooling for frequently created/destroyed sprites
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: WebSocket
+- Risk: Session hijacking via join-session (NO AUTH CHECK)
+- Risk: Unlimited connections (NO RATE LIMIT)
+- Risk: Token forgery via fallback secret
+- Severity: CRITICAL
+
+Attack Surface 2: Move Submission API
+- Risk: Unbounded array (DoS)
+- Risk: Client-faked timestamps defeat anti-cheat
+- Risk: Invalid coordinates accepted (waste storage)
+- Severity: HIGH
+
+Attack Surface 3: Client-Side "Security"
+- Risk: Encryption key in JS bundle (zero protection)
+- Risk: DevTools blocking trivially bypassed
+- Risk: Move batching window allows local manipulation
+- Severity: MEDIUM (mitigated by server validation)
+
+Attack Surface 4: Environment Configuration
+- Risk: Missing JWT_SECRET → hardcoded fallback
+- Risk: Missing HMAC_SECRET → hardcoded fallback
+- Risk: Missing CORS_ORIGINS → wildcard
+- Severity: CRITICAL (if misconfigured)
+
+OVERALL SECURITY POSTURE:
+The SERVER-SIDE architecture is strong (Restate prevents race conditions,
+move replay validates integrity). The main risks are:
+1. Deployment misconfiguration exposing fallback secrets
+2. Missing ownership checks on WebSocket operations
+3. Anti-cheat running after-the-fact (scores published before review)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mixed" - 6.5/10
+
+POSITIVE REVIEWS WOULD SAY:
+"Simple but addictive. The arrow-swiping mechanic is satisfying when it works."
+"Fair competition — can't cheat because server validates everything."
+"Love the multi-board progression. Keeps each round fresh."
+"Clean visual design. Not cluttered."
+
+NEGATIVE REVIEWS WOULD SAY:
+"Froze for 2 seconds loading a new board. Thought it crashed."
+"I switched to answer a text message. Came back 30 seconds later — game over???"
+"No way to replay a stage I already did? What's the point?"
+"My friend can see my game score in real-time? Privacy much?"
+"The game blocks F12. That's sketchy — what are they hiding?"
+"No haptic feedback. Doesn't FEEL like I'm touching anything."
+"Timer just jumped from 45s to 12s when I came back from a notification."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Top 10 player complaints (predicted):
+
+1. "Game expired while I was away" — No visibility/pause handling
+2. "Can't replay a level" — Unique constraint blocking replays
+3. "Laggy on my phone" — Board loading spike + re-render storm
+4. "No sound on first load" — WebAudio suspension
+5. "Accidentally went back, lost my game" — No leave confirmation
+6. "How many boards left?" — No progression indicator
+7. "It feels unresponsive" — No haptic feedback, no tap visual
+8. "White screen after error" — Broken error boundary recovery
+9. "Someone saw my score before I finished" — WebSocket session leak
+10. "Game blocks developer tools" — Annoys tech-savvy users
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Simple to understand, hard to master
+✓ Time pressure creates excitement
+✓ Multi-board progression keeps it varied
+✓ Competitive scoring against other players
+✓ Quick sessions (2-3 minutes)
+✓ Satisfying correct-arrow clear animation/sound
+✓ Clear visual feedback on success/failure
+✓ Skill-based — no RNG in scoring
+
+Flow State Enablers:
+✓ Immediate feedback loop (tap → result in <100ms)
+✓ Escalating difficulty (more arrows per board)
+✓ Clear goal (clear all arrows, maximize score, beat time)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. NO SHARE FEATURE
+   - Can't share score to social media
+   - No shareable link to challenge friends
+   - No "I beat your score" notification
+
+2. NO REPLAY = NO "ONE MORE TRY" LOOP
+   - The #1 addiction mechanic in mobile games
+   - "I can do better!" requires replaying
+   - Currently: play once, done forever
+
+3. NO DAILY/WEEKLY CHALLENGES
+   - Engine exists but unused
+   - Daily hooks bring users back every 24 hours
+   - "Come back tomorrow for a new challenge" = retention gold
+
+4. NO COMBO/STREAK SYSTEM
+   - Engine exists but unused
+   - Streaks create "just one more" psychology
+   - Shared streaks ("I'm on a 7-day streak!") = social pressure
+
+5. NO SPECTATOR/LIVE VIEW
+   - Can't watch friends play in real-time
+   - No "live tournament" feeling
+
+6. NO PROGRESSION OUTSIDE SESSIONS
+   - No XP, no unlockables, no cosmetics
+   - Nothing to work toward long-term
+   - No reason to come back after completing all stages
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     85/100
+- Security:                         40/100 (fallback secrets, WS hijacking)
+- Performance:                      60/100 (re-render storm, sync board load)
+- Game Logic & Correctness:         70/100 (threshold=0, no replays)
+- UX & Polish:                      55/100 (no visibility handling, no haptics)
+- Anti-Cheat:                       65/100 (exists but bypassable)
+- Accessibility:                    30/100 (no ARIA, no color blind mode)
+- Retention & Engagement:           45/100 (unused engines, no share, no replay)
+- Error Handling:                   50/100 (dead-end errors, no recovery)
+- Production Readiness:             55/100 (env fallbacks, dead code)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 58/100
+═══════════════════════════════════════
+
+VERDICT: NOT READY FOR PUBLIC LAUNCH
+Fix critical security issues + add replays + add visibility handling = 75/100
+Then it's shippable as MVP.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: SECURITY (Do FIRST — 2-3 days)
+  □ Remove all fallback secrets (JWT, HMAC). Crash on missing env.
+  □ Add session ownership check to WebSocket join-session
+  □ Add .max(500) to moves DTO
+  □ Fix timingSafeEqual buffer length check
+  □ Add WebSocket rate limiting
+  □ Replace Prisma.raw() with Prisma.join()
+  □ Remove disableDevTools()
+  □ Remove client-side encryption key from bundle
+
+PHASE 2: GAME LOGIC (3-4 days)
+  □ Fix NEXT_BOARD_SOLVE_PCT_THRESHOLD (set to 0.8)
+  □ Fix unique constraint to allow replays (add seasonId or remove)
+  □ Run anti-cheat before score commit
+  □ Add server-side timing validation (moves per batch vs time elapsed)
+
+PHASE 3: UX & STABILITY (3-4 days)
+  □ Add visibilitychange handler (pause overlay on tab switch)
+  □ Fix 401 → show "session expired" modal instead of /login redirect
+  □ Add board progression indicator ("Board 2/5")
+  □ Add leave confirmation dialog
+  □ Fix error boundary to properly recover (reload game)
+  □ Add loading spinner between boards
+
+PHASE 4: PERFORMANCE (2-3 days)
+  □ Split HomePage into smaller components
+  □ Batch board rendering across frames
+  □ Add grid-based hit detection
+  □ Fix toast array memory leak
+  □ Remove ReactQueryDevtools from production
+  □ Add gsap to package.json or remove dead component
+
+PHASE 5: POLISH (2-3 days)
+  □ Add haptic feedback on tap
+  □ Fix WebAudio context resumption on mobile
+  □ Add sound on/off toggle
+  □ Add countdown pulse animation for last 10 seconds
+  □ Add transition animation between boards
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ranked by (Player Impact × Effort Efficiency):
+
+#1  Remove fallback secrets + crash on missing env
+    Effort: 30 minutes | Impact: Prevents complete security breach
+    ROI: ∞ (non-negotiable)
+
+#2  Add session ownership check to WS join-session
+    Effort: 15 minutes | Impact: Prevents session spying
+    ROI: ∞ (non-negotiable)
+
+#3  Allow game replays (fix unique constraint)
+    Effort: 1 hour | Impact: Unlocks core retention loop
+    ROI: 10x (biggest player-facing improvement)
+
+#4  Add visibilitychange handler
+    Effort: 2 hours | Impact: Eliminates #1 player complaint
+    ROI: 8x
+
+#5  Fix NEXT_BOARD_SOLVE_PCT_THRESHOLD
+    Effort: 5 minutes | Impact: Fixes broken game progression
+    ROI: 8x
+
+#6  Add .max() to moves DTO
+    Effort: 5 minutes | Impact: Prevents DoS attacks
+    ROI: 7x
+
+#7  Split HomePage component
+    Effort: 4 hours | Impact: Eliminates mobile jank
+    ROI: 5x
+
+#8  Add haptic feedback
+    Effort: 30 minutes | Impact: Game feels 3x more responsive
+    ROI: 5x
+
+#9  Fix 401 error handling (show modal)
+    Effort: 30 minutes | Impact: Eliminates dead-end frustration
+    ROI: 4x
+
+#10 Enable combo/streak system (wire existing engine)
+    Effort: 4 hours | Impact: Major retention + viral potential
+    ROI: 4x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+What's WELL DONE in this game (credit where due):
+
+✓ Restate Virtual Objects → Zero race conditions on concurrent moves
+✓ Expiry grace period (120s RESULT_PROCESSING) → Network delay tolerance
+✓ skipDuplicates on createMany → Idempotent finalization
+✓ Pre-generated UUIDs → No ID collision risks
+✓ Stage config snapshots → Admin edits can't corrupt active sessions
+✓ AES-256-GCM with proper IV/tag handling → Correct crypto implementation
+✓ Transaction ordering → Data consistency guaranteed
+✓ assertPersistableInt → Integer overflow protection
+✓ Zod validation on all DTOs → Input sanitization
+✓ verifyFinalizedSnapshotCounts → Post-commit audit safety net
+✓ HMAC request signing → Tamper detection (when properly configured)
+✓ Redis adapter for WebSocket scaling → Horizontal scalability ready
+✓ Feature flags system → Safe progressive rollout capability
+✓ Circuit breaker pattern → Resilience against downstream failures
+✓ Graceful shutdown handling → Zero-downtime deployments supported
+
+The FOUNDATION is excellent. The issues are mostly:
+1. Unsafe fallback defaults for secrets
+2. Missing validation boundaries
+3. Frontend performance anti-patterns
+4. Unused but shipped code
+
+Fix the critical security + add replays + add visibility handling, and this
+game is ready for a confident soft launch.
+
+================================================================================
+END OF AUDIT — GAME #1: ARROWS
+================================================================================

@@ -1,0 +1,236 @@
+============================================================
+ZUBACO GAMES - FUTURE TODO LIST
+============================================================
+Created: 2026-05-25
+Status: Things to build before production/tournament launch
+
+============================================================
+1. PUZZLE GENERATOR ALGORITHM (ALL GAMES - GENERIC)
+============================================================
+
+- Create a GENERIC puzzle generator service that works for ANY game
+- Location: shared backend service or per-game engine module
+- Each game implements a PuzzleGenerator interface:
+
+  interface PuzzleGenerator {
+    generate(params: { difficulty: 'easy'|'medium'|'hard', seed?: number }): Puzzle;
+    validate(puzzle: Puzzle): boolean;  // verify solvable
+    solve(puzzle: Puzzle): Solution;    // find optimal solution
+  }
+
+- Common requirements for ALL games:
+  * Input: difficulty level, optional seed (for daily challenges)
+  * Output: puzzle config JSON (same shape as hardcoded levels)
+  * Must verify solvability before returning
+  * Must track optimal move count for scoring
+  * Must support difficulty scaling (grid size, piece count, constraints)
+
+[ARROWS GAME - puzzleGenerator.ts]
+  * Place arrows randomly on grid
+  * Simulate solving (BFS/DFS) to verify puzzle is solvable
+  * Reject puzzles with deadlocks (arrows pointing at each other in same row/col)
+  * Params: gridSize (4-8), arrowCount (5-15)
+
+[COLOUR SORTING GAME - puzzleGenerator.ts]
+  * Generate random tube configurations
+  * Verify solvable within move limit
+  * Params: tubeCount (4-10), colorCount, emptyTubes
+
+[FUTURE GAMES]
+  * Same interface — plug in new generator per game
+  * Shared difficulty curve logic across all games
+
+============================================================
+2. TOURNAMENT SYSTEM (GENERIC - ALL GAMES)
+============================================================
+
+- Single tournament service that works for ANY game
+- Game-agnostic API — game type is just a parameter:
+
+  * POST /tournament/create { gameType: "arrows"|"colour-sort"|..., params }
+  * POST /tournament/{id}/join (player joins)
+  * GET /tournament/{id}/current-level (server calls that game's puzzle generator)
+  * POST /tournament/{id}/submit { moves, time, score }
+  * GET /tournament/{id}/leaderboard
+  * GET /tournament/{id}/status
+
+- Tournament modes (same for all games):
+  * Time-attack: solve X puzzles fastest
+  * Survival: increasing difficulty until you fail
+  * Head-to-head: same puzzle, compare scores
+  * Team: combined team scores
+
+- Tournament scheduling:
+  * Scheduled start times
+  * Round-based (new puzzle each round)
+  * Entry fees / prize pools (if applicable)
+  * Cross-game tournaments (play round in each game)
+
+- Anti-cheat (generic for all games):
+  * Server validates solutions (each game has its own validator)
+  * Time tracking server-side
+  * Rate limiting on submissions
+  * Replay verification (store move sequence, replay to verify)
+
+============================================================
+3. DAILY CHALLENGE SYSTEM (GENERIC - ALL GAMES)
+============================================================
+
+- Backend: dailyChallenge.ts exists with seed generation (already generic)
+- Still needed:
+  * Use seed + game's PuzzleGenerator to create daily puzzle per game
+  * Each game gets its own daily challenge (play arrows daily + colour-sort daily)
+  * Store daily challenge completion per user per game
+  * Streak tracking per game (consecutive days completed)
+  * Daily leaderboard per game (fastest time for today's puzzle)
+  * Rewards for streaks (cosmetics, bonus points)
+  * "Multi-game daily" — complete all games' daily for bonus reward
+
+============================================================
+4. USER PROGRESSION & PERSISTENCE (ALL GAMES)
+============================================================
+
+- Generic user progress service (works for any game):
+  * Per-game progress: completed levels, stars, best time/moves
+  * Cross-game profile: total score, global rank, achievements
+  * Currently: localStorage only (per game)
+  * Future: backend sync with user accounts
+- Data model:
+  * UserProgress { userId, gameType, levelId, stars, bestTime, bestMoves }
+  * UserAchievements { userId, achievementId, unlockedAt }
+  * UserStats { userId, gameType, totalGamesPlayed, totalScore, winRate }
+- Sync between devices (login required)
+- Guest mode → account linking when they sign up
+- Offline-first: works without internet, syncs when online
+
+============================================================
+5. LEVEL EXPANSION (ALL GAMES)
+============================================================
+
+- Current: 10 hardcoded levels per game (story/practice mode)
+- Future:
+  * 50+ handcrafted levels per game (level packs)
+  * Level packs unlocked by progression or purchase
+  * Community-created levels (level editor exists for arrows, build for others)
+  * Weekly "featured levels" curated from community
+  * Seasonal level packs (holiday themes, events)
+  * Difficulty modes: casual (more hints/lives) vs competitive (strict)
+
+============================================================
+6. MATCHMAKING / MULTIPLAYER (ALL GAMES)
+============================================================
+
+- Generic matchmaking service (game-agnostic):
+  * Queue by: gameType + difficulty + region
+  * Real-time 1v1 matching (same puzzle, race to finish)
+  * Lobby system for friends (invite links)
+  * ELO/rating system per game for ranked play
+  * Cross-game composite rating
+- Spectator mode
+- Async challenges (send puzzle to friend, compare scores later)
+
+============================================================
+7. REWARD / ECONOMY SYSTEM (SHARED ACROSS ALL GAMES)
+============================================================
+
+- Single wallet/currency system shared across all games:
+  * Coins earned from ANY game (levels, tournaments, dailies)
+  * Spend coins on: hints, extra lives, cosmetic themes (per game)
+  * Premium currency (real money) for special items
+  * Battle pass / season system (cross-game missions)
+- Game-specific cosmetics:
+  * Arrows: arrow skins, board themes, particle effects
+  * Colour-sort: tube skins, liquid effects, backgrounds
+- Shared cosmetics: profile frames, titles, emotes
+
+============================================================
+8. PUSH NOTIFICATIONS & ENGAGEMENT (ALL GAMES)
+============================================================
+
+- Generic notification service (not game-specific):
+  * Daily challenge reminders (per game or combined)
+  * Tournament starting soon alerts
+  * Friend activity notifications ("X beat your score in Arrows!")
+  * Streak at risk warnings
+  * New level pack / event announcements
+  * "Come back" re-engagement after inactivity
+
+============================================================
+9. ANALYTICS & ADMIN (PLATFORM-WIDE)
+============================================================
+
+- Platform-level analytics dashboard:
+  * Per-game: DAU, retention, level completion rates, drop-off points
+  * Cross-game: which games are most popular, player flow between games
+  * Revenue: IAP, tournament entries, ad revenue per game
+- A/B test difficulty settings per game
+- Admin panel:
+  * Tournament management (create/edit/cancel for any game)
+  * Puzzle generator tuning (difficulty curves per game)
+  * User management (bans, support)
+  * Content moderation (community levels)
+- Monitor puzzle generator quality per game (avg solve time, fail rate)
+
+============================================================
+10. MOBILE APP (SINGLE APP - ALL GAMES)
+============================================================
+
+- Currently: separate web apps per game (works in mobile browser)
+- Future: ONE unified app containing ALL games
+  * Single Capacitor/React Native shell
+  * Game selector home screen (hub)
+  * Shared auth, wallet, notifications across games
+  * Each game is a "module" within the app
+- Benefits: push notifications, offline play, app store presence
+- Both iOS and Android
+- Deep links to specific games/tournaments
+
+============================================================
+11. NEW GAMES (FUTURE ADDITIONS)
+============================================================
+
+- Architecture supports adding new games easily:
+  * Each game = frontend module + backend PuzzleGenerator + validator
+  * Plug into shared: tournaments, daily challenges, matchmaking, economy
+- Potential future games:
+  * Sliding puzzle
+  * Pattern matching
+  * Word games
+  * Number puzzles (Sudoku variant)
+  * Physics-based puzzles
+- Each new game automatically gets: tournaments, dailies, leaderboards,
+  matchmaking, and economy integration via shared services
+
+============================================================
+PRIORITY ORDER:
+============================================================
+HIGH (needed for tournament launch — ALL GAMES):
+  → #1 Generic Puzzle Generator (per-game implementations)
+  → #2 Tournament System (game-agnostic service)
+  → #3 Daily Challenge (connect generator to seed system)
+  → #4 User Persistence (backend sync, accounts)
+
+MEDIUM (needed for growth — PLATFORM):
+  → #6 Matchmaking / Multiplayer
+  → #5 Level Expansion (50+ per game)
+  → #8 Notifications
+  → #11 Add new games to platform
+
+LOW (nice to have — POLISH):
+  → #7 Economy System
+  → #9 Analytics & Admin
+  → #10 Single Native App
+
+============================================================
+ARCHITECTURE PRINCIPLE:
+============================================================
+Everything is GENERIC and GAME-AGNOSTIC at the platform level.
+Each game only implements:
+  1. PuzzleGenerator (create puzzles)
+  2. PuzzleValidator (verify solutions)
+  3. Frontend UI (game-specific rendering)
+
+Shared services handle: auth, tournaments, matchmaking,
+daily challenges, leaderboards, economy, notifications.
+Adding a new game = just implement those 3 things.
+============================================================

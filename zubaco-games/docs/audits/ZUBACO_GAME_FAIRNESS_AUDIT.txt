@@ -1,0 +1,350 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║          ZUBACO GAMING PLATFORM - GAME FAIRNESS & ANTI-CHEAT AUDIT              ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: Score integrity, provably fair, RNG, anti-cheat, tournament fairness    ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GAME FAIRNESS SCORE: 25/100 (CRITICAL - TOURNAMENT INTEGRITY COMPROMISED)
+
+In a real-money competitive platform, game fairness is THE core value proposition.
+Players are paying entry fees expecting fair competition. The current implementation
+has a FUNDAMENTAL architectural flaw: scores are CLIENT-SUBMITTED. The server cannot
+verify that actual gameplay occurred. Combined with the server seed being exposed
+before gameplay, the entire competitive integrity of the platform is broken.
+
+KEY FINDINGS:
+  Server-side score verification:   ❌ (client sends final score)
+  Provably fair implementation:     ❌ (server seed exposed pre-game)
+  Anti-cheat service:               ⚠️ (exists but post-hoc statistical only)
+  Equal game conditions:            ⚠️ (same config but different execution)
+  Replay/audit capability:          ❌ (no game state recording)
+  Bot detection:                    ❌ (no input pattern analysis)
+  Multi-accounting prevention:      ❌ (no device fingerprint)
+  Real-time cheat detection:        ❌ (only post-game analysis)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: SCORE TRUST CHAIN ANALYSIS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 CURRENT SCORE SUBMISSION FLOW                                               │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ TOURNAMENT GAME FLOW:                                                           │
+│                                                                                 │
+│ 1. POST /tournament/.../start                                                  │
+│    Server: Creates GameSession with server_seed                                │
+│    Returns: { session_id, game_type, server_seed, config }                     │
+│    ⚠️ SERVER SEED GIVEN TO CLIENT BEFORE GAME!                                │
+│                                                                                 │
+│ 2. Client plays game in WebView (frontend React app)                           │
+│    Game logic runs ENTIRELY on client side                                     │
+│    Server has ZERO visibility into gameplay                                    │
+│                                                                                 │
+│ 3. POST /tournament/submit                                                     │
+│    Client sends: { sessionId: "...", score: 847, durationMs: 45000 }          │
+│    Server: Records score as-is                                                 │
+│    Runs anti-cheat analysis (statistical only)                                │
+│                                                                                 │
+│ THE FUNDAMENTAL PROBLEM:                                                        │
+│ ┌─────────────────────────────────────────────────────────┐                    │
+│ │  The client can send ANY score.                          │                    │
+│ │  score: 999, durationMs: 180000                          │                    │
+│ │  Server has NO WAY to verify this is real.               │                    │
+│ │  Anti-cheat catches OBVIOUS fraud (score > max)          │                    │
+│ │  but CANNOT catch a "realistic" fake score.              │                    │
+│ └─────────────────────────────────────────────────────────┘                    │
+│                                                                                 │
+│ ATTACK SCENARIOS:                                                               │
+│                                                                                 │
+│ Scenario A - "Smart Cheater":                                                   │
+│   Player checks getMaxPossibleScore for game type (e.g., 5000)                │
+│   Submits score: 4500 (below max, looks realistic)                            │
+│   Duration: 120000ms (2 minutes, reasonable)                                  │
+│   Result: Passes ALL anti-cheat checks. Wins tournament.                      │
+│                                                                                 │
+│ Scenario B - "Bot Farm":                                                        │
+│   Create 50 accounts (no device fingerprint)                                  │
+│   Each plays tournament with scripted "realistic" scores                      │
+│   Top 10 accounts always advance (coordinated scoring)                        │
+│   Wins prize pool with zero skill                                             │
+│                                                                                 │
+│ Scenario C - "Memory Manipulation":                                             │
+│   Intercept WebView JavaScript execution                                      │
+│   Modify game state in memory (React state)                                   │
+│   Auto-solve puzzle in 1 frame, report normal duration                        │
+│   Or: Read puzzle solution from config, submit perfect answers                │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.2 SERVER SEED EXPOSURE                                                        │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ tournament.service.ts startTournamentGame():                                   │
+│   const serverSeed = crypto.randomBytes(32).toString('hex');                   │
+│   ...                                                                          │
+│   return {                                                                     │
+│     session_id: session.id,                                                   │
+│     game_type: stageGame.game_type,                                           │
+│     server_seed: serverSeed,  ← EXPOSED!                                     │
+│     config,                                                                   │
+│   };                                                                          │
+│                                                                                 │
+│ WHY THIS IS WRONG:                                                              │
+│ In a provably fair system:                                                     │
+│ - Server seed HASH (SHA-256) given before game                                │
+│ - Actual server seed revealed AFTER game                                      │
+│ - Client can verify: hash(server_seed) === pre-game hash                      │
+│ - This proves server didn't change outcomes after seeing player input         │
+│                                                                                 │
+│ CURRENT: Server seed given in PLAINTEXT before game.                           │
+│ - Client knows the seed used for RNG                                          │
+│ - Can predict all random elements of the game                                 │
+│ - Can pre-compute optimal solutions                                           │
+│                                                                                 │
+│ HOWEVER: Looking at game frontends, most DON'T actually use server_seed       │
+│ for game generation. They generate puzzles client-side with Math.random().    │
+│ The server_seed is stored but never verified.                                 │
+│ This makes the seed field MEANINGLESS security theater.                        │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: ANTI-CHEAT SERVICE ANALYSIS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.1 WHAT THE ANTI-CHEAT SERVICE DOES                                            │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ analyzeGameResult(userId, sessionId, score, durationMs, gameType):             │
+│                                                                                 │
+│ CHECK 1: Impossible Score                                                       │
+│   if (score > maxPossibleScore[gameType]) → CRITICAL flag                     │
+│   ✓ Good: Catches obvious cheaters                                            │
+│   ✗ Limitation: maxScores are generous (5000 for Sequence Recall)             │
+│     A score of 4999 passes but may still be impossible at certain levels      │
+│                                                                                 │
+│ CHECK 2: Timing Anomaly                                                         │
+│   if (durationMs < minReasonableTime && score > 0) → HIGH flag                │
+│   ✓ Good: Catches bots that submit instantly                                  │
+│   ✗ Limitation: Cheater just waits minReasonableTime before submitting        │
+│     Easy bypass: setTimeout(submit, minReasonableTime + 1000)                 │
+│                                                                                 │
+│ CHECK 3: Statistical Outlier (3-sigma rule)                                     │
+│   if (score > avg + 3*stdDev of last 10 scores) → MEDIUM flag                │
+│   ✓ Good: Catches sudden skill jumps                                          │
+│   ✗ Limitations:                                                               │
+│     - New accounts have < 5 scores → check skipped                            │
+│     - Cheater can "warm up" with low scores, then cheat in tournament         │
+│     - Only checks same user's history, not global population                  │
+│                                                                                 │
+│ CHECK 4: Rapid Progression                                                      │
+│   if (sessions in last hour > 20) → LOW flag                                  │
+│   ✓ Good: Catches automated farming                                           │
+│   ✗ Limitation: Only in free play, doesn't apply to tournaments              │
+│                                                                                 │
+│ AUTO-BAN: 3 CRITICAL flags → automatic ban                                    │
+│   ✓ Good: Removes obvious cheaters quickly                                    │
+│   ✗ Limitation: Only 3 CRITICAL flags trigger this.                           │
+│     A cheater with 2 CRITICAL + 50 HIGH flags stays unbanned.                 │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.2 WHAT THE ANTI-CHEAT SERVICE CANNOT DO                                       │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ CANNOT verify actual gameplay occurred:                                         │
+│   - No input replay data recorded                                             │
+│   - No game state snapshots                                                   │
+│   - No move-by-move verification                                              │
+│   - No screenshot/screen recording                                            │
+│                                                                                 │
+│ CANNOT detect tool-assisted play:                                               │
+│   - No input pattern analysis (human vs bot)                                  │
+│   - No timing distribution analysis (humans have variance)                    │
+│   - No focus/tab-switch detection                                             │
+│   - No clipboard/paste detection (for word games)                             │
+│                                                                                 │
+│ CANNOT prevent multi-accounting:                                                │
+│   - No device fingerprint                                                     │
+│   - No IP correlation between accounts                                        │
+│   - No phone number pattern detection (same carrier prefix)                   │
+│   - No referral ring detection                                                │
+│                                                                                 │
+│ CANNOT detect collusion:                                                        │
+│   - No friend-circle win pattern analysis                                     │
+│   - No score coordination detection                                           │
+│   - No cohort manipulation detection                                          │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: TOURNAMENT FAIRNESS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.1 EQUAL CONDITIONS                                                            │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ For tournaments to be fair, ALL players must face identical challenges.        │
+│                                                                                 │
+│ CURRENT IMPLEMENTATION:                                                         │
+│ - Same level_config_id for all players in a stage ✓                           │
+│ - Config snapshot stored in GameSession ✓                                     │
+│ - BUT: Game frontends generate puzzles CLIENT-SIDE with Math.random() ✗       │
+│                                                                                 │
+│ PROBLEM:                                                                        │
+│ Player A gets easy random maze, Player B gets hard random maze.               │
+│ Both use same "config" (maze size 10x10, time 3min) but the ACTUAL            │
+│ maze generated is different because Math.random() is different.               │
+│                                                                                 │
+│ For truly fair tournaments:                                                    │
+│ - Server must generate the EXACT puzzle using server_seed                     │
+│ - Same seed = same puzzle for all players                                     │
+│ - Currently: server_seed exists but ISN'T used by game frontends             │
+│                                                                                 │
+│ GAMES WITH THIS PROBLEM:                                                        │
+│   - Maze Navigation (random maze generation)                                  │
+│   - Memory Card Matching (random card placement)                              │
+│   - Flash Spot (random target positions)                                      │
+│   - Colour Sorting (random initial configuration)                             │
+│   - Sliding Puzzle (random scramble)                                          │
+│   - Block Fill (random shape/board)                                           │
+│   - Infinity Loop (random pipe layout)                                        │
+│   - Sequence Recall (random sequences)                                        │
+│   - Word Unscramble (random word selection)                                   │
+│                                                                                 │
+│ GAMES WITHOUT THIS PROBLEM (inherently same for all):                          │
+│   - True/False Blitz (same questions if from same pool)                       │
+│   - Speed Type Answer (same questions from same pool)                         │
+│   - Arrows (same sequence if seeded properly)                                 │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.2 ELIMINATION FAIRNESS                                                        │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Elimination rule: Bottom X% of each stage is eliminated.                       │
+│ Default: 50% elimination per stage.                                            │
+│                                                                                 │
+│ FAIRNESS ISSUES:                                                                │
+│                                                                                 │
+│ 1. TIEBREAKER: When players have same score, tiebreaker is total_time_ms.    │
+│    Lower time wins. But timing starts from session creation (server-side).    │
+│    If client takes 2s to load game, they've already "lost" 2 seconds.         │
+│    Network latency differences create unfair advantages.                      │
+│                                                                                 │
+│ 2. COHORT ASSIGNMENT: Round-robin cohort assignment.                           │
+│    If cohorts have different sizes, elimination % produces different cutoffs.  │
+│    Cohort A (500 players): top 250 advance                                    │
+│    Cohort B (501 players): top 251 advance (slightly easier)                  │
+│                                                                                 │
+│ 3. STAGE TIMING: Open/close dates for stages.                                  │
+│    Players who play on day 1 have different conditions than day 7:            │
+│    - Early players have more time to retry (if allowed)                       │
+│    - Late players might see leaked strategies                                 │
+│    Current code: One attempt per game per stage (good).                       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: RECOMMENDED ARCHITECTURE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 4.1 SERVER-AUTHORITATIVE SCORING                                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ The ONLY reliable approach for real-money gaming:                               │
+│                                                                                 │
+│ OPTION A: Full Server-Side Game Logic                                           │
+│   - Game state runs on server                                                 │
+│   - Client sends INPUTS (clicks, moves, keystrokes)                           │
+│   - Server validates each input and computes score                            │
+│   - Client only renders what server tells it                                  │
+│   Pros: Unhackable scoring                                                    │
+│   Cons: Latency-sensitive, requires WebSocket, expensive                      │
+│   Best for: Turn-based games (Sliding Puzzle, Block Fill)                     │
+│                                                                                 │
+│ OPTION B: Input Replay Verification                                             │
+│   - Client records ALL inputs with timestamps                                 │
+│   - Submits input log + claimed score                                         │
+│   - Server REPLAYS the game with those inputs                                 │
+│   - If replay produces same score → accept                                    │
+│   - If mismatch → flag + reject                                               │
+│   Pros: Works with existing architecture                                      │
+│   Cons: Complex to implement deterministic replay                             │
+│   Best for: All games (universal solution)                                    │
+│                                                                                 │
+│ OPTION C: Cryptographic Commitment Scheme                                       │
+│   - Server sends puzzle_hash = H(puzzle_data + server_seed) before game       │
+│   - Client provides client_seed before seeing puzzle                          │
+│   - Puzzle generated from H(server_seed + client_seed) - deterministic        │
+│   - Client sends: { score, moves[], client_seed }                             │
+│   - Server verifies: moves produce the claimed score on that puzzle           │
+│   Pros: Provably fair + verifiable                                            │
+│   Cons: Requires game-specific move validation logic                          │
+│   Best for: Puzzle games with discrete moves                                  │
+│                                                                                 │
+│ RECOMMENDED APPROACH FOR ZUBACO:                                                │
+│   Phase 1: Option B (input replay) for all tournament games                   │
+│   Phase 2: Option A (server-authoritative) for highest-stakes games           │
+│   Phase 3: Option C (provably fair) for transparency/trust                    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 5: SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Component                         │ Score  │ Status
+──────────────────────────────────────────────────────
+Score Verification                │ 5/100  │ Client-trusted (fatal)
+Provably Fair                     │ 0/100  │ Broken (seed exposed)
+Anti-Cheat Detection              │ 35/100 │ Post-hoc only, bypassable
+Equal Conditions                  │ 20/100 │ Config same, RNG different
+Multi-Account Prevention          │ 0/100  │ No device fingerprint
+Bot Detection                     │ 10/100 │ Timing check only
+Collusion Detection               │ 0/100  │ Not implemented
+Replay/Audit                      │ 0/100  │ No input recording
+Tournament Tiebreakers            │ 50/100 │ Logic exists but latency-biased
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 25/100 │ INTEGRITY COMPROMISED
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                 END OF GAME FAIRNESS & ANTI-CHEAT AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -1,0 +1,984 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #10: MEMORY GROUPS (Category Grouping Puzzle)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Category grouping — memorize items, then group them into correct
+          categories (e.g., Fruits/Colors/Planets). Similar to NYT Connections.
+Stack: NestJS 11 + Prisma 7 + Restate + Redis + BullMQ + Socket.IO (backend),
+       React 19 + Vite 6 + Framer Motion + i18next + TailwindCSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Memory Groups has a UNIQUE and potentially compelling game mechanic: players
+memorize items shown briefly (configurable showDuration), then must group them
+into categories from memory. This combines memory + categorization skills.
+
+CRITICAL PROBLEM: The ENTIRE answer bank (all 8 word sets with categories) is
+HARDCODED IN THE CLIENT BUNDLE. A player can open DevTools, find WORD_SETS,
+and know every answer without memorizing anything. The client also performs
+scoring locally. Despite having a server that validates submissions (which is
+good), the frontend completely bypasses it by having all answers locally.
+
+The server sends `seed` to the client, which allows precomputation of the
+exact word set. The server ALSO sends `words` (shuffled) but the frontend
+ignores it and regenerates them from the seed + wordBank.
+
+TOTAL ISSUES: 40 (7 Critical, 8 High, 14 Medium, 11 Low)
+
+RELEASE READINESS SCORE: 45/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: All 8 word sets with correct categories hardcoded in client bundle
+BLOCKER-2: Client-side score calculation with full answers in memory
+BLOCKER-3: Seed sent to client → precompute exact word set + answers
+BLOCKER-4: .env committed with JWT_SECRET + DB credentials
+BLOCKER-5: WS Gateway fallback 'dev-secret'
+BLOCKER-6: HMAC Guard fallback 'dev-hmac-secret'
+BLOCKER-7: Only 8 word sets total (trivially memorizable by players)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (19 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env Committed With JWT Secret + DB Credentials                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env                                                                   │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/memory_groups"  │
+│   JWT_SECRET="zubaco-memory-groups-jwt-secret-2025"                          │
+│                                                                              │
+│ Note: Unlike other games using a generic dev placeholder, this has a         │
+│ SPECIFIC secret ("zubaco-memory-groups-jwt-secret-2025") that looks like     │
+│ it could be a real production-intended value.                                │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: WS Gateway Fallback Secret 'dev-secret'                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/ws/ (gateway)                                                      │
+│                                                                              │
+│ Code:                                                                        │
+│   const secret = process.env.JWT_SECRET || 'dev-secret';                     │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: HMAC Guard Fallback Secret 'dev-hmac-secret'                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts                                        │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Seed Sent to Client (Precompute All Answers)                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (startGame return)                            │
+│                                                                              │
+│ Code:                                                                        │
+│   return { gameSessionId, seed, config, words: shuffled, ... };              │
+│                                                                              │
+│ Description: The `seed` value is returned to the client. Since both          │
+│ `selectWordSet` and the word bank exist in the client bundle, a cheater      │
+│ can instantly compute:                                                       │
+│   const wordSet = selectWordSet(seed);                                       │
+│   console.log(wordSet.groups); // All correct answers!                       │
+│                                                                              │
+│ The server DOES send `words` (shuffled), which is the correct approach,      │
+│ but:                                                                         │
+│ 1. The frontend ignores `words` and regenerates from seed                    │
+│ 2. The seed enables answer precomputation even without wordBank.ts           │
+│                                                                              │
+│ Fix: Don't send seed to client. Send only shuffled words (already done       │
+│ server-side). Remove wordBank.ts from frontend entirely.                     │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Only 8 Word Sets — Trivially Memorizable                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Game Design / Anti-Cheat                                           │
+│ File: src/game/engine/wordBank.ts                                            │
+│                                                                              │
+│ Description: Only 8 word sets exist. Each has 3 groups of 3 words.           │
+│ A dedicated player will memorize all 8 sets within a few sessions.           │
+│ After that, they just need to see ONE word to know the entire set.           │
+│                                                                              │
+│ Example: If you see "apple" → you know it's Set #1, which means the         │
+│ groups are Fruits/Colors/Planets. Game becomes trivial.                      │
+│                                                                              │
+│ For reference: NYT Connections has 365+ unique puzzles per year.             │
+│                                                                              │
+│ Fix: Need 100+ word sets minimum, or procedural generation from a            │
+│ large database. Or admin panel creates new sets daily.                        │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Game has no replay value after ~30 minutes of play            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: Submit DTO Blocks Higher Levels (Length Validation Bug)           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/game/ (DTO validation)                                             │
+│                                                                              │
+│ Description: Submit validation hardcodes `.length(3).max(3)` for             │
+│ playerGroups, but levelConfig supports up to 6 groups of 6 items.            │
+│ Higher levels literally cannot submit — validation rejects them.             │
+│                                                                              │
+│ Fix: Make validation dynamic based on level config, or use                   │
+│ .min(2).max(10) with server-side validation against active config.           │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Levels 2-10 are BROKEN                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Scoring Doesn't Account for Level Multiplier                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/game/game.service.ts (submitGame)                                  │
+│                                                                              │
+│ Description: startGame returns `scoreMultiplier` from levelConfig, but       │
+│ submitGame NEVER applies it. Server scoring ignores the multiplier.          │
+│ Players on harder levels get the same score as easy levels.                  │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: WebSocket join-session No Ownership Check                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/ (gateway)                                                      │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: In-Memory Rate Limiter — Unbounded Growth                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/                                                         │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Word Sets Only Have 3 Words Per Group (Always)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/game/engine/wordBank.ts                                            │
+│                                                                              │
+│ Description: All 8 word sets hardcode exactly 3 groups of 3 words.           │
+│ But levelConfig supports groupSize up to 6 items. Higher levels would        │
+│ need larger word sets that don't exist.                                      │
+│                                                                              │
+│ Fix: Create word sets matching all level configurations.                     │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: No Replay Protection (Same Seed Can Repeat)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Design                                                        │
+│ File: src/game/game.service.ts (startGame)                                   │
+│                                                                              │
+│ Description: With only 8 word sets, Math.floor(rng() * 8) will produce       │
+│ frequent repeats. No tracking of recently-seen sets per player.              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Dead Engine Modules (6 Files Never Used)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts                                  │
+│        src/game/engine/boosterEngine.ts                                      │
+│        src/game/engine/comboEngine.ts                                        │
+│        src/game/engine/dailyChallenge.ts                                     │
+│        src/game/engine/leaderboard.ts                                        │
+│        src/game/engine/scoreHistory.ts                                       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: CORS Wildcard Default                                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts                                                            │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts                                                            │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: No Anti-Cheat for "Too Fast" Submissions                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (submitGame)                                  │
+│                                                                              │
+│ Description: Only checks time overflow (too late) but never checks if         │
+│ submission is impossibly fast (completing before showDuration ends).          │
+│                                                                              │
+│ Fix: Check elapsed > config.showDurationMs before accepting.                 │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: Session Cleanup Likely No-Op                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Incomplete Implementation                                          │
+│ File: src/queue/processors/                                                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: No Database Indexes on gameSession                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Performance                                                        │
+│ File: prisma/schema.prisma                                                   │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-18: computeFinalSeed Uses Simple Operations                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/game/engine/random.ts                                              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-19: Event Service No Graceful Shutdown                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│ File: src/events/                                                            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (21 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: ALL Answers Hardcoded in Client Bundle (wordBank.ts)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat / Security                                              │
+│ File: src/features/groups/engine/wordBank.ts (line 7-14)                     │
+│                                                                              │
+│ Description: All 8 word sets with their correct categories and word           │
+│ groupings are HARDCODED in the client bundle. DevTools → Sources → find     │
+│ "WORD_SETS" → see all answers.                                              │
+│                                                                              │
+│ Code:                                                                        │
+│   const WORD_SETS: WordSet[] = [                                             │
+│     { groups: [{ category: 'Fruits', words: ['apple','banana','cherry'] },   │
+│       { category: 'Colors', words: ['crimson','azure','emerald'] },          │
+│       { category: 'Planets', words: ['mars','venus','saturn'] }] },          │
+│     // ... all 8 sets visible                                                │
+│   ];                                                                         │
+│                                                                              │
+│ Fix: Remove wordBank.ts from frontend entirely. Use server-provided           │
+│ shuffled words (already sent in StartGameResponse.words but ignored).        │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: ZERO game integrity                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Client-Side Score Calculation With Answers in Memory             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/groups/engine/scorer.ts                                   │
+│                                                                              │
+│ Description: calculateScore() runs on the client using correctGroupsRef      │
+│ (the leaked answers). clientScore sent to server.                            │
+│                                                                              │
+│ Fix: Remove scorer.ts from frontend. Server is sole scoring authority.        │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Seed Allows Precomputation of Answers                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/groups/engine/wordBank.ts (selectWordSet)                 │
+│                                                                              │
+│ Description: Server sends seed. Client has selectWordSet(seed).              │
+│ Deterministic selection from 8 sets makes precomputation trivial.            │
+│                                                                              │
+│ Exploit:                                                                     │
+│   const seed = response.seed;                                                │
+│   const wordSet = selectWordSet(seed);                                       │
+│   console.log(wordSet.groups); // Instant answers                            │
+│                                                                              │
+│ Fix: Don't send seed to client. Only send shuffled words.                    │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: VITE_ENCRYPTION_KEY Bundled in Client JS                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 5)                                    │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: No Error Handling on startSession Failure                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / UX                                                           │
+│ File: src/features/groups/components/GamePage.tsx (line 14-19)               │
+│                                                                              │
+│ Description: handleStart calls startSession() with no try/catch.             │
+│ Network failure → unhandled promise rejection → frozen UI.                  │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Game appears broken on network issues                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: setTimeout Not Cleaned on Unmount (Memory Leak)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / Memory Leak                                                  │
+│ File: src/features/groups/hooks/useMemoryGroups.ts (line 30-37)              │
+│                                                                              │
+│ Description: setTimeout for phase transition never stored/cleared.            │
+│ Component unmount during memorize → setState on unmounted component.         │
+│                                                                              │
+│ Fix: Store timeout ID in ref, clear in cleanup effect.                       │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: useEffect Stale Closure on Submit                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/features/groups/components/GamePage.tsx (line 23)                   │
+│                                                                              │
+│ Description: Effect captures stale submittedGroups and score due to           │
+│ missing deps in dependency array.                                            │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: Audio Hook Exists But Never Used                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature / Dead Code                                        │
+│ File: src/hooks/useAudio.ts                                                  │
+│                                                                              │
+│ Description: Full useAudio hook with correct/incorrect/tap/complete           │
+│ sounds is IMPLEMENTED but NEVER imported by any component.                   │
+│                                                                              │
+│ Fix: Import and call: tap on word toggle, correct on group lock.             │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Game feels lifeless                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: No Haptic Feedback                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Game components                                                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: Zero Accessibility (No ARIA, No Keyboard Nav)                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: src/features/groups/components/WordCard.tsx                             │
+│                                                                              │
+│ Description: Buttons lack aria-label, aria-pressed, role attributes.          │
+│ No keyboard navigation. No live region for updates.                          │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: window.location.reload() for Replay                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Performance                                                   │
+│ File: src/features/groups/components/GamePage.tsx (line 62)                   │
+│                                                                              │
+│ Description: Replay triggers full page reload. Jarring flash, slow.          │
+│                                                                              │
+│ Fix: Add resetGame() that sets phase to 'idle'.                              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: ResultScreen Always Shows success={true}                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bug / UX                                                           │
+│ File: src/features/groups/components/GamePage.tsx (line 62)                   │
+│                                                                              │
+│ Description: Game over shows "Well Done!" regardless of performance.          │
+│ 0 correct groups → still shows success.                                     │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Misleading — lost game shows as won                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: No Visual Feedback for Correct/Incorrect Group                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Game group submission handling                                         │
+│                                                                              │
+│ Description: No distinct visual for correct vs incorrect groupings.          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: No Timer Warning Visual                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Timer component                                                        │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: OfflineBanner Text Not Internationalized                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: i18n                                                               │
+│ File: src/components/OfflineBanner.tsx (line 41-42)                           │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: Socket Infrastructure Unused (Dead Code, ~40KB)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ Files: src/services/socketClient.ts, src/hooks/useSocket.ts                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: computeFinalSeed Function Unused                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/features/groups/engine/random.ts (line 5-9)                        │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: Source Maps Shipped to Production                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: StartGameResponse.words Field Unused                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│ File: src/types/game.ts + useMemoryGroups.ts                                 │
+│                                                                              │
+│ Description: Server sends shuffled words (correct!) but frontend IGNORES     │
+│ them and regenerates from seed + wordBank.                                   │
+│                                                                              │
+│ Fix: USE res.words. Delete wordBank.ts from frontend.                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: No Memorize Phase Progress Indicator                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: Memorize phase UI                                                      │
+│                                                                              │
+│ Description: No countdown showing how much memorize time remains.            │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: No Category Hint System                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Game UI                                                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Profile:
+
+1. Framer Motion Animations
+   - GOOD: AnimatePresence for word cards entering/exiting
+   - Spring physics on tap interactions
+   - No issues for 9 word cards (3 groups × 3 items)
+
+2. State Management
+   - useCallback/useRef for stable references (GOOD)
+   - Minimal re-renders for timer updates
+
+3. Network Performance
+   - 2 requests total (start + submit)
+   - No real-time sync needed
+   - Very lightweight
+
+4. Bundle Size Concerns
+   - socket.io-client (~40KB) never used
+   - framer-motion (~100KB) justified for animations
+   - i18next infrastructure loaded
+
+5. Timer
+   - setInterval properly cleaned (GOOD)
+   - setTimeout for phase transition NOT cleaned (BUG)
+
+VERDICT: Performance is fine. Game is very lightweight.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Framer Motion animations (smooth, physical)
+✓ Clear phase structure (instructions → memorize → play → results)
+✓ ErrorBoundary with reset UI
+✓ OfflineBanner for connectivity
+✓ Theme system (dark/light)
+✓ i18n (Hindi + English)
+✓ Clean component decomposition
+
+UX PROBLEMS:
+
+1. No Audio (hook EXISTS but not wired!)
+   - FRUSTRATION LEVEL: MEDIUM
+
+2. No Memorize Phase Countdown
+   - Words vanish with no warning
+   - FRUSTRATION LEVEL: HIGH
+
+3. ResultScreen Always Shows Success
+   - Dishonest feedback
+   - FRUSTRATION LEVEL: MEDIUM
+
+4. Replay Is Full Page Reload
+   - FRUSTRATION LEVEL: LOW
+
+5. No Group Submission Feedback
+   - FRUSTRATION LEVEL: HIGH
+
+6. Only 8 Puzzles
+   - FRUSTRATION LEVEL: HIGH (returning players)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  [!] More puzzles (100+ minimum, currently only 8)
+2.  [!] Sound effects (already built, just wire up!)
+3.  [!] Correct/incorrect group feedback animation
+4.  [!] Memorize phase countdown indicator
+5.  [ ] Haptic feedback
+6.  [ ] Timer warning
+7.  [ ] Category names shown during memorize
+8.  [ ] Hint system
+9.  [ ] Working difficulty levels (currently broken)
+10. [ ] Combo/streak
+11. [ ] Score breakdown
+12. [ ] Daily challenge
+13. [ ] Share results
+14. [ ] Proper replay without reload
+15. [ ] Keyboard navigation
+16. [ ] Personal best tracking
+17. [ ] Category reveal after correct group
+18. [ ] Partial credit visualization
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Memorize countdown: circular timer overlay
+2. Correct group: words fly into category with confetti
+3. Incorrect group: words shake and flash red
+4. Combo: "2x streak!" floating text
+5. Timer low: pulse red, vignette
+6. Word tap: scale-up (1.05x) + tap sound
+7. All groups found: celebration + score breakdown
+8. Category reveal: slide-in after correct group
+9. Memorize→play: dramatic shuffle animation
+10. Personal best: "New Best!" badge
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. DELETE wordBank.ts (reveals all answers)
+2. DELETE scorer.ts (server is authority)
+3. USE res.words from server (already sent!)
+4. Wire up useAudio hook (already built!)
+5. Fix setTimeout cleanup
+6. Fix stale closure
+7. Remove socket.io-client (unused, 40KB)
+8. Add error handling on startSession
+9. Fix ResultScreen success condition
+10. Replace reload with state reset
+
+Backend:
+1. Remove fallback secrets
+2. Remove .env from VCS
+3. Don't send seed to client
+4. Fix DTO validation for levels 2+
+5. Apply scoreMultiplier
+6. Add "too fast" check
+7. Expand word sets to 100+
+8. Add recently-seen tracking
+9. Remove dead engine modules
+10. Create word sets for larger group sizes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Anti-Cheat (CATASTROPHIC)
+- ALL ANSWERS in client bundle (wordBank.ts)
+- Seed sent to client → precompute exact word set
+- Client-side scoring with answers in memory
+- Only 8 word sets → memorizable in 30 minutes
+- No "too fast" detection
+- Frontend ignores server-provided words
+- Severity: CRITICAL (WORST in the entire platform)
+
+Attack Surface 2: Secret Management
+- .env committed (specific JWT_SECRET + DB creds)
+- WS fallback 'dev-secret'
+- HMAC fallback 'dev-hmac-secret'
+- VITE_ENCRYPTION_KEY in bundle
+- Severity: CRITICAL
+
+Attack Surface 3: Game Logic Bugs
+- DTO blocks levels 2-10 (can't submit)
+- scoreMultiplier never applied
+- ResultScreen always shows success
+- Severity: HIGH
+
+Anti-cheat ranking (all 10 games so far):
+1. Memory Card Matching: Server validates + timing analysis → STRONG
+2. Logic Reflector: Server runs physics → STRONG
+3. Memory Groups: ALL ANSWERS IN CLIENT BUNDLE → CATASTROPHIC (5/100)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Negative" - 3.5/10
+
+POSITIVE: "Interesting concept", "smooth animations", "dark mode"
+NEGATIVE: "Only 8 puzzles!", "answers visible in DevTools", "no sound",
+"said Well Done when I failed", "Level 2 won't submit", "page reloads on
+replay", "memorize phase ended with NO WARNING", "same puzzle AGAIN!"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "Only 8 puzzles! I've seen them all!" — Fatal content problem
+2. "No sound at all!" — Silent interactions
+3. "I know apple = Fruits set without memorizing" — Too few sets
+4. "Memorize phase ended with NO WARNING" — No countdown
+5. "Correct group and... nothing happened?" — No feedback
+6. "Said 'Well Done' when I failed!" — Success always true
+7. "Level 2+ doesn't work!" — DTO blocks submission
+8. "Page reloads on replay!" — Jarring experience
+9. "Same puzzle AGAIN?!" — Frequent repeats from 8 sets
+10. "All answers visible in DevTools" — Security joke
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun (POTENTIAL — not fully realized):
+✓ Memorize + categorize = unique dual-skill challenge
+✓ Time pressure during memorize (must pay attention)
+✓ Pattern recognition (which words go together?)
+✓ Quick sessions (30-60 seconds)
+✓ "A-ha!" moment when you remember the grouping
+✓ Partial credit rewards engagement
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. ONLY 8 PUZZLES (fatal — no replay value)
+2. NO DAILY CHALLENGE (Connections thrives on this)
+3. NO SHARE FUNCTIONALITY (zero viral potential)
+4. ANSWERS IN CLIENT (zero competitive integrity)
+5. NO SOUND (no satisfaction)
+6. BROKEN LEVELS 2+ (kills progression)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     55/100
+- Security:                         20/100
+- Performance:                      70/100
+- Game Logic & Correctness:         30/100
+- UX & Polish:                      30/100
+- Anti-Cheat:                        5/100
+- Accessibility:                    20/100
+- Retention & Engagement:           15/100
+- Error Handling:                   35/100
+- Production Readiness:             40/100
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 45/100
+═══════════════════════════════════════
+
+VERDICT: GREAT CONCEPT, INCOMPLETE EXECUTION
+The memorize→categorize mechanic is genuinely compelling and unique. But:
+all answers in client bundle, only 8 puzzles, levels 2+ broken, no audio,
+no celebrations. The IRONY: the server ALREADY sends shuffled words and
+validates submissions. The correct architecture EXISTS. Frontend just needs
+to USE it instead of bypassing with local wordBank.ts.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL FIXES (1 day)
+  □ DELETE wordBank.ts + scorer.ts from frontend
+  □ USE server-provided words (res.words)
+  □ Don't send seed to client
+  □ Remove fallback secrets + .env from VCS
+  □ Fix DTO validation for levels 2+
+  □ Apply scoreMultiplier in submitGame
+
+PHASE 2: CONTENT (3-5 days)
+  □ Expand word sets from 8 to 100+
+  □ Create sets for larger group sizes
+  □ Add daily challenge system
+  □ Add recently-seen tracking
+
+PHASE 3: GAME JUICE (1-2 days)
+  □ Wire up useAudio hook (ALREADY BUILT!)
+  □ Add group submission feedback animations
+  □ Add memorize countdown indicator
+  □ Fix ResultScreen success condition
+  □ Replace page reload with state reset
+
+PHASE 4: ENGAGEMENT (1 day)
+  □ Share results (colored grid)
+  □ Personal best tracking
+  □ Score breakdown
+  □ Combo/streak indicator
+
+PHASE 5: HARDENING (0.5 day)
+  □ Add "too fast" anti-cheat
+  □ Remove dead engine modules + socket.io-client
+  □ Fix setTimeout/closure bugs
+  □ Add keyboard navigation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Delete wordBank.ts + scorer.ts, use server words
+    Effort: 30 min | Impact: Eliminates 100% of cheating
+    ROI: ∞ (server ALREADY sends words!)
+
+#2  Expand word sets to 100+
+    Effort: 3-5 days | Impact: Game goes from 30min to infinite replay
+    ROI: 10x (without content, game is dead)
+
+#3  Wire up useAudio (ALREADY BUILT!)
+    Effort: 15 min | Impact: Game comes alive
+    ROI: 10x (3 import lines)
+
+#4  Fix DTO validation for levels 2+
+    Effort: 15 min | Impact: Unlocks half the game
+    ROI: ∞ (levels 2-10 are BROKEN)
+
+#5  Add correct/incorrect group animation
+    Effort: 1 hour | Impact: Core moment becomes satisfying
+    ROI: 8x
+
+#6  Remove fallback secrets
+    Effort: 30 min | Impact: Prevents auth bypass
+    ROI: ∞
+
+#7  Add memorize countdown
+    Effort: 30 min | Impact: No surprise word disappearance
+    ROI: 7x
+
+#8  Fix ResultScreen success condition
+    Effort: 10 min | Impact: Honest feedback
+    ROI: 6x
+
+#9  Add daily challenge
+    Effort: 2-3 hours | Impact: Retention + viral potential
+    ROI: 7x
+
+#10 Add share functionality
+    Effort: 1-2 hours | Impact: Viral distribution
+    ROI: 6x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND:
+✓ Server validates submissions (recalculates score server-side)
+✓ Server sends shuffled words (correct architecture exists!)
+✓ Cheat detection: score divergence + time overflow
+✓ CheatFlag persistence + event publishing
+✓ Restate integration for session expiry
+✓ Session ownership validation (playerId check)
+✓ Partial credit scoring (rewards engagement)
+✓ Level config system (designed for 10 levels)
+
+FRONTEND:
+✓ ErrorBoundary + OfflineBanner
+✓ Theme system with system detection
+✓ i18n (Hindi + English)
+✓ Framer Motion animations
+✓ useCallback/useRef for stable references
+✓ useAudio hook fully implemented (just needs wiring!)
+✓ Clean TypeScript interfaces
+
+GAME DESIGN:
+✓ Memorize + categorize = unique dual-skill mechanic
+✓ Partial credit scoring
+✓ Configurable difficulty parameters
+✓ Quick sessions
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1 (Arrows):             58/100
+  Game #2 (Block Fill):         62/100
+  Game #3 (Colour Sorting):     61/100
+  Game #4 (Flash Spot):         56/100
+  Game #5 (Infinity Loop):      59/100
+  Game #6 (Live Route Builder): 48/100
+  Game #7 (Logic Reflector):    72/100 ← HIGHEST
+  Game #8 (Maze Navigation):    58/100
+  Game #9 (Memory Card Match):  68/100
+  Game #10 (Memory Groups):     45/100 ← SECOND LOWEST
+
+UNIQUE STRENGTHS:
+★ Memorize + categorize dual-skill mechanic
+★ Server already sends shuffled words (fix is trivial!)
+★ useAudio hook fully built (just wire it up!)
+★ i18n with Hindi support
+★ Partial credit scoring
+
+UNIQUE ISSUES:
+★ ALL answers in client bundle (worst anti-cheat in platform)
+★ Only 8 word sets (content poverty)
+★ Frontend IGNORES server-provided words
+★ DTO blocks levels 2+ (broken)
+★ scoreMultiplier never applied
+★ ResultScreen always shows success
+★ Full page reload on replay
+
+================================================================================
+END OF AUDIT — GAME #10: MEMORY GROUPS
+================================================================================

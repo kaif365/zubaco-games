@@ -1,0 +1,5 @@
+-- Prisma schema sync: @@unique([game_id, stage_id, language]) removed from GameContent.
+-- The full unique constraint was already replaced with a partial unique index
+-- (WHERE deleted_at IS NULL) in migration 20260518000002_partial_unique_game_contents.
+-- This migration is a no-op; it exists solely to keep Prisma's migration history
+-- in sync with the schema change.

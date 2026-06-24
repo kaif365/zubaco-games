@@ -1,0 +1,233 @@
+========================================================================
+REFLEX ENDURANCE – COMPREHENSIVE TEST CHECKLIST
+========================================================================
+Total Test Cases: 146
+Version: 1.0
+Game: Reflex Endurance
+Stack: React 19 + Vite + TypeScript + TailwindCSS 3 + Framer Motion + i18next
+
+========================================================================
+SECTION 1: MENU SCREEN (14 tests)
+========================================================================
+[ ] 1.1  Menu renders with game title "Reflex Endurance" and 🎯 emoji
+[ ] 1.2  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.3  Buttons animate in sequentially with stagger delay (0.06s)
+[ ] 1.4  Tapping "Play" transitions to game (appPhase='game')
+[ ] 1.5  Tapping "Levels" transitions to level selector
+[ ] 1.6  Tapping "Daily Challenge" transitions to daily screen
+[ ] 1.7  Tapping "Achievements" transitions to achievements screen
+[ ] 1.8  Tapping "Statistics" transitions to stats screen
+[ ] 1.9  Tapping "Settings" transitions to settings screen
+[ ] 1.10 Each button has unique gradient color
+[ ] 1.11 Menu is the initial screen (appPhase = 'menu')
+[ ] 1.12 Active button scale animation on tap (scale 0.97)
+[ ] 1.13 Subtitle text "Tap the green circles — avoid the rest!" visible
+[ ] 1.14 Menu takes full screen height (min-h-screen)
+
+========================================================================
+SECTION 2: LEVEL SELECTOR (18 tests)
+========================================================================
+[ ] 2.1  Level grid renders 10 levels in 5-column layout
+[ ] 2.2  Level 1 is unlocked by default
+[ ] 2.3  Levels 2-10 are locked initially (show 🔒)
+[ ] 2.4  Unlocked levels show level number, reaction time, stars
+[ ] 2.5  Reaction time labels: 1000ms → 500ms
+[ ] 2.6  Stars display (0-3) for each completed level
+[ ] 2.7  Locked levels have reduced opacity and disabled click
+[ ] 2.8  Tapping unlocked level transitions to game
+[ ] 2.9  Completing level N unlocks level N+1
+[ ] 2.10 Star calculation: 3★ = 0 wrong taps (perfect)
+[ ] 2.11 Star calculation: 2★ = ≥80% tap accuracy
+[ ] 2.12 Star calculation: 1★ = any completion with score > 0
+[ ] 2.13 "← Back" button returns to menu
+[ ] 2.14 Level configs scale: time 60s→35s, rounds 10→30, reaction 1000ms→500ms
+[ ] 2.15 localStorage persistence survives page refresh
+[ ] 2.16 Level grid entrance animation (scale from 0.8)
+[ ] 2.17 Score multiplier increases per level (1.0× to 3.5×)
+[ ] 2.18 Corrupted localStorage gracefully falls back to defaults
+
+========================================================================
+SECTION 3: SETTINGS (12 tests)
+========================================================================
+[ ] 3.1  Settings screen renders with Sound, Volume, Dark Mode toggles
+[ ] 3.2  Sound toggle reflects current state from localStorage
+[ ] 3.3  Toggling sound updates state and saves immediately
+[ ] 3.4  Volume slider shows current percentage (0-100)
+[ ] 3.5  Volume slider disabled when sound is off
+[ ] 3.6  Volume changes persist across page refresh
+[ ] 3.7  Dark Mode toggle switches theme
+[ ] 3.8  Theme preference persists in localStorage
+[ ] 3.9  Toggle pill animation slides correctly (framer-motion spring)
+[ ] 3.10 "← Back" button returns to menu
+[ ] 3.11 Settings load default values if no localStorage data
+[ ] 3.12 Invalid localStorage values handled gracefully
+
+========================================================================
+SECTION 4: STATISTICS (12 tests)
+========================================================================
+[ ] 4.1  Stats screen renders all 10 stat cards in 2-column grid
+[ ] 4.2  Displays: Games Played, Correct Taps, Wrong Taps, Total Taps
+[ ] 4.3  Displays: Best Streak, High Score, Avg Reaction, Time Played
+[ ] 4.4  Displays: Perfect Games, Highest Level
+[ ] 4.5  All stats start at 0 for new player
+[ ] 4.6  Avg Reaction shows "—" if no data, otherwise rounded ms
+[ ] 4.7  Time format: "0m" / "Xm" / "Xh Xm"
+[ ] 4.8  Stats entrance animation (opacity + y translate)
+[ ] 4.9  "← Back" button returns to menu
+[ ] 4.10 Stats survive page refresh via localStorage
+[ ] 4.11 Number formatting uses toLocaleString
+[ ] 4.12 updateStats helper correctly increments/maxes values
+
+========================================================================
+SECTION 5: ACHIEVEMENTS (16 tests)
+========================================================================
+[ ] 5.1  Achievements screen renders all 10 achievement cards
+[ ] 5.2  Unlocked achievements show icon, title, description, ✓
+[ ] 5.3  Locked achievements show at 50% opacity
+[ ] 5.4  "First Victory" unlocks after first game completed
+[ ] 5.5  "On Fire" unlocks with 5 consecutive green taps
+[ ] 5.6  "Unstoppable" unlocks with 10 consecutive green taps
+[ ] 5.7  "Perfectionist" unlocks with 0 wrong taps
+[ ] 5.8  "Speed Demon" unlocks with >50% time remaining at end
+[ ] 5.9  "Dedicated" unlocks after 50 games played
+[ ] 5.10 "Rising Star" unlocks at level 5
+[ ] 5.11 "Master" unlocks at level 10
+[ ] 5.12 "High Scorer" unlocks at 100+ score
+[ ] 5.13 "Flawless" unlocks with zero wrong taps in a game
+[ ] 5.14 AchievementPopup appears at top with animation
+[ ] 5.15 Popup auto-dismisses after 4 seconds
+[ ] 5.16 "← Back" button returns to menu
+
+========================================================================
+SECTION 6: DAILY CHALLENGE (14 tests)
+========================================================================
+[ ] 6.1  Daily screen renders calendar week (Sun-Sat)
+[ ] 6.2  Current day highlighted with green border
+[ ] 6.3  Completed days show ✓, incomplete show ○
+[ ] 6.4  Current streak and best streak displayed
+[ ] 6.5  Streak increments on daily completion
+[ ] 6.6  Best streak updates when current surpasses it
+[ ] 6.7  "Start Daily Reflex" button active for incomplete day
+[ ] 6.8  Button disabled with "✓ Completed Today" after completion
+[ ] 6.9  Daily seed is date-based (deterministic hash)
+[ ] 6.10 Score multiplier info (1.5×) displayed
+[ ] 6.11 "← Back" button returns to menu
+[ ] 6.12 Daily completion persists in localStorage
+[ ] 6.13 Calendar week resets at start of new week
+[ ] 6.14 markDailyComplete prevents double completion
+
+========================================================================
+SECTION 7: PAUSE DIALOG (10 tests)
+========================================================================
+[ ] 7.1  Pause overlay covers full screen with backdrop blur
+[ ] 7.2  Dialog shows current score
+[ ] 7.3  Dialog shows mistakes count (X/2)
+[ ] 7.4  Dialog shows elapsed time (MM:SS format)
+[ ] 7.5  "Resume" button calls onResume and closes
+[ ] 7.6  "Restart" button calls onRestart
+[ ] 7.7  "Exit to Menu" calls onExit → returns to menu
+[ ] 7.8  Dialog entrance animation (scale from 0.9)
+[ ] 7.9  Buttons have correct visual hierarchy (Resume = primary green)
+[ ] 7.10 Dialog rendered above all game UI (z-50)
+
+========================================================================
+SECTION 8: CONFETTI (10 tests)
+========================================================================
+[ ] 8.1  Confetti does not render when active=false
+[ ] 8.2  Confetti renders 60 particles when active=true
+[ ] 8.3  Particles have random colors from 8-color palette
+[ ] 8.4  Particles animate outward from center
+[ ] 8.5  Particles fade to opacity 0
+[ ] 8.6  Confetti disappears after duration (default 3000ms)
+[ ] 8.7  pointer-events-none so confetti doesn't block taps
+[ ] 8.8  Particles have mixed shapes (circle and rectangle)
+[ ] 8.9  Re-triggering creates fresh particle set
+[ ] 8.10 No memory leaks (timeout cleared on unmount)
+
+========================================================================
+SECTION 9: CORE GAMEPLAY – CIRCLE SPAWNING (16 tests)
+========================================================================
+[ ] 9.1  Idle status shows InstructionScreen with Start button
+[ ] 9.2  Start button calls API POST /game/start
+[ ] 9.3  API returns seed, config, gameSessionId, serverTime
+[ ] 9.4  Play area: aspect-square bg-gray-800 rounded-xl
+[ ] 9.5  Circles are absolute positioned with % left/top
+[ ] 9.6  Circle size: w-12 h-12 (3rem) rounded-full
+[ ] 9.7  Color distribution: ~40% green, 20% red, 20% blue, 20% yellow
+[ ] 9.8  Position range: x (10-90%), y (10-90%)
+[ ] 9.9  Circle spawns with scale-in animation (spring, stiffness 400)
+[ ] 9.10 Circle auto-disappears after 2 seconds
+[ ] 9.11 Initial spawn interval: 1200ms
+[ ] 9.12 Speed increases every 30 seconds (speedMultiplier 0.85)
+[ ] 9.13 Minimum spawn interval: 300ms
+[ ] 9.14 Spawn intervals deterministic via mulberry32(seed)
+[ ] 9.15 First circle spawns immediately on game start
+[ ] 9.16 Multiple circles can exist simultaneously
+
+========================================================================
+SECTION 10: CORE GAMEPLAY – TAPPING & SCORING (14 tests)
+========================================================================
+[ ] 10.1  Tapping green circle → score +1
+[ ] 10.2  Tapping non-green circle → wrongTaps +1
+[ ] 10.3  Tapped circle removed from field immediately
+[ ] 10.4  Circle exit animation (scale: 0, opacity: 0)
+[ ] 10.5  maxWrongTaps = 2 → third wrong tap ends game
+[ ] 10.6  Timer countdown in MM:SS format
+[ ] 10.7  Timer turns red when < 30 seconds
+[ ] 10.8  Timer expiry → status='ended'
+[ ] 10.9  Header shows: Score, Mistakes X/2, Timer
+[ ] 10.10 Circles disabled (no tap) when status='ended'
+[ ] 10.11 Tap registers correctly even near edges
+[ ] 10.12 active:scale-90 visual feedback on tap
+[ ] 10.13 Sound: targetHit on correct tap
+[ ] 10.14 Sound: targetMiss on wrong tap
+
+========================================================================
+SECTION 11: RESULTS & SUBMISSION (12 tests)
+========================================================================
+[ ] 11.1  Status 'ended' shows ResultScreen with score
+[ ] 11.2  "Replay" button returns to menu (setAppPhase('menu'))
+[ ] 11.3  Auto-submit on status='ended' via useEffect
+[ ] 11.4  Submit POST /game/submit: gameSessionId, taps, clientScore
+[ ] 11.5  Score = count of correct green taps
+[ ] 11.6  Confetti on score >= 20
+[ ] 11.7  ResultScreen shows within the play area
+[ ] 11.8  Game ends on maxWrongTaps exceeded
+[ ] 11.9  Game ends on timer expiry
+[ ] 11.10 Sound: gameOver on game end
+[ ] 11.11 All intervals/timeouts cleared on game end
+[ ] 11.12 Stats/achievements update after game ends
+
+========================================================================
+SECTION 12: APP INTEGRATION (12 tests)
+========================================================================
+[ ] 12.1  App.tsx: ErrorBoundary → ThemeProvider → OfflineBanner → GamePage
+[ ] 12.2  GamePage appPhase starts at 'menu'
+[ ] 12.3  All phase transitions work correctly
+[ ] 12.4  Back buttons return to menu from all screens
+[ ] 12.5  Game session maintained across phase transitions
+[ ] 12.6  ThemeProvider context available in all components
+[ ] 12.7  ErrorBoundary catches rendering errors
+[ ] 12.8  OfflineBanner shows when network disconnected
+[ ] 12.9  All imports resolve correctly (relative paths)
+[ ] 12.10 Timer/spawn cleanup on unmount (useEffect return)
+[ ] 12.11 No React Router — single component handles all screens
+[ ] 12.12 Save-progress outbox for offline resilience
+
+========================================================================
+NOTES
+========================================================================
+- Whack-a-mole style: circles spawn, tap ONLY green
+- 4 colors: green (40%), red/blue/yellow (20% each)
+- Endurance: survive 5 minutes, speed accelerates
+- Death: 2 wrong taps max (instant game over on 3rd)
+- Circles auto-disappear after 2 seconds (no penalty for missed green)
+- Speed: initialInterval × 0.85^(elapsed/30000), min 300ms
+- Default: 5min timer, 1200ms initial spawn, 2 max wrong
+- Level progression: time 60s→35s, rounds 10→30, reaction 1000ms→500ms
+- Audio: 7 sounds (targetAppear, targetHit, targetMiss, combo, etc.)
+- Backend: 5 boosters, combo engine, daily challenge, timingAnalyzer
+- State: Custom hooks (useState + useCallback + useRef), NO Zustand
+- No React Router — App.tsx renders GamePage directly
+- Confetti triggers on score >= 20
+========================================================================

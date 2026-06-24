@@ -1,0 +1,215 @@
+============================================================
+FLASH SPOT GAME - TEST CHECKLIST
+============================================================
+Created: 2026-05-25
+URL: http://localhost:3009/
+Game Type: Spot-the-Change / Visual Attention
+
+============================================================
+HOW TO RUN
+============================================================
+cd C:\game\zubaco-games-repo\zubaco-games\flash-spot\flash-spot-frontend
+$env:PATH = "C:\Program Files\nodejs;$env:PATH"
+npx vite --mode development --port 3009
+
+============================================================
+TEST CASES
+============================================================
+
+--- A. FIRST LAUNCH / TUTORIAL ---
+[ ] A1. First time opening shows Tutorial screen (not menu)
+[ ] A2. Tutorial has 6 steps with progress dots at top
+[ ] A3. "Next" button advances to next step
+[ ] A4. Each step shows different icon and description
+[ ] A5. "Skip" button skips entire tutorial → goes to menu
+[ ] A6. Last step button says "Let's Play!" → goes to menu
+[ ] A7. After completing/skipping, refresh shows MENU (not tutorial again)
+
+--- B. MAIN MENU ---
+[ ] B1. Menu shows game icon (👁️) with pulse animation
+[ ] B2. Title "Flash Spot" displayed
+[ ] B3. Subtitle "Spot the changes before they vanish" visible
+[ ] B4. "▶ Play" button → starts game at current highest level
+[ ] B5. "📋 Levels" button → opens Level Selector
+[ ] B6. "📅 Daily Challenge" → opens Daily Challenge screen
+[ ] B7. "🏆 Achievements" → opens Achievements screen
+[ ] B8. "📊 Stats" → opens Stats screen
+[ ] B9. "⚙️ Settings" → opens Settings screen
+[ ] B10. Daily Challenge shows ✓ if already completed today
+
+--- C. LEVEL SELECTOR ---
+[ ] C1. Shows "Select Level" title
+[ ] C2. 10 level cards in 2-column grid
+[ ] C3. Level 1 unlocked by default
+[ ] C4. Locked levels show 🔒 and are disabled
+[ ] C5. Each card shows: number, name, grid size, time limit
+[ ] C6. Current highest has pulsing dot
+[ ] C7. "← Back" returns to menu
+[ ] C8. Clicking unlocked level starts that level
+[ ] C9. After winning level 1, level 2 unlocks (refresh and check)
+[ ] C10. Stars display after completing a level
+
+Level details to verify:
+[ ] C11. Level 1 = Beginner, 4×4, 60s
+[ ] C12. Level 5 = Tricky, 5×5, 45s
+[ ] C13. Level 10 = Legend, 7×7, 30s
+
+--- D. GAMEPLAY - CORE MECHANICS ---
+[ ] D1. Grid renders with correct size (4×4 for level 1)
+[ ] D2. Cells display colored SVG shapes (circle, square, triangle, etc.)
+[ ] D3. Cells periodically change (color/shape/size/opacity)
+[ ] D4. Changes are visible (cell looks different during change window)
+[ ] D5. Changes revert after display duration expires
+[ ] D6. Tapping a CHANGING cell = correct (+20 points)
+[ ] D7. Tapping an UNCHANGED cell = wrong (-10 points penalty)
+[ ] D8. Score never goes below 0
+[ ] D9. Timer counts down from level's time limit
+[ ] D10. Game ends when timer reaches 0
+
+--- E. GAMEPLAY - HUD / HEADER ---
+[ ] E1. Level badge shows "Lv.X" (e.g., "Lv.1")
+[ ] E2. Score displayed and animates on change
+[ ] E3. Timer bar shows remaining time visually
+[ ] E4. Timer text shows MM:SS
+[ ] E5. Timer turns red + pulses at ≤10 seconds
+[ ] E6. Mute button visible (🔊/🔇)
+[ ] E7. Mute toggles sound on/off
+[ ] E8. Pause button (⏸️) visible and clickable
+[ ] E9. Combo badge appears at 3+ streak ("🔥 3× Combo!")
+[ ] E10. Combo counter increments with consecutive correct taps
+[ ] E11. Combo resets on wrong tap
+
+--- F. SOUND EFFECTS ---
+[ ] F1. Tapping a correct cell → "spotHit" sound plays
+[ ] F2. Tapping a wrong cell → "spotMiss" sound plays
+[ ] F3. Getting 3-streak → "combo" sound plays
+[ ] F4. Level complete → "levelComplete" sound plays
+[ ] F5. Timer at ≤10s → "timerWarning" sound plays
+[ ] F6. Game over → "gameOver" sound plays
+[ ] F7. Muting disables all sounds
+[ ] F8. Sound preference persists across page reload
+
+--- G. PAUSE DIALOG ---
+[ ] G1. Clicking ⏸️ opens pause overlay
+[ ] G2. "▶ Resume" continues the game
+[ ] G3. "🔄 Restart" restarts the current level
+[ ] G4. "🚪 Exit to Menu" returns to menu
+[ ] G5. Timer does not progress while paused
+
+--- H. WIN / RESULT SCREEN ---
+[ ] H1. After time runs out, result screen shows
+[ ] H2. If correct taps > 0: "Level Complete!" (green)
+[ ] H3. Star rating: ≥90% accuracy = 3★, ≥70% = 2★, else 1★
+[ ] H4. Confetti animation plays on success
+[ ] H5. Score displayed with animation
+[ ] H6. Stats grid: Correct, Wrong, Accuracy %
+[ ] H7. Additional stats: Best Streak, Time Bonus
+[ ] H8. "Menu" button returns to menu
+[ ] H9. "Next Level →" button advances (if won and not level 10)
+[ ] H10. "Retry" button appears if no correct taps
+[ ] H11. Level unlocks persist in localStorage
+
+--- I. DAILY CHALLENGE ---
+[ ] I1. Shows today's date and day name
+[ ] I2. Shows assigned level for today
+[ ] I3. Shows "1.5× Score Bonus!" label
+[ ] I4. "Play Daily Challenge" button starts that level
+[ ] I5. After completing, shows "✓ Completed Today!" with score
+[ ] I6. Cannot replay daily challenge same day
+[ ] I7. "← Back" returns to menu
+[ ] I8. Difficulty increases Mon→Sun
+
+--- J. ACHIEVEMENTS ---
+[ ] J1. Shows 10 achievements total
+[ ] J2. Shows "X/10 unlocked" count
+[ ] J3. Unlocked achievements have accent border + ✓
+[ ] J4. Locked achievements are dimmed
+[ ] J5. First Victory unlocks after first successful round
+[ ] J6. On Fire unlocks at 5-tap streak
+[ ] J7. Achievement popup appears at top of screen on unlock
+[ ] J8. Popup auto-dismisses after ~3 seconds
+[ ] J9. Close button returns to menu
+
+--- K. STATISTICS ---
+[ ] K1. Shows stat cards: Games Played, Wins, Win Rate, High Score, etc.
+[ ] K2. Stats update after playing games
+[ ] K3. Recent Scores bar chart appears after 2+ games
+[ ] K4. Shows Best Streak and Best Accuracy
+[ ] K5. Close button returns to menu
+
+--- L. SETTINGS ---
+[ ] L1. Sound Effects toggle present with on/off switch
+[ ] L2. Toggle animates between positions
+[ ] L3. Turning sound OFF → no game sounds
+[ ] L4. Theme buttons: Dark / Light / System
+[ ] L5. Active theme highlighted
+[ ] L6. Preferences persist after refresh
+[ ] L7. "Done" button returns to menu
+
+--- M. RESPONSIVE / MOBILE ---
+[ ] M1. Grid scales to fit mobile screen (375px width)
+[ ] M2. Cells are large enough to tap accurately
+[ ] M3. No horizontal overflow on any screen
+[ ] M4. All buttons tappable on mobile
+[ ] M5. Works on desktop (1920px)
+
+--- N. EDGE CASES ---
+[ ] N1. Rapid tapping doesn't break game state
+[ ] N2. All levels' grid sizes render without overflow
+[ ] N3. Tab switch → timer paused (or at least game pauses)
+[ ] N4. Page reload returns to menu (level progress preserved)
+[ ] N5. Level 10 win shows Menu but no "Next Level"
+
+--- O. CROSS-GAME CONSISTENCY ---
+[ ] O1. Menu layout matches colour-sorting/arrows style
+[ ] O2. Dark background consistent with other games
+[ ] O3. Settings screen layout matches other games
+[ ] O4. Achievements screen layout matches other games
+[ ] O5. Stats screen layout matches other games
+[ ] O6. Result screen score breakdown same format
+[ ] O7. Level selector grid layout matches other games
+[ ] O8. Confetti animation same style
+
+============================================================
+KNOWN FEATURES ALREADY WORKING (before our changes):
+============================================================
+✓ Core change-detection game engine
+✓ Seeded PRNG (deterministic rounds)
+✓ Timer countdown
+✓ Score calculation
+✓ Backend API integration
+✓ Framer Motion animations
+✓ Error boundary + offline banner
+✓ Dark themed game UI
+✓ i18n ready
+
+============================================================
+NEW FEATURES ADDED (this session):
+============================================================
+★ AudioProvider wired (Howler.js) with game sounds
+★ Menu screen (Play, Levels, Daily, Achievements, Stats, Settings)
+★ Tutorial (6-step guided intro)
+★ Level Selector (10 levels, progressive unlock, star ratings)
+★ Settings screen (sound toggle, theme selector)
+★ Stats screen (games played, accuracy, streaks, chart)
+★ Achievements screen (10 badges + unlock popup)
+★ Daily Challenge screen (day-of-week difficulty)
+★ Confetti animation on success
+★ Pause dialog (resume/restart/exit)
+★ Combo/streak display on HUD
+★ Mute button on game header
+★ Level badge on HUD
+★ Score breakdown on result screen
+★ Stars (1-3) per level based on accuracy
+★ "Next Level" flow after winning
+
+============================================================
+BUG REPORT FORMAT:
+============================================================
+If you find a bug, note:
+  1. Which test case failed
+  2. What you expected
+  3. What actually happened
+  4. Browser + screen size (if relevant)
+
+============================================================

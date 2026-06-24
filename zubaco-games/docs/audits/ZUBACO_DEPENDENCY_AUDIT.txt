@@ -1,0 +1,309 @@
+================================================================================
+ZUBACO DEPENDENCY & SUPPLY CHAIN — COMPREHENSIVE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior Security / Supply Chain Review
+Component: All package.json files across the monorepo
+Scope: Platform, Admin (backend + frontend), Mobile, 20 Game Backends,
+       20 Game Frontends, Root package.json
+Total packages analyzed: 44+ package.json files
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Zubaco monorepo has 44+ package.json files with NO shared dependency
+management (no workspaces, no lerna, no nx, no turborepo). Each package
+independently manages its own dependencies, leading to:
+
+- Version inconsistencies across services
+- Duplicate node_modules (massive disk/CI time)
+- No centralized vulnerability scanning
+- Runtime mismatches (Node 20 vs 22 vs 24, Bun vs Node)
+
+TOTAL ISSUES: 11 (1 Critical, 3 High, 4 Medium, 3 Low)
+
+DEPENDENCY MANAGEMENT SCORE: 45/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. DEPENDENCY VERSION MATRIX
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌───────────────────────┬─────────────┬──────────────┬─────────────┬──────────┐
+│ Package               │ Platform    │ Admin BE     │ Admin FE    │ Mobile   │
+├───────────────────────┼─────────────┼──────────────┼─────────────┼──────────┤
+│ @nestjs/common        │ ^11.1.23    │ ^11.0.1      │ N/A         │ N/A      │
+│ @nestjs/core          │ ^11.1.23    │ ^11.0.1      │ N/A         │ N/A      │
+│ @prisma/client        │ ^7.8.0      │ ^7.3.0       │ N/A         │ N/A      │
+│ prisma                │ ^7.8.0      │ ^7.3.0       │ N/A         │ N/A      │
+│ ioredis               │ ^5.10.1     │ ^5.10.1      │ N/A         │ N/A      │
+│ react                 │ N/A         │ N/A          │ 19.2.4      │ 18.3.1   │
+│ typescript            │ (bundled)   │ (bundled)    │ (bundled)   │ ^5.5.0   │
+│ jest                  │ N/A         │ (bundled)    │ ^30.0.0     │ ^29.7.0  │
+│ Node.js (Docker)      │ 20-alpine   │ Bun:latest   │ node:alpine │ N/A      │
+│ Node.js (CI)          │ 22          │ 22           │ 22          │ N/A      │
+│ Node.js (Local)       │ v24.16.0    │ v24.16.0     │ v24.16.0    │ N/A      │
+├───────────────────────┼─────────────┼──────────────┼─────────────┼──────────┤
+│ Package               │ Game BE     │ Game FE      │ Root        │          │
+├───────────────────────┼─────────────┼──────────────┼─────────────┤          │
+│ @nestjs/common        │ ^11.x       │ N/A          │ N/A         │          │
+│ react                 │ N/A         │ ^19.x        │ N/A         │          │
+│ vite                  │ N/A         │ ^6.x         │ N/A         │          │
+│ jest / @types/jest    │ N/A         │ N/A          │ ^30.0.0     │          │
+└───────────────────────┴─────────────┴──────────────┴─────────────┴──────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+CATEGORY: SECURITY — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-SEC-01: No Automated Vulnerability Scanning                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Supply Chain Security                                              │
+│                                                                              │
+│ NONE of the following are configured:                                        │
+│ - GitHub Dependabot (no .github/dependabot.yml)                             │
+│ - npm audit in CI pipeline (not in any workflow)                            │
+│ - Snyk / Socket.dev integration                                             │
+│ - OWASP Dependency-Check                                                     │
+│                                                                              │
+│ With 44+ packages, hundreds of transitive dependencies, and ZERO scanning, │
+│ a single compromised npm package could affect the entire platform.         │
+│                                                                              │
+│ REAL-WORLD RISK: In 2024-2025, multiple popular npm packages were          │
+│ compromised (event-stream, ua-parser-js, colors.js). Without scanning,    │
+│ Zubaco would not detect these.                                              │
+│                                                                              │
+│ FIX: Add .github/dependabot.yml + npm audit --audit-level=high in CI.     │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-SEC-02: --legacy-peer-deps Used Everywhere                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Dependency Resolution                                              │
+│                                                                              │
+│ EVERY npm ci and npm install across all CI pipelines and Dockerfiles        │
+│ uses --legacy-peer-deps. This flag DISABLES peer dependency checking.      │
+│                                                                              │
+│ This means:                                                                  │
+│ - Incompatible package versions can be installed together                   │
+│ - Runtime crashes from version mismatches are possible                      │
+│ - The dependency tree is not validated                                       │
+│                                                                              │
+│ ROOT CAUSE: Likely a peer dep conflict (React 19 + older libs, or          │
+│ Prisma 7 + older @prisma/client). Instead of fixing the conflict,          │
+│ it was globally suppressed.                                                 │
+│                                                                              │
+│ FIX: Identify and resolve actual peer dep conflicts. Remove                 │
+│ --legacy-peer-deps.                                                          │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: VERSION CONSISTENCY — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-VER-01: Runtime Version Fragmentation                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Consistency                                                        │
+│                                                                              │
+│ FOUR different runtimes are in use:                                          │
+│ 1. Node.js 20-alpine (Docker — platform, game backends)                     │
+│ 2. Node.js 22 (CI/CD pipeline)                                              │
+│ 3. Node.js 24.16.0 (local development)                                      │
+│ 4. Bun latest (Docker — admin backend)                                      │
+│                                                                              │
+│ Admin frontend Dockerfile uses unversioned `node:alpine`.                   │
+│                                                                              │
+│ Code tested on Node 24, built on Node 22, runs on Node 20.               │
+│ Bun has different module resolution than Node.js.                          │
+│                                                                              │
+│ FIX: Standardize on node:22-alpine across all Dockerfiles and CI.          │
+│ Add .nvmrc or .node-version file to root.                                  │
+│ Decide Node vs Bun for admin backend.                                      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-VER-02: NestJS Version Mismatch                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Consistency                                                        │
+│                                                                              │
+│ Platform: @nestjs/common ^11.1.23 (latest)                                   │
+│ Admin:    @nestjs/common ^11.0.1 (older minor)                               │
+│ Games:    Mixed ^11.x versions                                               │
+│                                                                              │
+│ NestJS 11.0 and 11.1 have different behavior in some modules.              │
+│ All services should pin the same minor version.                            │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-VER-03: React 18 in Mobile, React 19 Everywhere Else              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Consistency                                                        │
+│                                                                              │
+│ Mobile: react 18.3.1 + react-native 0.76.0                                 │
+│ Games + Admin: react 19.x                                                   │
+│                                                                              │
+│ React 19 has breaking changes (useFormState → useActionState, etc.).       │
+│ Shared utilities or patterns from web won't work in mobile.              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: MONOREPO MANAGEMENT — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-MONO-01: No Workspace / Monorepo Tool                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Build Efficiency                                                   │
+│                                                                              │
+│ 44+ packages, each with its own node_modules. No:                           │
+│ - npm workspaces                                                             │
+│ - yarn workspaces                                                            │
+│ - pnpm workspaces                                                            │
+│ - Nx                                                                         │
+│ - Turborepo                                                                  │
+│ - Lerna                                                                      │
+│                                                                              │
+│ IMPACT:                                                                      │
+│ - CI installs 44 separate node_modules (slow, expensive)                   │
+│ - No dependency deduplication                                               │
+│ - No shared build cache                                                      │
+│ - No task orchestration (build order)                                        │
+│ - Disk: ~44 × 200MB = ~8.8GB of node_modules locally                      │
+│                                                                              │
+│ FIX: Adopt npm/pnpm workspaces at minimum. Turborepo for caching.          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-MONO-02: Root package.json Only Has Jest                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Configuration                                                      │
+│                                                                              │
+│ Root package.json:                                                           │
+│   { "devDependencies": { "@types/jest": "^30.0.0",                         │
+│     "jest": "^30.4.2", "ts-jest": "^29.4.11" } }                          │
+│                                                                              │
+│ No scripts, no workspaces config, no engines field.                        │
+│ Jest 30 at root but Jest 29 in mobile — version conflict.                 │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-MONO-03: Mobile App Missing Dependencies                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Broken Dependencies                                                │
+│                                                                              │
+│ Mobile package.json is MISSING these imported packages:                     │
+│ - @react-native-community/netinfo (used in OfflineContext.tsx)              │
+│ - @react-native-firebase/analytics (used in analytics.ts)                   │
+│ - @sentry/react-native (used in crashReporting.ts)                          │
+│                                                                              │
+│ npm install will succeed but the app will CRASH at runtime when these      │
+│ modules are imported.                                                        │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+CATEGORY: NOTABLE DEPENDENCIES — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-NOTE-01: Phaser 4 in Admin Frontend                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Unnecessary Dependency                                             │
+│                                                                              │
+│ Admin frontend (package.json): "phaser": "^4.0.0"                           │
+│                                                                              │
+│ Phaser is a GAME ENGINE (~2MB). It's in the admin panel, which is a       │
+│ dashboard for managing games, not playing them.                             │
+│                                                                              │
+│ Likely used for game preview/embed in admin. But adds significant          │
+│ bundle size to the admin panel.                                             │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-NOTE-02: Admin Backend Uses Both Prisma AND pg Directly            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Redundancy                                                         │
+│                                                                              │
+│ Admin backend has:                                                           │
+│ - @prisma/client ^7.3.0 (ORM)                                               │
+│ - @prisma/adapter-pg ^7.3.0 (Prisma pg adapter)                            │
+│ - pg ^8.18.0 (raw PostgreSQL driver)                                        │
+│                                                                              │
+│ Three PostgreSQL connection layers. The adapter-pg allows Prisma to use    │
+│ the pg driver, but having raw pg alongside means queries might bypass      │
+│ Prisma's connection pool management.                                       │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE DEP-NOTE-03: No Lock File Integrity Checking                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Supply Chain                                                       │
+│                                                                              │
+│ npm ci uses the lock file, but there's no `npm ci --ignore-scripts`       │
+│ followed by explicit script execution. Post-install scripts from           │
+│ compromised packages run with full access.                                 │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. POSITIVE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ Modern framework versions (NestJS 11, React 19, Prisma 7, Vite 6)
+✓ TypeScript used in all packages
+✓ npm ci used in CI (deterministic installs)
+✓ All packages are "private": true (no accidental npm publish)
+✓ Husky configured in admin frontend (git hooks)
+✓ Admin backend has engines field (node >=22, bun >=1.1)
+✓ ECR scan-on-push catches Docker image vulnerabilities
+✓ Reasonable package choices (ioredis > redis, class-validator, Zod)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+═══════════════════════════════════════
+OVERALL DEPENDENCY MANAGEMENT SCORE: 45/100
+═══════════════════════════════════════
+
+================================================================================
+END OF AUDIT — ZUBACO DEPENDENCY & SUPPLY CHAIN
+================================================================================

@@ -1,0 +1,952 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #15: REFLEX ENDURANCE (Whac-A-Mole / Reaction Tap)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Reaction/reflex — colored circles spawn randomly in an arena. Player
+          must tap ONLY green circles (40% of spawns). Wrong tap = mistake.
+          2 mistakes = game over. Speed increases over time. Survive as long as
+          possible and tap as many greens as you can.
+Stack: NestJS 11 + Prisma 7 + Restate + Redis + BullMQ + Socket.IO (backend),
+       React 19 + Vite 6 + Framer Motion + TailwindCSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Reflex Endurance is a Whac-A-Mole style game where colored circles pop up
+randomly and the player must tap ONLY green ones. Red/blue/yellow are traps.
+The game accelerates over time (0.85x speed multiplier every 30s) creating
+an "endurance" challenge. Two wrong taps = game over.
+
+The implementation is SOLID: server regenerates the entire circle sequence
+from seed, validates each tap by checking if the tapped circleId corresponds
+to a green circle. Timing analysis is active. The score divergence threshold
+is the TIGHTEST in the platform (>3 difference = flagged). The frontend-backend
+integration WORKS correctly.
+
+Main issues: circles can overlap (random positions with no collision detection),
+no audio feedback, seed sent to client (all green circles predictable), and
+the standard platform-wide security patterns (fallback secrets, VITE_KEY).
+
+TOTAL ISSUES: 30 (3 Critical, 6 High, 12 Medium, 9 Low)
+
+RELEASE READINESS SCORE: 62/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Seed sent to client → frontend has circleGenerator.ts → all circle
+           colors computable. Player knows which circles will be green before
+           they spawn.
+
+BLOCKER-2: .env committed with JWT_SECRET="zubaco-reflex-jwt-secret-2025" + DB
+           credentials. Three different fallback secrets across files.
+
+BLOCKER-3: VITE_ENCRYPTION_KEY exposed in client bundle.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (15 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: Seed Sent to Client → All Circle Colors Predictable             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (startGame return)                            │
+│                                                                              │
+│ Code:                                                                        │
+│   return { gameSessionId, seed, config, ... };                               │
+│                                                                              │
+│ Frontend has identical circleGenerator.ts:                                    │
+│   const colorRoll = rng();                                                   │
+│   color = colorRoll < 0.4 ? 'green' : ...                                   │
+│                                                                              │
+│ Attack: Pre-generate all circles. Know which IDs will be green. Only tap     │
+│ those. Achieve 100% accuracy with zero cognitive effort.                     │
+│                                                                              │
+│ For a REFLEX game, this completely defeats the purpose — the challenge IS    │
+│ identifying the correct color under time pressure.                           │
+│                                                                              │
+│ MITIGATED BY: Timing analysis catches <120ms avg responses.                  │
+│ But a human using a color overlay script still wins easily.                  │
+│                                                                              │
+│ Fix: Server sends circles in real-time via WebSocket. Don't reveal color     │
+│ until circle actually appears on screen.                                     │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: .env Committed + Three Fallback Secrets                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: .env, session.guard.ts, app.config.ts, game.gateway.ts                │
+│                                                                              │
+│ .env:                                                                        │
+│   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/reflex_endurance │
+│   JWT_SECRET="zubaco-reflex-jwt-secret-2025"                                 │
+│                                                                              │
+│ Fallback secrets:                                                            │
+│   - session.guard.ts: 'fallback'                                             │
+│   - app.config.ts: 'dev-secret-reflex-endurance'                             │
+│   - game.gateway.ts: 'dev-secret'                                            │
+│                                                                              │
+│ THREE different fallbacks = inconsistent auth behavior.                       │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: scoreMultiplier Never Applied                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (submitGame)                                  │
+│                                                                              │
+│ Code:                                                                        │
+│   const serverScore = correctTaps; // Simple 1pt each                        │
+│                                                                              │
+│ Description: getLevelConfig() provides scoreMultiplier (1.0x to 3.5x).       │
+│ submitGame just counts correct taps. Level 10 (faster spawns, less time)     │
+│ earns same points-per-tap as Level 1.                                        │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts                                                            │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: In-Memory Rate Limiter Unbounded Growth                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/ (ip-rate-limiter.middleware.ts)                          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: No Concurrent Session Prevention                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (startGame)                                   │
+│                                                                              │
+│ Description: Unlike Rapid Category Sort, no check/expire for existing        │
+│ active sessions. Player can start multiple sessions and submit only best.    │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Circle Validation Uses O(n²) .find() in Loop                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/game/engine/circleValidator.ts (line 63)                           │
+│                                                                              │
+│ Code:                                                                        │
+│   for (const tap of taps) {                                                  │
+│     const circle = circles.find(c => c.id === tap.circleId);                 │
+│     ...                                                                      │
+│   }                                                                          │
+│                                                                              │
+│ Description: 2000 taps × 500+ circles = 1M iterations. Should use a Map.    │
+│                                                                              │
+│ Fix: const circleMap = new Map(circles.map(c => [c.id, c]));                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: maxCircles Estimation Uses DEFAULT_CONFIG (Ignores Level)        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (line 52)                                     │
+│                                                                              │
+│ Code:                                                                        │
+│   const maxCircles = Math.ceil(DEFAULT_CONFIG.timeLimitMs /                  │
+│     (DEFAULT_CONFIG.initialSpawnIntervalMs * 0.5));                           │
+│   // = 300000 / 600 = 500                                                    │
+│                                                                              │
+│ Description: Always generates 500 circles for validation regardless of       │
+│ level. Level 10 has only 35s (35000ms), so at most ~70 circles. Still        │
+│ works (extra circles in sequence are just unused) but wasteful.              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Client Sends `correct` Field (Redundant)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Clean API                                                          │
+│ File: DTO / game.service.ts                                                  │
+│                                                                              │
+│ Description: Client sends tap.correct but server recalculates. Unnecessary   │
+│ field — if server ever accidentally trusts it, exploitable.                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Timing Threshold 120ms May Be Too Low for Reflex Game            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 74)                                     │
+│                                                                              │
+│ Code:                                                                        │
+│   analyzeInputTiming(taps.map(t => t.timestamp), { minAvgResponseMs: 120 }) │
+│                                                                              │
+│ Description: For a reflex game, 120ms average is legitimately achievable     │
+│ by fast players (human reaction time = 150-250ms, but consecutive targets    │
+│ visible = faster). Consider 180ms for reflex games.                          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: LevelConfig roundCount/maxReactionMs Never Used                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Design                                                        │
+│ File: src/game/engine/levelConfig.ts                                         │
+│                                                                              │
+│ Description: LevelParams includes roundCount (10→30) and maxReactionMs      │
+│ (1000→500) but the game NEVER uses them. Only timeLimitMs is applied.       │
+│ The game is unlimited-rounds survival, not round-based.                      │
+│                                                                              │
+│ Fix: Either implement round-based mode or remove unused fields.              │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Score Divergence Threshold >3 May Cause False Positives          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 57)                                     │
+│                                                                              │
+│ Code:                                                                        │
+│   if (Math.abs(clientScore - serverScore) > 3) { ... }                       │
+│                                                                              │
+│ Description: Threshold of 3 is extremely tight. If client has a race         │
+│ condition where a circle despawns just as player taps (client counts it,     │
+│ server doesn't because timing), easy to get 3+ divergence legitimately.      │
+│                                                                              │
+│ However: server only counts taps that reference valid circleIds, so          │
+│ client-server counting should be consistent. 3 is probably fine.             │
+│                                                                              │
+│ Priority Score: 3/10 (monitor in production)                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: Dead Engine Modules (6 Files)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ Files: achievementEngine.ts, boosterEngine.ts, comboEngine.ts,               │
+│        dailyChallenge.ts, leaderboard.ts, scoreHistory.ts                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: getMaxLevel() Exported But Never Used                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: WebSocket Gateway Ownership Not Checked                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts                                                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (15 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: VITE_ENCRYPTION_KEY Bundled in Client JS                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 5)                                    │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Client Has circleGenerator + Seed → All Colors Known            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL (same as B-01)                                            │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/reflex/engine/circleGenerator.ts                          │
+│                                                                              │
+│ Description: generateCircle(rng, id, timestamp) produces color from rng.     │
+│ Player can precompute entire sequence: "Circle 0 = green, 1 = red,           │
+│ 2 = green, 3 = blue..." → only tap circles with known-green IDs.           │
+│                                                                              │
+│ Fix: Remove circleGenerator from frontend. Server sends circles via WS.      │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Auto-Submit useEffect Has Stale Closure                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/features/reflex/components/GamePage.tsx (line 27)                  │
+│                                                                              │
+│ Code:                                                                        │
+│   useEffect(() => { if (status === 'ended') { handleEnd(); } }, [status]);   │
+│                                                                              │
+│ Description: handleEnd captures stale `taps` and `score`. If status          │
+│ changes to 'ended' after a wrong tap, the captured taps/score might be       │
+│ one render behind.                                                           │
+│                                                                              │
+│ In practice: React batches the setState calls in tapCircle, so the           │
+│ 'ended' status and updated taps likely propagate together. But it's          │
+│ technically a race condition.                                                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Circles Can Overlap (No Collision Detection)                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: UX / Game Logic                                                    │
+│ File: src/features/reflex/engine/circleGenerator.ts (lines 6-7)             │
+│                                                                              │
+│ Code:                                                                        │
+│   const x = 10 + rng() * 80;  // 10% to 90%                                │
+│   const y = 10 + rng() * 80;  // 10% to 90%                                │
+│                                                                              │
+│ Description: Random positions with no check against existing circles.        │
+│ Two circles can spawn at the same x,y. A green circle could be HIDDEN       │
+│ behind a red one. Player taps the visible red one (wrong!) or can't          │
+│ reach the green one underneath.                                              │
+│                                                                              │
+│ At 1200ms spawn interval with 2000ms lifetime, max ~2 circles on screen.    │
+│ But as speed increases (0.85x every 30s), after 2 minutes the interval is   │
+│ ~435ms with 2000ms lifetime = ~4-5 on screen. Overlap becomes likely.       │
+│                                                                              │
+│ Fix: Check distance from all active circles. If < circleWidth, re-roll.     │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Unfair deaths due to hidden green circles                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: No Audio Feedback                                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Missing Feature                                                    │
+│ File: N/A (no useAudio hook in this game)                                    │
+│                                                                              │
+│ Description: A reflex game NEEDS audio:                                      │
+│ - Pop sound on circle appear                                                 │
+│ - Satisfying "tap" on correct green                                          │
+│ - Error buzz on wrong tap                                                    │
+│ - Speed-up audio cue when game accelerates                                   │
+│ Without audio, the game feels flat and players miss spawns outside view.     │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Circle Auto-Remove setTimeout Not Tracked                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / Memory Leak                                                  │
+│ File: src/features/reflex/hooks/useReflexGame.ts (line 29)                   │
+│                                                                              │
+│ Code:                                                                        │
+│   setTimeout(() => {                                                         │
+│     setCircles((prev) => prev.filter((c) => c.id !== id));                   │
+│   }, 2000);                                                                  │
+│                                                                              │
+│ Description: Each circle spawns a setTimeout to auto-remove after 2s.        │
+│ These are never stored in refs and never cleared on unmount. If game         │
+│ ends or component unmounts, dozens of setTimeouts fire on dead state.        │
+│                                                                              │
+│ Fix: Store timeoutIds, clear all on game end/unmount.                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: window.location.reload() for Replay                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/reflex/components/GamePage.tsx (line 63)                  │
+│                                                                              │
+│ Code:                                                                        │
+│   <ResultScreen ... onReplay={() => window.location.reload()} />             │
+│                                                                              │
+│ Description: Full page reload instead of state reset. Slow, loses context.   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Visual Feedback on Wrong Tap                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: useReflexGame.ts (tapCircle)                                           │
+│                                                                              │
+│ Description: On wrong tap, circle is just removed. No red flash, no shake,   │
+│ no "X" animation. Player might not even realize they made a mistake          │
+│ until seeing the counter increment.                                          │
+│                                                                              │
+│ Fix: Brief red pulse/shake on wrong tap before removing.                     │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: No Warning Before Game Over (1 Mistake Already)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx                                                           │
+│                                                                              │
+│ Description: maxWrongTaps = 2 is very harsh. After first mistake, player     │
+│ is one tap from death with no special warning (just counter text).           │
+│ Should have: screen edge glow red, heartbeat sound, pulsing indicator.       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: No Speed-Up Visual Cue                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: useReflexGame.ts (spawnCircle)                                         │
+│                                                                              │
+│ Description: Speed increases every 30s but there's no visual/audio cue.      │
+│ Player doesn't notice the difficulty ramp until overwhelmed.                 │
+│                                                                              │
+│ Fix: Flash "SPEED UP!" text + brief screen pulse every 30s.                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: No Streak/Combo System                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: useReflexGame.ts                                                       │
+│                                                                              │
+│ Description: Score is just +1 per green tap. No combo multiplier for         │
+│ consecutive correct taps. No streak display. This is an endurance game —    │
+│ streaks would add excitement and reward consistency.                          │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: No Haptic Feedback on Tap                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx                                                           │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: Circle Size Fixed at w-12 h-12 (No Difficulty Scaling)           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Design                                                        │
+│ File: GamePage.tsx (line 54)                                                 │
+│                                                                              │
+│ Description: Circles are always 48px. At higher difficulty, could get         │
+│ smaller to increase challenge. Currently only spawn speed increases.         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: computeFinalSeed in Client (Unnecessary)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/features/reflex/engine/random.ts                                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: Source Maps Likely Shipped                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Profile:
+
+1. Circles on Screen: 1-5 simultaneously (lightweight)
+2. AnimatePresence: Handles enter/exit per circle — smooth
+3. Timer: setInterval at 100ms — standard
+4. Spawn Timer: setTimeout chain — lightweight
+5. Auto-Remove: setTimeout per circle — max 5 active
+6. State Updates: Per-tap setState — minimal
+7. Framer Motion: Spring animation on spawn (scale 0→1) — smooth
+
+PERFORMANCE VERDICT: Excellent. Very lightweight game. The only concern is
+the O(n²) validation on backend, but even that is manageable for 2000 taps.
+
+Bundle: Framer Motion (~100KB). No unused socket.io in this one.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Clear objective: "Tap only GREEN circles!" text visible
+✓ Color-coded circles (4 distinct colors, easy to distinguish)
+✓ Spring animation on spawn (satisfying pop-in)
+✓ active:scale-90 on tap (physical press feedback)
+✓ Score + Mistakes + Timer all visible simultaneously
+✓ Timer color changes at <30s (urgency)
+✓ Square arena with rounded corners (clean look)
+✓ Dark background (circles pop visually)
+✓ Constraint: 10-90% position (no edge clipping)
+✓ AnimatePresence exit animation (smooth disappear)
+✓ InstructionScreen before start
+
+UX PROBLEMS:
+
+1. Circles Can Overlap
+   - Green hidden behind red = unfair death
+   - FRUSTRATION LEVEL: HIGH
+
+2. No Audio
+   - Reflex games need audio cues for spawns
+   - FRUSTRATION LEVEL: MEDIUM-HIGH
+
+3. No Wrong Tap Feedback
+   - Circle just vanishes — was that right or wrong?
+   - FRUSTRATION LEVEL: MEDIUM
+
+4. No Speed-Up Warning
+   - Game gets faster silently
+   - FRUSTRATION LEVEL: MEDIUM
+
+5. 2 Wrong Taps = Death (Very Harsh)
+   - No "last life" warning
+   - FRUSTRATION LEVEL: HIGH
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  [!] Collision detection (no overlap)
+2.  [!] Audio (pop on spawn, ding on correct, buzz on wrong)
+3.  [!] Wrong tap visual feedback (red flash)
+4.  [!] "Last life" warning state
+5.  [!] Speed-up visual indicator
+6.  [ ] Streak/combo display
+7.  [ ] Haptic feedback
+8.  [ ] Circle size decrease at higher speeds
+9.  [ ] Personal best display
+10. [ ] Share results
+11. [ ] Proper replay without page reload
+12. [ ] Score multiplier for level
+13. [ ] Missed green circle indicator
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Circle spawn: pop sound + slight bounce
+2. Correct tap: satisfying "ding" + +1 particle float
+3. Wrong tap: red pulse on circle + screen edge flash + buzz
+4. Last life: screen border turns red, heartbeat sound
+5. Speed up: "FASTER!" flash + brief screen shake
+6. Green circles: subtle glow/pulse to help identify
+7. Circle lifetime: shrinking ring animation (shows time remaining)
+8. 10-streak: "On Fire!" text + combo multiplier
+9. Game over: final score explosion + best-score comparison
+10. Circle disappear (timeout): brief grey fade (shows missed)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Add collision detection for circle placement
+2. Track all auto-remove timeouts, clear on unmount
+3. Add audio (Web Audio for low latency)
+4. Add wrong tap animation
+5. Add "last life" warning state
+6. Add speed-up indicator
+7. Implement proper replay (state reset, not reload)
+8. Add streak counter
+9. Add haptic on tap
+10. Remove computeFinalSeed (dead code)
+
+Backend:
+1. Remove .env + fallback secrets
+2. Gate Swagger behind NODE_ENV
+3. Use Map instead of .find() in circleValidator
+4. Apply scoreMultiplier
+5. Add concurrent session prevention
+6. Use level-appropriate maxCircles
+7. Remove `correct` from tap DTO
+8. Remove dead engine modules
+9. Remove unused levelConfig fields
+10. Don't send seed (server-driven circles via WS)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Anti-Cheat
+- Seed + circleGenerator = all colors predictable
+- MITIGATED: Timing analysis (120ms avg threshold)
+- MITIGATED: Score divergence detection (>3 — tightest!)
+- MITIGATED: Server validates each circleId → color mapping
+- Anti-cheat score: 45/100 (good validation, seed leaks)
+
+Attack Surface 2: Secrets
+- .env committed + 3 fallback secrets
+- VITE_ENCRYPTION_KEY in bundle
+- Severity: CRITICAL
+
+Attack Surface 3: DoS
+- Max 2000 taps limit (good!)
+- O(n²) validation (manageable but suboptimal)
+- Rate limiter unbounded
+- Severity: MEDIUM
+
+OVERALL SECURITY POSTURE:
+Server validation is solid — regenerates circles, checks each tap's circleId
+against expected colors, has timing analysis, and tight divergence detection.
+The weakness is seed exposure allowing precomputation. Standard secret issues.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mixed" - 5.5/10
+
+POSITIVE:
+"Simple but addictive — tap the green ones!"
+"Gets genuinely hectic after a minute — that speed ramp is real."
+"The pop-in animation is satisfying."
+"Clear visual design — green really stands out."
+
+NEGATIVE:
+"A green circle spawned BEHIND a red one! I tapped the red = game over!"
+"No sound at all — I keep missing circles because I can't hear them spawn."
+"2 wrong taps and it's over? That's brutal!"
+"The game just got faster and I didn't even notice until I was overwhelmed."
+"No celebration for my 50-tap streak? Just +1, +1, +1..."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "Green was BEHIND red! Unfair!" — Circle overlap
+2. "No sound!" — Can't hear spawns, miss circles off-screen
+3. "2 mistakes is too harsh!" — Very punishing
+4. "Didn't notice the speed-up!" — No warning cue
+5. "Was that tap correct or wrong?" — No visual feedback
+6. "No combo for my 30-streak?" — Flat scoring
+7. "Had to reload the page to retry!" — No proper replay
+8. "Higher levels earn the same per tap!" — Multiplier unused
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Whac-A-Mole is a universally loved mechanic
+✓ Instant gratification (tap → circle pops → +1)
+✓ Simple goal (tap green, avoid others)
+✓ Speed escalation creates genuine tension
+✓ "Just one more" hook — always feels beatable
+✓ Color discrimination is engaging (reflex + visual)
+✓ Physical interaction (tapping feels good)
+✓ Endurance challenge (how long can you last?)
+✓ Quick sessions (1-5 minutes)
+✓ Clear success/failure per tap
+
+Flow State Enablers:
+✓ Simple binary decision (tap or don't)
+✓ Immediate feedback per action
+✓ Gradually increasing difficulty
+✓ No complex rules to remember
+✓ Physical action (tapping) keeps engagement
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. CIRCLE OVERLAP
+   - "Unfair" deaths = frustration = quit = don't share
+
+2. NO AUDIO
+   - The "pop" and "ding" sounds ARE the satisfaction
+   - Without them, tapping feels hollow
+
+3. FLAT SCORING (No Combo/Streak)
+   - "I got 50 in a row!" should feel AMAZING
+   - Just +1 each time = no wow moment
+
+4. NO SHARE
+   - "I survived 4 minutes at insane speed!" is great share content
+   - Not implemented
+
+5. TOO HARSH (2 mistakes)
+   - Casual players die immediately = don't come back
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     70/100 (clean, working integration)
+- Security:                         25/100 (secrets, .env)
+- Performance:                      80/100 (lightweight, no concerns)
+- Game Logic & Correctness:         60/100 (overlap bug, no combo)
+- UX & Polish:                      45/100 (no audio, no wrong feedback)
+- Anti-Cheat:                       45/100 (timing analysis, tight threshold)
+- Accessibility:                    30/100 (no ARIA, no keyboard alternative)
+- Retention & Engagement:           50/100 (fun core, needs celebration)
+- Error Handling:                   55/100 (basic handling, stale closure)
+- Production Readiness:             50/100 (dead code, reload replay)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 62/100
+═══════════════════════════════════════
+
+VERDICT: FUN CORE MECHANIC, NEEDS OVERLAP FIX + AUDIO + COMBO
+Whac-A-Mole with speed escalation is inherently fun. Server validation is
+solid (circleId→color mapping). The overlap bug is the biggest gameplay issue.
+Audio and combo/streak would transform this from "basic" to "addictive".
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL FIXES (0.5 day)
+  □ Add collision detection (min distance between circles)
+  □ Remove .env + fallback secrets
+  □ Gate Swagger behind NODE_ENV
+  □ Fix auto-remove setTimeout tracking
+
+PHASE 2: GAME JUICE (1 day)
+  □ Add audio (pop spawn, ding correct, buzz wrong, speed-up cue)
+  □ Add wrong tap visual feedback (red flash + shake)
+  □ Add "LAST LIFE!" warning state (border glow)
+  □ Add speed-up indicator ("FASTER!" flash)
+  □ Add streak counter + celebration at milestones
+
+PHASE 3: GAME LOGIC (0.5 day)
+  □ Apply scoreMultiplier
+  □ Add concurrent session prevention
+  □ Use Map in circleValidator
+  □ Consider: 3 lives instead of 2 (less punishing)
+  □ Combo bonus (2x after 10 streak, 3x after 20)
+
+PHASE 4: POLISH (0.5 day)
+  □ Proper replay (state reset, not reload)
+  □ Circle lifetime ring indicator
+  □ Missed green circle indicator
+  □ Personal best display
+  □ Add haptic on tap
+
+PHASE 5: ANTI-CHEAT (0.5 day)
+  □ Don't send seed (server-driven circles via WS)
+  □ Remove circleGenerator from frontend
+  □ Remove `correct` from tap DTO
+  □ Remove dead code
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Add collision detection (min distance between spawned circles)
+    Effort: 1 hour | Impact: Eliminates unfair deaths
+    ROI: 10x (single biggest fairness fix)
+
+#2  Add audio (pop, ding, buzz)
+    Effort: 1-2 hours | Impact: Tapping becomes satisfying
+    ROI: 9x (defines the genre)
+
+#3  Add wrong tap visual feedback
+    Effort: 30 min | Impact: Player understands their mistake
+    ROI: 8x
+
+#4  Remove fallback secrets + .env
+    Effort: 30 min | Impact: Prevents auth bypass
+    ROI: ∞ (security)
+
+#5  Add streak counter + celebration (10, 20, 30 milestones)
+    Effort: 1 hour | Impact: Core retention loop
+    ROI: 8x
+
+#6  Add "LAST LIFE" warning (screen glow after 1st mistake)
+    Effort: 30 min | Impact: Reduces frustration from sudden death
+    ROI: 7x
+
+#7  Apply scoreMultiplier
+    Effort: 5 min | Impact: Higher levels rewarding
+    ROI: 7x (one line)
+
+#8  Add speed-up indicator
+    Effort: 20 min | Impact: Player prepared for difficulty ramp
+    ROI: 6x
+
+#9  Don't send seed (server sends circles via WS)
+    Effort: 3-4 hours | Impact: Prevents precomputation
+    ROI: 5x
+
+#10 Add concurrent session prevention
+    Effort: 15 min | Impact: Prevents multi-session abuse
+    ROI: 5x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND:
+✓ CIRCLE VALIDATION: Server regenerates entire circle sequence from seed,
+  validates each tap's circleId maps to a green circle.
+✓ TIMING ANALYSIS: analyzeInputTiming with 120ms threshold (tuned for reflex!)
+✓ TIGHTEST SCORE DIVERGENCE: >3 threshold (most games use >10-30)
+✓ WRONG TAP LIMIT: Server enforces maxWrongTaps independently
+✓ SESSION EXPIRY: endTime + 5000ms grace period
+✓ ATOMIC DOUBLE-SUBMIT: updateMany where status:'active'
+✓ CHEAT FLAG PERSISTENCE: Stores reasons + publishes events
+✓ DOS PROTECTION: Max 2000 taps limit
+✓ Environment validation at startup
+✓ Production CORS check (throws on missing)
+✓ Restate integration for session expiry
+✓ Proper seeded RNG (mulberry32, deterministic)
+
+FRONTEND:
+✓ WORKING SUBMIT: Sends taps array (circleId, timestamp, correct)
+✓ PROPER PHASE MANAGEMENT: idle → playing → ended
+✓ ANIMATEPRESENCE: Smooth circle spawn/despawn transitions
+✓ SPRING ANIMATION: Bouncy circle appearance
+✓ TIMER CLEANUP: useEffect return clears intervals
+✓ ACTIVE:SCALE-90: Physical tap feedback
+✓ POSITION CONSTRAINT: 10-90% prevents edge clipping
+✓ MISTAKE COUNTER: Visible at all times
+✓ TIMER COLOR CHANGE: Red at <30s
+✓ SPEED ESCALATION: Proper exponential increase (0.85^n)
+✓ Clean state management with refs for mutable values
+✓ MIN INTERVAL: floor at 300ms (prevents impossible speeds)
+
+GAME DESIGN:
+✓ Whac-A-Mole = universally understood
+✓ Color discrimination = engaging cognitive task
+✓ Speed escalation = proper endurance challenge
+✓ 40% green / 60% trap = good ratio (enough targets, enough traps)
+✓ Quick sessions (1-5 minutes)
+✓ Simple scoring (1pt each = easy to understand)
+✓ "Survive as long as possible" = clear goal
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1 (Arrows):             58/100
+  Game #2 (Block Fill):         62/100
+  Game #3 (Colour Sorting):     61/100
+  Game #4 (Flash Spot):         56/100
+  Game #5 (Infinity Loop):      59/100
+  Game #6 (Live Route Builder): 48/100 ← LOWEST
+  Game #7 (Logic Reflector):    72/100 ← HIGHEST
+  Game #8 (Maze Navigation):    58/100
+  Game #9 (Memory Card Match):  68/100
+  Game #10 (Memory Groups):     45/100
+  Game #11 (Number Grid Sprint):62/100
+  Game #12 (Object Placement):  60/100
+  Game #13 (Pattern Survival):  52/100
+  Game #14 (Rapid Category Sort):66/100
+  Game #15 (Reflex Endurance):  62/100
+
+UNIQUE STRENGTHS:
+★ TIGHTEST score divergence threshold (>3) in entire platform
+★ Circle-level validation (each circleId checked against expected color)
+★ Speed escalation with exponential curve (0.85^n)
+★ 40/60 green-to-trap ratio well balanced
+★ Active:scale-90 tap feedback (simple but effective)
+★ Min interval floor (300ms) prevents impossible speeds
+
+UNIQUE ISSUES:
+★ Circle OVERLAP (unique to this game — random arena placement)
+★ 2 mistakes = death (harshest in platform)
+★ No combo/streak (every other "endurance" game has this)
+★ window.location.reload for replay (worst replay pattern)
+
+vs Rapid Category Sort (66/100):
+- WORSE: No keyboard controls
+- WORSE: Circle overlap problem
+- WORSE: No streak/combo system
+- SAME: Timing analysis
+- SAME: Working submit integration
+- BETTER: Tighter score divergence (3 vs 30)
+
+vs Pattern Survival (52/100):
+- MUCH BETTER: Submit actually works!
+- BETTER: Timing analysis integrated
+- BETTER: Score divergence detection
+- SAME: No audio
+- SAME: Seed sent to client
+
+================================================================================
+END OF AUDIT — GAME #15: REFLEX ENDURANCE
+================================================================================

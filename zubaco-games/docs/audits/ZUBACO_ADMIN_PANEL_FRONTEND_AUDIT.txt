@@ -1,0 +1,514 @@
+================================================================================
+ZUBACO ADMIN PANEL FRONTEND — COMPREHENSIVE SECURITY & ARCHITECTURE AUDIT
+================================================================================
+Audit Date: 2025-05-23
+Auditor: Senior Frontend Security / Architecture / UX Review
+Component: Admin Panel Frontend (zubaco-admin-panel/frontend/)
+Stack: Next.js 16.2 (static export) + React 19 + TanStack React Query 5 +
+       Radix UI primitives + Tailwind CSS 4 + Lucide React icons + Zod +
+       Jest 30 + TypeScript 5 + Husky + lint-staged + Prettier + ESLint
+Role: Web-based admin dashboard for managing the Zubaco gaming platform —
+      games, stages, tournaments, seasons, users, cheat flags, analytics,
+      notifications, wallets, and banners.
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Admin Panel Frontend is a Next.js 16 application configured for
+STATIC EXPORT (output: 'export'). This means NO server-side rendering,
+NO API routes, NO server components in the traditional sense — it's a
+pure SPA deployed as static HTML/CSS/JS files (suitable for S3/CloudFront
+or any CDN).
+
+ARCHITECTURE VERDICT:
+This is a WELL-STRUCTURED frontend application with:
+✓ Feature-based folder structure (features/auth, features/games, etc.)
+✓ Proper separation: components/ui (Radix primitives), components/shared,
+  components/layout, features/*/components, features/*/hooks
+✓ TanStack React Query for server state management
+✓ AuthProvider + AuthGuard for route protection
+✓ Cookie-based token storage with proper SameSite/Secure flags
+✓ Custom API client with automatic 401 handling and session expiry
+✓ Proper TypeScript throughout (types/, interfaces, no `any` abuse)
+✓ Testing infrastructure (Jest 30 + Testing Library)
+✓ Code quality tooling (Husky, lint-staged, ESLint, Prettier)
+✓ Path aliases (@/ prefix for clean imports)
+
+CRITICAL SECURITY FINDINGS:
+
+1. HARDCODED DUMMY CREDENTIALS in production code (config/auth.ts)
+2. Auth token stored in both cookie AND localStorage (token leakage vectors)
+3. next.config.ts has ngrok URLs in allowedDevOrigins (committed to git)
+4. Cookie does NOT set HttpOnly flag (accessible via JavaScript/XSS)
+
+TOTAL ISSUES: 16 (2 Critical, 3 High, 7 Medium, 4 Low)
+
+RELEASE READINESS SCORE: 68/100
+
+This is the SECOND-BEST component after the admin backend. The frontend
+architecture is clean, well-organized, and follows modern React patterns.
+The security issues are primarily around credential management and
+token storage.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Hardcoded admin credentials in frontend source code
+BLOCKER-2: Auth cookie not set as HttpOnly (XSS can steal tokens)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+MODULE: AUTHENTICATION & SESSION — 5 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-AUTH-01: Hardcoded Admin Credentials in Source Code                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Credential Exposure                                                │
+│ File: src/config/auth.ts (lines 1-4)                                         │
+│                                                                              │
+│ Code:                                                                        │
+│   export const DUMMY_CREDENTIALS = {                                         │
+│     email: "admin@ZUBACO.com",                                              │
+│     password: "Admin@123",                                                   │
+│   } as const;                                                                │
+│                                                                              │
+│ Hardcoded credentials in the PRODUCTION frontend source code. This file      │
+│ is compiled into the static export bundle and is VISIBLE to anyone who       │
+│ views source or inspects the JS bundle.                                      │
+│                                                                              │
+│ Note: The password differs from the backend .env.example                     │
+│ (Admin@123 vs Admin@123456), suggesting these are stale test credentials.   │
+│                                                                              │
+│ ATTACK VECTOR: Anyone viewing the JS bundle gets admin credentials.          │
+│                                                                              │
+│ FIX: Remove DUMMY_CREDENTIALS entirely. Never store credentials in           │
+│ frontend code. If needed for E2E tests, use test-only env variables.        │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-AUTH-02: Auth Cookie Not HttpOnly (XSS Token Theft)                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Token Security / XSS                                               │
+│ File: src/features/auth/hooks/use-login.ts (setCookie function)              │
+│                                                                              │
+│ Code:                                                                        │
+│   function setCookie(name: string, value: string) {                          │
+│     const attrs = [`Path=/`, `SameSite=Lax`, secure ? "Secure" : "",        │
+│       `Max-Age=${60 * 60 * 24 * 7}`].filter(Boolean).join("; ");           │
+│     document.cookie = `${name}=${value}; ${attrs}`;                          │
+│   }                                                                          │
+│                                                                              │
+│ The cookie is set WITHOUT the HttpOnly flag. This is a fundamental design   │
+│ limitation: cookies set via document.cookie CANNOT be HttpOnly. HttpOnly    │
+│ cookies can only be set by the server via Set-Cookie headers.               │
+│                                                                              │
+│ Since this is a static export (no server), the token is accessible to any   │
+│ JavaScript running on the page. An XSS vulnerability in the admin panel     │
+│ would allow an attacker to steal the admin's JWT.                           │
+│                                                                              │
+│ POSITIVE: SameSite=Lax prevents CSRF. Secure flag is set for HTTPS.         │
+│                                                                              │
+│ MITIGATION: Since static export can't set HttpOnly cookies, the best        │
+│ approach is:                                                                 │
+│ 1. Ensure NO XSS vectors exist (React's JSX escaping helps)                 │
+│ 2. Add CSP headers via hosting infrastructure (CloudFront, nginx)            │
+│ 3. Consider moving to SSR mode to enable HttpOnly cookie via server          │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-AUTH-03: Token Stored in BOTH Cookie AND localStorage               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Token Security                                                     │
+│ Files: use-login.ts (onSuccess), client.ts (getCookie)                       │
+│                                                                              │
+│ On login success:                                                            │
+│   setCookie(AUTH_TOKEN_STORAGE_KEY, token);  // Cookie                       │
+│   localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser)); // LS    │
+│                                                                              │
+│ The user info (not token) goes to localStorage, token goes to cookie.        │
+│ But the API client reads the token from the cookie:                          │
+│   const authToken = token ?? getCookie(AUTH_TOKEN_STORAGE_KEY);              │
+│                                                                              │
+│ ISSUE: localStorage persists after browser close. If a user walks away       │
+│ from a shared computer, their auth user data (email) persists. The cookie   │
+│ has a 7-day Max-Age matching the backend token expiry.                       │
+│                                                                              │
+│ FIX: Use ONLY cookies for token storage (already done), and store user       │
+│ data in React Query cache only (not localStorage). On page reload, fetch    │
+│ user from /admin/auth/me endpoint.                                           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-AUTH-04: AuthGuard is Client-Side Only (Flash of Content)           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Security                                                      │
+│ File: src/components/layout/AuthGuard.tsx                                     │
+│                                                                              │
+│ AuthGuard uses useEffect to check isAuthenticated and redirect. This means: │
+│ 1. The admin page HTML is served to unauthenticated users (static export)   │
+│ 2. A brief flash of content may appear before redirect                       │
+│ 3. The page structure is visible in the HTML source                          │
+│                                                                              │
+│ Since this is a static export, there's no server-side protection. The        │
+│ HTML/JS of ALL admin pages is downloadable by anyone.                        │
+│                                                                              │
+│ POSITIVE: Returns null during redirect, minimizing flash.                    │
+│ POSITIVE: API calls are protected by backend auth — UI is just a shell.     │
+│                                                                              │
+│ Priority Score: 3/10 (acceptable for admin panel architecture)               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-AUTH-05: Unauthorized Handler Uses Global Mutable Flag              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/lib/api/client.ts (handleUnauthorized)                             │
+│                                                                              │
+│ let hasHandledUnauthorized = false;                                          │
+│                                                                              │
+│ Module-level mutable flag to prevent multiple 401 redirects. This flag       │
+│ is NEVER reset. If the user re-logs in and gets a 401 again later, the      │
+│ handler won't fire because the flag is still true.                           │
+│                                                                              │
+│ FIX: Reset the flag on successful login, or use a time-based debounce.     │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: CONFIGURATION & BUILD — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-CONFIG-01: ngrok URLs in next.config.ts (Dev Artifacts)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Information Disclosure                                             │
+│ File: next.config.ts (allowedDevOrigins)                                     │
+│                                                                              │
+│ allowedDevOrigins: [                                                         │
+│   'average-thieving-vitally.ngrok-free.dev',                                │
+│   'sybil-nonmetaphorical-unspirally.ngrok-free.',                           │
+│ ]                                                                            │
+│                                                                              │
+│ These are ngrok tunnel URLs committed to version control. They reveal:       │
+│ 1. Development/staging endpoints that may still be active                    │
+│ 2. Team members' development tunnels                                         │
+│                                                                              │
+│ The second URL is also malformed (missing TLD after the dot).               │
+│                                                                              │
+│ FIX: Remove ngrok URLs from config. Use env variables for dev origins.      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-CONFIG-02: Static Export Means No SSR Security Benefits             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Architecture                                                       │
+│ File: next.config.ts (output: 'export')                                      │
+│                                                                              │
+│ The static export means:                                                     │
+│ - No server components for auth checks                                       │
+│ - No middleware for route protection                                         │
+│ - No HttpOnly cookies from the server                                        │
+│ - No API routes for token refresh                                            │
+│ - All page HTML is pre-rendered and publicly available                       │
+│                                                                              │
+│ This is a VALID architecture choice for an admin panel (simpler deployment,  │
+│ CDN-friendly), but it sacrifices SSR security features.                      │
+│                                                                              │
+│ CONTEXT: Since the admin backend has proper auth guards on ALL endpoints,   │
+│ the frontend is just a UI shell — all real security is server-side.         │
+│                                                                              │
+│ Priority Score: 3/10 (architectural trade-off, not a bug)                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-CONFIG-03: API_BASE_URL Exposed in Client Bundle                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Information Disclosure                                             │
+│ File: next.config.ts (env: { API_BASE_URL })                                 │
+│                                                                              │
+│ The API base URL is injected into the client bundle. This is necessary       │
+│ for a static export SPA, but it means anyone can discover the API            │
+│ endpoint URL. Not a security issue per se (security by obscurity is not     │
+│ real security), but worth noting.                                            │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: API CLIENT (lib/api/) — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-API-01: ngrok-skip-browser-warning Header Sent Conditionally        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Code Quality / Dev Artifacts                                       │
+│ File: src/lib/api/client.ts (resolveHeaders)                                 │
+│                                                                              │
+│ Code:                                                                        │
+│   if (url.includes("ngrok")) {                                               │
+│     merged.set("ngrok-skip-browser-warning", "true");                       │
+│   }                                                                          │
+│                                                                              │
+│ Production code has special handling for ngrok URLs. This should be          │
+│ development-only.                                                            │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-API-02: API Error Details Exposed in Console                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Information Disclosure                                             │
+│ File: src/lib/api/client.ts (ApiError class)                                 │
+│                                                                              │
+│ ApiError stores full server response details (status, code, details).        │
+│ If error boundaries or catch handlers log these to console in production,   │
+│ server internals may be exposed.                                             │
+│                                                                              │
+│ POSITIVE: The error class itself is well-designed (status, code, details).  │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-API-03: No Request Timeout Configuration                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Reliability                                                        │
+│ File: src/lib/api/client.ts (apiRequest)                                     │
+│                                                                              │
+│ The fetch calls accept an optional `signal` for AbortController, but         │
+│ there's no DEFAULT timeout. A slow backend response could hang the UI        │
+│ indefinitely.                                                                │
+│                                                                              │
+│ FIX: Add default timeout (e.g., 30 seconds) using AbortSignal.timeout().   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: UI & COMPONENTS — 3 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-UI-01: LoginForm Doesn't Rate-Limit Client-Side Submissions         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Abuse Prevention                                              │
+│ File: features/auth/components/LoginForm.tsx                                 │
+│                                                                              │
+│ No client-side debounce on login submissions. A user (or script) can         │
+│ rapidly click "Sign In" and flood the backend with login requests.           │
+│ The isLoading flag prevents sequential double-clicks but not rapid ones.    │
+│                                                                              │
+│ POSITIVE: isLoading state disables UI during request (prevents re-submit).  │
+│ Backend rate limiting is the real defense (but it's missing too — see        │
+│ ADMIN-AUTH-05 in backend audit).                                             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-UI-02: No CSP Meta Tag or Hosting CSP Header                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security Headers                                                   │
+│ File: src/app/layout.tsx                                                     │
+│                                                                              │
+│ No Content-Security-Policy configured. In a static export, CSP must be      │
+│ set via hosting infrastructure (CloudFront custom response headers,          │
+│ nginx headers, or <meta> tag in layout).                                     │
+│                                                                              │
+│ Without CSP, XSS payloads can load external scripts, exfiltrate data,       │
+│ and execute arbitrary code. For an admin panel handling financial data,     │
+│ CSP is essential.                                                            │
+│                                                                              │
+│ FIX: Add CSP meta tag in layout.tsx:                                         │
+│   <meta httpEquiv="Content-Security-Policy"                                  │
+│     content="default-src 'self'; script-src 'self'; style-src 'self' ..." />│
+│                                                                              │
+│ Or configure via hosting infrastructure (preferred).                         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-UI-03: Phaser 4 in Admin Panel (Unnecessary Dependency?)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Bundle Size                                                        │
+│ File: package.json (dependencies)                                            │
+│                                                                              │
+│ "phaser": "^4.0.0" is listed as a dependency. Phaser is a game engine       │
+│ (~2MB minified). Its presence in an admin panel is unusual.                  │
+│                                                                              │
+│ This is likely used for the Infinity Loop board editor or game previews.    │
+│ If it's only used on one page, it should be dynamically imported.           │
+│                                                                              │
+│ FIX: Verify if Phaser is actually used. If so, use dynamic import().        │
+│ If not, remove it to reduce bundle size by ~2MB.                            │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+MODULE: DATA MANAGEMENT — 2 issues
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-DATA-01: react-drag-drop-files May Allow Arbitrary Uploads          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Input Validation                                                   │
+│ File: package.json (dependency)                                              │
+│                                                                              │
+│ "react-drag-drop-files": "^3.1.0" — used for file uploads in the admin     │
+│ panel (likely game assets, banners, KYC documents). If file type and size   │
+│ validation is only client-side, malicious files could be uploaded.          │
+│                                                                              │
+│ Backend validation is the real defense, but client-side checks improve UX.  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE FE-DATA-02: No Confirmation Dialog for Destructive Actions             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Safety                                                        │
+│ File: General observation across features                                    │
+│                                                                              │
+│ Admin actions like ban user, credit/debit wallet, delete season, trigger    │
+│ elimination, and distribute prizes are all one-click operations via the     │
+│ API. Missing: confirmation dialogs, "are you sure?" prompts, undo support. │
+│                                                                              │
+│ Radix UI Dialog is already a dependency — use it for confirmation modals.   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. POSITIVE OBSERVATIONS — WHAT THE ADMIN FRONTEND DOES RIGHT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ARCHITECTURE:
+✓ Feature-based folder structure (clear domain separation)
+✓ src/features/{domain}/components, hooks, config, utils pattern
+✓ Separation of concerns: services/ (API calls) vs features/ (UI + hooks)
+✓ lib/api/ with custom fetch wrapper, error handling, type safety
+✓ TanStack React Query for data fetching (caching, invalidation, devtools)
+✓ React 19 + Next.js 16 — latest stable versions
+✓ TypeScript throughout with proper type definitions in types/
+✓ Path aliases (@/ prefix) for clean imports
+
+AUTH:
+✓ AuthProvider + AuthContext pattern (centralized auth state)
+✓ AuthGuard component wraps all admin routes
+✓ Automatic 401 handling with redirect to /login
+✓ Cookie cleanup on unauthorized (prevents stale token reuse)
+✓ localStorage cleanup on session expiry
+✓ Custom event dispatch for unauthorized toast notification
+✓ Login page redirects to /games if already authenticated
+
+API CLIENT:
+✓ Well-designed ApiError class (status, code, details)
+✓ Centralized API request function with consistent error handling
+✓ Support for query parameters, abort signals, keepalive
+✓ Automatic token injection from cookie into Authorization header
+✓ 404 handling with returnNullOn404 option
+✓ Proper URL construction with normalization (handles bare hosts)
+✓ Separate http module with get/post/patch/del helper functions
+
+UI/UX:
+✓ Radix UI primitives (accessible, WAI-ARIA compliant)
+✓ Tailwind CSS 4 for consistent styling
+✓ Lucide React for consistent iconography
+✓ Dark theme with proper contrast ratios (bg-[#141210], text-white)
+✓ Password visibility toggle on login form
+✓ Loading state feedback (Loader2 spinner)
+✓ Error message display on login failure
+✓ Responsive layout (grid, mobile breakpoints)
+
+CODE QUALITY:
+✓ Husky pre-commit hooks
+✓ lint-staged for incremental linting
+✓ ESLint + Prettier configured
+✓ Jest 30 + Testing Library setup
+✓ Type-check script (tsc --noEmit)
+✓ ValidationResult type with ok/fail constructors
+✓ Clean exports and module organization
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     85/100 (excellent structure, modern stack)
+- Authentication:                   50/100 (hardcoded creds, no HttpOnly)
+- Token Management:                 55/100 (cookie + localStorage, no refresh)
+- Input Validation:                 60/100 (Zod on backend, client has gaps)
+- Security Headers:                 30/100 (no CSP, static export limits)
+- UI/UX:                            80/100 (Radix, accessible, dark theme)
+- Performance:                      75/100 (React Query, static export = fast)
+- Testing:                          65/100 (infrastructure ready, coverage TBD)
+- Build & Deploy:                   80/100 (Docker, static export, CDN-ready)
+- Code Quality Tooling:             85/100 (Husky, lint-staged, TypeScript)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 68/100
+═══════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. PRIORITY ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL FIXES (30 minutes)
+  □ Remove DUMMY_CREDENTIALS from config/auth.ts
+  □ Remove ngrok URLs from next.config.ts
+  □ Add CSP meta tag in layout.tsx
+
+PHASE 2: TOKEN SECURITY (1 hour)
+  □ Remove localStorage for auth (use only cookie + React Query)
+  □ Reset hasHandledUnauthorized flag on login success
+  □ Add default request timeout (AbortSignal.timeout(30000))
+
+PHASE 3: UX HARDENING (1-2 hours)
+  □ Add confirmation dialogs for destructive actions (ban, credit, delete)
+  □ Verify Phaser usage, remove or lazy-import
+  □ Clean up ngrok-specific header logic
+
+PHASE 4: HOSTING SECURITY (requires infra changes)
+  □ Configure CSP headers on hosting (CloudFront custom response headers)
+  □ Configure X-Frame-Options: DENY
+  □ Configure Strict-Transport-Security
+  □ Restrict CORS on admin backend to match frontend origin
+
+================================================================================
+END OF AUDIT — ZUBACO ADMIN PANEL FRONTEND
+================================================================================

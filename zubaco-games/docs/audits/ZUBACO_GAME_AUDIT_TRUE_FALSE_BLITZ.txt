@@ -1,0 +1,916 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #19: TRUE FALSE BLITZ (Statement Judgment Game)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Rapid-fire true/false quiz — statements appear one at a time with
+          an auto-advance timer. Player taps TRUE or FALSE before time runs out.
+          Scoring: points for correct, penalty for wrong, streak bonus for
+          consecutive correct answers. Global timer + per-statement timer.
+Stack: NestJS 11 + Prisma 7 + BullMQ + Zod + nestjs-zod + Encryption (backend),
+       React 19 + Vite 6 + Framer Motion + i18n + Tailwind CSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+True False Blitz is a rapid-fire statement judgment game where players see
+trivia statements and must tap TRUE or FALSE before the per-statement timer
+expires. The game has a global session timer + individual statement display
+timers, with points for correct answers, penalties for wrong answers, and
+a streak bonus system.
+
+This game is SIGNIFICANTLY BETTER than Speed Type Answer (#18) — it shares
+the same seed-based architecture but adds:
+  - Streak bonus system (3+ correct = bonus points per subsequent correct)
+  - Penalty for wrong answers (not just 0 points — negative impact!)
+  - Missed statement tracking (auto-advance if not answered)
+  - Per-statement progress bar (visual countdown)
+  - Keyboard support (arrow keys / A/D)
+  - Correct/wrong visual feedback (green/red card flash)
+  - Timing analysis anti-cheat (detects bot-like response times)
+  - DB-configurable stage settings (not just hardcoded defaults)
+  - Auto-submit on game end (fixes the #18 finishGame bug)
+  - Input count validation (.max(60) on answers array!)
+
+FUNDAMENTAL FLAW (same as Speed Type Answer): The statement bank is HARDCODED
+(60 statements) and DUPLICATED in both frontend and backend. All statements
+with correct answers are visible in the client JS bundle.
+
+However, the GAME DESIGN mitigates this somewhat: True/False is a binary
+choice (50% guess rate), so memorizing answers provides less advantage than
+in Speed Type Answer (where answers are typed freeform). A player who
+memorizes all 60 statements gains maybe 20-30% advantage, not 100%.
+
+TOTAL ISSUES: 24 (2 Critical, 3 High, 11 Medium, 8 Low)
+
+RELEASE READINESS SCORE: 55/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: .env committed with JWT_SECRET in plaintext
+           JWT_SECRET="zubaco-true-false-blitz-jwt-secret-2025"
+           This is a NAMED production secret (not a dev placeholder).
+
+BLOCKER-2: Fallback secrets in THREE locations:
+           - session.guard.ts: process.env.JWT_SECRET || 'fallback-secret'
+           - game.gateway.ts: process.env.JWT_SECRET || 'dev-secret'
+           - app.config.ts: process.env.JWT_SECRET || 'dev-secret-true-false-blitz'
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (13 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: .env Committed with NAMED JWT_SECRET                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env                                                                   │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/..."            │
+│   JWT_SECRET="zubaco-true-false-blitz-jwt-secret-2025"                       │
+│   PORT=3010                                                                  │
+│                                                                              │
+│ NOTE: Unlike other games where .env has "dev-jwt-secret", this one has       │
+│ a NAMED secret that looks like it could be the actual production value.      │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Three Fallback Secrets                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: src/common/guards/session.guard.ts (line 12),                         │
+│        src/ws/game.gateway.ts (line 37),                                     │
+│        src/common/config/app.config.ts (line 3)                              │
+│                                                                              │
+│ Code:                                                                        │
+│   jwt.verify(auth.slice(7), process.env.JWT_SECRET || 'fallback-secret')    │
+│   process.env.JWT_SECRET || 'dev-secret'                                    │
+│   process.env.JWT_SECRET || 'dev-secret-true-false-blitz'                    │
+│                                                                              │
+│ THREE DIFFERENT fallback values! Inconsistent and dangerous.                 │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: Statement Bank Hardcoded (60 Statements Only)                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Design / Content                                              │
+│ File: src/game/engine/statementBank.ts                                       │
+│                                                                              │
+│ 60 true/false statements hardcoded in an array. At 30 per session,           │
+│ a player sees ALL content in 2 sessions. At 10 per session (level 1),        │
+│ 6 sessions to exhaust. DUPLICATED identically in frontend.                   │
+│                                                                              │
+│ MITIGATING FACTOR vs Speed Type Answer:                                      │
+│ True/False is binary (50% base guess rate). Even with memorized answers,     │
+│ the advantage is ~50% → 100%, not 0% → 100% like typed answers.             │
+│ Still needs 500+ statements for production.                                  │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Swagger Exposed Unconditionally                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 50-57)                                               │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Seed Sent to Client in startGame Response                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 63)                                     │
+│                                                                              │
+│ Code:                                                                        │
+│   return { gameSessionId, endTime, serverTime, config, seed, ... }          │
+│                                                                              │
+│ The computed seed is sent to the client so it can derive the same            │
+│ statement sequence. Combined with statement bank in client bundle,           │
+│ a bot can pre-compute all answers instantly.                                 │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: Dead Engine Modules (6 Files)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts, boosterEngine.ts,               │
+│        comboEngine.ts, dailyChallenge.ts, leaderboard.ts, scoreHistory.ts    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: CORS Falls Back to `true` in Non-Production                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 37-40)                                               │
+│                                                                              │
+│ Note: DOES throw in production if CORS_ORIGINS missing. Better than most.    │
+│                                                                              │
+│ Priority Score: 3/10 (mitigated by production check)                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Client Sends `correct` Field (Trusted by Server Initially)       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (submitGame, line 99-105)                     │
+│                                                                              │
+│ The DTO accepts `correct: z.boolean()` from the client. The server           │
+│ re-verifies by comparing statement.isTrue === answer.chosenTrue, and         │
+│ counts invalidAnswerCount if the client's `correct` doesn't match.           │
+│                                                                              │
+│ This is GOOD — the server overrides the client's claim. But the DTO          │
+│ shouldn't accept `correct` at all. The server should compute it.             │
+│                                                                              │
+│ Priority Score: 3/10 (server overrides, but unnecessary field)               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: scoreMultiplier Never Applied Server-Side                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Logic                                                              │
+│ File: src/game/game.service.ts (startGame returns it, submitGame ignores)    │
+│                                                                              │
+│ Same as Speed Type Answer: scoreMultiplier is calculated and returned         │
+│ but NEVER used in server scoring. Levels 1-10 define multipliers             │
+│ from 1.0 to 3.5 but they have zero effect.                                  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Server Generates clientSeed AND nonce (Not Client)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Design                                                             │
+│ File: src/game/game.service.ts (startGame, line 51-52)                       │
+│                                                                              │
+│ Code:                                                                        │
+│   const clientSeed = crypto.randomBytes(8).toString('hex');                  │
+│   const nonce = Math.floor(Math.random() * 100000);                          │
+│                                                                              │
+│ Both server-generated. The entire purpose of a "client seed" is for the      │
+│ CLIENT to contribute randomness (preventing server-side rigging).            │
+│ If the server generates both seeds, the server fully controls question       │
+│ selection — a compromised server could always give easy questions.            │
+│                                                                              │
+│ HOWEVER: This is actually BETTER for anti-cheat since the client can't       │
+│ choose a seed that produces questions they know the answers to.              │
+│                                                                              │
+│ Priority Score: 2/10 (design oddity, not a vulnerability)                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: DTO Uses nestjs-zod (class-based) Instead of Raw Zod             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/game/dto/start-game.dto.ts, submit-game.dto.ts                     │
+│                                                                              │
+│ Uses createZodDto which generates class-validator compatible classes.         │
+│ This works but introduces unnecessary abstraction. Most other games           │
+│ use raw Zod schemas directly.                                                │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Timing Analyzer Only Checks Inter-Answer Gaps                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/engine/timingAnalyzer.ts                                      │
+│                                                                              │
+│ Only checks gaps between consecutive timestamps. Doesn't detect:             │
+│ - Perfectly uniform spacing (bot pattern)                                    │
+│ - All answers submitted at once (batch fabrication)                          │
+│ - Standard deviation analysis (humans have variance, bots don't)             │
+│                                                                              │
+│ STILL GOOD: The minAvgResponseMs=150ms and minSingleResponseMs=50ms          │
+│ thresholds are reasonable. Most bots would trigger these.                    │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: CheatFlag Saved but Never Acted On                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 142-153)                                │
+│                                                                              │
+│ CheatFlags are saved to DB and published via events, but the session         │
+│ status is just 'flagged'. No score quarantine, no score adjustment,          │
+│ no automatic review. Flagged scores are still visible/usable.                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (11 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Statement Bank + Answers in Client Bundle                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH (not CRITICAL due to binary choice mitigation)                │
+│ Category: Anti-Cheat / Design                                                │
+│ File: src/features/blitz/engine/statementBank.ts                             │
+│                                                                              │
+│ ALL 60 statements with isTrue flags visible in production JS bundle.         │
+│ DevTools → Sources → search "Octopuses have three hearts" → see TRUE.        │
+│                                                                              │
+│ MITIGATED vs Speed Type Answer:                                              │
+│ Binary choice = 50% base guess rate. Memorizing all 60 gives advantage       │
+│ but doesn't make the game 100% trivially defeated like typed answers.        │
+│ Also: auto-advance timer means speed still matters.                          │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: VITE_ENCRYPTION_KEY in Client Bundle                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 5)                                    │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Auth Token from URL Query String                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 13-16)                                │
+│                                                                              │
+│ Code:                                                                        │
+│   const token = params.get('token') || sessionStorage.getItem('auth_token'); │
+│   if (token) { config.headers.Authorization = `Bearer ${token}`;             │
+│     sessionStorage.setItem('auth_token', token); }                           │
+│                                                                              │
+│ Token from URL is BETTER than localStorage (sessionStorage clears on         │
+│ tab close). BUT: URL tokens appear in browser history, server logs,          │
+│ and Referer headers. Should be extracted and removed from URL.               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: No Sound Effects                                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│                                                                              │
+│ No audio feedback. A blitz game NEEDS urgency sounds:                        │
+│ - Tick-tick-tick countdown for last 5 seconds                                │
+│ - "Ding" for correct                                                         │
+│ - "Buzz" for wrong                                                           │
+│ - Streak celebration sound                                                   │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: No Session Recovery / Persistence                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: useBlitz.ts                                                            │
+│                                                                              │
+│ Page refresh = all progress lost. Session expires server-side.               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: window.location.reload() for Replay                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx (line 76)                                                 │
+│                                                                              │
+│ Code:                                                                        │
+│   <ResultScreen ... onReplay={() => window.location.reload()} />             │
+│                                                                              │
+│ Full page reload to replay. Loses all state, flashes white, triggers         │
+│ all resource re-downloads. Should reset local state and call startGame.      │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: stageId Hardcoded via URL Param Fallback                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Design                                                             │
+│ File: GamePage.tsx (line 34)                                                 │
+│                                                                              │
+│ Code:                                                                        │
+│   const stageId = params.get('stageId') || 'true-false-blitz-stage-1';      │
+│                                                                              │
+│ Falls back to hardcoded stage. If no stageId in URL, always plays            │
+│ stage 1. Should come from app config or parent container.                    │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Haptic Feedback                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: AnswerButtons.tsx                                                      │
+│                                                                              │
+│ Big TRUE/FALSE buttons should vibrate on tap.                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: No Share Results                                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: GameOverScreen Component Unused                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/features/blitz/components/GameOverScreen.tsx                        │
+│                                                                              │
+│ A detailed game over screen exists with correct/wrong/missed/streak          │
+│ breakdown, but GamePage.tsx uses the generic ResultScreen instead.           │
+│ The custom screen is MORE informative and should be used.                    │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: Answered Statement Not Shown After Answer                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: StatementCard.tsx / useBlitz.ts                                        │
+│                                                                              │
+│ After tapping TRUE/FALSE, the card flashes green/red briefly, then           │
+│ auto-advances to next statement. But the correct answer is not shown.        │
+│ Player doesn't learn "The Sahara is the largest desert → FALSE                │
+│ (Antarctica is)". No educational value.                                      │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND Performance:
+1. Two endpoints (start + submit). Minimal server load.
+2. Statement generation: O(n) Fisher-Yates shuffle from 60 items. Trivial.
+3. Score calculation: O(n) loop over answers. Trivial.
+4. Timing analysis: O(n) gap computation. Trivial.
+5. DB writes: createMany for inputs + cheatFlags + updateMany for session.
+6. DB config lookup: Single findUnique per start + submit. Cacheable.
+
+FRONTEND Performance:
+1. Framer Motion AnimatePresence for card transitions — smooth.
+2. Timer: setInterval(100ms) for global countdown — smooth.
+3. Per-statement timer: CSS animation (motion.div width transition) — GPU.
+4. Statement card: Simple text rendering — zero overhead.
+5. No images, no canvas, no WebGL. Ultra-lightweight.
+
+VERDICT: EXCELLENT performance. The game is inherently lightweight (text
+cards + two buttons). Nothing to optimize — it just works.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Large TRUE/FALSE buttons (easy to tap on mobile)
+✓ Visual feedback: green/red card background on answer
+✓ Per-statement progress bar (blue bar shrinking = time running out!)
+✓ Global timer display (bold, pulsing red in last 10s)
+✓ Question counter ("3 / 30")
+✓ Streak counter with fire emoji
+✓ Answered count display
+✓ Keyboard support (arrow keys + A/D keys)
+✓ Framer Motion transitions between statements
+✓ whileTap animation on buttons (scale: 0.93)
+✓ Auto-advance (missed statement = no answer, not wrong)
+✓ i18n (English + Hindi)
+✓ Theme support (dark/light/system)
+✓ Offline banner
+✓ Error boundary
+✓ Auto-submit on game end (solves the Speed Type Answer #18 bug!)
+
+UX PROBLEMS:
+
+1. No Sound
+   - A BLITZ game without sound = no urgency
+   - Missing: countdown tick, correct ding, wrong buzz, streak chime
+   - FRUSTRATION LEVEL: LOW (but ENGAGEMENT drops significantly)
+
+2. No Correct Answer Shown
+   - "The Sahara is the largest desert" → I said TRUE → RED flash
+   - But what's the correct answer? Why is it false?
+   - No learning loop
+   - FRUSTRATION LEVEL: MEDIUM
+
+3. Page Reload for Replay
+   - Flash of white, re-download resources
+   - Breaks flow state
+   - FRUSTRATION LEVEL: LOW
+
+4. No Haptic
+   - Big buttons beg for vibration
+   - FRUSTRATION LEVEL: LOW
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPLEMENTED:
+✓ i18n (English + Hindi)
+✓ Offline banner
+✓ Theme (dark/light/system)
+✓ Framer Motion animations
+✓ Global timer + per-statement timer
+✓ Streak system with bonus
+✓ Penalty for wrong answers
+✓ Missed statement tracking
+✓ Keyboard support (arrow keys + A/D)
+✓ Correct/wrong visual feedback (green/red)
+✓ Zod validation (with nestjs-zod)
+✓ Encryption interceptor
+✓ Score divergence detection
+✓ Timing analysis anti-cheat
+✓ Cheat flag persistence
+✓ Level system (1-10)
+✓ DB-configurable stage settings
+✓ Error boundary
+✓ Auto-submit on game end
+✓ Input count validation (.max(60))
+✓ Event publishing (game completed + cheat flagged)
+✓ Detailed result screen (correct/wrong/missed/streak breakdown)
+
+MISSING:
+1. [!] Database-driven statement bank (currently hardcoded 60)
+2. [!] Sound effects (correct, wrong, countdown, streak)
+3. [ ] Session recovery on page refresh
+4. [ ] Smooth replay (without page reload)
+5. [ ] Correct answer explanation
+6. [ ] Haptic feedback
+7. [ ] Share results
+8. [ ] Personal best comparison
+9. [ ] Categories/topics for statements
+10. [ ] Swipe gestures (swipe left = FALSE, right = TRUE)
+11. [ ] Score multiplier implementation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add sound effects (ding, buzz, countdown, streak celebration)
+2. Show correct answer after response (1s overlay: "FALSE — Antarctica!")
+3. Add haptic feedback on button tap
+4. Add swipe gestures (left/right = false/true) for mobile
+5. Use GameOverScreen instead of generic ResultScreen (it's better!)
+6. Implement smooth replay (reset state, don't reload page)
+7. Add confetti/particle effect on streak milestones (5, 10, 15)
+8. Add "personal best" display on game over
+9. Add screen shake on wrong answer
+10. Add statement categories (Science, Geography, Nature, History)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Architecture (Required):
+1. Move statements to PostgreSQL with admin CRUD
+2. Change API: server sends statements directly (no seed)
+   OR: keep seed model but remove statement bank from frontend
+3. Add 500+ statements in categorized topics
+4. Apply scoreMultiplier or remove it
+
+Backend Fixes:
+5. Remove .env + fallback secrets
+6. Gate Swagger behind NODE_ENV
+7. Remove `correct` from DTO (server computes it)
+8. Enhance timing analyzer (add variance analysis)
+9. Act on cheat flags (quarantine scores)
+10. Remove dead engine modules
+
+Frontend Fixes:
+11. Add sound system (4 cues: correct, wrong, countdown, streak)
+12. Use GameOverScreen (shows detailed breakdown)
+13. Implement smooth replay
+14. Show correct answer explanation
+15. Add haptic feedback
+16. Add swipe gestures
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Statement Bank in Client Bundle
+- ALL 60 statements + isTrue flags visible in JS bundle
+- Binary choice (50% base) → memorized = 100% accuracy
+- Anti-cheat score: 25/100 (better than Speed Type Answer's 5/100)
+- Why better: binary choice means 50% by guessing, timing still matters
+
+Attack Surface 2: Automated Perfect Scores
+- Bot script can use seed + statement bank to pre-compute all answers
+- MITIGATED: Timing analysis catches sub-150ms average responses
+- MITIGATED: Sub-50ms individual responses flagged
+- A SMART bot can add random delays (200-800ms) to evade timing checks
+- Score divergence catches tampered client scores
+
+Attack Surface 3: Secrets
+- .env committed with NAMED JWT_SECRET (not just "dev-secret")
+- Three different fallback secrets across files
+- Severity: CRITICAL
+
+Attack Surface 4: Timestamp Manipulation
+- Client reports timestamps in answers
+- Server checks timing gaps (good!) but doesn't verify vs server time
+- A bot could fabricate realistic-looking timestamps
+
+OVERALL SECURITY POSTURE:
+Better than Speed Type Answer due to timing analysis + binary choice
+mitigation. The timing analyzer is a genuine anti-cheat component that
+catches naive bots. However, a sophisticated bot with random delays
+would still evade detection.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mixed" - 5.5/10
+
+POSITIVE:
+"Simple and addictive — swipe TRUE or FALSE as fast as you can!"
+"The streak bonus makes you want to keep going without mistakes."
+"Love the keyboard shortcuts — so much faster on desktop."
+"Clean design, easy to understand."
+"Green/red flash tells me instantly if I was right."
+"The timer creates real panic. Good blitz feel."
+
+NEGATIVE:
+"Same statements every time after 3 games."
+"No sound at all. Where's the urgency?"
+"I got 'The Sahara is the largest desert' wrong — but what IS the answer?!"
+"Streak broken but no explanation — just a red flash."
+"Had to reload the entire page to play again. Clunky."
+"No vibration when I tap. Feels like tapping thin air."
+"Found all the answers in the source code. GG."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "Same questions every time!" — 60 statements, exhausted quickly
+2. "No sound!" — Blitz game without audio = no urgency
+3. "Why was that wrong?" — No correct answer explanation
+4. "Reloaded to play again!" — Full page reload for replay
+5. "No vibration on my phone" — Missing haptic
+6. "Can't share my streak!" — No share feature
+7. "I could just swipe to answer" — No swipe gesture support
+8. "The streak counter is cool but what's the threshold?" — UI unclear
+9. "Found all answers in source code" — Cheating
+10. "Missed a statement because I blinked!" — Auto-advance too fast
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Binary decision = instant, no thinking time = PURE SPEED
+✓ Auto-advance timer = pressure + urgency (can't deliberate!)
+✓ Streak system = "don't break the chain!" psychology
+✓ Penalty for wrong = risk/reward (guessing is punished)
+✓ Missed = 0 points (not penalty) = strategic skipping possible
+✓ Short sessions (30-60 seconds) = perfect for mobile
+✓ Trivia = universal appeal
+✓ Green/red flash = instant dopamine/disappointment
+✓ "Am I smarter than I think?" = ego challenge
+✓ Keyboard shortcuts = desktop speedrun potential
+
+Flow State Enablers:
+✓ Zero friction (read → tap TRUE/FALSE → next)
+✓ Immediate visual feedback
+✓ Timer creates focus
+✓ Streak creates "don't mess up" tension
+✓ Simple binary choice = no decision paralysis
+✓ Auto-advance keeps pace constant
+
+WHY THIS GAME WORKS BETTER THAN SPEED TYPE ANSWER:
+- Binary choice is mobile-friendly (two big buttons vs typing)
+- Auto-advance keeps the blitz pace (no waiting for player)
+- Streak bonus adds excitement
+- Wrong penalty adds risk (not just correct = points)
+- Visual feedback is immediate (green/red vs "Next question...")
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. ONLY 60 STATEMENTS
+   - Content exhausted in 2-6 sessions
+   - No novelty after that
+
+2. NO SOUND
+   - Viral games have satisfying audio (tap, streak, countdown)
+   - Silent = no "game feel" = not share-worthy
+
+3. NO SHARE
+   - "28 correct, 15-streak, 0 missed!" = perfect share content
+   - Not implemented
+
+4. NO EXPLANATION
+   - "The Great Wall visible from space — FALSE" → "But wait, why?"
+   - Educational value drives sharing ("Did you know?!")
+
+5. NO SWIPE GESTURES
+   - Tinder-style swipe would make it feel modern
+   - Swipe left = FALSE, swipe right = TRUE
+   - Viral UX pattern already trained by Tinder/dating apps
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     60/100 (simple but functional)
+- Security:                         25/100 (.env with named secret, fallbacks)
+- Performance:                      95/100 (nothing to be slow about)
+- Game Logic & Correctness:         70/100 (streak, penalty, timing analysis!)
+- UX & Polish:                      50/100 (good feedback, no sound, no haptic)
+- Anti-Cheat:                       40/100 (timing analyzer good, but bundle leak)
+- Accessibility:                    50/100 (has i18n + keyboard controls!)
+- Retention & Engagement:           30/100 (60 statements = dead quickly)
+- Error Handling:                   55/100 (error boundary, auto-submit, no recovery)
+- Production Readiness:             40/100 (dev secrets, swagger, dead code)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 55/100
+═══════════════════════════════════════
+
+VERDICT: BETTER THAN SPEED TYPE ANSWER, STILL NEEDS CONTENT
+The game design is genuinely good — streak system, wrong penalties, binary
+choice on mobile, auto-advance, keyboard support, timing analysis. This is
+a SOLID blitz game engine with the wrong content strategy. Moving to DB-
+driven statements (500+) + adding sound + adding swipe gestures would make
+this a very competitive casual game. The .env with a named JWT secret is
+the most urgent security fix.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: SECURITY (0.5 day)
+  □ Remove .env from repo (NAMED secret!)
+  □ Remove all three fallback secrets (throw on missing)
+  □ Gate Swagger behind NODE_ENV
+  □ Remove `correct` field from DTO
+
+PHASE 2: CONTENT (1-2 days)
+  □ Move statements to PostgreSQL with admin CRUD
+  □ Add 500+ statements in categories
+  □ Remove statement bank from frontend
+  □ Server sends statements directly OR keep seed but server-only bank
+
+PHASE 3: UX (1 day)
+  □ Add sound effects (correct, wrong, countdown, streak)
+  □ Use GameOverScreen instead of generic ResultScreen
+  □ Show correct answer explanation briefly after response
+  □ Implement smooth replay (no page reload)
+  □ Add haptic feedback
+
+PHASE 4: MOBILE (0.5 day)
+  □ Add swipe gestures (left = FALSE, right = TRUE)
+  □ Add confetti on streak milestones
+
+PHASE 5: POLISH (0.5 day)
+  □ Add share button
+  □ Add personal best comparison
+  □ Apply scoreMultiplier or remove it
+  □ Remove dead engine modules
+  □ Add session recovery
+  □ Enhance timing analyzer (variance detection)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Move statements to DB (500+ statements)
+    Effort: 1 day | Impact: Extends replay value from 3 sessions to 50+
+    ROI: ∞ (game is dead without content)
+
+#2  Remove .env + fallback secrets
+    Effort: 30 min | Impact: Prevents auth bypass with KNOWN secret
+    ROI: ∞ (security — this one has a NAMED secret!)
+
+#3  Add sound effects (correct, wrong, countdown, streak)
+    Effort: 2 hours | Impact: Transforms "form" into "game"
+    ROI: 8x
+
+#4  Use GameOverScreen (already built!)
+    Effort: 10 min | Impact: Shows correct/wrong/missed/streak breakdown
+    ROI: 10x (already exists, just swap the component!)
+
+#5  Add swipe gestures (left = FALSE, right = TRUE)
+    Effort: 2 hours | Impact: Tinder-style UX = modern mobile feel
+    ROI: 7x
+
+#6  Show correct answer after response
+    Effort: 1 hour | Impact: Educational value + "Did you know?"
+    ROI: 6x
+
+#7  Gate Swagger behind NODE_ENV
+    Effort: 5 min | Impact: Production hardening
+    ROI: ∞ (security)
+
+#8  Add haptic feedback on button tap
+    Effort: 15 min | Impact: Physical feedback for binary buttons
+    ROI: 5x
+
+#9  Smooth replay (no page reload)
+    Effort: 1 hour | Impact: Maintains flow state
+    ROI: 5x
+
+#10 Remove `correct` from DTO
+    Effort: 5 min | Impact: Cleaner contract, no client trust
+    ROI: 3x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND — BETTER THAN SPEED TYPE ANSWER:
+✓ TIMING ANALYZER: Genuine anti-cheat that detects bot-like response times
+  - minAvgResponseMs: 150ms (human floor)
+  - minSingleResponseMs: 50ms (impossible for humans)
+  - maxSuspiciousPct: 0.6 (60% fast = flagged)
+✓ CHEAT FLAG PERSISTENCE: Saves reasons to DB (audit trail)
+✓ SCORE DIVERGENCE: Server re-computes score, flags mismatches
+✓ STREAK SYSTEM: Configurable threshold + bonus (3+ correct = +5)
+✓ PENALTY SYSTEM: Wrong answers cost points (risk/reward design!)
+✓ MISSED TRACKING: Not answering ≠ wrong (fair to hesitant players)
+✓ DB-CONFIGURABLE: Stage config from database (admin-adjustable)
+✓ PRODUCTION CORS CHECK: Throws if CORS_ORIGINS missing in prod
+✓ validateEnvironment() called at startup
+✓ INPUT VALIDATION: .max(60) on answers array (prevents DoS!)
+✓ nestjs-zod for DTO validation
+✓ Event publishing (game completed + cheat flagged)
+✓ Encryption interceptor
+✓ Atomic session update (updateMany WHERE status='active')
+
+FRONTEND — SOLID MOBILE-FIRST DESIGN:
+✓ LARGE BUTTONS: TRUE/FALSE fill screen width (mobile-friendly!)
+✓ KEYBOARD SUPPORT: Arrow keys + A/D (desktop power users!)
+✓ VISUAL FEEDBACK: Green/red card flash on answer
+✓ PER-STATEMENT TIMER: Blue progress bar shrinking (CSS animation)
+✓ GLOBAL TIMER: Bold, pulsing red in last 10 seconds
+✓ STREAK DISPLAY: Counter with fire emoji
+✓ AUTO-ADVANCE: Statement auto-progresses if not answered
+✓ AUTO-SUBMIT: Game results submitted when phase === 'finished'
+✓ i18n (English + Hindi)
+✓ Theme support
+✓ Offline banner
+✓ Error boundary
+✓ Framer Motion transitions
+✓ whileTap scale animation on buttons
+
+GAME DESIGN — WELL-DESIGNED BLITZ MECHANIC:
+✓ Binary choice = zero friction, instant decisions
+✓ Auto-advance = maintains blitz pace
+✓ Streak bonus = "don't break the chain!" psychology
+✓ Wrong penalty = risk/reward (guessing is punished!)
+✓ Missed ≠ wrong = fair to careful players
+✓ Two timers (global + per-statement) = double pressure
+✓ Level system (10 levels, 1.0-3.5x multiplier)
+✓ Short sessions (30-60s) = perfect mobile format
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1  (Arrows):             58/100
+  Game #2  (Block Fill):         62/100
+  Game #3  (Colour Sorting):     61/100
+  Game #4  (Flash Spot):         56/100
+  Game #5  (Infinity Loop):      59/100
+  Game #6  (Live Route Builder): 48/100
+  Game #7  (Logic Reflector):    72/100
+  Game #8  (Maze Navigation):    58/100
+  Game #9  (Memory Card Match):  68/100
+  Game #10 (Memory Groups):      45/100
+  Game #11 (Number Grid Sprint): 62/100
+  Game #12 (Object Placement):   60/100
+  Game #13 (Pattern Survival):   52/100
+  Game #14 (Rapid Category Sort):66/100
+  Game #15 (Reflex Endurance):   62/100
+  Game #16 (Sequence Recall):    78/100 ← HIGHEST
+  Game #17 (Sliding Puzzle):     76/100
+  Game #18 (Speed Type Answer):  42/100 ← LOWEST
+  Game #19 (True False Blitz):   55/100
+
+vs Speed Type Answer (#18, 42/100):
+  BETTER: Timing analysis anti-cheat (GOOD!)
+  BETTER: Streak system + penalty (richer scoring)
+  BETTER: Auto-submit on game end (bug fixed!)
+  BETTER: Input count validation (.max(60))
+  BETTER: DB-configurable stage settings
+  BETTER: Visual feedback (green/red card flash)
+  BETTER: Keyboard support
+  BETTER: Large buttons (mobile-friendly vs typing)
+  BETTER: GameOverScreen exists (even if unused!)
+  SAME: Statement bank in client bundle (60 vs 30)
+  SAME: Seed sent to client
+  SAME: No sound, no haptic, no session recovery
+  SAME: scoreMultiplier unused
+
+NET: +13 points (42 → 55). Significantly improved game design.
+
+================================================================================
+END OF AUDIT — GAME #19: TRUE FALSE BLITZ
+================================================================================

@@ -1,0 +1,178 @@
+TRUE FALSE BLITZ - GAME ANALYSIS
+==================================
+Game: True False Blitz
+Location: true-false-blitz/true-false-blitz-frontend/
+Date: 2025
+
+================================================================================
+1. ARCHITECTURE OVERVIEW
+================================================================================
+
+Entry: main.tsx → App.tsx → GamePage (features/blitz/components/)
+Pattern: ErrorBoundary → ThemeProvider → OfflineBanner + GamePage
+NO router used. Single page application with phase-based rendering.
+
+Provider Stack:
+  ErrorBoundary
+    ThemeProvider
+      OfflineBanner
+      GamePage
+
+Key directories:
+  src/
+    App.tsx                    — Root component
+    components/                — Shared UI: ErrorBoundary, InstructionScreen, OfflineBanner, ResultScreen
+    features/blitz/            — Core game logic
+      components/              — AnswerButtons, GameHeader, GameOverScreen, GamePage, StatementCard
+      engine/                  — random.ts, scorer.ts, statementBank.ts
+      hooks/                   — useBlitz.ts, useGameSession.ts
+      save-progress/           — saveProgressOutbox.ts, saveProgressTypes.ts
+    hooks/                     — useAudio.ts, useSocket.ts, useTheme.tsx
+    services/                  — crypto.ts, httpClient.ts, socketClient.ts
+    types/                     — game.ts
+    i18n/                      — Internationalization
+    audio/                     — Sound files
+    styles/                    — globals.css
+
+================================================================================
+2. GAME MECHANICS
+================================================================================
+
+Game Type: True/False rapid-fire trivia under time pressure
+Flow: Instruction → API Start → Playing (statements cycle) → Finished (result)
+
+Phases (useBlitz): 'idle' | 'playing' | 'finished'
+
+Gameplay:
+  - 30 statements displayed one at a time
+  - Each statement auto-advances after displayTimeMs (2000ms default)
+  - Player taps TRUE or FALSE before time elapses
+  - Global timer counts down from timeLimitMs (60000ms = 60s)
+  - Game ends when timer hits 0 OR all statements answered
+  - Keyboard: ArrowLeft/A = TRUE, ArrowRight/D = FALSE
+
+Statement Bank:
+  - 60 statements in local bank (general knowledge, science, geography, nature)
+  - Each is [text, isTrue] tuple
+  - Seeded PRNG (mulberry32) shuffles and selects
+  - No duplicates per game
+
+Scoring (scorer.ts):
+  - Correct: +pointsPerCorrect (10)
+  - Wrong: -penaltyPerWrong (5)
+  - Missed: no penalty but counts in stats
+  - Streak bonus: ≥streakThreshold (3) consecutive correct → +streakBonus (5) per item
+  - Final = max(0, correct×10 - wrong×5 + streakBonus)
+
+StageConfig (from API):
+  {
+    totalStatements: 30,
+    displayTimeMs: 2000,
+    timeLimitMs: 60000,
+    pointsPerCorrect: 10,
+    penaltyPerWrong: 5,
+    streakThreshold: 3,
+    streakBonus: 5
+  }
+
+================================================================================
+3. API INTEGRATION
+================================================================================
+
+Base URL: VITE_API_BASE_URL (default http://localhost:3010)
+Auth: Bearer token from URL param or sessionStorage
+
+Endpoints:
+  POST /game/start  { stageId }
+    → { gameSessionId, endTime, serverTime, config, seed }
+  
+  POST /game/submit  { gameSessionId, answers, clientScore }
+    → { finalScore, status, correctCount, wrongCount, missedCount, streakBonus }
+
+Encryption: Request/response encrypted via AES (VITE_ENCRYPTION_ENABLED, VITE_ENCRYPTION_KEY)
+
+================================================================================
+4. STATE MANAGEMENT
+================================================================================
+
+- useBlitz: Main game state (phase, statements, currentIndex, answers, score, streak, timer)
+- useGameSession: API session management (loading, error, startGame, submitResult)
+- useTheme: Theme context (dark/light/system)
+- Timer: setInterval for countdown, setTimeout for auto-advance per statement
+- Refs: timerRef, advanceRef, startTimeRef, answeredRef for cleanup
+
+================================================================================
+5. COMPONENTS
+================================================================================
+
+GamePage.tsx (features/blitz/components/):
+  - Orchestrates game flow
+  - Renders InstructionScreen (idle) → Playing UI → ResultScreen (finished)
+  - Handles keyboard shortcuts
+  - Auto-starts after seed received
+  - Auto-submits on finish
+  - onReplay: window.location.reload() ← NEEDS CHANGE
+
+InstructionScreen.tsx (shared):
+  - Framer-motion animated entrance
+  - Game icon, title, instructions from i18n
+  - "Start" button with loading state
+
+ResultScreen.tsx (shared):
+  - Score display, success/fail icon
+  - Stats grid, "Play Again" button
+  - Framer-motion animations
+
+GameHeader.tsx:
+  - Timer countdown (pulsing red at ≤10s)
+  - Question counter (X / total)
+  - Streak counter with fire emoji
+  - Answered count
+
+StatementCard.tsx:
+  - AnimatePresence for slide animations
+  - Feedback colors (green/red border)
+  - Progress bar per statement (shrinks over displayTimeMs)
+
+AnswerButtons.tsx:
+  - TRUE (green) / FALSE (red) buttons
+  - whileTap scale animation
+  - Disabled state
+
+GameOverScreen.tsx:
+  - Detailed score breakdown (correct, wrong, missed, streak bonus)
+  - "Play Again" button
+  - NOTE: Currently unused - ResultScreen is used instead in GamePage
+
+================================================================================
+6. INTEGRATION PLAN
+================================================================================
+
+1. Create Gold Standard components in src/features/blitz/components/:
+   - MenuScreen.tsx, LevelSelector.tsx, Settings.tsx, StatsScreen.tsx
+   - Achievements.tsx, DailyChallenge.tsx, PauseDialog.tsx, Confetti.tsx
+
+2. Rename existing GamePage.tsx to BlitzGame.tsx (the core game component)
+   - Add onReturnToMenu prop
+   - Replace window.location.reload() with onReturnToMenu()
+
+3. Create new GamePage.tsx with appPhase state machine:
+   - Wraps all Gold Standard screens + BlitzGame
+   - AppPhase: 'menu' | 'levels' | 'daily' | 'achievements' | 'stats' | 'settings' | 'game'
+
+4. App.tsx: No changes needed (already renders GamePage from same path)
+
+Key Change: GamePage's ResultScreen onReplay uses window.location.reload()
+→ Replace with onReturnToMenu callback that sets appPhase to 'menu'
+
+================================================================================
+7. THEME & STYLING
+================================================================================
+
+- TailwindCSS with dark theme as default
+- Theme stored in localStorage (zubaco_theme)
+- Color palette: indigo (primary), green/red (true/false), gray (backgrounds)
+- Framer-motion for all animations
+- Mobile-first responsive design
+
+================================================================================

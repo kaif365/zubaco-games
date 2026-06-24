@@ -1,0 +1,954 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #11: NUMBER GRID SPRINT (Memory Grid Puzzle)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Memory grid — numbers 1-N² are placed randomly on an NxN grid.
+          Grid cells are revealed in rotating batches for brief intervals.
+          Player must memorize positions and fill the grid from memory.
+Stack: NestJS 11 + Prisma 7 + Restate + Redis + BullMQ + Socket.IO (backend),
+       React 19 + Vite 6 + TailwindCSS + Axios (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Number Grid Sprint is a SOLID and genuinely fun memory game: a grid of numbers
+is randomly shuffled, cells are revealed in rotating batches for brief
+intervals, and the player must recall and fill in all positions from memory.
+The concept is strong, scalable, and competitive (speed + accuracy).
+
+GAME MECHANIC (unique in platform): Numbers are NOT shown all at once. They
+flash in groups (~9 at a time) for 1 second, then hide for 3 seconds, cycling
+continuously. Player simultaneously memorizes and fills while new reveals keep
+coming. This creates a compelling dual-attention challenge.
+
+CRITICAL PROBLEM: The server sends the PRNG `seed` to the client, which has
+an IDENTICAL copy of `generateGrid()` and `mulberry32()`. Any player can call
+`generateGrid(seed, 6)` in the console and see every number's position. The
+server DOES validate server-side on submit (good), but the game integrity is
+compromised during play.
+
+SERVER-SIDE SCORING IS CORRECT: Unlike Memory Groups, this game's server
+properly regenerates the grid from stored seeds and recalculates the score.
+The architecture is fundamentally sound — the only fix needed is to stop
+sending the seed to the client and instead send the grid directly.
+
+TOTAL ISSUES: 33 (2 Critical, 8 High, 14 Medium, 9 Low)
+
+RELEASE READINESS SCORE: 62/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Seed sent to client → client has identical grid generator → all
+           answers computable instantly via console.
+BLOCKER-2: .env committed with JWT_SECRET + DB credentials
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (14 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: Seed Sent to Client (Full Grid Computable)                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 33)                                     │
+│                                                                              │
+│ Code:                                                                        │
+│   return { gameSessionId, ..., seed, level: ... };                           │
+│                                                                              │
+│ Description: The computed `seed` (from computeFinalSeed) is returned to      │
+│ the client. The frontend has an IDENTICAL `generateGrid(seed, gridSize)`     │
+│ function using the same `mulberry32` PRNG. Any player can:                   │
+│   1. Open DevTools → Network → find startGame response → get seed           │
+│   2. Open Console: generateGrid(seed, 6) → see ALL positions               │
+│                                                                              │
+│ The game's entire challenge (memorizing partial reveals) is bypassed.        │
+│                                                                              │
+│ Fix: Server generates the grid + reveal schedule. Send ONLY the reveal       │
+│ schedule (which cells to show at which intervals) via WebSocket or the       │
+│ initial response. NEVER send the seed or full grid.                          │
+│                                                                              │
+│ Alternative (simpler): Server sends the full grid in startGame response      │
+│ (numbers are shown anyway during reveals). The challenge is MEMORIZING       │
+│ them, not keeping them hidden. However, the reveal mechanic becomes          │
+│ pointless if ALL positions are in the response.                              │
+│                                                                              │
+│ BEST FIX: Send reveal schedule from server (which cells flash when).         │
+│ Client only sees partial reveals at each interval. Grid positions never      │
+│ sent all at once.                                                            │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: .env Committed with JWT Secret + DB Credentials                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env                                                                   │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/number_grid_…" │
+│   JWT_SECRET="zubaco-number-grid-jwt-secret-2025"                            │
+│   PORT=3014                                                                  │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: Fallback Secrets Allow Auth Bypass                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ Files: src/common/guards/session.guard.ts (||'fallback')                     │
+│        src/ws/game.gateway.ts (||'dev-secret')                               │
+│        src/common/guards/hmac.guard.ts (||'dev-hmac-secret')                 │
+│                                                                              │
+│ Description: Three components fall back to predictable secrets if env vars    │
+│ are unset. Deployment misconfiguration → any attacker forges valid JWTs.    │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 50-55)                                              │
+│                                                                              │
+│ Description: /api/docs unconditionally enabled. Exposes full API schemas.    │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: scoreMultiplier Returned But Never Applied                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (startGame return) +                          │
+│       src/game/engine/scorer.ts (calculateScore)                             │
+│                                                                              │
+│ Description: getLevelConfig() defines scoreMultiplier (1.0x to 3.5x).        │
+│ Returned to client but NEVER applied in scoring. Level 10 player             │
+│ (8x8 grid in 30s) earns same base points as Level 1 (4x4 in 60s).          │
+│                                                                              │
+│ Fix: Apply in submitGame:                                                    │
+│   finalScore = Math.round(serverResult.finalScore * scoreMultiplier)         │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: No reward for harder levels                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: WebSocket join-session No Ownership Check                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (lines 64-70)                                   │
+│                                                                              │
+│ Description: Any authenticated user can join another player's session room   │
+│ and receive real-time events for their game.                                 │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: In-Memory Rate Limiter — Unbounded Map Growth                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/ip-rate-limiter.middleware.ts (line 12)                   │
+│                                                                              │
+│ Description: Map<string, RateEntry> grows indefinitely under DDoS/scanning.  │
+│ Expired entries only overwritten on same IP return.                          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Submit DTO No Upper Bound on row/col Values                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/game/dto/submit-game.dto.ts (line 3)                               │
+│                                                                              │
+│ Description: AnswerSchema validates min(0) but no max. Client can send       │
+│ row:999, col:999. Won't break scoring (just won't match) but wastes DB.     │
+│                                                                              │
+│ Fix: Add .max(gridSize-1) or .max(7) as safe upper bound.                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: CORS Fallback to Allow-All Origins                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 40)                                                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: No Concurrent Session Limit per Player                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (startGame, line 17)                          │
+│                                                                              │
+│ Description: Player can start unlimited sessions simultaneously, play         │
+│ multiple rounds, and only submit the best one.                               │
+│                                                                              │
+│ Fix: Check for active session before creating new one.                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Dead Code — numberCount in LevelParams                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/game/engine/levelConfig.ts (line 5)                                │
+│                                                                              │
+│ Description: numberCount = gridSize² always. Never referenced.               │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: timeBonusMultiplier Is Int in Prisma (Should Be Float)           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Bug                                                                │
+│ File: prisma/schema.prisma (line 13)                                         │
+│                                                                              │
+│ Description: Prevents fractional multipliers (e.g., 1.5x).                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: Dead Engine Modules (6 Files Unused)                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ Files: achievementEngine.ts, boosterEngine.ts, comboEngine.ts,               │
+│        dailyChallenge.ts, leaderboard.ts, scoreHistory.ts                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: getMaxLevel() Exported but Never Used                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/game/engine/levelConfig.ts (line 23)                               │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (19 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Client Has Identical Grid Generator + Seed Access                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL (same as B-01 — client manifestation)                     │
+│ Category: Anti-Cheat                                                         │
+│ Files: src/features/grid/engine/gridGenerator.ts                             │
+│        src/features/grid/engine/random.ts                                    │
+│                                                                              │
+│ Description: Client has exact same generateGrid() + mulberry32() + seed      │
+│ from server response. DevTools console:                                      │
+│   import { generateGrid } from './features/grid/engine/gridGenerator';       │
+│   generateGrid(seed, 6); // All positions revealed                           │
+│                                                                              │
+│ Fix: Remove gridGenerator.ts from frontend entirely. Server sends only       │
+│ partial reveals via WebSocket at scheduled intervals.                        │
+│                                                                              │
+│ ALTERNATIVE FIX (simpler, maintains current architecture):                   │
+│ Keep grid generator on client for rendering, but have server NOT send        │
+│ seed. Instead send the grid directly as part of "start" but have the         │
+│ reveal mechanic hide it immediately. This means the grid IS in the           │
+│ response (can be seen in DevTools) but the player still needs to             │
+│ memorize through reveals. The game becomes "can you fill it from             │
+│ partial reveals" not "can you not use DevTools."                             │
+│                                                                              │
+│ PRACTICAL NOTE: For a memory game, the anti-cheat model should be:           │
+│ Server-authoritative scoring (already done!) + timing analysis (done!) +     │
+│ accepting that motivated cheaters will cheat. The real protection is the     │
+│ timing analyzer detecting bot-like input patterns.                           │
+│                                                                              │
+│ Priority Score: 8/10 (lower than B-01 because timing analysis catches bots) │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: VITE_ENCRYPTION_KEY Bundled in Client JS                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 5)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || '';           │
+│                                                                              │
+│ Description: AES-GCM key visible in JS bundle. Encryption is theater.        │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Client-Side Score Calculation                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/grid/engine/scorer.ts                                     │
+│                                                                              │
+│ Description: calculateScore() runs client-side with full grid in memory.     │
+│ The clientScore is sent to server. Server recalculates (good!) but          │
+│ client score enables manipulation attempts.                                  │
+│                                                                              │
+│ MITIGATED BY: Server recalculates independently. Score divergence > 5        │
+│ triggers cheat flag. This is MUCH better than Memory Groups.                 │
+│                                                                              │
+│ Priority Score: 5/10 (mitigated by server validation)                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: setTimeout Inside setInterval Not Tracked (Memory Leak)          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / Memory Leak                                                  │
+│ File: src/features/grid/hooks/useGrid.ts (lines 64-71)                       │
+│                                                                              │
+│ Code:                                                                        │
+│   revealRef.current = setInterval(() => {                                    │
+│     setState(prev => ({ ...prev, revealedIndices: new Set(batch) }));        │
+│     setTimeout(() => {                                                       │
+│       setState(prev => ({ ...prev, revealedIndices: new Set() }));           │
+│     }, config.revealDurationMs); // ← NOT CLEANED ON UNMOUNT               │
+│   }, config.hideIntervalMs);                                                 │
+│                                                                              │
+│ Description: Every interval tick spawns a setTimeout that's never tracked.   │
+│ If component unmounts during a reveal, the setTimeout fires on unmounted     │
+│ component. Over a 120-second game, ~40 timeouts are spawned.                 │
+│                                                                              │
+│ Fix: Store timeout IDs in a Set<ReturnType<typeof setTimeout>>, clear all    │
+│ in clearTimers().                                                            │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: Initial Reveal setTimeout Also Not Tracked                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug / Memory Leak                                                  │
+│ File: src/features/grid/hooks/useGrid.ts (lines 77-79)                       │
+│                                                                              │
+│ Code:                                                                        │
+│   setTimeout(() => {                                                         │
+│     setState(prev => ({ ...prev, revealedIndices: new Set() }));             │
+│   }, config.revealDurationMs); // Initial reveal hide - not tracked          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: useEffect Triggers startGame Without Error Handling              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/features/grid/components/GamePage.tsx (lines 41-43)                │
+│                                                                              │
+│ Code:                                                                        │
+│   useEffect(() => {                                                          │
+│     if (seed !== null && game.phase === 'idle') game.startGame();            │
+│   }, [seed, game.phase, game.startGame]);                                    │
+│                                                                              │
+│ Description: If startSession returns partial data (config but no seed),      │
+│ this effect won't fire and UI is stuck in idle state forever.                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: Audio Hook Exists but Never Used                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature / Dead Code                                        │
+│ File: src/hooks/useAudio.ts                                                  │
+│                                                                              │
+│ Description: useAudio hook built but never imported. Game has zero sound.    │
+│                                                                              │
+│ Fix: Wire up: reveal sound on batch show, tap on cell select, correct        │
+│ on number place, complete on finish.                                         │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Game feels lifeless                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: window.location.reload() for Replay                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: src/features/grid/components/GamePage.tsx (line 56)                     │
+│                                                                              │
+│ Description: Replay triggers full page reload instead of state reset.         │
+│                                                                              │
+│ Fix: Reset seed to null, phase to idle, clear answers.                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: ResultScreen Always Shows success={true}                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bug / UX                                                           │
+│ File: src/features/grid/components/GamePage.tsx (line 56)                     │
+│                                                                              │
+│ Code:                                                                        │
+│   <ResultScreen score={game.score.finalScore} success={true} ... />          │
+│                                                                              │
+│ Description: Always shows "Well Done!" even with 0 correct cells.            │
+│                                                                              │
+│ Fix: success={game.score.correctCells > game.score.totalCells * 0.5}         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: No Cell Feedback Animation (Correct vs Wrong)                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GridCell.tsx                                                            │
+│                                                                              │
+│ Description: After filling a cell, no visual feedback on correctness.        │
+│ Player has to wait until end to know if answers were right.                  │
+│ (May be intentional for difficulty, but should be configurable.)             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: No Haptic Feedback                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GridCell, NumberPad                                                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: No Timer Warning Visual                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GameHeader.tsx                                                         │
+│                                                                              │
+│ Description: Timer doesn't change color/pulse when time is low.              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: No Accessibility (ARIA, Keyboard Nav)                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: GridCell.tsx, NumberPad.tsx                                             │
+│                                                                              │
+│ Description: Grid cells lack aria-label, aria-pressed. NumberPad buttons     │
+│ likely lack proper role/aria. No keyboard navigation between cells.          │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: No Error State Display for Submit Failure                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx (submitResult effect)                                     │
+│                                                                              │
+│ Description: submitResult is called in an effect but its error return         │
+│ is never used. If submit fails, player sees result screen but score          │
+│ wasn't actually saved.                                                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: Socket Infrastructure Unused (~40KB Dead Code)                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code / Bundle Size                                            │
+│ File: src/hooks/useSocket.ts                                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: computeFinalSeed in Client Bundle (Unnecessary)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security / Dead Code                                               │
+│ File: src/features/grid/engine/random.ts (computeFinalSeed)                  │
+│                                                                              │
+│ Description: computeFinalSeed exists in frontend but likely never called.    │
+│ Its presence documents the algorithm for attackers.                           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: Source Maps Likely Shipped                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: No i18n Strings for Game UI                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: i18n                                                               │
+│ File: GamePage.tsx (hardcoded "Cell (x, y) — Pick a number:")                │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: generateRevealSchedule Uses seed+7919 (Predictable Offset)       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/grid/engine/gridGenerator.ts (generateRevealSchedule)     │
+│                                                                              │
+│ Description: Reveal schedule uses seed + 7919 as offset. If seed is known,   │
+│ schedule is also predictable.                                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Profile:
+
+1. Grid Rendering
+   - Level 1-2: 4×4 = 16 cells → minimal
+   - Level 3-5: 5×5 = 25 cells → fine
+   - Level 6-7: 6×6 = 36 cells → fine
+   - Level 8-9: 7×7 = 49 cells → watch optimization
+   - Level 10: 8×8 = 64 cells → CSS grid handles well
+
+2. Timer Ticks
+   - setInterval at 100ms for countdown → 10 setState/sec
+   - Only updates timeRemainingMs → minimal re-render
+
+3. Reveal Cycle
+   - setInterval at 3000ms default
+   - Updates revealedIndices (Set) → re-renders all cells
+   - Could optimize with per-cell memoization
+
+4. NumberPad
+   - Up to 64 buttons on Level 10
+   - Should virtualize/paginate for large grids
+   - Or allow keyboard input
+
+5. Bundle Size
+   - socket.io-client unused (~40KB wasted)
+   - No animation library (lighter than others)
+   - Tailwind keeps CSS minimal
+
+VERDICT: Good for levels 1-7. Level 8-10 NumberPad (49-64 buttons) may
+cause UX issues on small screens. Performance is fine.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Clear grid layout with CSS Grid
+✓ Cell selection → NumberPad → fill flow (intuitive)
+✓ Progress indicator (filled/total in header)
+✓ Reveal mechanic is visually interesting
+✓ Auto-deselect after placing number
+✓ Auto-finish when all cells filled (preserves time bonus)
+✓ "Finish Early" option available
+✓ InstructionScreen before game starts
+✓ ErrorBoundary + OfflineBanner
+
+UX PROBLEMS:
+
+1. No Sound Feedback
+   - FRUSTRATION LEVEL: MEDIUM
+
+2. No Post-Game Correction View
+   - Can't see which cells were wrong
+   - FRUSTRATION LEVEL: MEDIUM
+
+3. NumberPad for 64 Numbers (Level 10)
+   - Selecting number 47 from a pad of 64 is slow
+   - FRUSTRATION LEVEL: HIGH (on harder levels)
+
+4. Always Shows "Well Done!" on Finish
+   - FRUSTRATION LEVEL: MEDIUM
+
+5. No Timer Warning
+   - FRUSTRATION LEVEL: LOW
+
+6. Replay Is Page Reload
+   - FRUSTRATION LEVEL: LOW
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  [!] Sound effects (reveal, place, complete)
+2.  [!] Post-game correction view (show right/wrong cells)
+3.  [!] Score breakdown on results
+4.  [ ] Timer warning (color change, pulse)
+5.  [ ] Haptic feedback
+6.  [ ] Keyboard number input
+7.  [ ] Proper replay without page reload
+8.  [ ] Number-used indicator on pad
+9.  [ ] Undo last placement
+10. [ ] Personal best per level
+11. [ ] Level progression UI
+12. [ ] Streak/combo for consecutive correct
+13. [ ] Difficulty info display
+14. [ ] Share results
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Reveal flash: cells glow/pulse when revealing (not just show/hide)
+2. Number placement: satisfying "snap" animation + sound
+3. Timer urgency: red pulse + screen vignette under 10 seconds
+4. Correct cell (post-game): green highlight
+5. Wrong cell (post-game): red with correct answer shown
+6. All complete: confetti + score breakdown
+7. Level transition: animated difficulty indicator
+8. NumberPad: grey out already-used numbers
+9. Grid: subtle grid lines visible when cells empty
+10. Cell states: empty (dash), filled (blue), revealed (gold glow)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Stop sending seed to client (server sends reveals)
+2. Track all setTimeout IDs, clean on unmount
+3. Wire up useAudio hook
+4. Add correction view post-game
+5. Fix ResultScreen success condition
+6. Replace page reload with state reset
+7. Remove socket.io-client (unused)
+8. Add keyboard input for NumberPad
+9. Add submit error handling in UI
+10. Remove computeFinalSeed from frontend
+
+Backend:
+1. Remove fallback secrets
+2. Remove .env from VCS
+3. Apply scoreMultiplier in scoring
+4. Add session ownership check to WS join-session
+5. Add DTO upper bound validation
+6. Add concurrent session limit
+7. Add cleanup to rate limiter Map
+8. Remove dead engine modules
+9. Gate Swagger behind NODE_ENV
+10. Change timeBonusMultiplier to Float
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Anti-Cheat
+- Seed sent to client → full grid computable
+- Client-side scoring (mitigated by server recheck)
+- Reveal schedule predictable from seed
+- HOWEVER: Timing analysis detects bot-like patterns (GOOD)
+- HOWEVER: Score divergence detection flags manipulation (GOOD)
+- Severity: HIGH (but much better than Memory Groups)
+
+Attack Surface 2: Secret Management
+- .env committed (JWT_SECRET + DB creds)
+- 3 fallback secrets (JWT, WS, HMAC)
+- VITE_ENCRYPTION_KEY in bundle
+- Severity: CRITICAL
+
+Attack Surface 3: Session
+- No concurrent session limit
+- WS join-session no ownership check
+- Severity: MEDIUM
+
+OVERALL SECURITY POSTURE:
+MUCH better than Memory Groups. Server properly regenerates grid from stored
+seeds, recalculates score independently, AND has timing analysis. The main
+gap is sending the seed to the client. Anti-cheat score: 40/100.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mixed" - 5.5/10
+
+POSITIVE:
+"The flashing reveal mechanic is genuinely clever — makes memory challenging!"
+"Nice difficulty scaling from 4×4 to 8×8."
+"Clean grid UI, responsive layout."
+"Finish Early for time bonus is a smart strategic choice."
+
+NEGATIVE:
+"No sound effects at all. Placing numbers feels like clicking a spreadsheet."
+"64 numbers in a pad for Level 10?! Let me type!"
+"I finished but can't see which cells I got wrong!"
+"Said 'Well Done' when I got 3 out of 36 right..."
+"Replay reloads the entire page!"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "No sound! Feels dead." — Audio hook exists but unused
+2. "Can't see which cells I got wrong!" — No correction view
+3. "NumberPad is painful for 7×7 and 8×8!" — Need keyboard input
+4. "Said Well Done when I failed!" — Always success=true
+5. "Page reloads on replay!" — No state reset
+6. "I already used number 12... which cell was it?" — No tracking
+7. "Oops, wrong number! Can't undo!" — No undo
+8. "Timer ran out with no warning!" — No urgency indicator
+9. "What level am I on?" — No level progression UI
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors (STRONG — great mechanic):
+✓ Partial reveals create URGENCY and FOCUS
+✓ Dual-attention: memorize reveals WHILE filling known cells
+✓ Speed vs accuracy trade-off (time bonus rewards speed)
+✓ Scalable difficulty (4×4 easy → 8×8 brutal)
+✓ Clear progress metric (filled/total visible)
+✓ Natural "one more try" hook (beat your score)
+✓ Short sessions (30-120 seconds)
+✓ "Finish Early" gives strategic choice
+✓ Infinite replayability (random grid every time)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. NO SHARE — Can't share "36/36 in 45s!"
+2. NO SOUND — No emotional peak moments
+3. NO CORRECTION VIEW — Can't learn/improve
+4. NO LEVEL PROGRESSION SCREEN — No "I'm getting better" feeling
+5. NUMBERPAD UX — Friction kills flow at higher levels
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     72/100
+- Security:                         35/100
+- Performance:                      68/100
+- Game Logic & Correctness:         70/100
+- UX & Polish:                      45/100
+- Anti-Cheat:                       40/100
+- Accessibility:                    25/100
+- Retention & Engagement:           55/100
+- Error Handling:                   50/100
+- Production Readiness:             55/100
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 62/100
+═══════════════════════════════════════
+
+VERDICT: GREAT GAME MECHANIC, NEEDS POLISH
+The reveal-and-memorize mechanic is one of the strongest in the platform.
+10 levels with scaling difficulty gives real longevity. Server-side scoring
++ timing analysis is architecturally sound. Main gaps: stop sending seed,
+add sound, add correction view, fix NumberPad UX for larger grids.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL SECURITY (0.5 day)
+  □ Remove .env from VCS
+  □ Remove all fallback secrets
+  □ Gate Swagger behind NODE_ENV
+  □ Stop sending seed to client
+
+PHASE 2: GAME LOGIC FIXES (0.5 day)
+  □ Apply scoreMultiplier in submitGame
+  □ Fix ResultScreen success condition
+  □ Add concurrent session limit
+  □ Add DTO upper bound validation
+
+PHASE 3: GAME JUICE (1 day)
+  □ Wire up useAudio hook
+  □ Add correction view post-game
+  □ Add timer warning visual
+  □ Replace page reload with state reset
+
+PHASE 4: UX IMPROVEMENTS (1 day)
+  □ Keyboard number input for larger grids
+  □ Number-used indicators on NumberPad
+  □ Undo last placement
+  □ Level progression UI
+  □ Score breakdown on results
+
+PHASE 5: HARDENING (0.5 day)
+  □ Track and clean all setTimeout IDs
+  □ Add WS session ownership check
+  □ Remove socket.io-client from bundle
+  □ Remove dead engine modules
+  □ Add accessibility + share results
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Stop sending seed (server sends reveals directly)
+    Effort: 2-3 hours | Impact: Eliminates trivial cheating
+    ROI: ∞
+
+#2  Add correction view post-game
+    Effort: 1-2 hours | Impact: Players learn and improve
+    ROI: 9x
+
+#3  Wire up useAudio (ALREADY BUILT!)
+    Effort: 15 min | Impact: Game comes alive
+    ROI: 10x
+
+#4  Remove fallback secrets
+    Effort: 30 min | Impact: Prevents auth bypass
+    ROI: ∞
+
+#5  Apply scoreMultiplier
+    Effort: 10 min | Impact: Higher levels feel rewarding
+    ROI: 8x
+
+#6  Keyboard number input
+    Effort: 1 hour | Impact: Level 8-10 become playable
+    ROI: 7x
+
+#7  Fix ResultScreen success condition
+    Effort: 5 min | Impact: Honest feedback
+    ROI: 6x
+
+#8  Number-used indicators
+    Effort: 30 min | Impact: Reduces frustration
+    ROI: 7x
+
+#9  Timer warning visual
+    Effort: 20 min | Impact: No surprise time-outs
+    ROI: 5x
+
+#10 Personal best per level
+    Effort: 1 hour | Impact: Core retention loop
+    ROI: 7x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND:
+✓ Server-authoritative scoring (regenerates grid, recalculates)
+✓ Score divergence detection (flags client≠server by >5)
+✓ Timing analysis (detects bot-like input — UNIQUE in platform!)
+✓ Session ownership check on submit
+✓ Optimistic concurrency (prevents double-submit)
+✓ HMAC guard with crypto.timingSafeEqual
+✓ Zod DTOs with strict whitelist validation
+✓ Helmet + compression + request size limiter
+✓ Redis WS adapter (horizontal scaling)
+✓ Restate for durable session expiry
+✓ Structured logging (nestjs-pino)
+✓ Event-driven cheat flagging
+✓ Graceful shutdown hooks
+✓ Environment validation at startup
+✓ 10-level difficulty curve (4×4→8×8, 60s→30s)
+
+FRONTEND:
+✓ ErrorBoundary + OfflineBanner
+✓ Clean hook architecture (useGrid, useGameSession)
+✓ Proper main timer cleanup on unmount
+✓ Auto-deselect after number placement
+✓ Auto-finish when all cells filled
+✓ Finish Early option (strategic choice)
+✓ Progress indicator (filled/total)
+✓ useAudio hook fully implemented
+✓ CSS Grid responsive layout
+✓ Full TypeScript interfaces
+
+GAME DESIGN:
+✓ Partial reveal mechanic (rotating batches) — UNIQUE
+✓ Dual-attention challenge (memorize + fill simultaneously)
+✓ Speed vs accuracy trade-off
+✓ 10 difficulty levels with natural progression
+✓ Quick sessions (30-120 seconds)
+✓ Infinite replayability (random grid each time)
+✓ Finish Early as strategic choice
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1 (Arrows):             58/100
+  Game #2 (Block Fill):         62/100
+  Game #3 (Colour Sorting):     61/100
+  Game #4 (Flash Spot):         56/100
+  Game #5 (Infinity Loop):      59/100
+  Game #6 (Live Route Builder): 48/100 ← LOWEST
+  Game #7 (Logic Reflector):    72/100 ← HIGHEST
+  Game #8 (Maze Navigation):    58/100
+  Game #9 (Memory Card Match):  68/100
+  Game #10 (Memory Groups):     45/100 ← SECOND LOWEST
+  Game #11 (Number Grid Sprint):62/100
+
+UNIQUE STRENGTHS (vs other games):
+★ Rotating partial reveal mechanic (unique in platform)
+★ Timing analysis for bot detection (rare across games)
+★ 10 levels with real difficulty scaling
+★ Infinite replayability (random grid every time)
+★ Dual-attention gameplay
+★ Server-authoritative with proper recalculation
+★ Finish Early strategic choice
+
+================================================================================
+END OF AUDIT — GAME #11: NUMBER GRID SPRINT
+================================================================================

@@ -1,0 +1,291 @@
+============================================================
+FLASH SPOT GAME - FULL ANALYSIS
+============================================================
+Created: 2026-05-25
+Game Type: Spot-the-Change / Visual Attention (Tap cells that change)
+Reference Games: "Spot the Difference", "Change Blindness" games, "Brain Test" visual puzzles
+
+============================================================
+GAME CONCEPT
+============================================================
+
+"Flash Spot" is a visual attention/reaction game. The player watches a grid
+of coloured shapes and must TAP cells that momentarily change (color, shape,
+size, or opacity). Changes appear briefly then revert.
+
+RULES:
+  1. A grid of cells (4×4 to 7×7) displays colored shapes
+  2. Cells randomly change one property (color/shape/size/opacity) for a brief window
+  3. Player must TAP the cell while it's changed → correct tap = points
+  4. Tapping an unchanged cell → penalty
+  5. Game ends when timer reaches 0
+  6. Score = correct taps × points - wrong taps × penalty + time bonus
+
+Difficulty scales by:
+  - Grid size (4×4 easy → 7×7 hard)
+  - Number of changes per round (3 easy → 10 hard)
+  - Display duration (2000ms easy → 700ms hard)
+  - Time limit (60s easy → 30s hard)
+  - Score multiplier (1.0x → 3.5x)
+
+SIMILAR GAMES:
+  - "Spot the Difference" (classic puzzle genre)
+  - "Change Blindness" experiments (psychology)
+  - "Brain Test" by Unico Studio
+  - "Sharp Eyes" by Wuhan Dobest
+  - "Differences" by Guru Puzzle (100M+ downloads)
+  - "Find Differences" by Voodoo
+
+============================================================
+CURRENT ARCHITECTURE
+============================================================
+
+Tech Stack:
+  - Frontend: React 19 + Vite + TypeScript + TailwindCSS + Framer Motion
+  - Backend: NestJS 11 + Prisma + Bun + Restate
+  - Audio: Howler.js AudioManager (installed) + legacy Web Audio useAudio hook
+  - State: TanStack React Query
+  - i18n: react-i18next
+  - Encryption: AES-GCM (optional)
+
+Frontend Structure:
+  src/
+  ├── app/              → App.tsx, providers, router, config
+  │   ├── components/   → ErrorBoundary, InstructionScreen, OfflineBanner, ResultScreen
+  │   ├── config/       → appConfig.ts (env vars)
+  │   ├── providers/    → AppProviders.tsx (QueryClient only)
+  │   └── router/       → AppRouter.tsx (2 routes: home + game)
+  ├── audio/            → Howler.js AudioManager (6 files - NEW, not wired)
+  ├── features/
+  │   └── flash-spot/
+  │       ├── api/          → backend API calls
+  │       ├── components/   → GamePage, GameGrid, GameHeader, GameOverScreen
+  │       ├── engine/       → changeGenerator.ts, random.ts, scorer.ts
+  │       ├── hooks/        → useGameSession.ts, useGameTimer.ts
+  │       └── save-progress/ → saveProgressTypes.ts, saveProgressOutbox.ts
+  ├── hooks/            → useAudio.ts (OLD Web Audio), useSocket.ts, useTheme.tsx
+  ├── i18n/             → translations (EN)
+  ├── services/         → httpClient.ts, socketClient.ts, crypto.ts
+  └── types/            → game.ts
+
+Backend Structure:
+  src/
+  ├── game/
+  │   ├── game.controller.ts  → /v1/game/config, start, submit, game-over
+  │   ├── game.service.ts
+  │   ├── engine/
+  │   │   ├── achievementEngine.ts
+  │   │   ├── boosterEngine.ts
+  │   │   ├── changeValidator.ts (server-side tap replay)
+  │   │   ├── comboEngine.ts
+  │   │   ├── dailyChallenge.ts
+  │   │   ├── leaderboard.ts
+  │   │   ├── levelConfig.ts (10 levels)
+  │   │   └── scoreHistory.ts
+  │   └── dto/
+  ├── restate/          → Durable session state
+  ├── circuit-breaker/
+  ├── crypto/
+  ├── feature-flags/
+  ├── idempotency/
+  ├── redis/
+  └── ws/               → WebSocket gateway
+
+============================================================
+EXISTING FEATURES (ALREADY BUILT)
+============================================================
+
+✅ Core game mechanic (grid with scheduled property changes)
+✅ Change generator (seeded PRNG, deterministic rounds)
+✅ Cell properties: color, shape, size, opacity changes
+✅ 6 shapes: circle, square, triangle, diamond, hexagon, star
+✅ 10 colors available
+✅ Timer countdown (60s default)
+✅ Timer bar + low-time pulse animation
+✅ Score calculation (correct - penalty + time bonus)
+✅ Tap feedback (green ring = correct, red ring = wrong)
+✅ Framer Motion animations
+✅ Backend API integration (start, submit, game-over)
+✅ Server-side tap validation (changeValidator.ts)
+✅ Instruction screen before game
+✅ Result screen with score
+✅ Error boundary + offline banner
+✅ Dark themed game UI with CSS variables
+✅ Stage/theme system (7 themes)
+✅ i18n ready
+✅ Save progress outbox (files exist)
+✅ Howler.js audio files (AudioManager, soundRegistry, etc.)
+
+============================================================
+WHAT'S MISSING (vs Gold Standard)
+============================================================
+
+❌ AudioProvider NOT wired into App.tsx (audio files exist but unused)
+❌ useAudio hook is OLD Web Audio (not connected to Howler.js AudioManager)
+❌ No sound effects during gameplay (useAudio never called in GamePage)
+❌ No Menu screen (game starts directly with InstructionScreen)
+❌ No Level Selector (10 levels in backend, not exposed in frontend)
+❌ No progressive level unlock
+❌ No Settings screen (sound toggle, theme)
+❌ No Stats screen (games played, accuracy, high score)
+❌ No Achievements screen (backend engine exists)
+❌ No Daily Challenge screen (backend engine exists)
+❌ No Tutorial (step-by-step first-time guide)
+❌ No Mute button on game HUD
+❌ No Undo (not applicable for this game type)
+❌ No Hints (not applicable for this game type)
+❌ No Confetti on good performance
+❌ No Combo/streak display on HUD (backend engine exists)
+❌ No Lives system
+❌ No Level stars (1-3 based on accuracy/score)
+❌ No "Next Level" flow after winning
+❌ No Pause functionality
+❌ No game state persistence (refresh = lost)
+
+============================================================
+BACKEND FEATURES NOT EXPOSED IN FRONTEND
+============================================================
+
+⚠️ Level progression (10 levels with increasing difficulty)
+⚠️ Combo/Streak system (consecutive correct taps = multiplier)
+⚠️ Achievement system (10 badges)
+⚠️ Booster system (TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO)
+⚠️ Daily Challenge (date-seeded, day-of-week difficulty)
+⚠️ Leaderboard (top 100, rank lookup)
+⚠️ Score history & player stats
+
+============================================================
+COMPARISON: THIS GAME vs SIMILAR GAMES
+============================================================
+
+Feature                    | Similar Games (Mobile)       | Flash Spot (Current)
+---------------------------|------------------------------|--------------------
+Core Mechanic              | ✅ Spot changes              | ✅ Same
+Multiple Levels            | ✅ 100+ levels               | ❌ Single round only
+Level Progression          | ✅ Unlock sequence           | ❌ Not exposed
+Difficulty Scaling         | ✅ Harder each level         | ❌ Fixed config
+Timer                      | ✅ Countdown                 | ✅ Yes
+Score System               | ✅ Points + multiplier       | ✅ Basic (no multiplier UI)
+Combo Display              | ✅ "3x Streak!"             | ❌ Not shown
+Sound Effects              | ✅ Tap/correct/wrong         | ❌ Dead code
+Background Music           | ✅ Calm ambient              | ❌ None
+Celebrations               | ✅ Confetti/stars            | ❌ None
+Stars per Level            | ✅ 1-3 stars                 | ❌ None
+Daily Challenge            | ✅ Daily puzzle              | ❌ Backend only
+Achievements               | ✅ Badge gallery             | ❌ Backend only
+Leaderboard                | ✅ Global ranks              | ❌ Backend only
+Settings                   | ✅ Sound/theme/language      | ❌ None
+Stats/History              | ✅ Accuracy/streaks          | ❌ None
+Tutorial                   | ✅ Guided first play         | ❌ Basic instruction only
+Pause                      | ✅ Pause/resume              | ❌ None
+Hint System                | ✅ Highlight next change     | ❌ N/A (real-time)
+Power-ups                  | ✅ Slow-mo, reveal           | ❌ Backend only
+Offline Play               | ✅ Fully offline             | ✅ Fallback local seed
+
+============================================================
+LEVEL CONFIGURATION (Backend - levelConfig.ts)
+============================================================
+
+Level | Time   | Dots | Display | Grid | Multiplier
+------|--------|------|---------|------|----------
+  1   | 60s    |  3   | 2000ms  | 4×4  | 1.0x
+  2   | 55s    |  4   | 1800ms  | 4×4  | 1.2x
+  3   | 50s    |  5   | 1600ms  | 5×5  | 1.4x
+  4   | 48s    |  5   | 1400ms  | 5×5  | 1.6x
+  5   | 45s    |  6   | 1200ms  | 5×5  | 1.8x
+  6   | 42s    |  7   | 1100ms  | 6×6  | 2.0x
+  7   | 40s    |  7   | 1000ms  | 6×6  | 2.3x
+  8   | 38s    |  8   | 900ms   | 6×6  | 2.6x
+  9   | 35s    |  9   | 800ms   | 7×7  | 3.0x
+ 10   | 30s    | 10   | 700ms   | 7×7  | 3.5x
+
+============================================================
+SCORING SYSTEM
+============================================================
+
+Formula (client estimate):
+  correctTaps × pointsPerCorrectTap (20)
+  - wrongTaps × penaltyPerWrongTap (10)
+  + timeBonus (floor(bonusTimeRatio × remainingSeconds))
+
+With level multiplier (server): score × scoreMultiplier
+
+Combo (backend):
+  - Every consecutive correct tap increases streak
+  - Multiplier = 1 + floor(streak/3) × 0.25 (max 4x)
+  - Bonus accumulates: streak × 10 × multiplier
+
+============================================================
+IMPLEMENTATION PLAN
+============================================================
+
+Phase 1 — Wire Audio + Menu System:
+  □ Wire AudioProvider into AppProviders.tsx
+  □ Remove old useAudio.ts Web Audio hook
+  □ Add useAudio calls in GamePage (correct/wrong tap, game over, timer warning)
+  □ Create MenuScreen with: Play, Levels, Daily, Achievements, Stats, Settings
+  □ Create Tutorial component (6-step guided intro)
+  □ Add routes for all screens
+
+Phase 2 — Level System:
+  □ Create LevelSelector (10 levels, progressive unlock)
+  □ Wire level config to frontend (pass level to backend startGame)
+  □ Add star rating (1-3 stars based on accuracy)
+  □ Add "Next Level" button on result screen
+  □ Level unlock persistence (localStorage)
+
+Phase 3 — Game Features:
+  □ Add Mute button to GameHeader
+  □ Add Combo streak display (3+ correct in a row)
+  □ Add Confetti animation on high-accuracy round
+  □ Add Pause functionality
+  □ Add score breakdown on result screen (base, bonus, combo)
+
+Phase 4 — Screens:
+  □ Settings screen (sound, theme)
+  □ Stats screen (games played, accuracy, high score, streaks)
+  □ Achievements screen (connect to backend engine)
+  □ Daily Challenge screen (connect to backend)
+
+Phase 5 — Polish:
+  □ Cell change animation improvements (glow effect before change)
+  □ Screen transitions (Framer Motion page transitions)
+  □ Mobile optimization (larger tap targets)
+  □ Timer pause on tab switch
+
+============================================================
+KEY FILES TO MODIFY/CREATE
+============================================================
+
+MODIFY:
+  - src/app/providers/AppProviders.tsx (add AudioProvider)
+  - src/features/flash-spot/components/GamePage.tsx (add audio, combo, levels)
+  - src/features/flash-spot/components/GameHeader.tsx (add mute, combo badge)
+  - src/app/router/AppRouter.tsx (add new routes)
+
+CREATE:
+  - src/features/flash-spot/components/MenuScreen.tsx
+  - src/features/flash-spot/components/LevelSelector.tsx
+  - src/features/flash-spot/components/Settings.tsx
+  - src/features/flash-spot/components/StatsScreen.tsx
+  - src/features/flash-spot/components/Achievements.tsx
+  - src/features/flash-spot/components/DailyChallenge.tsx
+  - src/features/flash-spot/components/Tutorial.tsx
+  - src/features/flash-spot/components/Confetti.tsx
+  - src/features/flash-spot/components/PauseDialog.tsx
+
+============================================================
+NOTES
+============================================================
+
+- The game engine is solid (changeGenerator + scorer + seeded PRNG)
+- Backend is feature-complete (levels, combos, achievements, daily)
+- Main gap is UI: no menu system, no level progression, no screens
+- Audio system files already exist (Howler.js) but NOT wired
+- Old Web Audio useAudio.ts in hooks/ should be removed/replaced
+- The game uses requestAnimationFrame for smooth change tracking
+- SVG shapes with paths (circle, square, triangle, diamond, hexagon, star)
+- Has 7 stage themes (CSS variables per stage)
+- No Phaser dependency (pure React + Framer Motion rendering)
+
+============================================================

@@ -1,0 +1,893 @@
+================================================================================
+ZUBACO - COMPLETE REQUIREMENTS & IMPLEMENTATION ROADMAP
+================================================================================
+Created: May 22, 2026
+Based on: Gaming Engine Scope PDF + Internal Proposal + Scoring Reference +
+          Our Discussion (AI-proof games, levels, seasons)
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. PLATFORM OVERVIEW
+2. GAME ROSTER (Final 20 AI-Proof Games)
+3. GAME ARCHITECTURE (Per Game)
+4. SCORING SYSTEM (Per Game)
+5. GAME SESSION FLOW (API Contracts)
+6. FREE PLAY MODE (Levels System)
+7. TOURNAMENT MODE (Elimination System)
+8. SEASON & COHORT MANAGEMENT
+9. ADMIN PANEL
+10. MOBILE APP (WebView Wrapper)
+11. USER SYSTEM (Auth, Profile, Wallet)
+12. ANTI-CHEAT SYSTEM
+13. INFRASTRUCTURE & DEVOPS
+14. WHAT IS ALREADY BUILT vs WHAT IS NEEDED
+
+
+================================================================================
+1. PLATFORM OVERVIEW
+================================================================================
+
+Concept: Mass-participation skill-based elimination gaming platform.
+         Millions of players -> 5 online stages -> Seasonal winners.
+
+Core Loop:
+  - User downloads app -> plays free practice games (levels)
+  - Joins seasonal tournament -> plays through 5 stages
+  - Each stage: play 4 games, get scored, bottom 50% eliminated
+  - Top performers win prizes/recognition
+
+Two Modes:
+  A) FREE PLAY - Practice games with progressive levels (always available)
+  B) TOURNAMENT - Seasonal elimination competition (timed windows)
+
+Revenue Model (to decide later):
+  - Entry fees for tournaments
+  - In-app purchases (hints, extra lives in free play)
+  - Brand sponsorships
+  - Ad-supported free tier
+
+
+================================================================================
+2. GAME ROSTER - FINAL 20 AI-PROOF GAMES
+================================================================================
+
+All cheatable games (MCQs, Sudoku, Spot the Difference, Path Optimisation,
+Connections) have been REMOVED and replaced with AI-proof alternatives.
+
+STAGE 1 - MEMORY & ATTENTION
+------------------------------
+Game 1: Sequence Recall (Simon Says)                    [BUILT]
+  - Grid of cells flash in sequence -> player repeats from memory
+  - Sequence grows +1 each round until failure
+  - AI-proof: real-time flash, no static screenshot possible
+
+Game 2: Memory Card Matching                            [BUILT]
+  - Cards shown briefly -> flipped face down -> find matching pairs
+  - AI-proof: card positions only visible for ~3 seconds
+
+Game 3: Flash Spot (replaces Spot the Difference)       [TO BUILD]
+  - ONE image displayed -> changes animate IN REAL-TIME
+  - Tap the changing elements as they happen
+  - AI-proof: no static screenshot, changes are animated/moving
+
+Game 4: Object Placement Memory                         [TO BUILD]
+  - Objects shown on grid for 5 seconds -> disappear
+  - Player must place them back from memory
+  - AI-proof: display phase too brief, AI never sees positions
+
+STAGE 2 - SPEED & REACTION
+----------------------------
+Game 5: Sliding Puzzle                                  [BUILT]
+  - Arrange tiles in correct order by sliding
+  - AI-proof: even if AI solves it, user must physically swipe tiles
+
+Game 6: Block Fill (Flow Free)                          [BUILT]
+  - Connect colored dots without overlapping paths
+  - AI-proof: must draw paths manually under time pressure
+
+Game 7: Colour-Based Sorting                            [TO BUILD]
+  - Sort colored balls into tubes (Ball Sort Puzzle)
+  - AI-proof: requires physical tap/drag for each ball
+
+Game 8: Rapid Category Sort (replaces MCQ Math)         [TO BUILD]
+  - Items fall from top, swipe LEFT/RIGHT to sort into categories
+  - Items appear every 1.5 seconds - no time to consult AI
+  - AI-proof: continuous real-time input required
+
+STAGE 3 - LOGIC & DUAL-TASK
+-----------------------------
+Game 9: Maze Navigation                                 [BUILT]
+  - Navigate player through procedurally generated maze
+  - AI-proof: real-time swipe navigation, AI cannot swipe for you
+
+Game 10: Infinity Loop                                  [BUILT]
+  - Rotate pipe segments to form complete loops
+  - AI-proof: requires many individual taps/rotations
+
+Game 11: Word Unscramble Race (replaces MCQ Logic)      [TO BUILD]
+  - Scrambled letters shown -> tap in correct order to form word
+  - New word every 6 seconds whether solved or not
+  - AI-proof: physical input speed is the bottleneck
+
+Game 12: True or False Blitz (replaces MCQ Mythology)   [TO BUILD]
+  - Statements flash for 2 seconds each, auto-advance
+  - Tap GREEN (true) or RED (false) before it moves on
+  - 30 statements in 60 seconds
+  - AI-proof: 2 seconds per question - no time to screenshot + ask AI
+
+STAGE 4 - PERSISTENCE & STRATEGY
+----------------------------------
+Game 13: Arrows                                         [BUILT]
+  - Clear arrows by matching direction patterns
+  - AI-proof: requires rapid tapping in correct sequence
+
+Game 14: Logic Reflector                                [BUILT]
+  - Redirect beams using mirrors/reflectors to hit targets
+  - AI-proof: trial-and-error physical placement
+
+Game 15: Number Grid Sprint (replaces Sudoku)           [TO BUILD]
+  - 6x6 grid where cells PULSE/BLINK showing values for 1 sec every 3 sec
+  - Fill the grid while values keep appearing/disappearing
+  - AI-proof: screenshot captures only partial info, requires mental model
+
+Game 16: Live Route Builder (replaces Path Optimisation)[TO BUILD]
+  - Nodes appear one-by-one every 2 seconds
+  - Must connect each new node to existing path in real-time
+  - Cannot wait to see all nodes first
+  - AI-proof: no complete picture exists to screenshot
+
+STAGE 5 - MASTERY SYNTHESIS
+-----------------------------
+Game 17: Memory Groups (replaces Connections)           [TO BUILD]
+  - 9 words shown for 5 seconds -> ALL DISAPPEAR
+  - From memory, select which 3 words belonged together
+  - AI-proof: words vanish, AI never sees them
+
+Game 18: Reflex Endurance (replaces MCQ Rapid Fire)     [TO BUILD]
+  - Colored circles appear at random positions
+  - Tap ONLY green ones. Speed increases every 30 seconds.
+  - 2 wrong taps = game over. Lasts up to 5 minutes.
+  - AI-proof: pure reflex, nothing to look up
+
+Game 19: Pattern Survival (replaces MCQ Rapid Fire Hard)[TO BUILD]
+  - Like Simon Says but with 6 colors on 3x3 grid
+  - Each round adds +1 to sequence
+  - 1 mistake = game over. How far can you go in 5 minutes?
+  - AI-proof: real-time growing sequence, memory-based
+
+Game 20: Speed Type Answer                              [TO BUILD]
+  - Question flashes for 3 seconds -> disappears
+  - User must TYPE the answer (no options) within 5 seconds
+  - AI-proof: question disappears, no time to screenshot + query AI
+
+
+================================================================================
+3. GAME ARCHITECTURE (Per Game - Template)
+================================================================================
+
+Each game follows this structure (8 games already use this pattern):
+
+FRONTEND (React 19 + TypeScript + Vite 6):
+  index.html (Zubaco-branded, Outfit+Orbitron fonts, favicon)
+  src/
+    features/game/        (core game logic, canvas/GSAP rendering)
+    section/              (micro-screens: instructions, results)
+    hooks/                (useGameSession, useTimer, useAudio, useSocket)
+    lib/                  (API client, socket, PRNG, config)
+    styles/               (globals.css with Zubaco theme tokens)
+    theme/                (stage-colors.ts, color.ts)
+  public/
+    favicon.svg           (Zubaco Z logo)
+    assets/               (logo.svg, sounds/, icons/)
+    audio/                (bgm.mp3, sfx files)
+  micro-screens/          (instruction screen, result screen - shared UI)
+
+BACKEND (NestJS 11 + Bun + Prisma 7 + PostgreSQL + Redis):
+  src/
+    game/
+      game.controller.ts    (REST endpoints)
+      game.service.ts       (business logic)
+      game.gateway.ts       (WebSocket for real-time)
+      utils/
+        generator.ts      (PRNG-based content generation)
+        scorer.ts         (scoring formula)
+        validator.ts      (server-side move validation)
+    restate/                  (durable execution workflows)
+    common/                   (guards, decorators, filters)
+  prisma/
+    schema.prisma             (GameSession, GameResult, Config)
+  .env.example
+
+Tech Stack (per game):
+  Frontend: React 19, TypeScript, Vite 6, Tailwind CSS, PixiJS/Phaser (canvas),
+            GSAP (animations), Howler (audio), Motion library
+  Backend:  NestJS 11, Bun runtime, Prisma ORM 7.3, PostgreSQL, Redis,
+            Restate (durable execution), WebSocket (Socket.IO)
+  Shared:   Mulberry32 seeded PRNG (computeFinalSeed(serverSeed, clientSeed, nonce))
+
+
+================================================================================
+4. SCORING SYSTEM (Per Game)
+================================================================================
+
+All scoring is SERVER-SIDE. Client shows estimated score; server calculates final.
+
+SLIDING PUZZLE:
+  Completed Round: 100 pts
+  Incomplete Round: 0 pts
+  Time Bonus: floor(10 x remaining_time / total_time)
+  Final: Sum of round scores + time bonus
+
+ARROWS:
+  Completed Round: 50 pts
+  Partially Cleared: floor(5 x arrows_removed / total_arrows)
+  Empty Round: 0 pts
+  Time Bonus: floor(10 x remaining_time / total_time)
+  Final: Sum of round scores + time bonus
+
+SEQUENCE RECALL:
+  Score Per Click: correct_clicks x scorePerClick (default 10)
+  Time Bonus: floor(seconds_left x bonusTimeRatio) - only if no wrong moves
+  Final: successful_moves x scorePerClick + time_bonus
+
+MEMORY CARD MATCHING:
+  Completed Level: 100 pts
+  Incomplete Level: 0 pts
+  Time Bonus: remaining whole seconds (only if all levels completed)
+  Final: completed_levels x 100 + time_bonus
+
+INFINITY LOOP:
+  Solved Board: 10 + remaining_seconds_on_that_board
+  Unsolved Board: 0 pts
+  Final: Sum of all board scores (time baked in)
+
+BLOCK FILL:
+  Easy Board: 20 pts | Medium: 30 pts | Hard: 40 pts
+  Demo Board: 0 pts
+  End Bonus: remaining seconds in overall timer
+  Final: Sum of board scores + remaining_seconds_bonus
+
+MAZE NAVIGATION:
+  Optimal path: 100 pts
+  Inefficient path: max(10, floor(100 x shortest_path / moves_taken))
+  Incomplete: 0 pts
+  Time Bonus: floor(5 x remaining_time / total_time)
+  Final: Sum of round scores + time bonus
+
+LOGIC REFLECTOR:
+  Beam alignment score + time efficiency bonus
+
+--- NEW GAMES (Scoring to implement) ---
+
+FLASH SPOT:
+  Correct tap: 20 pts per change identified
+  Wrong tap: -10 pts
+  Time Bonus: floor(10 x remaining_time / total_time)
+  Final: Sum of correct taps - penalties + time bonus
+
+OBJECT PLACEMENT MEMORY:
+  Correct placement: 100 / total_objects pts per correct position
+  Time Bonus: floor(5 x remaining_time / total_time)
+  Final: (correct_placements / total_placements) x 100 + time_bonus
+
+COLOUR SORTING:
+  Completed: 100 pts per sorted tube
+  Moves Efficiency: bonus for fewer moves
+  Time Bonus: floor(10 x remaining_time / total_time)
+  Final: sorted_tubes x 100 + efficiency_bonus + time_bonus
+
+RAPID CATEGORY SORT:
+  Correct sort: 10 pts per item
+  Wrong sort: -5 pts
+  Time Bonus: None (speed IS the score)
+  Final: correct x 10 - wrong x 5
+
+WORD UNSCRAMBLE RACE:
+  Solved word: 15 pts
+  Time Bonus: remaining seconds per word solved early
+  Final: words_solved x 15 + sum(time_bonuses)
+
+TRUE OR FALSE BLITZ:
+  Correct: 10 pts per correct answer
+  Wrong: -5 pts
+  Streak bonus: 3+ correct in a row = +5 per streak item
+  Final: correct x 10 - wrong x 5 + streak_bonus
+
+NUMBER GRID SPRINT:
+  Correct cell: 10 pts
+  Time Bonus: remaining seconds x 2
+  Final: correct_cells x 10 + time_bonus
+
+LIVE ROUTE BUILDER:
+  Path efficiency: (optimal_length / actual_length) x 100
+  Nodes connected: 10 pts per node
+  Final: path_score + nodes x 10
+
+MEMORY GROUPS:
+  Correct group: 50 pts per group
+  Partial group: 10 pts per correct word in wrong group
+  Time Bonus: remaining seconds x 3
+  Final: group_scores + time_bonus
+
+REFLEX ENDURANCE:
+  Score: 1 pt per correct tap
+  Speed bonus: faster taps = more points
+  Final: total_correct_taps + speed_multiplier
+
+PATTERN SURVIVAL:
+  Score: round_reached x 20
+  Perfect round bonus: +10 per round with no hesitation
+  Final: rounds x 20 + perfect_bonuses
+
+SPEED TYPE ANSWER:
+  Correct answer: 20 pts
+  Speed bonus: faster typing = bonus (max 10 extra)
+  Final: correct_answers x 20 + speed_bonuses
+
+
+================================================================================
+5. GAME SESSION FLOW (API Contracts)
+================================================================================
+
+This is the communication between the Mobile App, Backend, and Game Frontend.
+
+KEY FORMAT: contestId::playerId
+  Example: eae5816f-f3d0-461e-8030-c10ee810c170::104
+
+--- 5.1 START GAME ---
+POST /UserContest/{key}/startGame
+Headers: Authorization: Bearer <token>, Content-Type: application/json
+Body: {
+  "providerId": "<game-provider-uuid>",
+  "stageId": "<stage-uuid>"
+}
+Response: {
+  "gameSessionId": "<uuid>",
+  "gameUrl": "https://game.zubaco.com/maze-navigation"
+}
+
+--- 5.2 OPEN GAME IN WEBVIEW ---
+App opens gameUrl in WebView and INJECTS:
+  - token (JWT)
+  - gameSessionId
+  - key (contestId::playerId)
+Game frontend reads these to authenticate and identify the session.
+
+--- 5.3 SUBMIT GAME RESULT ---
+POST /UserContest/{key}/submitGameResult
+Headers: Authorization: Bearer <token>, Content-Type: application/json
+Body: {
+  "gameSessionId": "<uuid>",
+  "outcome": "completed",
+  "score": 100
+}
+Response: { "success": true }
+
+--- 5.4 GET GAME SESSION STATE ---
+POST /UserContest/{key}/getGameSessionState
+Body: { "gameSessionId": "<uuid>" }
+Response: {
+  "gameSessionId": "<uuid>",
+  "gameStartedAt": "2026-05-22T09:20:52.821Z"
+}
+
+--- 5.5 COMPLETE FLOW ---
+Mobile App -> startGame API -> Backend returns gameSessionId + gameUrl
+Mobile App -> Opens WebView -> Injects token/gameSessionId/key
+Game Frontend -> Player plays -> Submits result via API
+Backend -> Validates score server-side -> Stores result -> Success
+
+IMPORTANT RULES:
+  - gameSessionId is unique per session
+  - key uniquely identifies contest-player combination
+  - Game Provider must use same gameSessionId received during init
+  - submitGameResult only called AFTER gameplay completion
+  - All injected values must be securely handled in WebView
+
+
+================================================================================
+6. FREE PLAY MODE (Levels System)
+================================================================================
+
+Purpose: Daily engagement, skill building, retention.
+Available: Always (no time windows).
+
+STRUCTURE:
+  - Each game has 10 fixed levels + Endless Mode after Level 10
+  - User starts at Level 1, must complete to unlock Level 2, etc.
+  - Can replay any unlocked level
+  - Star rating per level (1-3 stars based on score)
+
+LEVEL CONFIG (What changes per level):
+  Level 1:  Easiest params (small grid, long time, slow speed)
+  Level 5:  Medium params
+  Level 10: Hardest fixed params
+  Level 11+: Endless mode - difficulty scales by formula
+
+UNIVERSAL SCALING PARAMETERS:
+  - Grid size increases
+  - Time window decreases
+  - Display/flash duration shortens
+  - Number of elements increases
+  - Distractors/decoys added
+  - Speed of animation increases
+
+CONTENT IS ALWAYS RANDOM:
+  - Level config (difficulty) stays the same
+  - Actual puzzle content is DIFFERENT every play (PRNG seed)
+  - Player can NEVER memorize the answer
+  - Example: Maze Level 6 = always 15x15 grid, but different maze layout each time
+
+ENDLESS MODE (After Level 10):
+  - No cap on difficulty
+  - Config scales by formula: param = base + (level - 10) x increment
+  - Leaderboard: "How far can you get?"
+  - Example: Maze Level 20 = 20x20 grid, Level 50 = 50x50 grid
+
+MONETIZATION HOOKS:
+  - Extra lives (free play gives 3 lives/day, buy more)
+  - Skip level (pay to unlock next without completing)
+  - Hints (reveal 1 tile, show 1 pair, etc.)
+  - Remove ads
+  - Cosmetics (themes, avatar items)
+
+IMPLEMENTATION NEEDED:
+  - Level progression system (unlock tracking per user per game)
+  - Star rating calculation per level
+  - Level config database (10 configs per game x 20 games = 200 configs)
+  - Endless mode formula per game
+  - XP/progression rewards for completing levels
+  - Daily limit system (energy/lives)
+  - UI: Level selection screen, progress map
+  - Backend: User progress persistence (which levels completed, stars)
+
+
+================================================================================
+7. TOURNAMENT MODE (Elimination System)
+================================================================================
+
+Purpose: High-stakes seasonal competition.
+Available: During season windows only.
+
+STRUCTURE:
+  Season -> 5 Stages -> 4 Games per Stage -> 50% eliminated each stage
+
+  Stage 1: 100% of players play 4 games -> bottom 50% eliminated
+  Stage 2: Top 50% play 4 games -> bottom 50% eliminated (25% remain)
+  Stage 3: Top 25% play 4 games -> bottom 50% eliminated (12.5% remain)
+  Stage 4: Top 12.5% play 4 games -> bottom 50% eliminated (6.25% remain)
+  Stage 5: Top 6.25% play 4 games -> top performers win
+
+DIFFICULTY PER STAGE:
+  - Admin configures which "level config" each game uses per stage
+  - Stage 1 = Level 3 difficulty
+  - Stage 3 = Level 5-6 difficulty
+  - Stage 5 = Level 8-9 difficulty
+  - All players in same stage get SAME difficulty config (fair)
+  - Content is still randomized per player (PRNG seed unique per session)
+
+SCORING & RANKING:
+  - Each game produces a score (server-validated)
+  - Stage score = sum of 4 game scores
+  - Players ranked by stage score
+  - Bottom 50% marked as eliminated
+  - Ties broken by: total time taken (faster = better)
+
+IMPLEMENTATION NEEDED:
+  - Season CRUD (create season, set dates, assign games to stages)
+  - Stage management (open/close stages, trigger elimination)
+  - Game-to-stage assignment (which 4 games in each stage)
+  - Difficulty config assignment (admin picks level config per stage-game)
+  - Elimination engine (rank players, mark bottom 50%)
+  - Tiebreaker logic (time-based)
+  - Stage unlock logic (only proceed if not eliminated)
+  - Results display (your rank, who got eliminated, prize info)
+  - Prize distribution system
+  - Re-engagement for eliminated players (spectator mode, next season)
+
+
+================================================================================
+8. SEASON & COHORT MANAGEMENT
+================================================================================
+
+SEASONS:
+  - Each season has: start date, end date, prize pool, stage schedule
+  - Stages open on specific dates (e.g., Stage 1: Week 1, Stage 2: Week 2...)
+  - Players must complete all 4 games in a stage before deadline
+  - One attempt per game per stage (one shot)
+
+COHORTS (BUCKETING):
+  - If too many players (100K+), split into cohorts
+  - Each cohort runs the same stages independently
+  - Winners from each cohort compete in grand finale OR
+  - Top N from each cohort proceed to next stage
+  - Ensures server load is manageable
+  - Cohort assignment: random on registration or by region
+
+IMPLEMENTATION NEEDED:
+  - Season model (DB schema: seasons table with dates, status, prize_pool)
+  - Stage model (stages table: season_id, stage_number, open_date, close_date)
+  - Cohort model (cohorts table: season_id, cohort_number, player_ids)
+  - Player-Season registration (user signs up for a season)
+  - Cohort assignment algorithm (random/regional)
+  - Stage scheduling system (auto-open/close stages)
+  - Cross-cohort finale system
+  - Notification system (stage opening, elimination, results)
+
+
+================================================================================
+9. ADMIN PANEL
+================================================================================
+
+Current State: Basic admin panel EXISTS (Next.js + NestJS, rebranded to Zubaco)
+               Has game management and basic CRUD.
+
+FEATURES NEEDED (Full Admin):
+
+  A) GAME MANAGEMENT                                    [PARTIAL]
+     - List all 20 games with status (active/inactive)
+     - Configure level params per game (grid size, time, speed, etc.)
+     - Upload game assets (images, audio)
+     - Enable/disable games
+     - View game analytics (plays, avg score, completion rate)
+
+  B) SEASON MANAGEMENT                                  [TO BUILD]
+     - Create new season (dates, prize pool, rules)
+     - Assign games to stages
+     - Set difficulty config per stage-game
+     - Open/close stages manually or on schedule
+     - View season progress (how many players per stage)
+     - Trigger elimination calculation
+     - Announce results
+
+  C) TOURNAMENT OPERATIONS                              [TO BUILD]
+     - View active tournaments
+     - Monitor player count per stage in real-time
+     - Override/DQ individual players
+     - Adjust elimination threshold
+     - Generate leaderboards
+     - Export results (CSV/PDF)
+
+  D) USER MANAGEMENT                                    [TO BUILD]
+     - Search/view players
+     - Ban/suspend accounts
+     - View player history (games played, scores, seasons)
+     - Wallet management (add/deduct balance)
+     - Support ticket queue
+
+  E) ANALYTICS DASHBOARD                                [TO BUILD]
+     - DAU/MAU/retention graphs
+     - Revenue dashboard
+     - Game-level analytics (most played, drop-off rates)
+     - Anti-cheat flags dashboard
+     - Cohort performance comparison
+
+  F) CONTENT MANAGEMENT                                 [TO BUILD]
+     - Push notification composer
+     - Banner/announcement management
+     - Prize configuration
+     - Referral code management
+
+
+================================================================================
+10. MOBILE APP (WebView Wrapper)
+================================================================================
+
+The mobile app is the USER-FACING entry point. Games run in WebView.
+
+PLATFORM: React Native OR Flutter (cross-platform iOS + Android)
+
+SCREENS NEEDED:
+  - Splash screen (Zubaco branding)
+  - Onboarding (3-4 slides explaining the platform)
+  - Login / Register (OAuth: Google, Apple, Phone OTP)
+  - Home screen (free play games grid + active tournament banner)
+  - Free Play section (game cards, level progress per game)
+  - Tournament section (current season, stages, my status)
+  - Game WebView wrapper (loads game URL, injects token/session/key)
+  - Leaderboard (global, friends, per-stage)
+  - Profile (avatar, stats, history, achievements)
+  - Wallet (balance, transaction history, add money, withdraw)
+  - Notifications center
+  - Settings (sound, language, account management)
+  - Referral / Invite friends
+  - Support / Help
+
+WEBVIEW INTEGRATION:
+  - App calls startGame API -> gets gameUrl + gameSessionId
+  - Opens WebView with gameUrl
+  - Injects into WebView: { token, gameSessionId, key }
+  - Game plays entirely in WebView
+  - On game completion, WebView posts message back to app
+  - App shows result screen with score + next actions
+
+NATIVE FEATURES NEEDED:
+  - Push notifications (FCM/APNS)
+  - Deep linking (open specific game/tournament from notification)
+  - Biometric auth (fingerprint/face for sensitive actions)
+  - Offline detection (show "no internet" overlay)
+  - App update force (minimum version enforcement)
+  - Analytics SDK (Mixpanel/Amplitude/Firebase)
+  - Crash reporting (Sentry/Crashlytics)
+  - Rate app prompt
+
+
+================================================================================
+11. USER SYSTEM (Auth, Profile, Wallet)
+================================================================================
+
+--- 11.1 AUTHENTICATION ---
+  - OAuth providers: Google, Apple, Phone OTP
+  - JWT token system (access + refresh tokens)
+  - Session management (multiple devices)
+  - Account linking (merge Google + Phone accounts)
+  - Password-less (OTP only for phone login)
+
+--- 11.2 USER PROFILE ---
+  - Display name, avatar (upload or select preset)
+  - Username (unique, changeable once)
+  - Level/XP (from free play progression)
+  - Achievements/badges
+  - Game history (all sessions with scores)
+  - Tournament history (seasons, stages reached, prizes won)
+  - Friends list
+
+--- 11.3 WALLET ---
+  - Virtual currency balance
+  - Add money (payment gateway integration)
+  - Withdraw winnings (bank/UPI transfer)
+  - Transaction history (credits, debits, refunds)
+  - KYC verification (required for withdrawals above threshold)
+  - Minimum withdrawal amount
+  - Bonus balance (non-withdrawable, from referrals/promotions)
+
+--- 11.4 SOCIAL FEATURES ---
+  - Add friends (by username or phone contacts)
+  - Friend leaderboard
+  - Challenge a friend (play same game config, compare scores)
+  - Referral system (invite code -> both get bonus)
+  - Share score on social media
+  - In-app chat (optional, lower priority)
+
+
+================================================================================
+12. ANTI-CHEAT SYSTEM
+================================================================================
+
+Current State: Basic anti-cheat EXISTS in the 8 built games.
+               Input pattern detection, timing validation, server-side scoring.
+
+FULL ANTI-CHEAT REQUIREMENTS:
+
+  A) CLIENT-SIDE DETECTION                              [PARTIAL]
+     - App switch detection (tab/app change during gameplay)
+     - Screen recording detection
+     - Developer tools detection (devtools open)
+     - Timing anomaly detection (too-fast responses)
+     - Input pattern analysis (bot-like tapping patterns)
+     - Clipboard monitoring (detect paste attempts)
+     - WebView integrity check
+
+  B) SERVER-SIDE VALIDATION                             [EXISTS]
+     - Score validation against game state
+     - Move sequence validation (was this move legal?)
+     - Time validation (did they take realistic time?)
+     - Seed verification (game content matches what was generated)
+     - Session integrity (one active session per player per game)
+
+  C) POST-GAME ANALYSIS                                 [TO BUILD]
+     - Statistical outlier detection (scores way above normal)
+     - Replay analysis (reconstruct game from move log)
+     - Device fingerprinting (detect multiple accounts same device)
+     - IP analysis (detect VPN/proxy for multi-accounting)
+     - Score progression analysis (sudden skill jump = suspicious)
+     - Automated flagging + manual review queue
+
+  D) ENFORCEMENT                                        [TO BUILD]
+     - Soft ban (flag account, reduce matchmaking priority)
+     - Hard ban (account suspended, winnings frozen)
+     - Score invalidation (remove specific session scores)
+     - Appeal system (banned user can contest)
+     - Ban log with evidence trail
+
+
+================================================================================
+13. INFRASTRUCTURE & DEVOPS
+================================================================================
+
+Target: AWS cloud deployment, containerized microservices.
+
+--- 13.1 AWS SERVICES NEEDED ---
+  - ECS/EKS (container orchestration for game backends)
+  - RDS PostgreSQL (managed database per game)
+  - ElastiCache Redis (session store, caching, pub/sub)
+  - S3 (game assets, user uploads, backups)
+  - CloudFront (CDN for game frontends + assets)
+  - SQS (message queues for async processing)
+  - SNS (push notifications, event fan-out)
+  - ALB (load balancer for API traffic)
+  - Route 53 (DNS management)
+  - ACM (SSL certificates)
+  - CloudWatch (logging, metrics, alarms)
+  - WAF (web application firewall)
+  - Cognito (optional: managed auth) OR custom JWT
+
+--- 13.2 CONTAINERIZATION ---
+  - Dockerfile per game backend (NestJS + Bun)
+  - Dockerfile per game frontend (Nginx serving Vite build)
+  - Docker Compose for local development
+  - Container registry (ECR)
+  - Health check endpoints per service
+
+--- 13.3 CI/CD PIPELINE ---
+  - GitHub Actions / GitLab CI
+  - Auto build on push to main
+  - Run tests -> lint -> type check -> build -> deploy
+  - Separate pipelines: staging -> production
+  - Database migration automation (Prisma migrate)
+  - Rollback strategy (blue-green or canary)
+
+--- 13.4 INFRASTRUCTURE AS CODE ---
+  - Terraform modules for all AWS resources
+  - Environment separation (dev / staging / prod)
+  - Secrets management (AWS Secrets Manager or SSM)
+  - Auto-scaling policies (handle traffic spikes during stage openings)
+
+--- 13.5 MONITORING & OBSERVABILITY ---
+  - Application logs (structured JSON, shipped to CloudWatch/Datadog)
+  - Request tracing (distributed tracing across services)
+  - Error alerting (PagerDuty/Slack integration)
+  - Uptime monitoring (external health checks)
+  - Database performance monitoring
+  - Cost monitoring (AWS budget alerts)
+
+--- 13.6 LOAD TESTING ---
+  - k6 or Artillery scripts per game API
+  - Target: 100K concurrent users
+  - WebSocket connection stress testing
+  - Database query performance under load
+  - CDN cache hit ratio optimization
+
+
+================================================================================
+14. WHAT IS ALREADY BUILT vs WHAT IS NEEDED
+================================================================================
+
+===============================================
+ALREADY BUILT & FULLY REBRANDED TO ZUBACO
+===============================================
+
+GAMES (8 complete - frontend + backend + scoring + anti-cheat):
+  [DONE] Arrows (arrows-frontend + arrows-backend)
+  [DONE] Block Fill (block-fill-frontend + block-fill-backend)
+  [DONE] Infinity Loop (infinity-loop-frontend + infinity-loop-backend)
+  [DONE] Logic Reflector (logic-reflector-frontend + logic-reflector-backend)
+  [DONE] Maze Navigation (maze-navigation-frontend + maze-navigation-backend)
+  [DONE] Memory Card Matching (memory-card-matching-frontend + backend)
+  [DONE] Sequence Recall (sequence-recall-frontend + sequence-recall-backend)
+  [DONE] Sliding Puzzle (sliding-puzzle-frontend + sliding-puzzle-backend)
+
+EACH GAME HAS:
+  [DONE] React 19 + TypeScript + Vite 6 frontend
+  [DONE] NestJS 11 + Bun + Prisma backend
+  [DONE] Seeded PRNG for deterministic content generation
+  [DONE] Server-side scoring validation
+  [DONE] WebSocket real-time communication
+  [DONE] Instruction screen + result screen (micro-screens)
+  [DONE] 7-stage theme system (colors change per difficulty)
+  [DONE] Anti-cheat basics (timing, input patterns)
+  [DONE] Audio system (Howler/Phaser audio)
+  [DONE] Responsive mobile-first design
+  [DONE] Zubaco branding (fonts, colors, logo, copy)
+
+ADMIN PANEL:
+  [DONE] Next.js 16 frontend + NestJS 11 backend
+  [DONE] Game management CRUD
+  [DONE] Rebranded to Zubaco (colors, sidebar, favicon)
+  [DONE] Radix UI components + TanStack Query
+
+INFRASTRUCTURE (partial):
+  [DONE] Prisma schemas per game (PostgreSQL)
+  [DONE] Redis integration (caching, sessions)
+  [DONE] Restate durable execution workflows
+  [DONE] AWS SDK references (S3, SQS, SNS, CloudFront)
+  [DONE] .env.example configs for all services
+
+===============================================
+NEEDS TO BE BUILT
+===============================================
+
+NEW GAMES (12 - frontend + backend each):
+  [TODO] Flash Spot
+  [TODO] Object Placement Memory
+  [TODO] Colour-Based Sorting (Ball Sort)
+  [TODO] Rapid Category Sort
+  [TODO] Word Unscramble Race
+  [TODO] True or False Blitz
+  [TODO] Number Grid Sprint
+  [TODO] Live Route Builder
+  [TODO] Memory Groups
+  [TODO] Reflex Endurance
+  [TODO] Pattern Survival
+  [TODO] Speed Type Answer
+
+PLATFORM SYSTEMS:
+  [TODO] Mobile App (React Native / Flutter)
+  [TODO] User Authentication (OAuth + JWT + OTP)
+  [TODO] User Profile system
+  [TODO] Wallet (payments, withdrawals, KYC)
+  [TODO] Free Play level progression system
+  [TODO] Tournament/elimination engine
+  [TODO] Season management system
+  [TODO] Cohort/bucket management
+  [TODO] Leaderboard system (global + per-stage + friends)
+  [TODO] Push notification system
+  [TODO] Referral/invite system
+  [TODO] Social features (friends, challenges)
+  [TODO] Payment gateway integration (Razorpay/Stripe)
+
+ADMIN PANEL EXTENSIONS:
+  [TODO] Season/tournament management UI
+  [TODO] User management (search, ban, wallet ops)
+  [TODO] Analytics dashboard (DAU/MAU, revenue, retention)
+  [TODO] Anti-cheat review queue
+  [TODO] Content management (notifications, banners)
+  [TODO] Prize distribution management
+
+INFRASTRUCTURE:
+  [TODO] Terraform IaC for all AWS resources
+  [TODO] CI/CD pipelines (GitHub Actions)
+  [TODO] Docker containers per service
+  [TODO] Auto-scaling configuration
+  [TODO] Monitoring & alerting setup
+  [TODO] Load testing scripts (k6)
+  [TODO] SSL/domain setup
+  [TODO] WAF/security configuration
+
+ASSET REQUIREMENTS (Design/Audio - not code):
+  [TODO] New audio files (BGM + SFX for all games)
+  [TODO] CloudFront stage overlay images (7 per game)
+  [TODO] PNG icons for stages 5-7
+  [TODO] Game-specific sprites (card backs, avatars, etc.)
+  [TODO] OG/social sharing images
+  [TODO] App store screenshots & marketing materials
+  [TODO] Promo video / trailer
+
+
+================================================================================
+PRIORITY ORDER FOR BUILDING
+================================================================================
+
+PHASE 1 (Week 1-2): Core Infrastructure
+  -> User auth system (registration, login, JWT)
+  -> Mobile app shell (React Native, basic navigation)
+  -> Free play mode skeleton (level selection UI)
+
+PHASE 2 (Week 3-6): New Games
+  -> Build 12 new games (follow existing pattern)
+  -> ~2-3 games per week (frontend + backend each)
+  -> Hook into free play level system
+
+PHASE 3 (Week 7-8): Tournament Engine
+  -> Season CRUD
+  -> Stage management
+  -> Elimination engine
+  -> Leaderboard
+
+PHASE 4 (Week 9-10): Payments & Social
+  -> Wallet system
+  -> Payment gateway
+  -> Referral system
+  -> Push notifications
+
+PHASE 5 (Week 11-12): Polish & Deploy
+  -> Admin panel extensions
+  -> Anti-cheat hardening
+  -> DevOps / CI/CD / Terraform
+  -> Load testing
+  -> App store submission
+
+================================================================================
+END OF DOCUMENT
+================================================================================

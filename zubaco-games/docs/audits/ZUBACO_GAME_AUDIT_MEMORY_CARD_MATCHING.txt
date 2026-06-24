@@ -1,0 +1,1196 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #9: MEMORY CARD MATCHING
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Memory card matching — find pairs of cards on a grid within a time
+          limit. Multiple levels with increasing grid sizes.
+Stack: NestJS 11 + Prisma 7 + Restate + Redis + BullMQ + Socket.IO (backend),
+       React 19 + Vite 6 + Zustand + TailwindCSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Memory Card Matching is the STRONGEST anti-cheat implementation seen so far
+in the Zubaco platform. All match validation happens SERVER-SIDE — clients
+submit card flip IDs and the server checks pairIds from its own snapshot.
+Score is computed server-side. Clients cannot claim a match.
+
+The backend uses Restate virtual objects for exactly-once session state,
+comprehensive anti-cheat detection (impossible solve times, click-too-fast,
+bot timing analysis via coefficient of variation), and idempotent move
+processing for mobile reliability.
+
+However, the frontend subagent found that the client ALSO performs match
+validation locally (for immediate UI feedback), which creates a dual-authority
+situation. The VITE_ENCRYPTION_KEY exposure and platform-common fallback
+secrets remain present.
+
+TOTAL ISSUES: 47 (4 Critical, 8 High, 18 Medium, 17 Low)
+
+RELEASE READINESS SCORE: 68/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: WS Gateway fallback 'dev-secret' for JWT verification
+BLOCKER-2: HMAC Guard fallback 'dev-hmac-secret'
+BLOCKER-3: .env committed with DB credentials + JWT_SECRET + ENCRYPTION_KEY
+BLOCKER-4: VITE_ENCRYPTION_KEY exposed in client bundle
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (15 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: WS Gateway Fallback Secret 'dev-secret'                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (line 37)                                       │
+│                                                                              │
+│ Code:                                                                        │
+│   const secret = process.env.JWT_SECRET || 'dev-secret';                     │
+│                                                                              │
+│ Impact: Any attacker who knows the fallback can forge JWT tokens and         │
+│ impersonate any user via WebSocket connections.                               │
+│                                                                              │
+│ Fix: Remove fallback. Disconnect client if no secret configured.             │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: HMAC Guard Fallback Secret 'dev-hmac-secret'                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts (line 17)                              │
+│                                                                              │
+│ Code:                                                                        │
+│   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';                │
+│                                                                              │
+│ Fix: Throw at startup if HMAC_SECRET is not set.                             │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: .env Committed With Dev Credentials                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env                                                                   │
+│                                                                              │
+│ Contents:                                                                    │
+│   DATABASE_URL=postgresql://zubaco:zubaco_dev_2024@localhost:5432/zubaco      │
+│   JWT_SECRET=dev-jwt-secret-min-32-chars-here                                │
+│   ENCRYPTION_KEY=0123456789abcdef0123456789abcdef...                         │
+│                                                                              │
+│ Fix: Remove .env from repo. Use .env.example with placeholder values.        │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: WebSocket join-session No Ownership Check                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (line 67-71)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   @SubscribeMessage('join-session')                                          │
+│   handleJoinSession(client, data: { sessionId: string }): void {             │
+│     client.join(`session:${data.sessionId}`);                                │
+│   }                                                                          │
+│                                                                              │
+│ Description: Any authenticated user can join ANY session room. They           │
+│ receive real-time card flip events for other players' games. Could be         │
+│ exploited to gain information about card positions in multiplayer modes.      │
+│                                                                              │
+│ Fix: Verify client.data.userId owns the session before joining.              │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: In-Memory Rate Limiter — Unbounded Growth                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/ip-rate-limiter.middleware.ts (line 12)                   │
+│                                                                              │
+│ Description: Map<string, RateEntry> never cleaned up. Expired entries         │
+│ only overwritten on same-IP revisit. DDoS from rotating IPs → OOM.          │
+│                                                                              │
+│ Fix: Add periodic setInterval sweep or use Redis-backed rate limiting.       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: Session Cleanup Processor is a No-Op                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bug                                                                │
+│ File: src/queue/processors/session-cleanup.processor.ts (line 10-13)         │
+│                                                                              │
+│ Code:                                                                        │
+│   async process(job: Job): Promise<void> {                                   │
+│     this.logger.log(`Running session cleanup: ${job.name}`);                 │
+│     const expiredBefore = new Date(Date.now() - 30 * 60 * 1000);            │
+│     this.logger.log(`Cleaning sessions expired before ${expiredBefore}`);    │
+│     // No actual deletion/update!                                            │
+│   }                                                                          │
+│                                                                              │
+│ Impact: Orphaned 'active' sessions from crashed clients never cleaned up.    │
+│                                                                              │
+│ Fix: Inject PrismaService and mark stale sessions as 'lost'.                 │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Game Events Processor All Handlers Are No-Ops                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Incomplete Implementation                                          │
+│ File: src/queue/processors/game-events.processor.ts (line 30-56)             │
+│                                                                              │
+│ Description: handleScoreSubmitted, handleSessionCompleted,                    │
+│ handleCheatDetected — all just log, do nothing. No leaderboard updates,      │
+│ no notifications, no bans.                                                   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Dead Engine Modules (6 Files Never Used)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Dead Code                                                          │
+│ Files: src/game/engine/achievementEngine.ts                                  │
+│        src/game/engine/boosterEngine.ts                                      │
+│        src/game/engine/comboEngine.ts                                        │
+│        src/game/engine/dailyChallenge.ts                                     │
+│        src/game/engine/leaderboard.ts                                        │
+│        src/game/engine/scoreHistory.ts                                       │
+│                                                                              │
+│ Description: ~300 lines of dead code. Only referenced by their own tests.    │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: CORS Falls Back to Allow-All (Wildcard '*')                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts + .env                                                     │
+│                                                                              │
+│ Description: CORS_ORIGINS not set in .env; validation defaults to '*'.       │
+│ WebSocket gateway also defaults to '*'.                                       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 57-63)                                               │
+│                                                                              │
+│ Description: /api/docs always mounted. Reveals internal API structure.       │
+│                                                                              │
+│ Fix: Guard behind NODE_ENV !== 'production'.                                 │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Client Timestamps Trusted for Move Ordering                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line ~300-310)                               │
+│                                                                              │
+│ Description: Move timestamps (clickedAt) are client-provided. While          │
+│ future-skew is checked, a sophisticated cheater can craft timestamps         │
+│ with artificial spacing to bypass bot detection (CV threshold).              │
+│                                                                              │
+│ Fix: Use server-side receivedAt timestamps for anti-cheat analysis.          │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: moveHistory Grows Unbounded in Restate State                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/game/game.service.ts (line ~395)                                   │
+│                                                                              │
+│ Code:                                                                        │
+│   moveHistory: [...session.moveHistory, ...newMoveRecords]                   │
+│                                                                              │
+│ Description: Appends indefinitely. For large grids with many mismatches,     │
+│ could hit Restate state size limits or cause serialization overhead.          │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: Unique Constraint Blocks Replay                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Game Logic                                                         │
+│ File: prisma/schema.prisma (line ~138)                                       │
+│                                                                              │
+│ Description: @@unique([ownerKey, stageId]) on GameSession means a user       │
+│ can only have one session per stage ever. Code handles via status checks,    │
+│ but if replay is intended, this constrains it.                               │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Env Validation Only Warns in Dev                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Configuration                                                      │
+│ File: src/config/env.validation.ts (line 35-38)                              │
+│                                                                              │
+│ Description: Missing env vars in non-production emit warnings only.          │
+│ Combined with B-01/B-02, dev/staging happily runs with fallback secrets.     │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: SQS Consumer No Graceful Shutdown Hook                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Architecture                                                       │
+│ File: src/aws/sqs.service.ts                                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (32 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: VITE_ENCRYPTION_KEY Exposed in Client Bundle                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/config/appConfig.ts                                                │
+│                                                                              │
+│ Description: AES-256-GCM encryption key baked into the JS bundle via         │
+│ import.meta.env.VITE_ENCRYPTION_KEY. Anyone can extract it from bundle       │
+│ and decrypt all API request/response payloads.                               │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Client-Side Match Validation (Dual Authority)                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/ (game state/reducer)                                         │
+│                                                                              │
+│ Description: Client performs its own match validation for immediate UI        │
+│ feedback (flipping cards, showing match/mismatch). While the SERVER is       │
+│ the authority (server validates pairId), the client stores card pairIds       │
+│ locally. A cheater can read pairId from React state or component props       │
+│ to identify all pairs without flipping.                                       │
+│                                                                              │
+│ Mitigation: Server-side validation is the final word. Cheater still           │
+│ must submit valid moves through proper API.                                  │
+│                                                                              │
+│ Fix: Don't expose pairId to client. Send only cardId + content.              │
+│ Server determines if two flipped cards match.                                │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Card pairId Exposed in API Response                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: API response / game state                                              │
+│                                                                              │
+│ Description: Server sends pairId for each card in level data. DevTools:      │
+│                                                                              │
+│   const cards = gameState.currentLevel.cards;                                │
+│   const pairs = {};                                                          │
+│   cards.forEach(c => { pairs[c.pairId] = pairs[c.pairId] || [];             │
+│     pairs[c.pairId].push(c.cardId); });                                     │
+│   // Now you know all pairs instantly                                        │
+│                                                                              │
+│ Impact: Players can solve ANY level perfectly without visual memory.          │
+│ Server anti-cheat (CV, impossible time) may catch automated solvers.         │
+│                                                                              │
+│ Fix: Don't send pairId to client. Server responds "match/no-match"           │
+│ after client sends two card IDs.                                             │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Preview Timing Exploitable via Debugger                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/ (preview/timer component)                                    │
+│                                                                              │
+│ Description: During card preview phase, player can pause JS execution         │
+│ via debugger, inspect cards at leisure, resume. Combined with F-03,           │
+│ less impactful since pairIds already readable.                               │
+│                                                                              │
+│ Fix: Server tracks preview start time. Reject moves submitted before         │
+│ expected preview-end time.                                                   │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: Dev Auth Code in Production Paths                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/services/ or src/api/                                              │
+│                                                                              │
+│ Description: Development-mode authentication bypass code present in           │
+│ production paths. May allow unauthenticated access in certain builds.        │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Verbose Console Logging Leaking Game State                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: Multiple game components                                               │
+│                                                                              │
+│ Description: Console.log statements expose internal game state (card          │
+│ pairs, match results, session data) in production DevTools console.           │
+│                                                                              │
+│ Fix: Strip console.* in production via Vite plugin (vite-plugin-remove).     │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: Source Maps Likely Shipped to Production                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: vite.config.ts                                                         │
+│                                                                              │
+│ Description: No explicit sourcemap: false in build config.                    │
+│                                                                              │
+│ Fix: build: { sourcemap: false }                                             │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Keyboard Navigation (WCAG Failure)                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: Game board components                                                  │
+│                                                                              │
+│ Description: Cards not focusable/selectable via keyboard. Tab navigation     │
+│ doesn't work. WCAG 2.1 Level A violation.                                    │
+│                                                                              │
+│ Fix: Add tabIndex, onKeyDown (Enter/Space to flip), focus indicators.        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: Nested Timeout Cleanup Bug                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bug                                                                │
+│ File: src/game/ (timer/mismatch display component)                           │
+│                                                                              │
+│ Description: setTimeout for mismatch display duration may not be             │
+│ properly cleaned up on unmount. Can cause stale state updates.               │
+│                                                                              │
+│ Fix: Track timeout IDs in a ref and clear in useEffect cleanup.              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: No Haptic Feedback on Card Flip                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Game Feel                                                     │
+│ File: Card flip handler                                                      │
+│                                                                              │
+│ Description: No vibration on card flip, match, mismatch, or completion.      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Cards feel like clicking dead buttons                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: Unauthenticated Admin API Calls                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/api/ (admin endpoints)                                             │
+│                                                                              │
+│ Description: Some admin-level API calls accessible without proper role        │
+│ validation from the game client.                                             │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: Scroll Jank from Non-Passive Event Listener                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: Touch/scroll handler                                                   │
+│                                                                              │
+│ Description: Touch event listeners not registered as passive.                 │
+│                                                                              │
+│ Fix: Add { passive: true } to touch event listeners.                         │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: Type Mismatch on StageNumber                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bug                                                                │
+│ File: src/types/ or game components                                          │
+│                                                                              │
+│ Description: StageNumber type inconsistent across multiple files.             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: No Sound Effects                                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: Game interaction handlers                                              │
+│                                                                              │
+│ Description: No audio on card flip, match, mismatch, completion, timer.      │
+│                                                                              │
+│ Player Impact: Game feels lifeless without audio feedback                     │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: No Match Celebration Animation                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Card match handling                                                    │
+│                                                                              │
+│ Description: Matched cards just stay flipped. No glow/pulse/particles.       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: No Timer Warning Visual/Audio                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Timer component                                                        │
+│                                                                              │
+│ Description: No urgency indicator when timer is running low.                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: No Combo/Streak Feedback                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX / Engagement                                                    │
+│ File: Game state/UI                                                          │
+│                                                                              │
+│ Description: No visual indicator for consecutive matches.                     │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: No Network Error Recovery During Game                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: API/save-progress calls                                                │
+│                                                                              │
+│ Description: If network fails during save-progress, player's matched         │
+│ pairs may not sync. No visible retry indicator.                              │
+│                                                                              │
+│ Mitigation: Backend has idempotent move processing (safe retries).           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: No Mismatch Penalty Visual                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: Card mismatch handling                                                 │
+│                                                                              │
+│ Description: Cards flip back with no emotional weight on mismatch.           │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: No Pause Functionality                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Game UI                                                                │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: No Card Flip Count Display                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: HUD/UI                                                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-22: No Pairs Remaining Counter                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: HUD/UI                                                                 │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-23: No Difficulty Preview Before Start                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Game start screen                                                      │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-24: No prefers-reduced-motion Support                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Accessibility                                                      │
+│ File: Animations/CSS                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-25: Dead Code / Unused Dependencies                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: package.json                                                           │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-26: Fake Analytics (No Real Integration)                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Incomplete Implementation                                          │
+│ File: src/services/ (analytics)                                              │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-27: No Score Breakdown on Results Screen                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Result/game-over screen                                                │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-28: No "Play Again" Button After Game Over                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: Game over screen                                                       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-29: No ARIA Labels on Cards                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Accessibility                                                      │
+│ File: Card component                                                         │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-30: No i18n Visible                                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: i18n                                                               │
+│ File: src/locales/                                                           │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-31: No Card Theme Customization                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Game settings                                                          │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-32: No Hint System                                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: Game UI                                                                │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Profile:
+
+1. Card Flip Animation
+   - 3D CSS transform (WELL DONE — hardware-accelerated)
+   - No jank reported in standard grid sizes
+   - Large grids (6×6 = 36 cards) may stutter on low-end devices
+
+2. Save-Progress Batching
+   - EXCELLENT: Moves are batched before submission (adaptive batching)
+   - Reduces network overhead significantly
+   - Idempotent processing ensures safety on retry
+
+3. State Management (Zustand)
+   - Pure reducer architecture minimizes re-renders
+   - Card state updates are localized (only flipped cards re-render)
+
+4. Network Performance
+   - Server-authoritative timer synced every 5 seconds
+   - Batched progress saves reduce request count
+   - Session resumption on reconnect (resilient)
+
+5. Memory Considerations
+   - moveHistory grows unbounded in Restate state (backend B-12)
+   - Frontend: proper effect cleanup reported
+   - No WebGL (pure CSS animations — no context leaks)
+
+ESTIMATED PERFORMANCE PROFILE:
+- Card flip animation: <16ms (GPU-accelerated 3D transform)
+- Save-progress round-trip: ~50-100ms
+- Timer sync: every 5s (lightweight)
+- Grid rendering (6×6): <5ms initial render
+- Main bottleneck: Network latency on save-progress
+
+VERDICT: Performance is GOOD. No major bottlenecks.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ 3D card flip animations (tactile, satisfying)
+✓ Card preview phase (see all cards briefly before starting)
+✓ Server-authoritative timer with client sync
+✓ Session resumption (can continue after app restart)
+✓ Adaptive save-progress batching (reduces network calls)
+✓ Pure reducer state architecture (predictable UI)
+✓ Encrypted localStorage (offline state protection)
+✓ Progressive difficulty (larger grids in later levels)
+
+UX PROBLEMS:
+
+1. No Sound Effects (MAJOR)
+   - Card flip, match, mismatch, completion — all silent
+   - Memory games NEED audio for spatial memory reinforcement
+   - FRUSTRATION LEVEL: MEDIUM
+
+2. No Haptic Feedback
+   - Card flip should have subtle vibration
+   - Match should have celebration haptic
+   - FRUSTRATION LEVEL: MEDIUM
+
+3. No Match Celebration Animation
+   - Matched cards just stay flipped
+   - Should scale up, glow, or have particles
+   - FRUSTRATION LEVEL: LOW
+
+4. No Timer Warning
+   - Timer counts down silently
+   - No urgency indicator in final seconds
+   - FRUSTRATION LEVEL: MEDIUM (surprise time-up)
+
+5. No Flip Counter
+   - Player doesn't know their efficiency
+   - FRUSTRATION LEVEL: LOW
+
+6. No Pairs Progress Indicator
+   - "4/8 pairs found" would help track progress
+   - FRUSTRATION LEVEL: LOW
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features that memory game players EXPECT:
+
+1.  [!] Sound effects (flip, match, mismatch, complete)
+2.  [!] Haptic feedback
+3.  [!] Match celebration animation (glow/pulse/particles)
+4.  [ ] Flip counter display
+5.  [ ] Pairs remaining counter (4/8 found)
+6.  [ ] Timer warning (color change + sound at 10s)
+7.  [ ] Score breakdown on results screen
+8.  [ ] Play Again button
+9.  [ ] Difficulty preview before start (grid size)
+10. [ ] Combo streak indicator
+11. [ ] Hint button (limited, costs points)
+12. [ ] Card theme customization
+13. [ ] Daily challenge
+14. [ ] Personal best tracking
+15. [ ] prefers-reduced-motion support
+16. [ ] Keyboard navigation (tab through cards)
+17. [ ] Mismatch "shake" animation on wrong pair
+18. [ ] Pause functionality
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Match found → cards pulse/glow with particle burst
+2. Mismatch → cards shake briefly before flipping back
+3. Combo streak → "3x!" floating text, escalating effects
+4. Timer <10s → red pulse, ticking sound, screen vignette
+5. Level complete → confetti + score tally animation
+6. Card flip sound: crisp "click-flip" audio
+7. Match sound: ascending chime
+8. Mismatch sound: subtle low tone
+9. Card hover/touch → subtle scale-up (1.02x)
+10. Preview phase → dramatic reveal animation (cards flip from face-up to down)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Remove console.log statements in production build
+2. Disable source maps in production
+3. Add passive: true to touch event listeners
+4. Respect prefers-reduced-motion for animations
+5. Add sound effects (Web Audio API for instant playback)
+6. Strip dead code / unused dependencies
+7. Don't expose pairId in client state
+
+Backend:
+1. Remove fallback secrets (CRITICAL)
+2. Remove .env from VCS
+3. Don't send pairId to client — server validates matches
+4. Implement session cleanup processor (currently no-op)
+5. Implement game events processor (currently no-op)
+6. Add periodic cleanup to rate limiter
+7. Use server-side timestamps for anti-cheat
+8. Cap moveHistory size in Restate state
+9. Remove dead engine modules
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Secret Management
+- .env committed (JWT + DB + encryption key)
+- WS fallback 'dev-secret'
+- HMAC fallback 'dev-hmac-secret'
+- VITE_ENCRYPTION_KEY in bundle
+- Severity: CRITICAL
+
+Attack Surface 2: Anti-Cheat
+- pairId sent to client → cheater can identify all pairs via DevTools
+- Client timestamps trusted for move ordering
+- Preview phase can be paused via debugger
+- However: Server VALIDATES all matches. Score computed server-side.
+- However: Anti-cheat detects impossible times and bot timing patterns.
+- Severity: MEDIUM (much better than most games in the platform)
+
+Attack Surface 3: WebSocket
+- join-session has no ownership check (spy on others' games)
+- Fallback secret enables WS auth bypass
+- Severity: HIGH
+
+Attack Surface 4: Resource Exhaustion
+- In-memory rate limiter grows unbounded
+- moveHistory grows unbounded in Restate state
+- Severity: MEDIUM
+
+OVERALL SECURITY POSTURE:
+This is the BEST anti-cheat implementation seen so far in the platform.
+Server validates every match. Score is server-computed. Anti-cheat detects
+bots via timing analysis. The main weakness is pairId exposure allowing
+a human to "peek" at pairs, but automated exploitation is detectable.
+
+Anti-cheat comparison across games:
+- Logic Reflector: Server runs physics → client can't cheat → STRONG
+- Memory Card Matching: Server validates matches + anti-cheat → STRONG
+- Maze Navigation: Full grid sent to client → bot BFS → WEAK
+- Most other games: Client-side scoring fallbacks → WEAK
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Positive" - 6.5/10
+
+POSITIVE REVIEWS WOULD SAY:
+"Clean card flip animations. Very satisfying."
+"Game saves progress if I switch apps. Nice!"
+"Fair difficulty curve. Starts easy, gets challenging."
+"No cheaters on leaderboard — seems legit."
+"Card preview before start is a nice touch."
+"Timer keeps it exciting without being too stressful."
+
+NEGATIVE REVIEWS WOULD SAY:
+"ZERO sound?! Card flips need that satisfying 'click' sound!"
+"No vibration when I find a match. Feels dead."
+"Where's my flip count? Am I doing well?"
+"Timer ran out with no warning. One second it was fine, next GAME OVER."
+"Found a match but nothing happened. Just... stayed flipped. Anticlimactic."
+"Can't use keyboard. Accessibility nightmare."
+"No replay button after game over? Really?"
+"I can see the pairIds in DevTools. Not very secure."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Top 10 player complaints (predicted):
+
+1. "No sound! Card games NEED sound!" — Silent flips feel wrong
+2. "Found a match and... nothing happened" — No celebration animation
+3. "Timer killed me with no warning!" — No urgency indicator
+4. "No vibration feedback at all" — Haptic missing
+5. "Can't see my flip count" — No efficiency metric
+6. "Where's play again?" — Must navigate back manually
+7. "I matched 3 in a row and nothing special happened" — No combo
+8. "The mismatch just... flips back quietly" — No error feedback
+9. "Can't pause when interrupted" — No pause button
+10. "What does my score mean?" — No breakdown
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Visual memory challenge (genuine cognitive skill)
+✓ Progressive difficulty (larger grids = harder)
+✓ Time pressure creates urgency
+✓ Card preview adds strategic memorization phase
+✓ Quick sessions (30-120 seconds per level)
+✓ Multi-level structure (sustained engagement)
+✓ Fair competition (server-validated, no cheaters)
+✓ 3D flip animations (tactile satisfaction)
+✓ Session persistence (can resume after interruption)
+
+Flow State Enablers:
+✓ Clear goal (match all pairs)
+✓ Immediate feedback (card flips instantly)
+✓ Growing mastery (memory improves with practice)
+✓ Escalating challenge (more pairs, larger grids)
+✓ Time limit creates focus (no dawdling)
+
+What Would Amplify Fun:
+- Sound effects (auditory memory reinforcement!)
+- Combo streaks (reward consecutive matches)
+- Celebration animations (dopamine on match)
+- Timer warning (builds tension naturally)
+- Hint system (frustration relief valve)
+- Personal best tracking (self-competition)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. NO SOUND = NO SATISFACTION
+   - Memory games are AUDIO-VISUAL experiences
+   - Sound reinforces spatial memory (auditory + visual = stronger recall)
+   - Without sound, matches feel hollow
+   - "I matched them all but felt nothing"
+
+2. NO CELEBRATION ON MATCH
+   - The moment of finding a pair should be REWARDING
+   - No particles, no glow, no scale-up, no sound
+   - Dopamine is what brings players back
+
+3. NO COMBO/STREAK SYSTEM
+   - Consecutive matches should feel AMAZING
+   - "3x combo!" "4x STREAK!" with escalating effects
+   - Creates viral "I got 8x combo!" share moments
+
+4. NO SOCIAL SHARING
+   - Can't share "I memorized 18 pairs in 45 seconds!"
+   - No screenshot-worthy moment
+   - No daily challenge for shared competition
+
+5. TOO GENERIC VISUALLY
+   - Memory games compete on visual charm
+   - Generic cards won't stand out in app stores
+   - Needs distinct visual identity / theme
+
+6. NO TIMER WARNING
+   - Players feel cheated by sudden time-up
+   - Warning creates EXCITING final moments
+   - The "clutch finish" is viral content
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     80/100 (Restate, Zustand, pure reducers)
+- Security:                         35/100 (fallback secrets, pairId exposed)
+- Performance:                      75/100 (CSS animations, batching, no leaks)
+- Game Logic & Correctness:         85/100 (server-authoritative, idempotent)
+- UX & Polish:                      45/100 (good flip anim, no sound/haptic)
+- Anti-Cheat:                       70/100 (server validates, timing analysis)
+- Accessibility:                    25/100 (no keyboard, no ARIA, no motion)
+- Retention & Engagement:           50/100 (no combo, no celebration, no share)
+- Error Handling:                   65/100 (session resume, idempotent saves)
+- Production Readiness:             55/100 (source maps, dead code, no-op procs)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 68/100
+═══════════════════════════════════════
+
+VERDICT: STRONGEST ANTI-CHEAT, NEEDS JUICE
+This is the best-architected game in the platform so far. Server-side match
+validation, anti-cheat timing analysis, idempotent move processing, and session
+persistence are all excellent. What's missing is JUICE — sound, haptics,
+celebration animations, combo feedback. The game WORKS correctly but doesn't
+FEEL rewarding. Add sensory feedback and this jumps to 78+.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: CRITICAL SECURITY (0.5 day)
+  □ Remove fallback secrets (WS gateway + HMAC guard)
+  □ Remove .env from VCS
+  □ Disable source maps in production build
+  □ Strip console.log from production build
+  □ Remove dev auth code from production paths
+
+PHASE 2: ANTI-CHEAT HARDENING (1 day)
+  □ Don't send pairId to client (server determines match/no-match)
+  □ Add server-side receivedAt timestamps for anti-cheat
+  □ Add preview-phase timing validation (reject moves before preview ends)
+  □ Implement session cleanup processor
+  □ Implement game events processor
+
+PHASE 3: GAME JUICE / UX (1-2 days)
+  □ Add sound effects (flip, match, mismatch, complete, timer-low)
+  □ Add haptic feedback (flip, match, mismatch)
+  □ Add match celebration animation (glow + scale pulse)
+  □ Add mismatch shake animation
+  □ Add timer warning (color change + pulse at 10s)
+  □ Add combo/streak indicator
+  □ Add flip counter display
+  □ Add pairs remaining counter
+
+PHASE 4: ENGAGEMENT (1 day)
+  □ Add score breakdown on results screen
+  □ Add "Play Again" button
+  □ Add difficulty preview before start
+  □ Add keyboard navigation (Tab + Enter)
+  □ Add prefers-reduced-motion support
+
+PHASE 5: HARDENING (0.5 day)
+  □ Remove dead engine modules
+  □ Fix timeout cleanup bug
+  □ Add periodic cleanup to rate limiter
+  □ Add WebSocket session ownership check
+  □ Make CORS_ORIGINS required in production
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ranked by (Player Impact × Effort Efficiency):
+
+#1  Add sound effects (flip, match, mismatch)
+    Effort: 1-2 hours | Impact: Game becomes ALIVE
+    ROI: 10x (Web Audio API, 3 sounds transform the experience)
+
+#2  Add match celebration animation (glow + pulse)
+    Effort: 30 minutes | Impact: Dopamine on every match
+    ROI: 9x (CSS animation, massive emotional reward)
+
+#3  Remove fallback secrets
+    Effort: 30 minutes | Impact: Prevents auth bypass
+    ROI: ∞ (non-negotiable security)
+
+#4  Don't send pairId to client
+    Effort: 2-3 hours | Impact: Eliminates DevTools cheat
+    ROI: 8x (requires refactoring match detection to pure server-side)
+
+#5  Add timer warning (color + pulse at 10s)
+    Effort: 30 minutes | Impact: Creates exciting final moments
+    ROI: 7x (CSS transition + conditional class)
+
+#6  Add haptic feedback
+    Effort: 30 minutes | Impact: Cards feel physical
+    ROI: 7x (navigator.vibrate() calls)
+
+#7  Add combo/streak indicator
+    Effort: 1 hour | Impact: Rewards skilled play
+    ROI: 6x (counter + floating text + escalating effects)
+
+#8  Add flip counter + pairs remaining
+    Effort: 30 minutes | Impact: Progress visibility
+    ROI: 6x (simple state display, huge UX improvement)
+
+#9  Strip console.log from production
+    Effort: 15 minutes | Impact: No game state leakage
+    ROI: 5x (Vite plugin, trivial setup)
+
+#10 Add "Play Again" button
+    Effort: 15 minutes | Impact: Reduces friction for retention
+    ROI: 5x (one button, significant re-engagement)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+What's WELL DONE in this game:
+
+BACKEND (EXCELLENT — Best in Platform):
+✓ Server-authoritative match validation (pairId checked server-side)
+✓ Server-side score computation (client can't manipulate scores)
+✓ Anti-cheat detection: impossible solve time check
+✓ Anti-cheat detection: click-too-fast patterns
+✓ Anti-cheat detection: bot timing via coefficient of variation
+✓ Cheat flags persisted and published to SNS
+✓ Restate virtual objects for exactly-once session state
+✓ Idempotent move processing (processedMoveIdsByLevel)
+✓ Session config snapshotting (admin changes don't affect in-flight)
+✓ timingSafeEqual in HMAC guard (prevents timing attacks)
+✓ Zod validation pipe (schema-based input validation)
+✓ Graceful shutdown, circuit breaker, tracing modules
+✓ Unique constraint prevents duplicate active sessions
+✓ Session expiry via durable Restate timer
+✓ CryptoModule + DecryptionMiddleware (defense-in-depth)
+
+FRONTEND:
+✓ 3D card flip animations (CSS transform, hardware-accelerated)
+✓ Pure reducer architecture (predictable state)
+✓ Proper effect cleanup
+✓ Adaptive save-progress batching (network-efficient)
+✓ Encrypted localStorage (offline state protection)
+✓ Session resumption (can continue after app restart)
+✓ Server-authoritative timer with 5s sync intervals
+✓ Zustand for clean state management
+
+GAME DESIGN:
+✓ Card preview phase (memorization before action)
+✓ Progressive difficulty (increasing grid sizes)
+✓ Time pressure (creates urgency without frustration)
+✓ Multiple levels per session (sustained engagement)
+✓ Efficiency-based scoring encourages fewer flips
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1 (Arrows):             58/100
+  Game #2 (Block Fill):         62/100
+  Game #3 (Colour Sorting):     61/100
+  Game #4 (Flash Spot):         56/100
+  Game #5 (Infinity Loop):      59/100
+  Game #6 (Live Route Builder): 48/100 ← LOWEST
+  Game #7 (Logic Reflector):    72/100 ← PREVIOUS HIGHEST
+  Game #8 (Maze Navigation):    58/100
+  Game #9 (Memory Card Match):  68/100 ← SECOND HIGHEST
+
+vs Logic Reflector (72/100):
+- Better: Anti-cheat (server validates + timing analysis + cheat flags)
+- Better: Session persistence (resume after crash/app switch)
+- Better: Idempotent moves (network-reliable)
+- Worse: Less complex game mechanics (simpler game = less depth)
+- Same: No sound/haptics
+- Same: Platform security issues (fallback secrets)
+
+MEMORY CARD MATCHING UNIQUE STRENGTHS (not found in other games):
+★ Server-authoritative match validation (gold standard)
+★ Anti-cheat timing analysis (coefficient of variation)
+★ Idempotent move processing (safe retries)
+★ Session resumption with encrypted local state
+★ Adaptive batching for progress saves
+★ Config snapshotting (admin-proof in-flight games)
+★ 3D CSS flip animations (no WebGL needed)
+★ Pure reducer state architecture
+
+MEMORY CARD MATCHING UNIQUE ISSUES:
+★ pairId sent to client (DevTools reveals all pairs)
+★ Preview phase exploitable via debugger pause
+★ Client timestamps trusted for anti-cheat
+★ Session cleanup processor is a no-op
+★ Game events processor is a no-op
+★ Unique constraint may block replay
+
+================================================================================
+END OF AUDIT — GAME #9: MEMORY CARD MATCHING
+================================================================================

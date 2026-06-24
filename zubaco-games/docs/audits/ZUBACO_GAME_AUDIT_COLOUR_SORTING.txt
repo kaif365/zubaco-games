@@ -1,0 +1,1523 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #3: COLOUR SORTING (Ball Sort Puzzle)
+================================================================================
+Audit Date: May 23, 2026
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Ball/tube sorting puzzle — sort colored balls into uniform tubes
+Stack: NestJS 11 + Restate + Prisma 7 + BullMQ (backend),
+       React 19 + Vite 6 + Framer Motion 12 + TailwindCSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Colour Sorting is a classic ball-sort puzzle with solid engineering foundations:
+- Server-side move replay and puzzle regeneration from seed (strong anti-cheat)
+- Deterministic seeded puzzle generation (mulberry32 + Fisher-Yates)
+- Atomic CAS pattern preventing double-submit race conditions
+- AES-256-GCM transport encryption
+- Restate durable execution for session expiry
+- Clean feature-based architecture with pure game engine
+
+Key weaknesses are identical to the platform-wide pattern (hardcoded fallback
+secrets), plus game-specific issues: stale closure race conditions in the
+frontend, a 10×/sec re-render bomb from the timer, and missing core UX
+expectations (no undo, no ball-lift animation, no haptics).
+
+TOTAL ISSUES: 56 (4 Critical, 10 High, 18 Medium, 24 Low)
+
+RELEASE READINESS SCORE: 61/100
+(Strong server-side anti-cheat, weakened by security misconfig + UX gaps)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Hardcoded fallback JWT secret ('dev-secret-colour-sorting')
+BLOCKER-2: Hardcoded fallback HMAC secret ('dev-hmac-secret')
+BLOCKER-3: .env file with secrets committed to repository
+BLOCKER-4: Encryption key exposed in client JS bundle (VITE_ prefix)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: Hardcoded Fallback JWT Secret with Race Condition                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/config/app.config.ts (line 2)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   jwtSecret: process.env.JWT_SECRET || 'dev-secret-colour-sorting'           │
+│                                                                              │
+│   The appConfig object is evaluated at MODULE LOAD TIME (import-time),       │
+│   BEFORE validateEnvironment() runs in main.ts bootstrap().                  │
+│   If any module reads appConfig.jwtSecret during import resolution,          │
+│   it gets the hardcoded fallback even if production env is set correctly.    │
+│                                                                              │
+│ Exploit Scenario:                                                            │
+│   1. JWT_SECRET is set in .env but module loads before validation             │
+│   2. OR: Container deployed without JWT_SECRET                               │
+│   3. Attacker forges JWT signed with 'dev-secret-colour-sorting'             │
+│   4. Full authenticated access as any user                                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use a lazy getter that throws if secret is missing:                        │
+│   get jwtSecret() { const s = process.env.JWT_SECRET;                        │
+│     if (!s) throw new Error('JWT_SECRET required'); return s; }              │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Complete account takeover for ALL users                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: Hardcoded Fallback HMAC Secret                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/common/guards/hmac.guard.ts (line 18)                              │
+│                                                                              │
+│ Description:                                                                 │
+│   this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';                │
+│   If HMAC_SECRET env var is unset, request signature verification            │
+│   uses the known string. All HMAC-protected endpoints exploitable.           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove fallback. Throw at construction time if missing.                    │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+│ Player Impact: Admin API requests forged, board manipulation possible        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: .env File With Secrets in Repository                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: .env (root of colour-sorting-backend)                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   JWT_SECRET="dev-secret-colour-sorting"                                     │
+│   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/colour_sorting" │
+│                                                                              │
+│   Present alongside source code. If committed to VCS, all deployments        │
+│   sharing these credentials are compromised.                                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   git rm --cached .env; add to .gitignore; rotate all secrets.               │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Full platform compromise if repo is exposed                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: WebSocket Gateway Uses DIFFERENT Fallback JWT Secret             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (line 39)                                       │
+│                                                                              │
+│ Description:                                                                 │
+│   const secret = process.env.JWT_SECRET || 'dev-secret';                     │
+│   WS gateway uses 'dev-secret' as fallback, while REST SessionGuard          │
+│   uses 'dev-secret-colour-sorting' from appConfig. Two different             │
+│   fallback secrets = tokens valid for REST may be rejected by WS             │
+│   and vice-versa. Also doubles the attack surface.                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use shared config service. Remove ALL fallbacks.                           │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Auth inconsistency + additional hardcoded secret              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: Health/Metrics Endpoints Publicly Accessible                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ Files: src/health/health.controller.ts, src/common/metrics/metrics.ctrl.ts   │
+│                                                                              │
+│ Description:                                                                 │
+│   /api/v1/health and /api/v1/metrics have no auth guards.                    │
+│   SessionGuard only applies to GameController explicitly.                    │
+│   Metrics exposes internal timing data, request counts, error rates.         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Protect /metrics behind API key. Restrict via network policy.              │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Indirect — helps attackers map system internals               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: Score Multiplier from levelConfig Not Applied Server-Side        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat / Game Logic                                            │
+│ File: src/game/game.service.ts (lines 77-115)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   startGame returns config.scoreMultiplier to client, but                    │
+│   calculateScore() in scorer.ts never applies any multiplier.                │
+│   The clientScore divergence check (±50 tolerance) catches large diffs       │
+│   but not precision manipulation of the multiplier.                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Apply scoreMultiplier in server-side calculateScore().                     │
+│   Pass level's multiplier into calculation during submission.                │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Score inconsistency between client/server                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Move Timestamp Validation Completely Missing                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (lines 90-105)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   submitResult iterates over moves[] and replays them, but NEVER             │
+│   validates the timestamp field on each move. A client could submit:         │
+│   - Timestamps before session started                                        │
+│   - All timestamps identical (instantaneous play)                            │
+│   - Timestamps in the future                                                 │
+│   - Out-of-order timestamps                                                  │
+│                                                                              │
+│ Exploit:                                                                     │
+│   Bot submits moves with 0ms intervals — no cheat flag raised.              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   const avgInterval = (moves.last.timestamp - moves[0].timestamp) / n;       │
+│   if (avgInterval < 100) flag 'SUPERHUMAN_SPEED';                            │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Bots dominate leaderboards with inhuman speed                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Race Condition in Session Expiry — 7-Second Grace Window         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (lines 83-86)                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   5-second grace period AFTER endTime + 2s grace from startGame =            │
+│   total 7-second window where submissions are accepted after time expires.   │
+│   Players can continue solving for 7 extra seconds.                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Reduce total grace to 2-3 seconds (network latency only).                 │
+│   Move expiry check into the atomic transaction.                             │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Unfair advantage for slow-network players                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: SecurityHeadersMiddleware Registered But Never Applied           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/app.module.ts (lines 72-75)                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   SecurityHeadersMiddleware imported but not added to consumer.              │
+│   X-Content-Type-Options, X-Frame-Options, etc. never set on responses.     │
+│   (Partially covered by helmet in main.ts but not completely.)               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add to middleware consumer or remove the dead import.                      │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: Duplicate GlobalExceptionFilter Classes (Conflicting)            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Architecture                                                       │
+│ Files: src/common/filters/global-exception.filter.ts,                        │
+│        src/common/filters/http-exception.filter.ts                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Two classes named GlobalExceptionFilter. The simpler one is registered     │
+│   via APP_FILTER in app.module.ts. The comprehensive one is applied via      │
+│   useGlobalFilters() in main.ts. Both fire for the same exception →          │
+│   potential double response or inconsistent error format.                    │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove one. Use only the comprehensive filter.                             │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Inconsistent error responses confuse client                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: In-Memory IP Rate Limiter — Unbounded Memory Leak                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/ip-rate-limiter.middleware.ts (line 12)                   │
+│                                                                              │
+│ Description:                                                                 │
+│   private readonly store = new Map<string, RateEntry>();                      │
+│   No eviction of expired entries. Under traffic from many unique IPs         │
+│   (mobile users with rotating IPs), Map grows forever.                       │
+│   Also bypassed in multi-instance deployments.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove and rely on Redis-backed @nestjs/throttler.                         │
+│   OR add periodic cleanup via setInterval.                                   │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: Server OOM crash under sustained traffic                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Redis KEYS Command Used (Blocks Event Loop)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ Files: src/redis/redis.service.ts (line 99),                                 │
+│        src/feature-flags/feature-flags.service.ts (line 67)                  │
+│                                                                              │
+│ Description:                                                                 │
+│   KEYS command scans entire keyspace, blocking Redis for ALL clients.        │
+│   In production with many keys: 50-500ms latency spike.                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use SCAN with cursor iteration.                                            │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+│ Player Impact: All players experience latency spike during KEYS scan         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: No Upper Bound on fromTube/toTube Indices in DTO                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Validation                                                         │
+│ File: src/game/dto/submit-result.dto.ts (lines 5-6)                          │
+│                                                                              │
+│ Description:                                                                 │
+│   fromTube: z.number().int().min(0) — no .max()                              │
+│   toTube: z.number().int().min(0) — no .max()                                │
+│   Client can send fromTube: 999999. Engine catches out-of-bounds             │
+│   but wastes processing on obvious invalid data.                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add .max(20) — maximum possible tube count.                                │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: computeFinalSeed Uses Weak Hash (djb2-like)                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Fairness / Anti-Cheat                                              │
+│ File: src/game/engine/random.ts (lines 11-17)                                │
+│                                                                              │
+│ Description:                                                                 │
+│   DJB2 variant with high collision probability.                              │
+│   Attacker could craft clientSeed values to produce desired finalSeed,       │
+│   potentially pre-solving puzzles.                                           │
+│   Mitigated: serverSeed is random and not revealed until after completion.   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use crypto.createHash('sha256') for stronger seed derivation.              │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-15: Multiple Independent Redis Connections                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Architecture                                                       │
+│ Files: redis.service.ts, feature-flags, idempotency, http-cache              │
+│                                                                              │
+│ Description:                                                                 │
+│   At least 4 separate Redis connections created independently.               │
+│   Wastes connections and complicates monitoring.                             │
+│   Global RedisService exists but isn't used by all modules.                  │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Inject shared RedisService everywhere.                                     │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-16: PORT Default Inconsistency (3000 vs 3006)                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Configuration                                                      │
+│ Files: env.validation.ts (default '3000'), app.config.ts (default '3006')    │
+│                                                                              │
+│ Description:                                                                 │
+│   Two different default port values. Could cause confusion during dev.       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-17: Session Cleanup Processor Is a No-Op                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Data Management                                                    │
+│ File: src/queue/processors/session-cleanup.processor.ts (lines 12-15)        │
+│                                                                              │
+│ Description:                                                                 │
+│   Cleanup processor only logs. No actual Prisma query to mark/delete         │
+│   expired sessions. Sessions accumulate indefinitely.                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: DB bloat over time                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-18: Game Events Processor Handlers Are No-Ops                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Incomplete Implementation                                          │
+│ File: src/queue/processors/game-events.processor.ts (lines 34-58)            │
+│                                                                              │
+│ Description:                                                                 │
+│   handleScoreSubmitted, handleSessionCompleted, handleCheatDetected          │
+│   only log. Leaderboard updates, streak tracking, admin notifications        │
+│   not implemented.                                                           │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-19: Swagger Exposed in Production                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 48-53)                                              │
+│                                                                              │
+│ Description:                                                                 │
+│   /api/docs available in all environments unconditionally.                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Gate behind NODE_ENV !== 'production'.                                     │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-20: WS join-session Has No Session Ownership Check                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (lines 66-72)                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Any authenticated user can join any session room by providing              │
+│   any sessionId. Receives real-time events for other users' games.           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Verify client.data.userId matches session owner before joining.            │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-21: No Maximum Move Count Server-Side Enforcement                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Validation                                                         │
+│ File: src/game/game.service.ts (line 91)                                     │
+│                                                                              │
+│ Description:                                                                 │
+│   DTO caps at 1000 moves, but typical solve is <100 moves.                   │
+│   1000 moves = unnecessary CPU in replay loop.                               │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Flag if moves > optimalMoves × 5.                                          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-22: color Field in MoveSchema Not Validated                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Validation                                                         │
+│ File: src/game/dto/submit-result.dto.ts (line 7)                             │
+│                                                                              │
+│ Description:                                                                 │
+│   color: z.string() — no enum or length constraint.                          │
+│   Server replay doesn't use the color field. It's stored unused.             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-23: QueueService Methods Never Called                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/queue/queue.service.ts                                             │
+│                                                                              │
+│ Description:                                                                 │
+│   enqueueScoreSubmitted, enqueueSessionCompleted, enqueueCheatDetected       │
+│   never invoked from GameService.                                            │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-24: Leaderboard Class Is In-Memory Only (Dead Code)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/game/engine/leaderboard.ts                                         │
+│                                                                              │
+│ Description:                                                                 │
+│   In-memory array, never instantiated in service layer.                      │
+│   Resets on restart. Completely dead code.                                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-25: CORS Wildcard Default                                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: src/main.ts (line 34)                                                  │
+│                                                                              │
+│ Description:                                                                 │
+│   Strict in production (throws if CORS_ORIGINS missing), but dev             │
+│   allows all origins with credentials.                                       │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: Encryption Key Exposed in Client JS Bundle                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 5)                                    │
+│                                                                              │
+│ Description:                                                                 │
+│   VITE_ENCRYPTION_KEY is a VITE_-prefixed env var → embedded in              │
+│   production JS bundle. Attacker extracts key from browser DevTools,         │
+│   decrypts/forges all game submissions.                                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Remove client-side encryption entirely (use HTTPS).                        │
+│   OR: per-session key from authenticated handshake.                          │
+│                                                                              │
+│ Priority Score: 9/10                                                         │
+│ Player Impact: Score forgery, leaderboard manipulation                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Auth Token Extracted from URL Query Param (Leaks)                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (lines 16-18)                               │
+│                                                                              │
+│ Description:                                                                 │
+│   Token in URL leaks via:                                                    │
+│   - Referer headers to external resources                                    │
+│   - Browser history                                                          │
+│   - Server access logs                                                       │
+│   - Analytics/tracking tools                                                 │
+│   - Shared URLs via messaging apps                                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Read token once, immediately history.replaceState to strip it.             │
+│   Add token-expiry check.                                                    │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Account hijack via shared/logged URLs                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Socket Uses localStorage But HTTP Uses sessionStorage            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ Files: src/services/socketClient.ts (line 15),                               │
+│        src/services/httpClient.ts (sessionStorage)                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Socket reads: localStorage.getItem('auth_token')                           │
+│   HTTP writes: sessionStorage.setItem('auth_token')                          │
+│   Socket always sends null → unauthenticated WebSocket connections.          │
+│   Real-time features (live validation, opponent sync) won't work.            │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Unify on one storage mechanism. Use a shared auth module.                  │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Real-time features completely non-functional                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Race Condition — Stale `solved` Closure in Auto-Submit           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/features/colour-sorting/components/GamePage.tsx (lines 51-56)      │
+│                                                                              │
+│ Description:                                                                 │
+│   useEffect fires on `solved` change, calls handleFinish() which             │
+│   captures `solved` via closure. Since handleFinish depends on `solved`      │
+│   in its deps and `solved` just changed in the same render cycle,            │
+│   the closure may have the old value during first call.                      │
+│                                                                              │
+│ Result: Submission may report solved=false even when puzzle was solved.       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Pass solved as parameter: handleFinish(true)                               │
+│   OR use a ref: solvedRef.current                                            │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Perfect solve → server thinks it's incomplete → wrong score   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: finishGame Reads Stale State from Closure                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/features/colour-sorting/hooks/useBallSort.ts (lines 96-104)       │
+│                                                                              │
+│ Description:                                                                 │
+│   finishGame accesses state.tubes and state.moves from closure at            │
+│   callback creation time. If rapid moves precede finishGame,                 │
+│   it captures an older state snapshot.                                       │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use useRef mirror: stateRef.current = state;                               │
+│   Read from ref inside finishGame.                                           │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Submitted moves don't match actual final board state          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Missing useEffect Dependencies (ESLint exhaustive-deps)          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: React Bug                                                          │
+│ File: src/features/colour-sorting/components/GamePage.tsx (line 54)          │
+│                                                                              │
+│ Description:                                                                 │
+│   useEffect depends on [solved] but uses handleFinish and gameActive.        │
+│   If these change between renders, effect uses stale versions.               │
+│   Could cause double-submission or missed submission.                        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add gameActive and handleFinish to deps, or restructure with events.       │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Potential double-submit or no-submit                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: Timer at 100ms Interval — 10 Re-renders/Second                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance                                                        │
+│ File: src/features/colour-sorting/hooks/useBallSort.ts (lines 47-54)        │
+│                                                                              │
+│ Description:                                                                 │
+│   setInterval(100ms) replaces entire state object every 100ms.               │
+│   Triggers re-render of GamePage, GameHeader, ALL TubeComponents.            │
+│   Timer display only shows whole seconds — 90% of updates invisible.         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Extract timer to separate useTimer hook with its own state.                │
+│   Only GameHeader subscribes to timer. 1000ms interval sufficient.           │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Jank on low-end mobile; excessive battery drain               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Ball "Lift" Animation on Source Selection                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: UX / Game Feel                                                     │
+│ File: src/features/colour-sorting/components/TubeComponent.tsx               │
+│                                                                              │
+│ Description:                                                                 │
+│   When source tube is selected, only the tube container lifts                │
+│   (translate-y-2). The top ball does NOT visually separate from tube         │
+│   and float above. This is THE core UX expectation in every popular          │
+│   ball sort game (Ball Sort Puzzle, Sort It 3D, Water Sort).                 │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Animate top ball of selected tube to float above container                 │
+│   (translateY -20px, spring bounce animation).                               │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+│ Player Impact: Confusing — can't tell which ball will move. Critical for     │
+│   colorblind players. Game feels amateur vs competitors.                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: Crypto Key Cache Never Cleared                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security                                                           │
+│ File: src/services/crypto.ts (line 7)                                        │
+│                                                                              │
+│ Description:                                                                 │
+│   Module-level Map of imported keys. Never cleared.                          │
+│   Sensitive material persists in memory for entire page session.             │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Extended window for memory-dump attacks                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: Efficiency Bonus Formula Exploitable                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/features/colour-sorting/engine/scorer.ts (line 33)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   efficiencyBonus = Math.max(0, (optimalMoves*2 - totalMoves)) * 5           │
+│   If totalMoves = 0 (immediate submit): bonus = optimalMoves * 10            │
+│   Not capped. Could produce extreme scores.                                  │
+│   Server should independently validate, but defense-in-depth needed.         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Cap efficiencyBonus: Math.min(efficiencyBonus, 100)                        │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Score exploit if server doesn't cap independently             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: Puzzle Generator Can Produce Already-Solved States               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/features/colour-sorting/engine/puzzleGenerator.ts (lines 24-36)   │
+│                                                                              │
+│ Description:                                                                 │
+│   Random shuffle can occasionally produce near-solved or fully-solved        │
+│   puzzle states. No minimum scramble verification.                           │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   After generation, check if already solved or < N moves to solve.           │
+│   If so, re-shuffle.                                                         │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Trivial puzzles that feel broken or unfairly easy             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: No Undo Button                                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature / UX                                               │
+│ File: GamePage.tsx                                                            │
+│                                                                              │
+│ Description:                                                                 │
+│   Every popular ball-sort game provides undo. This is THE basic              │
+│   player expectation. Without it, a single misclick on mobile                │
+│   (fat-finger) can ruin the entire game.                                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Pop from moves[], reverse the tube state.                                  │
+│   Show undo button with move counter.                                        │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+│ Player Impact: Frustrating misclicks without recovery                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: No Haptic Feedback on Mobile                                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Feel                                                          │
+│ File: Entire game interaction layer                                          │
+│                                                                              │
+│ Description:                                                                 │
+│   No navigator.vibrate() on any interaction. Game feels flat.                │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Valid move: navigator.vibrate?.(10)                                        │
+│   Invalid move: navigator.vibrate?.([20, 10, 20])                            │
+│   Solve: navigator.vibrate?.([100, 50, 100])                                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Less satisfying than native competitors                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: Timer Animation Fires Continuously (Even When Not Low)           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/features/colour-sorting/components/GameHeader.tsx (lines 23-28)   │
+│                                                                              │
+│ Description:                                                                 │
+│   transition={{ repeat: Infinity, duration: 0.5 }} is always applied         │
+│   even when animate is {}. Framer Motion schedules continuous                │
+│   animation frames for the entire game duration.                             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Conditionally apply transition only when isLow is true.                    │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Wasted CPU throughout entire game session                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-15: No Loading Skeleton While Game Session Starts                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx (line 78)                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Between "Start" click and puzzle appearing: only text swap.                │
+│   No skeleton tubes or progress indicator. 500ms+ delay feels broken.        │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Show tube skeleton layout while API responds.                              │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Button feels unresponsive                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-16: No Accessibility Attributes (Screen Reader Unusable)             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Accessibility                                                      │
+│ File: src/features/colour-sorting/components/TubeComponent.tsx               │
+│                                                                              │
+│ Description:                                                                 │
+│   No role="button", aria-label, aria-selected, tabIndex, or                  │
+│   keyboard handler (onKeyDown). Completely inaccessible.                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add role="button" tabIndex={0} aria-label={`Tube ${i+1}, ...`}             │
+│   onKeyDown for Enter/Space to trigger tap.                                  │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Game unusable for screen reader / keyboard users              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-17: layout Prop on All Balls Causes Expensive Recalculation          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Performance                                                        │
+│ File: src/features/colour-sorting/components/TubeComponent.tsx (lines 58-67)│
+│                                                                              │
+│ Description:                                                                 │
+│   Every ball has Framer Motion `layout` prop. Timer updates (10×/sec)        │
+│   trigger re-renders of all tubes. `layout` forces Framer to                 │
+│   measure/animate layout shifts even when nothing moved.                     │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Use layoutId only on balls that moved. Or debounce timer re-renders.       │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+│ Player Impact: Sluggish ball animations on budget phones                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-18: GameOverScreen Component Never Used (Dead Code)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Code Quality                                                       │
+│ File: src/features/colour-sorting/components/GameOverScreen.tsx              │
+│                                                                              │
+│ Description:                                                                 │
+│   GamePage uses ResultScreen from app/components instead.                    │
+│   GameOverScreen has richer stats display but is never rendered.             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-19: Timer Doesn't Stop on Solved — Extra Ticks Before Submit         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/features/colour-sorting/hooks/useBallSort.ts (line 57)            │
+│                                                                              │
+│ Description:                                                                 │
+│   Interval only clears when remaining <= 0. When puzzle is solved,           │
+│   timer continues decrementing for 1-2 extra ticks before                    │
+│   finishGame is called (separate effect cycle).                              │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Check `solved` inside interval callback → clearInterval immediately.       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Time bonus slightly lower than it should be                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-20: No "Time's Up!" Visual Splash                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx                                                           │
+│                                                                              │
+│ Description:                                                                 │
+│   When time runs out, jumps straight to ResultScreen.                        │
+│   No dramatic "Time's Up!" animation or brief delay.                         │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add 1.5s intermediate state with animated "Time's Up!" overlay.            │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Jarring transition — player doesn't understand what happened  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-21: (import.meta as any) Unnecessary Type Cast                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/services/socketClient.ts (line 6)                                  │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-22: Hardcoded UUID for Stage ID                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Scalability                                                        │
+│ File: GamePage.tsx (line 11)                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   DEFAULT_STAGE_ID = '00000000-...-000000000001'                             │
+│   Won't scale when multiple levels/stages are added.                         │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-23: No Custom Tailwind Theme — No Dark Mode Support                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Design                                                             │
+│ File: tailwind.config.ts                                                     │
+│                                                                              │
+│ Description:                                                                 │
+│   No custom colors, no dark mode variant. All styling inline.                │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-24: Offline Banner Doesn't Pause Game Timer                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/app/components/OfflineBanner.tsx                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Timer continues counting down during network outage.                       │
+│   Player loses time without being able to submit moves.                      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Pause timer when navigator.onLine === false.                               │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Unfair score penalty during network drops                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-25: Audio Hooks Exist But Never Called from Game Logic                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Missing Feature                                                    │
+│ File: src/hooks/useAudio.ts (exists but never imported in game)              │
+│                                                                              │
+│ Description:                                                                 │
+│   useAudio hook with correct/incorrect/tap sounds defined but                │
+│   never imported in GamePage or useBallSort. Game is completely silent.      │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Import useAudio in GamePage. Play sounds on valid move, invalid,           │
+│   and solve.                                                                 │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Silent game feels unpolished vs competitors                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-26: computeFinalSeed Exported But Never Used                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/features/colour-sorting/engine/random.ts (lines 11-18)            │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-27: No touch-action: manipulation on Game Area                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Mobile UX                                                          │
+│ File: Game container CSS                                                     │
+│                                                                              │
+│ Description:                                                                 │
+│   iOS Safari double-tap zoom and 300ms tap delay can interfere               │
+│   with rapid tube tapping.                                                   │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add touch-action: manipulation to game container.                          │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+│ Player Impact: Occasional accidental zoom during fast play                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-28: No Code Splitting                                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Build                                                              │
+│ File: package.json / routing                                                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Entire app in a single bundle. No lazy-loading.                            │
+│   Negligible now (app is small) but architectural concern.                   │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-29: Instruction Screen Has Redundant Text                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: src/app/components/InstructionScreen.tsx (lines 55-68)                 │
+│                                                                              │
+│ Description:                                                                 │
+│   Step 1 text duplicates the paragraph above it.                             │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+│ Player Impact: Confusing/redundant instructions                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-30: .env File Committed (Frontend)                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Security                                                           │
+│ File: .env (frontend root)                                                   │
+│                                                                              │
+│ Description:                                                                 │
+│   Contains localhost URLs and game ID. Any future sensitive                   │
+│   additions will be tracked in git.                                          │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add .env to .gitignore, use .env.example.                                  │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-31: No "Restart" Button During Gameplay                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx                                                           │
+│                                                                              │
+│ Description:                                                                 │
+│   Player can't restart if stuck. Must wait for timer to expire.              │
+│   Without undo AND without restart, getting stuck is a dead end.             │
+│                                                                              │
+│ Recommended Fix:                                                             │
+│   Add "Restart" button that resets to same seed's initial state.             │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+│ Player Impact: Forced to wait out timer when stuck                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Bottlenecks (sorted by impact):
+
+1. Timer at 100ms = 10 Re-renders/Second (WORST ISSUE)
+   - Every 100ms: full state object replaced
+   - ALL tubes + ALL balls re-render
+   - Framer Motion layout recalc on every ball
+   - On budget Android: guaranteed frame drops
+   - Fix: 1000ms interval + separate timer state
+
+2. Framer Motion `layout` on Every Ball
+   - Forces layout measurement per ball per render
+   - With 10 re-renders/sec × 14 tubes × 4 balls = 560 layout calcs/sec
+   - Fix: Use layoutId only for balls that actually moved
+
+3. Timer Animation Fires Continuously
+   - transition={{ repeat: Infinity }} even when not in "low" state
+   - Framer schedules animation frames entire game duration
+   - Fix: Conditional transition prop
+
+4. In-Memory Rate Limiter (Backend)
+   - Map grows forever without eviction
+   - Fix: Periodic cleanup or Redis-backed
+
+5. Redis KEYS Command (Backend)
+   - Blocks event loop, scanning entire keyspace
+   - Fix: Use SCAN with cursor
+
+ESTIMATED PERFORMANCE PROFILE:
+- Idle (waiting to start): 0ms/frame (fine)
+- During gameplay (per 100ms tick): ~8ms render work (too frequent)
+- Ball move animation: additional 4-6ms (Framer spring)
+- With all combined: ~14ms per 100ms = 60% frame budget consumed by React alone
+- On budget phone (2× slower): >16ms → GUARANTEED JANK
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Tap-to-select, tap-to-place (standard ball sort interaction)
+✓ Timer visible at all times
+✓ Clean tube visual rendering
+✓ Error boundary for crash recovery
+✓ Offline status detection
+✓ i18n support (English + Hindi)
+✓ Framer Motion spring physics on ball movement
+
+UX PROBLEMS:
+
+1. No Ball Lift Animation (CRITICAL FOR GENRE)
+   - Every competitor lifts the ball above the tube
+   - Without it: "which ball am I moving?" confusion
+   - FRUSTRATION LEVEL: VERY HIGH
+
+2. No Undo Button (CRITICAL FOR GENRE)
+   - Single misclick = entire game ruined
+   - Fat-finger taps on mobile are VERY common in tube-tap games
+   - FRUSTRATION LEVEL: VERY HIGH
+
+3. No Restart Button
+   - Stuck state = forced to wait for timer
+   - Combined with no undo: unrecoverable mistakes
+   - FRUSTRATION LEVEL: HIGH
+
+4. No Sound Effects
+   - useAudio hook exists but NEVER used
+   - Silent game = unpolished feel
+   - FRUSTRATION LEVEL: MEDIUM
+
+5. No Haptic Feedback
+   - Mobile puzzle game without vibration
+   - Tap feels unresponsive
+   - FRUSTRATION LEVEL: MEDIUM
+
+6. No "Time's Up!" Transition
+   - Sudden jump to results
+   - Player doesn't understand what happened
+   - FRUSTRATION LEVEL: MEDIUM
+
+7. Timer Runs During Network Outage
+   - Player loses time to offline state
+   - FRUSTRATION LEVEL: HIGH
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Features that players of ball-sort games EXPECT:
+
+1.  [!] Ball lift animation (ALL competitors have this)
+2.  [!] Undo last move button (ALL competitors have this)
+3.  [ ] Restart puzzle button
+4.  [ ] Sound effects (tap, place, invalid, solve)
+5.  [ ] Haptic feedback
+6.  [ ] Move counter display
+7.  [ ] "Optimal moves" challenge indicator
+8.  [ ] Color blind mode (patterns on balls)
+9.  [ ] Difficulty progression (more colors/tubes over time)
+10. [ ] Empty tube hint (highlight valid destinations)
+11. [ ] Win celebration animation (confetti/particles)
+12. [ ] Share score button
+13. [ ] Daily puzzle mode
+14. [ ] Leaderboard view
+15. [ ] Settings (sound toggle, vibration toggle)
+16. [ ] Replay/try-again for same puzzle
+17. [ ] Tutorial with animated demonstration
+18. [ ] "Stuck" detection (auto-offer restart when no moves possible)
+19. [ ] Ball count per tube visualization
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add ball lift animation (float above tube on selection)
+2. Add "plop" sound when ball drops into tube
+3. Add subtle tube fill progress indicator (gradient)
+4. Add particle burst when tube is completed (all same color)
+5. Add confetti explosion on puzzle solve
+6. Add streak glow on consecutive correct placements
+7. Add countdown pulse in last 10 seconds (timer turns red + pulses)
+8. Add "Perfect!" text for solving in optimal moves
+9. Add smooth camera shake on invalid move attempt
+10. Add idle bounce animation on balls when no input for 3s
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Change timer interval from 100ms to 1000ms (10× less renders)
+2. Extract timer into separate hook/component (isolate re-renders)
+3. Remove `layout` prop from static balls (only on moving ball)
+4. Conditional Framer transition only when isLow=true
+5. Add React.memo to TubeComponent (skip re-render if tube unchanged)
+6. Fix stale closure issues (useRef pattern)
+7. Add touch-action: manipulation to prevent iOS zoom delay
+
+Backend:
+1. Remove in-memory rate limiter (use Redis-backed throttler)
+2. Replace Redis KEYS with SCAN
+3. Implement session cleanup processor (currently no-op)
+4. Wire up QueueService (currently dead code)
+5. Add move timestamp validation in submitResult
+6. Apply scoreMultiplier server-side in calculateScore
+7. Unify Redis connections via shared service
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Secret Management
+- Risk: JWT fallback 'dev-secret-colour-sorting'
+- Risk: HMAC fallback 'dev-hmac-secret'
+- Risk: WS uses DIFFERENT fallback 'dev-secret'
+- Risk: .env committed to repo
+- Severity: CRITICAL
+
+Attack Surface 2: Client-Side Encryption
+- Risk: VITE_ENCRYPTION_KEY in JS bundle
+- Risk: Crypto key cache never cleared
+- Severity: HIGH
+
+Attack Surface 3: Authentication Storage
+- Risk: Token in URL query param (leaks via Referer/history)
+- Risk: Socket uses localStorage, HTTP uses sessionStorage (mismatch)
+- Risk: Real-time features completely non-functional due to mismatch
+- Severity: HIGH
+
+Attack Surface 4: Anti-Cheat
+- Risk: No move timestamp validation (bot speed undetected)
+- Risk: Score multiplier not applied server-side
+- Risk: 7-second grace window after expiry
+- Severity: HIGH
+
+Attack Surface 5: Infrastructure
+- Risk: /metrics publicly exposed (reconnaissance)
+- Risk: In-memory rate limiter (bypassed + leaks)
+- Risk: Redis KEYS command (latency spike)
+- Severity: MEDIUM
+
+OVERALL SECURITY POSTURE:
+Server-side move replay is excellent (regenerates puzzle from seed, validates
+each move). But the surrounding infrastructure (secret management, token
+handling, anti-cheat timing) has significant gaps.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mixed" - 5.5/10
+
+POSITIVE REVIEWS WOULD SAY:
+"Classic ball sort gameplay. Works as expected."
+"The spring physics on ball movement feel nice."
+"Fair scoring — server validates every move."
+"Loads fast, plays smooth (on my Pixel 8)."
+
+NEGATIVE REVIEWS WOULD SAY:
+"Where's the undo button??? EVERY ball sort game has this!"
+"I can't tell which ball I'm picking up. It doesn't lift above the tube??"
+"Completely silent. No sounds at all. Feels like a prototype."
+"I accidentally tapped the wrong tube and now I'm stuck for 60 seconds."
+"Timer kept running when my WiFi dropped. Lost the game."
+"My friend's cheaper phone gets choppy. Works fine on mine though."
+"No restart button? I have to sit here and wait for time to run out?"
+"Feels like a homework assignment, not a polished game."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Top 10 player complaints (predicted):
+
+1. "No undo!!! I misclicked!" — #1 complaint guaranteed
+2. "Which ball am I picking up?" — No lift animation
+3. "Completely silent game" — No sounds wired up
+4. "I'm stuck, can't restart" — No restart button
+5. "Choppy on my phone" — Timer-driven re-render bomb
+6. "WiFi dropped, lost the game" — Timer runs during offline
+7. "Game ended suddenly" — No Time's Up animation
+8. "Can't feel anything" — No haptic feedback
+9. "Why can't I replay?" — No replay/retry same puzzle
+10. "Boring after solving one" — No progression/variety
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ Universally understood mechanic (sort by color)
+✓ Satisfying completion (all same-color tube = achievement)
+✓ Time pressure adds excitement
+✓ Deterministic — skill not luck
+✓ Quick sessions
+✓ Spring physics on ball movement (Framer Motion)
+
+Flow State Enablers:
+✓ Simple rules — zero learning curve
+✓ Clear visual feedback on success
+✓ Escalating difficulty (more colors = harder)
+✓ Pattern recognition develops with practice
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. FEELS LIKE A PROTOTYPE
+   - No sounds, no haptics, no ball lift, no celebration
+   - Competitors (Ball Sort, Water Sort) have all of these
+   - First impression = "unfinished"
+
+2. NO UNDO = FRUSTRATION > FUN
+   - Misclicks end the game (effectively)
+   - Frustration breaks flow state
+   - Players quit instead of replaying
+
+3. NO PROGRESSION
+   - Single difficulty level
+   - No daily challenges
+   - No unlockables
+   - No reason to come back
+
+4. NO SHARE
+   - Can't screenshot score
+   - Can't challenge friends
+   - No social proof
+
+5. NO "ONE MORE TRY" LOOP
+   - Can't replay same puzzle
+   - Can't restart mid-game
+   - Forced to wait for timer = punishment
+
+6. NO SATISFACTION SIGNALS
+   - No win animation
+   - No "Perfect!" for optimal solve
+   - No sound on completion
+   - Solving feels anticlimactic
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     80/100 (seeded generation, move replay)
+- Security:                         35/100 (3 different fallback secrets!)
+- Performance:                      45/100 (100ms timer bomb + layout recalc)
+- Game Logic & Correctness:         70/100 (stale closures in submit)
+- UX & Polish:                      35/100 (no lift, no undo, no sound)
+- Anti-Cheat:                       60/100 (replay exists, but timing unvalidated)
+- Accessibility:                    25/100 (no ARIA, no keyboard, no color blind)
+- Retention & Engagement:           30/100 (no replay, no progression, no share)
+- Error Handling:                   60/100 (error boundary exists, but gaps)
+- Production Readiness:             45/100 (.env committed, dead code, no-ops)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 61/100
+═══════════════════════════════════════
+
+VERDICT: NOT READY FOR PUBLIC LAUNCH
+This game needs more UX work than the others. The missing ball-lift animation
+and undo button are not "nice to have" — they are GENRE REQUIREMENTS that
+every competitor has. Without them, the game feels broken.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: SECURITY (1-2 days)
+  □ Remove ALL fallback secrets (JWT, HMAC, WS JWT)
+  □ Remove .env from version control (both FE and BE)
+  □ Unify JWT secret usage (single config service)
+  □ Fix auth token storage mismatch (socket vs HTTP)
+  □ Strip token from URL after reading (history.replaceState)
+  □ Remove VITE_ENCRYPTION_KEY from client bundle
+  □ Gate Swagger behind NODE_ENV !== 'production'
+  □ Protect /metrics endpoint
+
+PHASE 2: CORE UX — GENRE REQUIREMENTS (2-3 days)
+  □ Add ball lift animation (float above tube on select)
+  □ Add undo button (reverse last move)
+  □ Add restart button (reset to same seed initial state)
+  □ Wire up useAudio hook (tap, place, invalid, solve sounds)
+  □ Add haptic feedback (vibrate on tap/solve)
+  □ Add "Time's Up!" transition animation
+
+PHASE 3: GAME LOGIC FIXES (1-2 days)
+  □ Fix stale closure in finishGame (useRef pattern)
+  □ Fix useEffect missing dependencies
+  □ Stop timer immediately on solve (not 1-2 ticks later)
+  □ Add move timestamp validation server-side
+  □ Apply scoreMultiplier server-side in calculateScore
+  □ Cap efficiency bonus formula
+
+PHASE 4: PERFORMANCE (1 day)
+  □ Change timer interval from 100ms to 1000ms
+  □ Extract timer into separate component/hook
+  □ Remove Framer `layout` from static balls
+  □ Conditional timer pulse animation (only when isLow)
+  □ Add React.memo to TubeComponent
+  □ Add touch-action: manipulation to game container
+
+PHASE 5: POLISH (2-3 days)
+  □ Add particle burst on tube completion
+  □ Add confetti on puzzle solve
+  □ Add color blind mode (patterns on balls)
+  □ Add "Perfect!" celebration for optimal-moves solve
+  □ Add move counter display
+  □ Add "stuck" detection (auto-offer restart)
+  □ Implement session cleanup processor (backend)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ranked by (Player Impact × Effort Efficiency):
+
+#1  Add ball lift animation
+    Effort: 2 hours | Impact: Game goes from "broken" to "standard"
+    ROI: ∞ (GENRE REQUIREMENT — game is unshippable without it)
+
+#2  Add undo button
+    Effort: 1 hour | Impact: Eliminates #1 player complaint
+    ROI: ∞ (GENRE REQUIREMENT — game is unshippable without it)
+
+#3  Remove all fallback secrets
+    Effort: 30 minutes | Impact: Prevents total auth bypass
+    ROI: ∞ (non-negotiable security)
+
+#4  Change timer from 100ms to 1000ms
+    Effort: 15 minutes | Impact: 10× less re-renders, smooth on all devices
+    ROI: 10x (massive perf fix, trivial effort)
+
+#5  Wire up sound effects (useAudio hook already exists!)
+    Effort: 30 minutes | Impact: Game goes from silent → satisfying
+    ROI: 8x (hook exists, just needs import + calls)
+
+#6  Fix auth token storage mismatch
+    Effort: 15 minutes | Impact: WebSocket actually works
+    ROI: 8x (fixes completely broken real-time features)
+
+#7  Add haptic feedback
+    Effort: 15 minutes | Impact: Game feels responsive on mobile
+    ROI: 7x
+
+#8  Fix stale closures (useRef pattern)
+    Effort: 30 minutes | Impact: Correct scores submitted
+    ROI: 7x (wrong scores = trust destroyed)
+
+#9  Add "Time's Up!" transition
+    Effort: 30 minutes | Impact: Clear feedback on game end
+    ROI: 5x
+
+#10 Add restart button
+    Effort: 30 minutes | Impact: No more forced waiting
+    ROI: 5x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+What's WELL DONE in this game (credit where due):
+
+BACKEND:
+✓ Server-side move replay — regenerates puzzle from seed, validates every move
+✓ Atomic CAS (updateMany where status: 'active') — prevents double-submit
+✓ Restate durable execution for reliable session expiry
+✓ Deterministic seeded RNG (mulberry32 + Fisher-Yates) — reproducible puzzles
+✓ AES-256-GCM transport encryption with proper IV/tag handling
+✓ Circuit breaker pattern for downstream failures
+✓ Correlation ID propagation for distributed tracing
+✓ Graceful shutdown with connection draining
+✓ Helmet + compression + Pino structured logging
+✓ Feature flags with Redis + local cache
+✓ Idempotency key support preventing duplicate submissions
+✓ Prometheus-format metrics (custom but functional)
+✓ CORS strict in production (throws if CORS_ORIGINS missing)
+✓ Zod DTOs with nestjs-zod for strong boundary validation
+
+FRONTEND:
+✓ Clean feature-based architecture (engine/hooks/components)
+✓ Pure game engine functions (immutable, testable)
+✓ Seeded puzzle generation matching server-side
+✓ Error boundary with retry
+✓ Offline detection (useSyncExternalStore pattern)
+✓ i18n ready (English + Hindi)
+✓ Framer Motion spring physics on ball movement
+✓ TypeScript strict mode
+✓ Minimal/lean dependencies
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+vs Arrows (58/100):
+- Worse UX (missing genre-required features: ball lift + undo)
+- Better: Simpler, fewer moving parts, less dead code
+- Same: Security issues (identical fallback secret pattern)
+- Same: Performance (timer re-render bomb)
+
+vs Block Fill (62/100):
+- Worse: Less polished (no autosave, no pre-fetch, no outbox)
+- Worse: Critical stale closure bugs in submit flow
+- Better: Leaner codebase, fewer dependencies
+- Same: Security (identical pattern)
+- Unique: Socket/HTTP storage mismatch (completely broken WebSocket)
+
+================================================================================
+END OF AUDIT — GAME #3: COLOUR SORTING
+================================================================================

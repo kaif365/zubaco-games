@@ -1,0 +1,173 @@
+========================================================================
+OBJECT PLACEMENT MEMORY – GAME ANALYSIS
+========================================================================
+Version: 1.0
+Location: zubaco-games-repo/zubaco-games/object-placement-memory/
+
+========================================================================
+1. GAME CONCEPT
+========================================================================
+Object Placement Memory is a spatial recall game. Players are shown a
+grid with objects (emojis) placed in specific cells for a limited time.
+After the memorize phase, the grid clears and objects appear in a tray.
+Players must drag-and-drop each object back to its remembered position.
+Scoring rewards correct placements + speed.
+
+Core loop:
+  1. Grid displayed with objects in random cells (seeded)
+  2. Memorize phase: player observes object positions (timed)
+  3. Recall phase: grid empties, objects shown in tray (shuffled)
+  4. Player drags objects from tray to grid cells
+  5. Submit → score = accuracy × 100 + time bonus
+  6. Results shown with correct/total breakdown
+
+========================================================================
+2. FRONTEND ARCHITECTURE
+========================================================================
+Stack: React 19 + Vite + TypeScript + TailwindCSS 3.4 + Framer Motion
+       + @dnd-kit/core (drag and drop) + react-router-dom
+State: Custom hooks (useState + useCallback + useRef), NO Zustand
+Routing: BrowserRouter with single catch-all route to GamePage
+
+App.tsx:
+  ErrorBoundary → ThemeProvider → AppProviders → OfflineBanner → AppRouter
+
+AppRouter:
+  BrowserRouter → Routes → Route("/*") → GamePage
+
+Phases (useGamePhase hook):
+  idle → memorize → recall → submitted
+
+Components:
+  • GamePage.tsx       — Main orchestrator (DndContext, phases, API)
+  • MemorizeGrid.tsx   — Shows objects in grid during memorize phase
+  • RecallGrid.tsx     — Droppable grid cells during recall phase
+  • ObjectTray.tsx     — Draggable objects container
+  • GameHeader.tsx     — Phase label, timer, placed count
+  • GameOverScreen.tsx — Score breakdown
+
+Hooks:
+  • useGamePhase.ts   — State machine (placements, tray, userPlacements, timer)
+  • useGameSession.ts — API calls (POST /game/start, POST /game/submit)
+
+Engine:
+  • boardGenerator.ts — Deterministic object selection + placement (Mulberry32)
+  • scorer.ts         — Score = accuracy × 100 + time bonus
+  • random.ts         — Mulberry32 PRNG + seededShuffle
+
+Audio (6 sounds):
+  objectPlace, objectCorrect, objectWrong, levelComplete, gameOver, uiClick
+
+========================================================================
+3. BACKEND ENGINE
+========================================================================
+NestJS with standard engines:
+  • levelConfig.ts     — 10 levels: L1(4×4, 3 obj, 5s memo, 90s) → L10(7×7, 12 obj, 1.8s memo, 45s)
+  • achievementEngine  — 10 achievements (standard pattern)
+  • boosterEngine      — 5 boosters: TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+  • comboEngine        — Streak multiplier (max 4×, milestone every 3)
+  • dailyChallenge     — SHA-256 seeded per date
+  • leaderboard        — Top 100
+  • scoreHistory       — Score tracking
+
+Level Progression:
+  L1:  4×4, 3 objects, 5.0s memo, 90s recall, ×1.0
+  L2:  4×4, 4 objects, 4.5s memo, 85s recall, ×1.2
+  L3:  5×5, 5 objects, 4.0s memo, 80s recall, ×1.4
+  L4:  5×5, 5 objects, 3.5s memo, 75s recall, ×1.6
+  L5:  5×5, 6 objects, 3.0s memo, 70s recall, ×1.8
+  L6:  6×6, 7 objects, 2.8s memo, 65s recall, ×2.0
+  L7:  6×6, 8 objects, 2.5s memo, 60s recall, ×2.3
+  L8:  6×6, 9 objects, 2.2s memo, 55s recall, ×2.6
+  L9:  7×7, 10 objects, 2.0s memo, 50s recall, ×3.0
+  L10: 7×7, 12 objects, 1.8s memo, 45s recall, ×3.5
+
+========================================================================
+4. GAME MECHANICS DETAIL
+========================================================================
+Object Pool (16 items):
+  Shapes: star, heart, diamond, moon, sun
+  Nature: flower, tree, mushroom
+  Food: apple, grape
+  Animal: fish, bird, cat
+  Misc: bolt, fire, snowflake
+
+Board Generation:
+  - Objects picked from pool via seeded shuffle
+  - Cell positions picked from all grid cells via seeded shuffle
+  - GridPlacement = { cellIndex, object }
+  - Tray objects shuffled with offset seed (seed + 999)
+
+Player Interaction:
+  - DnD: PointerSensor + TouchSensor (mobile-friendly)
+  - Drag object from tray → drop on grid cell
+  - Click placed object to remove it back to tray
+  - Object can be moved between cells (auto-removes from previous)
+  - Submit button: shows count (placed/total)
+  - Auto-submit when timer expires
+
+Scoring:
+  - accuracy = correctCount / totalObjects
+  - baseScore = round(accuracy × 100)
+  - timeBonus = floor(timeBonusMultiplier × remainingMs / recallTimeMs)
+  - finalScore = baseScore + timeBonus
+  - Default timeBonusMultiplier from config
+
+Default Config (implied from backend L1):
+  - gridSize: 4 (16 cells)
+  - objectCount: 3
+  - memorizeTimeMs: 5000 (5s)
+  - recallTimeMs: 90000 (90s)
+  - pointsPerCorrect: ~33 (100/total)
+  - timeBonusMultiplier: 5
+
+========================================================================
+5. SIMILAR INTERNET GAMES (FEATURES TO ADD)
+========================================================================
+1. Simon Memory — Sequential pattern recall
+2. Memory Palace — Object-position association training
+3. Lumosity Memory Matrix — Grid patterns to recall
+4. Kim's Game — Classic observe-and-recall game
+5. Concentration — Object matching/placement
+
+Key features from similar games:
+  • Progressive difficulty (more objects, less time)
+  • Combo/streak for consecutive correct placements
+  • Partial credit for adjacent cells
+  • Power-ups: peek at positions, extra time, highlight one
+  • Daily challenge with leaderboard
+  • Statistics: accuracy %, placement speed, best level
+  • Tutorial/onboarding animation
+  • Haptic feedback on drop
+  • Category hints (show object types)
+
+========================================================================
+6. GOLD STANDARD COMPONENTS NEEDED
+========================================================================
+Currently missing:
+  1. MenuScreen        — Main menu with Play/Levels/Daily/etc
+  2. LevelSelector     — 10-level grid with stars + unlock
+  3. Settings          — Sound, volume, theme toggles
+  4. StatsScreen       — Games played, accuracy, streaks, etc
+  5. Achievements      — 10 achievements + unlock popup
+  6. DailyChallenge    — Calendar week + streak + date-seeded
+  7. PauseDialog       — Pause overlay with resume/restart/exit
+  8. Confetti          — Particle celebration on perfect placement
+
+Integration: Add appPhase state machine in GamePage.tsx wrapping
+existing game flow. When appPhase='game', existing DnD game runs.
+
+========================================================================
+7. TECHNICAL NOTES
+========================================================================
+- Uses `framer-motion` for animations
+- Uses `@dnd-kit/core` for drag-and-drop (PointerSensor + TouchSensor)
+- Uses `react-router-dom` (BrowserRouter) — single route to GamePage
+- TailwindCSS class-based styling
+- i18next for localization
+- Save progress outbox pattern (offline resilience)
+- httpClient service for API calls
+- Audio: AudioManager + AudioProvider + soundRegistry pattern
+- Types: ObjectItem, GridPlacement, PlacementAttempt, StageConfig, etc.
+- Object pool: 16 emoji-based items (5 shapes, 3 nature, 2 food, 3 animal, 3 misc)
+========================================================================

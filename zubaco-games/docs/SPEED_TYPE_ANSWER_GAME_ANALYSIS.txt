@@ -1,0 +1,181 @@
+SPEED TYPE ANSWER - GAME ANALYSIS
+====================================
+Game: Speed Type Answer (Flash question → Type answer)
+Location: C:\game\zubaco-games-repo\zubaco-games\speed-type-answer\speed-type-frontend\
+Date: 2025
+
+================================================================================
+1. TECH STACK
+================================================================================
+
+- React 19 + Vite + TypeScript
+- TailwindCSS 3.4
+- framer-motion (animations)
+- @tanstack/react-query
+- react-router-dom v7
+- i18next + i18next-browser-languagedetector
+- howler (audio)
+- axios (HTTP)
+- socket.io-client
+
+================================================================================
+2. ARCHITECTURE
+================================================================================
+
+App.tsx (simple, no router used in app):
+  └─ ErrorBoundary
+       └─ ThemeProvider
+            └─ QueryClientProvider
+                 └─ OfflineBanner
+                 └─ GameBoard
+
+NO BrowserRouter in use (react-router-dom installed but unused).
+Game renders directly via GameBoard component.
+
+Key directories:
+- src/components/ — shared: ErrorBoundary, InstructionScreen, ResultScreen, OfflineBanner
+- src/features/typing/ — game feature:
+  - components/: GameBoard, QuestionFlash, AnswerInput
+  - engine/: questionBank.ts, random.ts
+  - hooks/: useTypingGame.ts
+  - save-progress/: saveProgressOutbox.ts, saveProgressTypes.ts
+- src/hooks/ — useAudio, useSocket, useTheme
+- src/audio/ — AudioManager, AudioProvider, soundRegistry, types, useAudio
+- src/services/ — httpClient (axios with encryption)
+- src/types/ — game.ts
+
+================================================================================
+3. GAME MECHANICS
+================================================================================
+
+Core Concept: Flash a question → Player types the answer from memory
+
+Phases (type Phase):
+- idle: Waiting to start (InstructionScreen shown)
+- flash: Question displayed briefly (memorize)
+- type: Player types answer within time limit
+- result: Brief transition before next question
+- finished: All questions done (ResultScreen shown)
+
+Game Flow:
+1. Player clicks "Start" on InstructionScreen
+2. POST /game/start → receives gameSessionId, serverSeed, config
+3. Client generates clientSeed, computes finalSeed
+4. Questions selected via seeded RNG from local question bank (30 items)
+5. For each question:
+   a. Flash phase: Question displayed for flashDurationMs
+   b. Type phase: Player types answer, has answerTimeMs to respond
+   c. Auto-submit on timeout (empty answer = wrong)
+   d. Score: pointsPerCorrect + speedBonus (based on response time)
+   e. 1500ms result transition
+6. After all questions: finished phase, ResultScreen
+
+Scoring:
+- pointsPerCorrect: base points for correct answer
+- speedBonusMax: max bonus scaled by response speed
+- speedRatio = max(0, 1 - responseTimeMs / answerTimeMs)
+- bonus = round(speedRatio × speedBonusMax)
+- Case-insensitive comparison, trimmed
+
+================================================================================
+4. GAME CONFIG (from server)
+================================================================================
+
+GameConfig interface:
+- flashDurationMs: how long question is shown (ms)
+- answerTimeMs: time limit to type answer (ms)
+- totalQuestions: number of questions per game
+- pointsPerCorrect: base score per correct answer
+- speedBonusMax: maximum speed bonus
+
+================================================================================
+5. QUESTION BANK
+================================================================================
+
+30 trivia questions hardcoded in questionBank.ts:
+- General knowledge (capitals, science, math, geography)
+- Short answers (1-2 words or numbers)
+- Selected via seeded RNG (mulberry32)
+- Seed: computeFinalSeed(serverSeed, clientSeed, nonce=0)
+
+Examples:
+- "Capital of France?" → "paris"
+- "Chemical symbol for gold?" → "au"
+- "Square root of 144?" → "12"
+
+================================================================================
+6. API INTEGRATION
+================================================================================
+
+httpClient: axios with encryption interceptors
+- Request: Bearer token from localStorage, payload encryption
+- Response: payload decryption
+
+Endpoints:
+- POST /game/start { clientSeed } → { gameSessionId, serverSeed, config, serverTime }
+- POST /game/submit { gameSessionId, answers, clientScore } → { finalScore, status, correctAnswers }
+
+Answer type: { questionId, userAnswer, timestamp, responseTimeMs }
+
+================================================================================
+7. SOUND SYSTEM
+================================================================================
+
+- src/audio/ — AudioManager, AudioProvider, soundRegistry
+- src/hooks/useAudio.ts — hook for components
+- Sounds: likely correct/wrong feedback sounds
+
+================================================================================
+8. COMPONENTS
+================================================================================
+
+GameBoard.tsx: Main orchestrator
+- Renders phases: idle→InstructionScreen, finished→ResultScreen, flash→QuestionFlash, type→AnswerInput
+- Uses AnimatePresence for transitions
+
+QuestionFlash.tsx: Displays question text with animation
+- Indigo card with white text
+- "Memorize this!" subtitle
+
+AnswerInput.tsx: Text input with countdown timer
+- Progress bar (green shrinks over time)
+- Auto-focus on mount
+- Form submit on Enter
+- Time display in seconds (0.1s precision)
+
+InstructionScreen.tsx: Start screen
+- Game icon, title, instructions, numbered steps
+- Start button (emerald green)
+- Loading state support
+
+ResultScreen.tsx: End screen
+- Success/failure icon
+- Score display with optional max
+- Stats grid
+- Replay button (onReplay callback)
+
+================================================================================
+9. RESULT SCREEN BEHAVIOR
+================================================================================
+
+Current: onReplay calls startGame (restarts)
+Gold Standard: onReplay should call setAppPhase('menu')
+
+================================================================================
+10. GOLD STANDARD INTEGRATION PLAN
+================================================================================
+
+Target: App.tsx (wraps GameBoard)
+- Add appPhase state machine
+- When appPhase === 'game': render current GameBoard
+- Menu screens replace idle phase
+- ResultScreen.onReplay → setAppPhase('menu')
+- Components go in: src/features/typing/components/ (alongside existing)
+
+Architecture after:
+  App.tsx:
+    ErrorBoundary → ThemeProvider → QueryClientProvider → OfflineBanner → GamePage
+  GamePage:
+    appPhase state machine → MenuScreen | ... | GameBoard
+
+================================================================================

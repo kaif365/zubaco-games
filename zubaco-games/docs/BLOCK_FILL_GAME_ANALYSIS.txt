@@ -1,0 +1,283 @@
+============================================================
+BLOCK FILL GAME - FULL ANALYSIS
+============================================================
+Created: 2026-05-25
+Game Type: Flow Free / Numberlink Puzzle (Connect colored dots, fill entire board)
+Reference Game: "Flow Free" by Big Duck Games (100M+ downloads)
+
+============================================================
+GAME CONCEPT
+============================================================
+
+"Block Fill" is a Flow Free clone. The player connects pairs of colored dots
+on a grid by drawing paths (pipes) between them. Rules:
+  1. Each color has exactly 2 endpoints (dots) on the grid
+  2. Draw a path connecting both dots of the same color
+  3. Paths cannot cross or overlap
+  4. The ENTIRE grid must be filled (no empty cells)
+  5. Success = all pairs connected + 100% board coverage
+
+Difficulty scales by:
+  - Grid size (5×5 easy → 9×9+ hard)
+  - Number of color pairs (3 easy → 10+ hard)
+  - Path complexity (longer winding paths = harder)
+
+============================================================
+CURRENT ARCHITECTURE
+============================================================
+
+Tech Stack:
+  - Frontend: React 19 + Vite + TypeScript + TailwindCSS 4 + Framer Motion
+  - Backend: NestJS + Prisma + Bun + Restate SDK
+  - UI Library: shadcn/ui components (Button, Card, Dialog)
+  - Audio: Howler.js with custom AudioManager
+  - Rendering: Both HTML/CSS (FlowBoard.tsx) AND Phaser 4 (PhaserFlowBoard.tsx)
+  - i18n: react-i18next for translations
+  - State: React Query + custom hooks (NO Redux/Zustand)
+  - Carousel: embla-carousel-react
+
+Frontend Structure:
+  src/
+  ├── app/              → App.tsx, routes, API client, auth, providers
+  ├── audio/            → AudioManager, soundRegistry, useAudio hook
+  ├── components/       → shared UI (AuthGateScreen, GameClearModal, Loader)
+  ├── features/
+  │   └── flow-puzzle/  → ALL game logic lives here
+  │       ├── api/          → backend API calls
+  │       ├── audio/        → game-specific audio handlers
+  │       ├── components/   → 17 game screens/components
+  │       ├── config/       → gameConfig, branding, saveProgressConfig
+  │       ├── constants/    → demo round messages, time sync config
+  │       ├── data/         → levels (JSON files by difficulty)
+  │       ├── engine/       → flowEngine.ts (core game logic)
+  │       ├── hooks/        → useFlowGame, useGameInit, useNextBoard, etc.
+  │       ├── phaser/       → Phaser scene for board rendering
+  │       ├── save-progress/ → outbox pattern for offline save
+  │       ├── sessionStorage/ → active session persistence
+  │       ├── types.ts      → all TypeScript interfaces
+  │       └── utils/        → levelGenerator, pathRendering, levelGrid
+  ├── hooks/            → useApiError, useAuthGate, useDemoLevels, etc.
+  ├── locales/          → i18n translation files
+  └── services/         → external service integrations
+
+Backend Structure:
+  src/
+  ├── game/
+  │   ├── engine/           → achievementEngine, boosterEngine, comboEngine,
+  │   │                       dailyChallenge, leaderboard, scoreHistory
+  │   ├── game.controller.ts
+  │   ├── game.service.ts
+  │   ├── game.gateway.ts (WebSocket)
+  │   ├── game-session-restate.service.ts (Restate state machine)
+  │   └── game-expiry.restate.ts
+  ├── admin/            → admin panel
+  ├── user/             → user management
+  ├── redis/            → caching
+  ├── ws/               → WebSocket
+  └── ... (circuit-breaker, crypto, feature-flags, etc.)
+
+============================================================
+EXISTING SCREENS / COMPONENTS
+============================================================
+
+1. HomeScreen.tsx          → Game title, difficulty pack selector, play/generator buttons
+2. LevelSelectScreen.tsx   → Grid of level packs with metadata
+3. InstructionsLobbyScreen → Pre-game instructions/lobby
+4. GameScreen.tsx          → Main playing screen (board + HUD)
+5. FlowBoard.tsx           → HTML/CSS board with touch/pointer drawing
+6. PhaserFlowBoard.tsx     → Phaser 4 alternative board renderer
+7. GameTimer.tsx           → Countdown timer (turns red at ≤30s)
+8. PauseDialog.tsx         → Pause overlay (resume/reset/exit)
+9. WinDialog.tsx           → Level complete overlay (score/time/next)
+10. GameResultOverlay.tsx  → End-of-session results
+11. BoardCardFlip.tsx      → Transition animation between levels
+12. DemoPlayView.tsx       → Demo/tutorial round view
+13. StartStageView.tsx     → Stage intro
+14. PlayingStageView.tsx   → Active gameplay wrapper
+15. EndStageView.tsx       → Stage end summary
+16. GeneratorScreen.tsx    → Dev tool to generate new level JSON
+17. FlowPuzzleGameShell.tsx → Top-level orchestrator (session lifecycle)
+
+============================================================
+EXISTING FEATURES (ALREADY BUILT)
+============================================================
+
+✅ Core puzzle engine (path drawing, validation, win detection)
+✅ Multiple difficulty levels (easy/medium/hard)
+✅ Level packs with JSON level data
+✅ Level generator algorithm (Hamiltonian path-based)
+✅ Timer (countdown per level)
+✅ Score calculation
+✅ Audio system (Howler.js with path-pickup/release SFX)
+✅ Pause/Resume
+✅ Win dialog with score display
+✅ Phaser 4 alternative renderer
+✅ Backend API integration (sessions, boards, progress)
+✅ Save progress (outbox pattern for reliability)
+✅ Demo/tutorial rounds
+✅ i18n translations
+✅ Auth gate (dev session)
+✅ Board card flip transitions
+✅ Responsive design
+✅ Portrait-only lock (TiltToPortraitOverlay)
+✅ Backend: achievements, boosters, combos, daily challenge, leaderboard
+
+============================================================
+WHAT'S MISSING (vs Colour-Sorting & Arrows consistency)
+============================================================
+
+❌ Mute/Sound toggle button on game HUD (audio system exists but no UI toggle)
+❌ Dedicated Settings screen
+❌ Achievements UI screen (backend engine exists, no frontend display)
+❌ Statistics screen (games played, best times, win rate)
+❌ Daily Challenge UI (backend exists, no frontend screen)
+❌ Confetti/celebration animation on win
+❌ Combo indicator on HUD (backend combo engine exists)
+❌ Undo move button
+❌ Hint system
+❌ Lives system (currently unlimited attempts)
+❌ Level stars (1-3 stars based on performance)
+❌ Consistent menu flow (tutorial → menu → levels/settings/achievements/stats/daily)
+❌ Level unlock progression (all levels accessible immediately)
+
+============================================================
+WHAT TO MAKE CONSISTENT ACROSS ALL GAMES
+============================================================
+
+These features should work IDENTICALLY in every game:
+
+1. MENU SYSTEM (same flow for all games):
+   Tutorial → Main Menu → [Levels | Settings | Achievements | Stats | Daily] → Playing → Result
+
+2. GAME HUD (same layout/buttons):
+   - Timer (top center)
+   - Score/Moves counter
+   - Lives indicator (hearts)
+   - Combo multiplier display
+   - Buttons: Undo | Hint | Restart | Mute | Pause
+
+3. SOUND SYSTEM:
+   - Mute toggle on HUD (persists in localStorage)
+   - Same key: '{gamename}_sound_enabled'
+   - SFX categories: move, win, lose, combo, hint
+
+4. SCORING (same formula structure):
+   - Base points per action
+   - Time bonus (faster = more points)
+   - Combo multiplier (consecutive correct moves)
+   - Star rating: ★ (complete) ★★ (under par moves) ★★★ (perfect + fast)
+
+5. PROGRESSION:
+   - 10 story levels per difficulty
+   - Levels unlock sequentially (must complete previous)
+   - Stars saved per level
+   - localStorage persistence with same key patterns
+
+6. LIVES SYSTEM:
+   - Start with X lives per level
+   - Lose life on wrong move / timeout
+   - Game over when lives = 0
+   - Can earn extra lives via combos or boosters
+
+7. CELEBRATIONS:
+   - Confetti on level complete
+   - Star animation on perfect score
+   - Screen shake on wrong move
+
+8. SETTINGS SCREEN:
+   - Sound on/off
+   - Music on/off (when applicable)
+   - Vibration on/off (mobile)
+   - Reset progress button
+
+9. STATISTICS:
+   - Total games played
+   - Total time played
+   - Best scores per level
+   - Win/loss ratio
+   - Longest streak
+
+10. DAILY CHALLENGE:
+    - One unique puzzle per day (from backend seed)
+    - Streak counter
+    - Special reward for 7-day streak
+
+============================================================
+IMPLEMENTATION PLAN
+============================================================
+
+Phase 1 — UI Consistency (Menu + HUD):
+  □ Create consistent menu page (BlockFillGamePage.tsx) matching arrows/colour-sort
+  □ Add Mute button to GameScreen HUD
+  □ Add Undo functionality for last path drawn
+  □ Add Hint button (highlights one correct endpoint pair)
+  □ Standardize HUD layout
+
+Phase 2 — Game Features:
+  □ Add lives system (wrong coverage attempt = lose life)
+  □ Add combo system UI (consecutive correct path completions)
+  □ Add star rating (1-3 stars) per level
+  □ Add confetti animation on win
+  □ Add level unlock progression
+
+Phase 3 — Screens:
+  □ Settings screen
+  □ Statistics screen
+  □ Achievements screen (connect to backend engine)
+  □ Daily Challenge screen (connect to backend seed)
+  □ Tutorial/Instructions screen (interactive)
+
+Phase 4 — Polish:
+  □ More sound effects (combo, hint used, life lost, game over)
+  □ Animations (GSAP or Framer Motion)
+  □ Mobile optimization
+  □ Performance testing with large grids
+
+============================================================
+SIMILAR GAMES REFERENCE (Flow Free)
+============================================================
+
+Flow Free by Big Duck Games:
+  - 100M+ downloads on iOS/Android
+  - Core mechanic: connect same-colored dots, fill entire grid
+  - Grids: 5×5 to 15×15 (up to 16 colors)
+  - Features: time trial mode, level packs, daily puzzle
+  - "Perfect" game = fewest moves required (star reward)
+  - Expansions: Bridges (pipes can cross), Hexes, Warps, Shapes
+  - NP-complete problem (proven in 2022 paper)
+
+Our "Block Fill" is essentially the same game with:
+  - Premium dark neon aesthetic (vs Flow Free's flat colors)
+  - Backend integration for tournaments/leaderboards
+  - Phaser renderer option for performance
+  - Level generator for infinite content
+
+============================================================
+KEY FILES TO MODIFY
+============================================================
+
+Frontend:
+  - src/app/App.tsx (add menu routing)
+  - src/features/flow-puzzle/components/GameScreen.tsx (add HUD buttons)
+  - src/features/flow-puzzle/hooks/useFlowGame.ts (add undo, hints, lives)
+  - NEW: src/features/flow-puzzle/components/MenuScreen.tsx
+  - NEW: src/features/flow-puzzle/components/SettingsScreen.tsx
+  - NEW: src/features/flow-puzzle/components/StatsScreen.tsx
+  - NEW: src/features/flow-puzzle/components/AchievementsScreen.tsx
+  - NEW: src/features/flow-puzzle/components/DailyChallengeScreen.tsx
+  - NEW: src/features/flow-puzzle/components/Confetti.tsx
+
+============================================================
+NOTES
+============================================================
+
+- This game is MORE mature than arrows (already has backend, audio, i18n, 
+  level generator, Phaser renderer, save progress)
+- Main gap is UI CONSISTENCY — needs same menu flow and HUD as other games
+- The level generator already exists! (unlike arrows which needed one)
+- Backend already has: achievements, combos, daily challenge, leaderboard
+- Just needs FRONTEND screens to expose those backend features
+- Audio system is more sophisticated than arrows (Howler.js AudioManager)
+- Has i18n support (arrows and colour-sorting don't have this yet)
+
+============================================================

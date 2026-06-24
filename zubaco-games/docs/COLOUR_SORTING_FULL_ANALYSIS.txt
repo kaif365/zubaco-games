@@ -1,0 +1,450 @@
+================================================================================
+          COLOUR SORTING GAME - COMPLETE ANALYSIS & FEATURE AUDIT
+================================================================================
+Date: 25 May 2026
+Status: Deep-dive code review complete
+
+================================================================================
+1. WHAT IS THIS GAME?
+================================================================================
+
+It's a "Ball Sort Puzzle" clone (also known as "Color Sort", "Tube Sort",
+"Ball Sort"). The concept is identical to the popular mobile game:
+
+  - You have tubes filled with coloured balls in random order
+  - You move balls one at a time between tubes (top ball only)
+  - A ball can only be placed on a same-colour ball OR into an empty tube
+  - Goal: sort all balls so each tube has only one colour
+  - Time-limited with scoring
+
+This IS the same genre as "Ball Sort Puzzle" by IEC Global Pty Ltd (the viral
+mobile game with 100M+ downloads). Same core mechanic, same rules.
+
+================================================================================
+2. LEVELS & DIFFICULTY SYSTEM
+================================================================================
+
+TWO difficulty systems exist (backend has both):
+
+─── A) Level Config (levelConfig.ts) ── 10 LEVELS ───
+Level | Tubes | Colors | Balls/Tube | Empty | Time    | Multiplier
+------|-------|--------|------------|-------|---------|----------
+  1   |   5   |   3    |     4      |   2   | 120s    | 1.0x
+  2   |   6   |   4    |     4      |   2   | 110s    | 1.2x
+  3   |   7   |   5    |     4      |   2   | 100s    | 1.4x
+  4   |   8   |   6    |     4      |   2   |  90s    | 1.6x
+  5   |   9   |   7    |     4      |   2   |  80s    | 1.8x
+  6   |  10   |   8    |     4      |   2   |  75s    | 2.0x
+  7   |  11   |   9    |     4      |   2   |  70s    | 2.3x
+  8   |  12   |  10    |     4      |   2   |  65s    | 2.6x
+  9   |  13   |  11    |     4      |   2   |  60s    | 3.0x
+ 10   |  14   |  12    |     4      |   2   |  55s    | 3.5x
+
+─── B) Stage Config (seed.ts - database) ── 5 STAGES ───
+Stage     | Tubes | Colors | Time  | Pts/Tube | Time Bonus
+----------|-------|--------|-------|----------|----------
+Easy      |   5   |   3    | 120s  |   100    |   10
+Medium    |   7   |   5    | 120s  |   150    |   12
+Hard      |   9   |   7    |  90s  |   200    |   15
+Expert    |  11   |   9    |  75s  |   250    |   18
+Master    |  14   |  12    |  60s  |   300    |   20
+
+NOTE: The frontend currently HARDCODES stageId to "00000000-0000-0000-0000-000000000001"
+It does NOT use levels or stage selection. The user always plays the same config.
+
+PROBLEM: No level progression UI exists. No stage selector. Game is stuck on one
+difficulty.
+
+================================================================================
+3. COLOURS AVAILABLE
+================================================================================
+
+9 colours total: red, blue, green, yellow, purple, orange, pink, cyan, lime
+
+Balls per tube: always 4 (fixed)
+Empty tubes: always 2 (fixed)
+
+Maximum complexity: 12 colours × 4 balls = 48 balls across 14 tubes
+
+================================================================================
+4. FEATURES THAT EXIST IN CODE
+================================================================================
+
+── IMPLEMENTED & WORKING ──
+✅ Core ball-sorting puzzle mechanic
+✅ Seeded random puzzle generation (deterministic, reproducible)
+✅ Timer countdown (100ms precision)
+✅ Move counter
+✅ Auto-detect puzzle solved
+✅ Auto-submit when solved or time runs out
+✅ Server-side move replay (anti-cheat)
+✅ Score calculation (base + efficiency bonus + time bonus)
+✅ JWT authentication
+✅ WebSocket support (real-time events)
+✅ Framer Motion animations on balls and tubes
+✅ Tube selection highlight (yellow glow + lift)
+✅ Ball spring animations (scale bounce on placement)
+✅ Responsive design (sm breakpoints)
+✅ Dark theme (gradient bg)
+✅ i18n (English + Hindi)
+✅ Offline detection banner
+✅ Error boundary with retry
+✅ AES-GCM payload encryption (optional)
+✅ HMAC request signing
+✅ Anti-cheat: move validation, score divergence check, impossible-speed check
+✅ Database persistence (PostgreSQL + Prisma)
+✅ Health endpoint
+✅ Idempotency interceptor (prevent double-submit)
+✅ Circuit breaker (prevent cascade failures)
+✅ Feature flags (Redis-backed, toggleable)
+✅ Result screen with score display
+✅ Instruction screen before start
+✅ TanStack Query for data fetching
+
+── IMPLEMENTED IN BACKEND ENGINE BUT NOT USED IN FRONTEND ──
+⚠️  Combo/Streak system (comboEngine.ts) - tracks consecutive correct moves
+⚠️  Booster/Power-up system (boosterEngine.ts):
+    - TIME_FREEZE: Pause timer 5s (1 use/game)
+    - HINT: Reveal helpful hint (2 uses/game)
+    - SKIP: Skip current challenge (1 use/game)
+    - DOUBLE_POINTS: 2x points for 10s (1 use/game)
+    - UNDO: Undo last move (2 uses/game)
+⚠️  Achievement/Badge system (achievementEngine.ts):
+    - First Victory, On Fire (5-streak), Unstoppable (10-streak)
+    - Perfectionist, Speed Demon, Dedicated (50 games)
+    - Rising Star (level 5), Master (level 10), High Scorer, Flawless
+⚠️  Daily Challenge system (dailyChallenge.ts):
+    - Deterministic daily seed (SHA-256 based on date)
+    - Difficulty scales with day of week (Mon=easy, Sun=hard)
+    - 1.5x-2.4x bonus multiplier
+⚠️  Leaderboard engine (leaderboard.ts):
+    - Top 100, rank lookup, "around user" rankings
+⚠️  Score history & player stats (scoreHistory.ts):
+    - Total games, avg score, high score, highest level, win rate
+⚠️  Level progression (10 levels of increasing difficulty)
+
+── NOT IMPLEMENTED AT ALL ──
+❌ Level/Stage selector UI
+❌ Undo button (engine exists but no UI)
+❌ Hint visualization (engine exists but no UI)
+❌ Booster UI buttons
+❌ Achievement unlock popup / badge gallery
+❌ Daily challenge mode / entry point
+❌ Leaderboard display
+❌ Score history / stats dashboard
+❌ Background music
+❌ Particle effects on completion
+❌ Confetti animation
+❌ Haptic feedback (mobile)
+❌ Tutorial / guided first-play
+❌ Difficulty selector before game
+❌ Progressive level unlock
+❌ Coin/currency system
+❌ Settings page (sound toggle, theme, language)
+❌ User profile / avatar
+❌ Multi-ball move (move stack of same-colour balls at once)
+❌ Restart/shuffle button during game
+❌ Move history / replay viewer
+
+================================================================================
+5. SOUND SYSTEM
+================================================================================
+
+Sound IS implemented via Web Audio API (useAudio.ts):
+
+Sounds available:
+  - "tap" → Short 800Hz blip when selecting a tube
+  - "correct" → C5+E5 rising tone on valid move
+  - "incorrect" → 200Hz+150Hz sawtooth buzz on invalid move
+  - "complete" → C5→E5→G5→C6 victory fanfare on puzzle solved
+  - "countdown" → 440Hz square blip when timer low
+  - "start" → 440Hz+880Hz rising on game start
+
+PROBLEM: The useAudio hook EXISTS but is NOT called anywhere in the game
+components! No component imports or uses it. Sound is dead code.
+
+Settings persistence: localStorage key "zubaco_sound_enabled"
+
+No background music. No volume control. No audio files (all procedural tones).
+
+================================================================================
+6. ANIMATIONS & VISUAL EFFECTS
+================================================================================
+
+Uses: framer-motion (v12.38.0)
+
+Current animations:
+  - Tube tap: whileTap scale(0.95)
+  - Ball placement: spring animation (stiffness:400, damping:20)
+  - Selected tube: translate-y -8px + yellow border + shadow glow
+  - "SOLVED!" text: scale from 0 to 1
+  - Timer pulsing: scale [1, 1.1, 1] when ≤10s
+  - Result screen: fade-in with y-slide
+  - Score number: spring scale from 0
+  - Instruction screen: staggered fade-in
+
+MISSING animations:
+  - No ball "flying" from tube to tube (just disappears/appears)
+  - No shake on invalid move
+  - No confetti/particles on win
+  - No tube fill completion celebration
+  - No transition between screens
+  - Empty slots are just dashed circles (boring)
+
+================================================================================
+7. UI/UX ISSUES & BUGS
+================================================================================
+
+1. HARDCODED STAGE: Frontend always uses stageId "00000000-0000-0000-0000-000000000001"
+   But the DB was seeded with stageId "colour-sort-stage-1". MISMATCH → 404 error!
+   (Previously manually fixed by inserting a row with that UUID)
+
+2. NO LEVEL PROGRESSION: Game plays same difficulty forever. No way to advance.
+
+3. NO SOUND: useAudio hook exists but is never called from any component.
+
+4. INVALID MOVE FEEDBACK: When you tap an invalid target, it just silently
+   deselects or selects the new tube. No shake, no buzz, no visual feedback.
+
+5. NO UNDO: Undo engine exists in backend but no button in UI.
+
+6. SINGLE-BALL MOVES ONLY: You can't move a stack of same-colour balls
+   (Ball Sort Puzzle mobile lets you move matching stacks in one tap).
+
+7. NO RESTART OPTION: Once game starts, can't restart without finishing/timing out.
+
+8. SMALL TUBES ON MOBILE: Tubes are only 48-56px wide. Hard to tap on small phones.
+
+9. NO GAME STATE PERSISTENCE: If you refresh the page mid-game, everything is lost.
+
+10. TIMER NOT PAUSED ON TAB SWITCH: Timer keeps running if user switches tabs.
+
+11. RESULT SCREEN MINIMAL: Only shows "Moves" stat. Doesn't show time taken,
+    efficiency breakdown, or comparison to best.
+
+12. NO EMPTY STATE: If backend is down, user just sees "Failed to start" error.
+    No retry mechanism shown.
+
+================================================================================
+8. COMPARISON: THIS GAME vs BALL SORT PUZZLE (Mobile)
+================================================================================
+
+Feature                    | Ball Sort Puzzle (Mobile)    | This Game
+---------------------------|------------------------------|---------------------------
+Core Mechanic              | ✅ Same                      | ✅ Same
+Unlimited Levels           | ✅ Procedurally generated    | ❌ Stuck on 1 level
+Undo Button               | ✅ Yes (free or limited)     | ❌ Engine only, no UI
+Restart Level             | ✅ Yes                       | ❌ No button
+Add Extra Tube            | ✅ (power-up/ad reward)      | ❌ Not available
+Multi-ball Stack Move     | ✅ Move same-colour stack    | ❌ Single ball only
+Smooth Ball Animation     | ✅ Ball flies tube-to-tube   | ❌ Instant disappear/appear
+Sound Effects             | ✅ Pop/clink sounds          | ❌ Code exists, not connected
+Background Music          | ✅ Calm ambient              | ❌ None
+Haptics                   | ✅ Vibration on place        | ❌ None
+Confetti on Win           | ✅ Particles                 | ❌ None
+Level Stars               | ✅ 1-3 stars per level       | ❌ None
+Daily Challenge           | ✅ Yes                       | ❌ Engine only, no UI
+Leaderboard               | ✅ Global/friends            | ❌ Engine only, no UI
+Ads/Monetization          | ✅ Rewarded ads              | N/A (not commercial)
+Offline Play              | ✅ Fully offline             | ❌ Requires backend
+Colour Themes/Skins       | ✅ Multiple themes           | ❌ Single dark theme
+Tube Fill Celebration     | ✅ Glow/sparkle when filled  | ❌ Nothing happens
+Hint System               | ✅ Show next best move       | ❌ Engine only, no UI
+Settings Page             | ✅ Sound, music, vibration   | ❌ None
+Profile/Progress          | ✅ Level map, achievements   | ❌ None visible
+Move Counter              | ✅ Yes                       | ✅ Yes
+Timer                     | Sometimes (challenge modes)  | ✅ Always (core mechanic)
+
+================================================================================
+9. TECH STACK DETAILS
+================================================================================
+
+Frontend:
+  - React 19 + TypeScript 5.6
+  - Vite 6
+  - TailwindCSS 3.4
+  - Framer Motion 12
+  - TanStack React Query 5
+  - React Router 7
+  - Socket.IO Client 4.8
+  - Axios
+  - i18next (EN + HI)
+  - Radix UI (dialog)
+  - Lucide React (icons - not used yet)
+
+Backend:
+  - NestJS 11 + TypeScript 5.6
+  - Prisma 7.8 + @prisma/adapter-pg
+  - PostgreSQL 16
+  - Redis (ioredis) for feature flags, caching
+  - Socket.IO (WebSocket gateway)
+  - BullMQ (job queues)
+  - AES-GCM encryption
+  - HMAC signing
+  - JWT auth
+  - Compression (gzip)
+  - API versioning (v1)
+
+Architecture:
+  - Monolithic backend (single NestJS service)
+  - REST API + WebSocket hybrid
+  - Server-side move replay for anti-cheat
+  - Provably fair seeded randomness (serverSeed + clientSeed + nonce → SHA)
+
+================================================================================
+10. SCORING SYSTEM DETAILS
+================================================================================
+
+Formula:
+  finalScore = baseScore + efficiencyBonus + timeBonus
+
+  baseScore = sortedTubes × pointsPerSortedTube (100-300 depending on stage)
+  
+  efficiencyBonus = max(0, (optimalMoves × 2 - actualMoves)) × 5
+    where optimalMoves = colorCount × ballsPerTube
+    (e.g., 3 colors × 4 balls = 12 optimal, so bonus if < 24 moves)
+
+  timeBonus = floor(timeBonusMultiplier × (remainingTimeMs / timeLimitMs))
+    (e.g., multiplier=10, 60s remaining/120s total → 5 bonus points)
+
+With level multiplier: score × scoreMultiplier (1.0x to 3.5x)
+
+Combo system (unused): +10 points × streak × multiplier per consecutive correct move
+  Multiplier rises by 0.25 every 3 correct moves, caps at 4.0x
+
+================================================================================
+11. DATABASE SCHEMA
+================================================================================
+
+Tables:
+  - GameSession: id, userId, stageId, seeds, status, scores, timestamps
+  - Input: move history (fromTube, toTube, color, timestamp, sequence)
+  - Snapshot: periodic tube state captures (tubes JSON, moveCount, elapsed)
+  - Configuration: stage definitions (tubeCount, colorCount, time, scoring)
+  - CheatFlag: detected anomalies (reason, severity)
+
+================================================================================
+12. SECURITY / ANTI-CHEAT MEASURES
+================================================================================
+
+  - Server replays all moves to verify final state
+  - Score calculated server-side (client score is only for comparison)
+  - Score divergence > 50 → cheat flag
+  - Too many invalid moves (>3) → critical cheat flag
+  - Client claims solved but server disagrees → critical flag
+  - Session expiry enforced (endTime + 5s grace)
+  - Double-submit prevented (atomic status update)
+  - JWT required for all game endpoints
+  - Optional AES-GCM request/response encryption
+  - Idempotency keys on submissions
+
+================================================================================
+13. WHAT NEEDS TO BE DONE (PRIORITY ORDER)
+================================================================================
+
+── CRITICAL (Game is barely playable without these) ──
+P1: Connect sound system (useAudio → game components)
+P1: Fix stage ID mismatch or add proper stage loading
+P1: Add undo button (engine exists, just need UI)
+P1: Add invalid-move feedback (shake + sound)
+P1: Add ball flying animation (ball visually moves between tubes)
+
+── HIGH (Makes it actually fun to play) ──
+P2: Level selector / progression system
+P2: Multi-ball stack move (move consecutive same-colour balls)
+P2: Confetti/particles on puzzle solved
+P2: Tube completion celebration (glow when a tube is fully sorted)
+P2: Restart button during game
+P2: Settings screen (sound on/off, theme toggle)
+P2: Better result screen (time taken, efficiency %, streak info)
+
+── MEDIUM (Polish and engagement) ──
+P3: Daily challenge mode (engine ready, needs UI)
+P3: Achievement badges (engine ready, needs UI + popup)
+P3: Leaderboard display
+P3: Player stats/history screen
+P3: Booster buttons (Time Freeze, Hint, Double Points)
+P3: Tutorial / first-play guide
+P3: Background music (ambient loop)
+
+── LOW (Nice to have) ──
+P4: Multiple colour themes/skins
+P4: Haptic feedback (mobile)
+P4: Game state persistence (resume after refresh)
+P4: Timer pause on tab switch
+P4: Move replay viewer
+P4: Progressive difficulty unlock
+P4: Hindi translation completeness check
+
+================================================================================
+14. FILES REFERENCE
+================================================================================
+
+Frontend:
+  src/features/colour-sorting/components/GamePage.tsx     ← Main game screen
+  src/features/colour-sorting/components/TubeComponent.tsx ← Tube + balls render
+  src/features/colour-sorting/components/GameHeader.tsx   ← Timer + moves display
+  src/features/colour-sorting/components/GameOverScreen.tsx ← Score display
+  src/features/colour-sorting/hooks/useBallSort.ts       ← Core game logic hook
+  src/features/colour-sorting/hooks/useGameSession.ts    ← API calls
+  src/features/colour-sorting/engine/puzzleGenerator.ts  ← Puzzle creation + validation
+  src/features/colour-sorting/engine/scorer.ts           ← Client-side scoring
+  src/features/colour-sorting/engine/random.ts           ← Seeded RNG
+  src/app/hooks/useAudio.ts                              ← Sound system (UNUSED!)
+  src/app/hooks/useTheme.tsx                             ← Dark/light theme
+  src/app/components/InstructionScreen.tsx                ← Pre-game instructions
+  src/app/components/ResultScreen.tsx                     ← Post-game score
+  src/app/components/OfflineBanner.tsx                    ← Offline detector
+  src/app/components/ErrorBoundary.tsx                    ← Error catch
+  src/hooks/useSocket.ts                                 ← WebSocket connection
+  src/services/httpClient.ts                             ← Axios + encryption
+  src/services/socketClient.ts                           ← Socket.IO manager
+  src/services/crypto.ts                                 ← AES-GCM encrypt/decrypt
+  src/i18n/locales/en.json                               ← English strings
+  src/i18n/locales/hi.json                               ← Hindi strings
+
+Backend:
+  src/game/game.controller.ts                            ← REST endpoints
+  src/game/game.service.ts                               ← Business logic
+  src/game/engine/levelConfig.ts                         ← 10-level difficulty scaling
+  src/game/engine/puzzleGenerator.ts                     ← Server puzzle gen + validation
+  src/game/engine/scorer.ts                              ← Server scoring
+  src/game/engine/comboEngine.ts                         ← Streak/combo system
+  src/game/engine/boosterEngine.ts                       ← Power-ups
+  src/game/engine/achievementEngine.ts                   ← Badges
+  src/game/engine/dailyChallenge.ts                      ← Daily mode
+  src/game/engine/leaderboard.ts                         ← Rankings
+  src/game/engine/scoreHistory.ts                        ← Player stats
+  src/ws/game.gateway.ts                                 ← WebSocket gateway
+  src/feature-flags/feature-flags.service.ts             ← Feature toggles
+  src/circuit-breaker/circuit-breaker.service.ts         ← Fault tolerance
+  src/idempotency/idempotency.interceptor.ts             ← Double-submit prevention
+  prisma/schema.prisma                                   ← DB schema
+  prisma/seed.ts                                         ← Stage seeding
+
+================================================================================
+15. SUMMARY
+================================================================================
+
+The game is a Ball Sort Puzzle clone with:
+  - Solid backend (NestJS, anti-cheat, provably fair)
+  - Rich engine code (combos, boosters, achievements, daily challenges)
+  - MINIMAL frontend (basic tap-to-move, timer, score — that's it)
+  - Sound system written but NEVER CONNECTED
+  - All advanced features exist as dead code in backend engines
+
+It's like a car with a V8 engine but only 1st gear connected. The backend is
+over-engineered and feature-rich. The frontend is a bare-bones MVP that doesn't
+use 70% of what the backend offers.
+
+To make this a SMOOTH, polished game comparable to Ball Sort Puzzle:
+  1. Wire up the sound
+  2. Add ball movement animation
+  3. Add undo + restart
+  4. Build level progression UI
+  5. Add celebration effects
+  6. Connect the booster/achievement systems
+
+================================================================================
+END OF ANALYSIS
+================================================================================

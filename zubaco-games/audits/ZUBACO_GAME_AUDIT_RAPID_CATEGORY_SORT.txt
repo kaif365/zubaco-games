@@ -1,0 +1,954 @@
+================================================================================
+ZUBACO GAME AUDIT — GAME #14: RAPID CATEGORY SORT (Tinder-Style Sorting)
+================================================================================
+Audit Date: 2025-05-23
+Auditor: AAA Game QA / Security / Performance / UX Engineering Review
+Game Type: Timed sorting — words appear one at a time, player swipes left or
+          right to categorize them (e.g., Animal←→Plant, Hot←→Cold). Items
+          auto-advance on timeout. Score = correct sorts minus penalties.
+Stack: NestJS 11 + Prisma 7 + Restate + Redis + BullMQ + Socket.IO (backend),
+       React 19 + Vite 6 + Framer Motion + TailwindCSS (frontend)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Rapid Category Sort is one of the BEST-IMPLEMENTED games in the platform. It
+features a Tinder-style swipe mechanic where words fall into view and must be
+swiped left or right into the correct category. The game has:
+
+✓ WORKING frontend-backend integration (submit sends proper answers array!)
+✓ Server-side validation (regenerates sequence, verifies each answer)
+✓ Built-in timing analysis (detects <100ms gaps as bot behavior)
+✓ Concurrent session prevention (expires existing active sessions)
+✓ Keyboard controls (ArrowLeft/Right + A/D)
+✓ 16 rich category pairs with 8 items each
+✓ Streak counter visible to player
+✓ Timer warning animation at ≤10s
+✓ Item auto-advance with missed-item tracking
+
+The main issues are the standard platform-wide patterns (seed to client,
+fallback secrets, VITE_ENCRYPTION_KEY). The game-specific architecture is
+SOLID and actually functions end-to-end.
+
+UNIQUE STRENGTHS: This is one of only two games with BUILT-IN TIMING ANALYSIS
+and one of only two with CONCURRENT SESSION PREVENTION. The category bank
+(16 pairs × 8 items each = 256 words) provides excellent variety.
+
+TOTAL ISSUES: 28 (3 Critical, 5 High, 12 Medium, 8 Low)
+
+RELEASE READINESS SCORE: 66/100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CRITICAL LAUNCH BLOCKERS (Must fix before ANY public release)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BLOCKER-1: Seed sent to client → frontend has identical generateItemSequence()
+           → all correct answers (item.correctSide) computable instantly.
+
+BLOCKER-2: .env committed with JWT_SECRET="dev-secret-rapid-sort" + DB creds.
+           Two different fallback secrets (app.config, gateway).
+
+BLOCKER-3: VITE_ENCRYPTION_KEY in client bundle + token from URL query param.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. FULL CATEGORIZED ISSUE LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+BACKEND ISSUES (14 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-01: Seed Sent to Client → All Answers Computable                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (startGame return)                            │
+│                                                                              │
+│ Code:                                                                        │
+│   return { gameSessionId, ..., seed: finalSeed, ... };                       │
+│                                                                              │
+│ Frontend has IDENTICAL generateItemSequence(seed, totalItems, poolSize):      │
+│   → returns { sequence: [{text:'Dog', correctSide:'left'}, ...] }           │
+│                                                                              │
+│ Attack: generateItemSequence(seed, 30, 6) → all 30 answers instantly.       │
+│                                                                              │
+│ MITIGATED BY: Server validates each answer + timing analysis catches bots.   │
+│ But a human using a script overlay could still achieve perfect scores        │
+│ with realistic timing.                                                       │
+│                                                                              │
+│ Fix: Don't send seed. Server sends items one at a time (or in batches)       │
+│ without revealing correctSide.                                               │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-02: .env Committed + Two Fallback Secrets                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ Files: .env, app.config.ts, game.gateway.ts                                  │
+│                                                                              │
+│ .env:                                                                        │
+│   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/rapid_category…  │
+│   JWT_SECRET="dev-secret-rapid-sort"                                         │
+│                                                                              │
+│ Fallback secrets:                                                            │
+│   - app.config.ts: 'dev-secret-rapid-sort'                                   │
+│   - game.gateway.ts: 'dev-secret'                                            │
+│                                                                              │
+│ NOTE: session.guard uses appConfig.jwtSecret (centralized — better than      │
+│ inline fallback!). But app.config still has the fallback.                    │
+│                                                                              │
+│ Priority Score: 10/10                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-03: scoreMultiplier Never Applied in submitResult                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (submitResult)                                │
+│                                                                              │
+│ Description: getLevelConfig() provides scoreMultiplier (1.0x to 3.5x).       │
+│ startGame returns it to client. submitResult uses calculateScore()           │
+│ which doesn't apply any multiplier. Level 10 (30 items in 30s!) earns       │
+│ same per-item as Level 1 (10 items in 60s).                                 │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-04: Swagger Exposed in All Environments                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/main.ts (lines 52-56)                                              │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-05: In-Memory Rate Limiter Unbounded Growth                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Performance / DoS                                                  │
+│ File: src/hardening/ip-rate-limiter.middleware.ts                             │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-06: WebSocket Gateway Fallback Secret Differs                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/ws/game.gateway.ts (line 37)                                       │
+│                                                                              │
+│ Code:                                                                        │
+│   const secret = process.env.JWT_SECRET || 'dev-secret';                     │
+│                                                                              │
+│ vs app.config.ts:                                                            │
+│   jwtSecret: process.env.JWT_SECRET || 'dev-secret-rapid-sort'               │
+│                                                                              │
+│ If JWT_SECRET unset: REST API accepts tokens signed with                     │
+│ 'dev-secret-rapid-sort', WebSocket accepts 'dev-secret'. They can't both    │
+│ validate the same token → WebSocket auth silently breaks.                   │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-07: Timing Analysis Threshold May Be Too Lenient                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Anti-Cheat                                                         │
+│ File: src/game/game.service.ts (line 111)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   const delta = a.timestamp - answers[i - 1].timestamp;                      │
+│   return delta < 100; // less than 100ms between answers is suspicious       │
+│   if (fastAnswers.length > 5) { cheatFlags.push(...) }                       │
+│                                                                              │
+│ Description: Only flags if MORE THAN 5 answers are < 100ms apart. A smart   │
+│ bot could space answers at 150ms (fast but above threshold) and never get    │
+│ flagged. Real human reaction time for a sort decision is ~300-600ms.         │
+│                                                                              │
+│ Fix: Lower threshold to 200ms, flag if avg < 300ms for entire session.       │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-08: Client Sends `correct` Field — Redundant & Risky                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Security / Clean API                                               │
+│ File: src/game/dto/submit-result.dto.ts (AnswerSchema)                       │
+│                                                                              │
+│ Code:                                                                        │
+│   correct: z.boolean()  ← client sends this                                 │
+│                                                                              │
+│ Description: Backend overrides client's `correct` with server-side           │
+│ recalculation (good!). But accepting it in DTO is unnecessary attack         │
+│ surface — if server code ever accidentally trusts it, it's exploitable.     │
+│                                                                              │
+│ Fix: Remove `correct` from DTO. Only accept itemIndex + chosenSide +         │
+│ timestamp. Server determines correctness.                                    │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-09: Category Pair Assignment Not Validated Server-Side               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/game/game.service.ts (submitResult)                                │
+│                                                                              │
+│ Description: Frontend uses getCategoryForItem() to display which category    │
+│ pair is shown for each item. But if item #5 belongs to pair "Animal/Plant"   │
+│ and the frontend accidentally shows "Hot/Cold" labels, the player is         │
+│ confused but the server still validates against the true correctSide.        │
+│ Server doesn't know or care which category labels were displayed.            │
+│                                                                              │
+│ This is fine architecturally (server validates the sort, not the display)    │
+│ but means a frontend bug in getCategoryForItem could make the game feel      │
+│ unfair without triggering any server-side error.                             │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-10: DTO answers.max(100) but Level 10 Only Has 30 Items              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Validation                                                         │
+│ File: src/game/dto/submit-result.dto.ts                                      │
+│                                                                              │
+│ Description: DTO allows up to 100 answers but max items is 30. Allows        │
+│ sending 70 bogus answers. Server handles gracefully (invalid indices are     │
+│ flagged) but tighter validation would be cleaner.                            │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-11: Missed Items Counted as Wrong with Same Penalty                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Design                                                        │
+│ File: src/game/engine/scorer.ts (line 20)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   correctCount * pointsPerCorrect                                            │
+│   - wrongCount * penaltyPerWrong                                             │
+│   - missedCount * penaltyPerWrong  ← same penalty as wrong                  │
+│                                                                              │
+│ Description: Missed items (didn't answer in time) have SAME penalty as       │
+│ wrong answers. This penalizes slow players harshly. Consider: missed = no    │
+│ points, wrong = negative points. Current system double-punishes slow play.   │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-12: Dead Engine Modules (6 Files)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ Files: achievementEngine.ts, boosterEngine.ts, comboEngine.ts,               │
+│        dailyChallenge.ts, leaderboard.ts, scoreHistory.ts                    │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-13: getMaxLevel() Exported But Never Used                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE B-14: Duplicate ValidationPipe Import (Commented Out)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Code Quality                                                       │
+│ File: src/main.ts (line 8)                                                   │
+│                                                                              │
+│ Code:                                                                        │
+│   // import { ValidationPipe, VersioningType } from '@nestjs/common';        │
+│                                                                              │
+│ Priority Score: 1/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FRONTEND ISSUES (14 total)
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-01: VITE_ENCRYPTION_KEY Bundled in Client JS                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL                                                           │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 5)                                    │
+│                                                                              │
+│ Code:                                                                        │
+│   const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || '';           │
+│                                                                              │
+│ Priority Score: 6/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-02: Client Has Full contentGenerator + Seed → All Answers Known     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: CRITICAL (same as B-01)                                            │
+│ Category: Anti-Cheat                                                         │
+│ File: src/features/rapid-sort/engine/contentGenerator.ts                     │
+│                                                                              │
+│ Description: Identical to backend. generateItemSequence(seed, ...) returns   │
+│ all items with correctSide. DevTools one-liner gives all answers.            │
+│                                                                              │
+│ Priority Score: 8/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-03: Token Extracted from URL Query Param                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Security                                                           │
+│ File: src/services/httpClient.ts (line 14)                                   │
+│                                                                              │
+│ Code:                                                                        │
+│   const params = new URLSearchParams(window.location.search);                │
+│   const token = params.get('token') || sessionStorage.getItem('auth_token'); │
+│                                                                              │
+│ Description: Token in URL is logged in browser history, server access logs,  │
+│ referer headers, and shared URLs. Anyone who sees the URL gets the token.    │
+│                                                                              │
+│ Fix: Use postMessage from parent frame, or a dedicated token exchange        │
+│ endpoint that returns the token in response body.                            │
+│                                                                              │
+│ Priority Score: 7/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-04: Auto-Submit useEffect Missing Dependencies                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: Bug                                                                │
+│ File: src/features/rapid-sort/components/GamePage.tsx (line 52-56)           │
+│                                                                              │
+│ Code:                                                                        │
+│   useEffect(() => {                                                          │
+│     if (phase === 'finished' && score && sessionId) {                        │
+│       submitResult(sessionId, answers, score.finalScore)...                  │
+│     }                                                                        │
+│   }, [phase]);  ← missing: sessionId, answers, score, submitResult          │
+│                                                                              │
+│ Description: Stale closure captures old answers/score. In practice, this     │
+│ works because phase only becomes 'finished' once, but it's a bug that        │
+│ ESLint exhaustive-deps would flag.                                           │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-05: No Touch Swipe Gesture (Only Tap)                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: HIGH                                                               │
+│ Category: UX                                                                 │
+│ File: src/features/rapid-sort/components/CategoryLanes.tsx                   │
+│                                                                              │
+│ Description: For a "swipe" game, there's no actual swipe gesture. Player     │
+│ taps left or right half of screen. This is functional but less satisfying    │
+│ than actual swipe-to-sort. The name "Rapid Category Sort" + "swipe()"        │
+│ function name implies swipe interaction.                                     │
+│                                                                              │
+│ Fix: Add horizontal drag gesture (e.g., react-use-gesture or framer-motion  │
+│ drag) on the FallingItem. Drag left = sort left, drag right = sort right.   │
+│                                                                              │
+│ Priority Score: 7/10 (core interaction mismatch)                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-06: Missed Item Records Incorrect Data                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Game Logic                                                         │
+│ File: src/features/rapid-sort/hooks/useRapidSort.ts (line 55)               │
+│                                                                              │
+│ Code:                                                                        │
+│   { itemIndex, chosenSide: 'left', timestamp: Date.now(), correct: false }   │
+│                                                                              │
+│ Description: When player doesn't answer in time (missed), the code records   │
+│ chosenSide as 'left' (hardcoded placeholder) and correct as false.           │
+│ This pollutes the answers array sent to server with fake 'left' answers.     │
+│ Server will count these as wrong answers (not missed) because they have      │
+│ a chosenSide.                                                                │
+│                                                                              │
+│ Impact: missedCount on server will be 0 (all counted as wrong with 'left').  │
+│ Score calculation still works (same penalty) but analytics are wrong.        │
+│                                                                              │
+│ Fix: Don't add missed items to answers array. Let server infer missed by     │
+│ items not present in answers.                                                │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-07: No Audio Feedback                                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Missing Feature                                                    │
+│ File: src/hooks/ (useAudio NOT present in this game!)                        │
+│                                                                              │
+│ Description: No audio on correct sort, wrong sort, streak, or timer low.     │
+│ Fast-paced sorting games benefit greatly from audio rhythm.                  │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-08: No Post-Game Breakdown                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: GamePage.tsx (finished phase)                                          │
+│                                                                              │
+│ Description: Uses generic ResultScreen. No breakdown showing:                │
+│ - Correct/Wrong/Missed counts                                                │
+│ - Which categories were hardest                                              │
+│ - Best streak                                                                │
+│ - Time per answer distribution                                               │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-09: No Haptic Feedback on Sort                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: CategoryLanes.tsx                                                      │
+│                                                                              │
+│ Priority Score: 4/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-10: Feedback Emojis Display as "?" (Encoding Issue)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: Bug / Display                                                      │
+│ Files: GamePage.tsx, CategoryLanes.tsx, GameHeader.tsx                        │
+│                                                                              │
+│ Description: Multiple emoji characters in the code appear as "?" in the      │
+│ source. If these are rendering correctly in browser (UTF-8), it's fine.     │
+│ If they're actually broken characters, the UI shows "?" to players.         │
+│                                                                              │
+│ Priority Score: 4/10 (needs visual verification)                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-11: No Category Transition Animation                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: MEDIUM                                                             │
+│ Category: UX                                                                 │
+│ File: CategoryLanes.tsx                                                      │
+│                                                                              │
+│ Description: When the active category pair changes (getCategoryForItem       │
+│ returns a different pair), the labels just swap instantly. No visual          │
+│ indicator that categories have changed — player may not notice.             │
+│                                                                              │
+│ Fix: Flash/animate the category labels when they change. Brief pause or      │
+│ "New categories!" indicator.                                                 │
+│                                                                              │
+│ Priority Score: 5/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-12: socketClient.ts Unused                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/services/socketClient.ts                                           │
+│                                                                              │
+│ Priority Score: 3/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-13: computeFinalSeed in Client (Unnecessary)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code / Security                                               │
+│ File: src/features/rapid-sort/engine/random.ts                               │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ISSUE F-14: GameOverScreen.tsx Component Unused                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Severity: LOW                                                                │
+│ Category: Dead Code                                                          │
+│ File: src/features/rapid-sort/components/GameOverScreen.tsx                   │
+│                                                                              │
+│ Description: GamePage uses ResultScreen from @/components instead.            │
+│                                                                              │
+│ Priority Score: 2/10                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PERFORMANCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Performance Profile:
+
+1. Item Rendering: One item at a time (AnimatePresence) — trivial
+2. Timer: setInterval at 100ms — standard
+3. Item Timer: setTimeout for auto-advance — lightweight
+4. State Updates: Per-swipe setState — minimal
+5. Framer Motion: spring animation on item enter/exit — smooth
+6. Category Lanes: Static layout (only labels change)
+7. Answer Storage: Array grows to max 30 items — negligible
+
+PERFORMANCE VERDICT: Excellent. Single-item-at-a-time rendering means zero
+performance concerns regardless of device. AnimatePresence ensures smooth
+transitions without layout thrashing.
+
+Bundle: Framer Motion (~100KB) + socket.io-client (unused ~40KB waste).
+No heavy libraries beyond that.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. UX ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOD UX Decisions:
+✓ Two-zone tap is FAST (don't need to aim)
+✓ Keyboard controls (ArrowLeft/Right + A/D) — unique in platform!
+✓ Category labels always visible (no memory required — just sort)
+✓ Streak counter (motivating!)
+✓ Timer warning with pulse animation at ≤10s
+✓ Progress indicator (currentIndex/totalItems)
+✓ Correct/Wrong counters visible in real-time
+✓ Spring animation on item entry (satisfying bounce)
+✓ Color-coded feedback (green flash = correct, red = wrong)
+✓ Dark gradient background (premium, reduces eye strain)
+✓ Full-screen layout (immersive)
+✓ Error state display
+✓ InstructionScreen before start
+
+UX PROBLEMS:
+
+1. No Actual Swipe Gesture
+   - "Rapid Category Sort" implies swiping
+   - Only tap left/right half — less satisfying
+   - FRUSTRATION LEVEL: MEDIUM
+
+2. No Audio
+   - Fast sorting needs rhythm audio
+   - Correct/wrong sounds build flow state
+   - FRUSTRATION LEVEL: MEDIUM
+
+3. No Category Change Warning
+   - Categories switch silently mid-game
+   - Player may sort "Dog" into "Hot" side without noticing
+   - FRUSTRATION LEVEL: HIGH (unfair-feeling)
+
+4. No Post-Game Breakdown
+   - FRUSTRATION LEVEL: LOW-MEDIUM
+
+5. Missing = Wrong (Same Penalty)
+   - Slow players double-punished
+   - FRUSTRATION LEVEL: MEDIUM (for casual players)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MISSING FEATURES LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  [!] Actual swipe/drag gesture
+2.  [!] Category change transition animation
+3.  [!] Audio feedback (correct, wrong, streak, timer)
+4.  [ ] Post-game breakdown (per-category accuracy)
+5.  [ ] Haptic feedback
+6.  [ ] Streak celebration (confetti at 10+)
+7.  [ ] Score multiplier display
+8.  [ ] Personal best display
+9.  [ ] Share results
+10. [ ] "Quick review" mode (see all items + correct answers post-game)
+11. [ ] Combo bonus for consecutive corrects
+12. [ ] Difficulty ramping within a single game
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. POLISH RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add swipe gesture on FallingItem (drag horizontally, release to sort)
+2. Category change: flash lane borders + "NEW!" badge for 1 second
+3. Correct sort: satisfying "ding" + subtle haptic
+4. Wrong sort: buzz sound + shake on item
+5. Streak 5+: rising tone pitch
+6. Streak 10: confetti + "On Fire!" text
+7. Timer low: heartbeat audio + screen edge glow
+8. Item exit: fly in sort direction with trail
+9. Perfect game (all correct): gold celebration
+10. Post-game: show hardest category (lowest accuracy)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. OPTIMIZATION RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:
+1. Add swipe gesture (framer-motion drag)
+2. Add category change transition
+3. Add audio (Web Audio for low latency)
+4. Fix missed item recording (don't send fake 'left')
+5. Fix useEffect deps for auto-submit
+6. Remove socketClient.ts (unused)
+7. Remove computeFinalSeed (dead code)
+8. Delete GameOverScreen.tsx (unused)
+9. Add haptic on sort
+10. Add post-game breakdown component
+
+Backend:
+1. Remove .env from VCS + fallback secrets
+2. Gate Swagger behind NODE_ENV
+3. Apply scoreMultiplier
+4. Lower timing threshold (200ms) and add avg check
+5. Remove `correct` from DTO (server determines)
+6. Don't send seed (server sends items one at a time)
+7. Add rate limiter cleanup
+8. Remove dead engine modules
+9. Tighten DTO answers.max to config.totalItems
+10. Use consistent JWT secret (fix gateway)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SECURITY RISK ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT MODEL:
+
+Attack Surface 1: Anti-Cheat
+- Seed → all items + correctSide computable
+- BUT: Timing analysis catches <100ms bots (GOOD!)
+- BUT: Server validates every answer independently (GOOD!)
+- BUT: Timing threshold is gameable (150ms spacing passes)
+- Anti-cheat score: 50/100 (best in platform so far!)
+
+Attack Surface 2: Secrets
+- .env with JWT_SECRET committed
+- Two fallback secrets (inconsistent)
+- VITE_ENCRYPTION_KEY in bundle
+- Severity: CRITICAL
+
+Attack Surface 3: Token in URL
+- Token passed via query parameter
+- Logged in browser history, referer, server logs
+- Severity: HIGH
+
+Attack Surface 4: Input Integrity
+- Client sends `correct` field (server overrides — safe)
+- Missed items sent as fake wrong answers
+- Severity: LOW (server handles correctly)
+
+OVERALL SECURITY POSTURE:
+The anti-cheat is the BEST in the platform. Server validates answers, has
+timing analysis, detects score divergence, expires concurrent sessions, and
+persists all inputs for audit. The weakness is seed exposure and secrets.
+Anti-cheat score: 50/100 (highest of any game audited so far).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. STEAM-REVIEW-STYLE CRITICISM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Mostly Positive" - 6.5/10
+
+POSITIVE:
+"Fast-paced and addictive! Great for killing 60 seconds."
+"Keyboard controls are a nice touch for PC players."
+"The streak counter makes you feel like a sorting machine!"
+"Lots of category variety — never felt repetitive."
+"Timer warning actually had my heart pumping."
+
+NEGATIVE:
+"I expected to swipe but it's just tapping halves of the screen."
+"The categories changed and I didn't notice — sorted 3 wrong!"
+"No sound at all — a rhythm game without rhythm."
+"Can't see which ones I got wrong after the game."
+"Missed items count as WRONG? I was slow, not stupid!"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WHAT PLAYERS WILL COMPLAIN ABOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. "Categories changed without warning!" — Silent category transition
+2. "I expected swiping!" — Tap-only interaction disappoints
+3. "No sound!" — Fast sorting needs audio rhythm
+4. "Missing = wrong is unfair!" — Same penalty for slow vs incorrect
+5. "Can't see my mistakes!" — No post-game breakdown
+6. "Higher levels earn same per-item!" — Multiplier unused
+7. "Token was in the URL!" — Security-aware users notice
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. WHAT MAKES THE GAME FUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Fun Factors:
+✓ SPEED — feels fast and frantic
+✓ Binary decisions — no complex thinking, just categorize!
+✓ Intuitive categories (Animal vs Plant — everyone knows)
+✓ Streak builds excitement ("I'm on fire!")
+✓ Time pressure creates urgency
+✓ No penalty for fast correct answers (speed IS the game)
+✓ Progress bar shows "almost done" feeling
+✓ Short sessions (30-60 seconds)
+✓ Keyboard controls (PC players love speed shortcuts)
+✓ Variety (16 category pairs × items = fresh each game)
+✓ No memorization needed (unlike Pattern Survival)
+✓ Immediate binary feedback (right or wrong, instant)
+
+Flow State Enablers:
+✓ Binary choices = low decision overhead
+✓ Fast pace prevents boredom
+✓ Streak counter rewards consistency
+✓ Progress bar shows end is near
+✓ Timer creates just-right pressure
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. WHAT PREVENTS THE GAME FROM BECOMING VIRAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Virality Blockers:
+
+1. NO SWIPE GESTURE
+   - The Tinder-style swipe would make this SO shareable
+   - "Look how fast I sort!" + physical swipe = viral mechanic
+   - Tap is functional but not share-worthy
+
+2. SILENT CATEGORY CHANGE
+   - Players get unfairly caught → frustration → quit before sharing
+
+3. NO AUDIO
+   - Fast sorting with rhythm sounds is mesmerizing
+   - Without it, feels dry
+
+4. NO SHARE
+   - "28/30 in 45 seconds!" is perfect short-form share content
+   - Not implemented
+
+5. NO STREAK CELEBRATION
+   - 15-streak should feel AMAZING
+   - Just a small text counter — no wow moment
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. FINAL RELEASE READINESS SCORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CATEGORY SCORES:
+- Architecture & Code Quality:     75/100 (clean, well-structured, works!)
+- Security:                         30/100 (secrets, token in URL)
+- Performance:                      85/100 (lightweight, excellent)
+- Game Logic & Correctness:         70/100 (scoring works, multiplier missing)
+- UX & Polish:                      55/100 (good basics, needs swipe + audio)
+- Anti-Cheat:                       50/100 (BEST in platform! timing analysis)
+- Accessibility:                    40/100 (keyboard controls! but no ARIA)
+- Retention & Engagement:           55/100 (fun mechanic, needs celebration)
+- Error Handling:                   65/100 (error state, try/catch on session)
+- Production Readiness:             55/100 (dead code, secrets, but WORKS)
+
+═══════════════════════════════════════
+OVERALL RELEASE READINESS: 66/100
+═══════════════════════════════════════
+
+VERDICT: BEST-INTEGRATED GAME SO FAR — ADD SWIPE + AUDIO FOR VIRAL POTENTIAL
+This game actually WORKS end-to-end. The backend anti-cheat is the best in
+the platform. Keyboard controls are unique. The core mechanic is fun and
+frantic. Just needs: real swipe gesture, category change warning, audio,
+and the standard security fixes.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. PRIORITY ROADMAP BEFORE RELEASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1: SECURITY (0.5 day)
+  □ Remove .env from VCS
+  □ Remove fallback secrets (crash on missing)
+  □ Fix gateway JWT secret (use appConfig.jwtSecret)
+  □ Gate Swagger behind NODE_ENV
+  □ Remove token-from-URL pattern
+
+PHASE 2: CORE UX (1 day)
+  □ Add swipe/drag gesture on FallingItem (framer-motion drag)
+  □ Add category change transition animation + "New!" indicator
+  □ Add audio (correct ding, wrong buzz, streak rising tone)
+  □ Add haptic on sort action (mobile)
+
+PHASE 3: GAME LOGIC (0.5 day)
+  □ Apply scoreMultiplier
+  □ Fix missed item recording (don't send fake 'left')
+  □ Consider: missed = 0 points, wrong = negative
+  □ Lower timing threshold (200ms) + add avg check
+  □ Remove `correct` from DTO
+
+PHASE 4: POLISH (0.5 day)
+  □ Post-game breakdown (per-category accuracy)
+  □ Streak celebration (confetti at 10+)
+  □ Fix useEffect deps
+  □ Remove dead code (socketClient, computeFinalSeed, GameOverScreen)
+  □ Verify emoji rendering
+
+PHASE 5: ANTI-CHEAT (0.5 day)
+  □ Don't send seed (server sends items one at a time)
+  □ Remove contentGenerator from frontend
+  □ Tighten DTO validation
+  □ Add personal best tracking
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. TOP 10 IMPROVEMENTS WITH HIGHEST ROI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  Add swipe/drag gesture on FallingItem
+    Effort: 2-3 hours | Impact: Core interaction becomes satisfying
+    ROI: 10x (transforms "tap game" into "swipe game")
+
+#2  Add category change transition
+    Effort: 30 min | Impact: Eliminates unfair "silent switch" frustration
+    ROI: 9x (single biggest UX pain fix)
+
+#3  Add audio (correct/wrong/streak)
+    Effort: 1-2 hours | Impact: Fast sorting feels rhythmic and rewarding
+    ROI: 8x
+
+#4  Remove fallback secrets + .env
+    Effort: 30 min | Impact: Prevents auth bypass
+    ROI: ∞ (security)
+
+#5  Apply scoreMultiplier
+    Effort: 5 min | Impact: Higher levels feel rewarding
+    ROI: 8x (one line)
+
+#6  Remove token from URL
+    Effort: 1 hour | Impact: Prevents token leakage
+    ROI: 7x (security)
+
+#7  Post-game breakdown
+    Effort: 1-2 hours | Impact: Players learn which categories trip them
+    ROI: 6x
+
+#8  Don't send seed (server-driven items)
+    Effort: 3-4 hours | Impact: Prevents trivial cheating
+    ROI: 6x
+
+#9  Fix missed item recording
+    Effort: 15 min | Impact: Analytics accuracy
+    ROI: 5x
+
+#10 Streak celebration (confetti at 10+)
+    Effort: 30 min | Impact: "I'm on fire!" moment
+    ROI: 5x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSITIVE ARCHITECTURE OBSERVATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKEND:
+✓ CONCURRENT SESSION PREVENTION: Expires existing active sessions before
+  creating new ones. One of only TWO games with this feature!
+✓ SERVER-SIDE VALIDATION: Regenerates item sequence, verifies each answer
+  independently. Does NOT trust client's `correct` field.
+✓ TIMING ANALYSIS: Checks for <100ms answer gaps — detects bots!
+  Only game (besides Number Grid Sprint) with built-in timing detection.
+✓ SCORE DIVERGENCE DETECTION: >30 threshold flags manipulation
+✓ INPUT PERSISTENCE: All answers stored with timestamps for audit trail
+✓ CHEAT FLAG PERSISTENCE: Flagged sessions stored + event published
+✓ ATOMIC DOUBLE-SUBMIT: updateMany where status:'active'
+✓ SESSION EXPIRY: endTime + 5000ms grace
+✓ GAME-OVER ENDPOINT: Explicit termination path
+✓ ZSTRICTD: Zod DTOs with proper validation
+✓ ENVIRONMENT VALIDATION: validateEnvironment() at startup
+✓ PRODUCTION CORS CHECK: Throws on missing CORS_ORIGINS
+✓ RICH CONTENT: 16 category pairs × 8 items = 256 unique words
+✓ Fisher-Yates shuffle (seededShuffle) — no biased .sort()!
+✓ Category side randomization (left/right swap per game)
+
+FRONTEND:
+✓ KEYBOARD CONTROLS: ArrowLeft/Right + A/D — UNIQUE in platform!
+✓ WORKING SUBMIT: Sends actual answers array that matches backend DTO!
+✓ ITEM AUTO-ADVANCE: Missed items properly tracked
+✓ STREAK COUNTER: Visual motivation
+✓ TIMER WARNING: Pulse animation at ≤10s (isLow)
+✓ PROGRESS BAR: currentIndex/totalItems visible
+✓ ERROR STATE: error displayed prominently
+✓ AnimatePresence: Smooth item transitions
+✓ Clean phase management (idle → playing → finished)
+✓ Proper timer cleanup on unmount
+✓ Error handling in useGameSession (try/catch)
+✓ gameOver endpoint integration for explicit end
+✓ answeredCurrentRef prevents double-answer per item
+✓ Spring animations (bouncy item entry)
+
+GAME DESIGN:
+✓ Binary decisions (LEFT or RIGHT) — accessible to everyone
+✓ Intuitive categories (Animal/Plant, Hot/Cold, etc.)
+✓ 16 pairs provide weeks of variety
+✓ Time pressure + item auto-advance = urgency
+✓ Short sessions (30-60 seconds) — perfect for mobile
+✓ No memorization needed (pure categorization skill)
+✓ Scalable difficulty (10-30 items, less time, more categories)
+
+================================================================================
+COMPARISON WITH PREVIOUS GAMES
+================================================================================
+
+SCORES SO FAR:
+  Game #1 (Arrows):             58/100
+  Game #2 (Block Fill):         62/100
+  Game #3 (Colour Sorting):     61/100
+  Game #4 (Flash Spot):         56/100
+  Game #5 (Infinity Loop):      59/100
+  Game #6 (Live Route Builder): 48/100 ← LOWEST
+  Game #7 (Logic Reflector):    72/100
+  Game #8 (Maze Navigation):    58/100
+  Game #9 (Memory Card Match):  68/100
+  Game #10 (Memory Groups):     45/100
+  Game #11 (Number Grid Sprint):62/100
+  Game #12 (Object Placement):  60/100
+  Game #13 (Pattern Survival):  52/100
+  Game #14 (Rapid Category Sort):66/100 ← SECOND HIGHEST!
+
+UNIQUE STRENGTHS (vs other games):
+★ BEST anti-cheat in platform (timing analysis + validation + input persist)
+★ Keyboard controls (ArrowLeft/Right + A/D) — UNIQUE!
+★ Rich content bank (16 categories × 8 items × 2 sides = 256 words)
+★ Concurrent session prevention (one of only two!)
+★ Frontend-backend integration ACTUALLY WORKS (unlike Pattern Survival!)
+★ gameOver endpoint for explicit termination
+★ Item auto-advance with missed tracking
+★ No biased shuffle bugs (proper Fisher-Yates everywhere)
+★ Category side randomization per game (variety)
+
+vs Logic Reflector (72/100 — current best):
+- BETTER: Anti-cheat (timing analysis, input persistence)
+- BETTER: Keyboard controls
+- BETTER: Working submit integration
+- SAME: Security issues (secrets, .env)
+- WORSE: No swipe gesture (core interaction incomplete)
+- WORSE: No audio
+
+vs Pattern Survival (52/100):
+- MUCH BETTER: Submit actually works!
+- MUCH BETTER: Timing analysis built-in
+- BETTER: Concurrent session prevention
+- BETTER: Rich content bank (vs just 9 colored cells)
+- SAME: No audio
+- SAME: Seed sent to client
+
+================================================================================
+END OF AUDIT — GAME #14: RAPID CATEGORY SORT
+================================================================================

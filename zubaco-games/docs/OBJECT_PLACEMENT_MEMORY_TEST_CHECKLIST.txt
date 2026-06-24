@@ -1,0 +1,247 @@
+========================================================================
+OBJECT PLACEMENT MEMORY – COMPREHENSIVE TEST CHECKLIST
+========================================================================
+Total Test Cases: 152
+Version: 1.0
+Game: Object Placement Memory
+Stack: React 19 + Vite + TypeScript + TailwindCSS 3 + Framer Motion
+       + @dnd-kit/core + react-router-dom + i18next
+
+========================================================================
+SECTION 1: MENU SCREEN (14 tests)
+========================================================================
+[ ] 1.1  Menu renders with game title "Object Placement" and 🧩 emoji
+[ ] 1.2  All 6 buttons visible: Play, Levels, Daily, Achievements, Statistics, Settings
+[ ] 1.3  Buttons animate in sequentially with stagger delay (0.06s)
+[ ] 1.4  Tapping "Play" transitions to game (appPhase='game')
+[ ] 1.5  Tapping "Levels" transitions to level selector
+[ ] 1.6  Tapping "Daily Challenge" transitions to daily screen
+[ ] 1.7  Tapping "Achievements" transitions to achievements screen
+[ ] 1.8  Tapping "Statistics" transitions to stats screen
+[ ] 1.9  Tapping "Settings" transitions to settings screen
+[ ] 1.10 Each button has unique color (indigo/purple/amber/emerald/cyan/slate)
+[ ] 1.11 Menu is the initial screen (appPhase = 'menu')
+[ ] 1.12 Active button scale animation on tap (scale 0.97)
+[ ] 1.13 Subtitle text "Remember where each object belongs!" visible
+[ ] 1.14 Menu takes full screen height (min-h-screen)
+
+========================================================================
+SECTION 2: LEVEL SELECTOR (18 tests)
+========================================================================
+[ ] 2.1  Level grid renders 10 levels in 5-column layout
+[ ] 2.2  Level 1 is unlocked by default
+[ ] 2.3  Levels 2-10 are locked initially (show 🔒)
+[ ] 2.4  Unlocked levels show level number, config, stars
+[ ] 2.5  Config labels shown (4×4 3obj through 7×7 12obj)
+[ ] 2.6  Stars display (0-3) for each completed level
+[ ] 2.7  Locked levels have reduced opacity and disabled click
+[ ] 2.8  Tapping unlocked level transitions to game
+[ ] 2.9  Completing level N unlocks level N+1
+[ ] 2.10 Star calculation: 3★ = all objects placed correctly (perfect)
+[ ] 2.11 Star calculation: 2★ = ≥75% accuracy
+[ ] 2.12 Star calculation: 1★ = completed (any accuracy)
+[ ] 2.13 "← Back" button returns to menu
+[ ] 2.14 Level configs scale: grid 4×4→7×7, objects 3→12, memo 5s→1.8s
+[ ] 2.15 localStorage persistence survives page refresh
+[ ] 2.16 Level grid entrance animation (scale from 0.8)
+[ ] 2.17 Score multiplier increases per level (1.0× to 3.5×)
+[ ] 2.18 Corrupted localStorage gracefully falls back to defaults
+
+========================================================================
+SECTION 3: SETTINGS (12 tests)
+========================================================================
+[ ] 3.1  Settings screen renders with Sound, Volume, Dark Mode toggles
+[ ] 3.2  Sound toggle reflects current state from localStorage
+[ ] 3.3  Toggling sound updates state and saves immediately
+[ ] 3.4  Volume slider shows current percentage (0-100)
+[ ] 3.5  Volume slider disabled when sound is off
+[ ] 3.6  Volume changes persist across page refresh
+[ ] 3.7  Dark Mode toggle switches theme
+[ ] 3.8  Theme preference persists in localStorage
+[ ] 3.9  Toggle pill animation slides correctly (framer-motion)
+[ ] 3.10 "← Back" button returns to menu
+[ ] 3.11 Settings load default values if no localStorage data
+[ ] 3.12 Invalid localStorage values handled gracefully
+
+========================================================================
+SECTION 4: STATISTICS (12 tests)
+========================================================================
+[ ] 4.1  Stats screen renders all 10 stat cards in 2-column grid
+[ ] 4.2  Displays: Games Played, Games Won, Accuracy %, Correct Placements
+[ ] 4.3  Displays: Perfect Games, Best Streak, Highest Level, Speed Runs
+[ ] 4.4  Displays: Total Time (formatted), High Score
+[ ] 4.5  All stats start at 0 for new player
+[ ] 4.6  Accuracy calculated from totalCorrect / totalObjects
+[ ] 4.7  Time format: "0m" / "Xm" / "Xh Xm"
+[ ] 4.8  Stats entrance animation (opacity + y translate)
+[ ] 4.9  "← Back" button returns to menu
+[ ] 4.10 Stats survive page refresh via localStorage
+[ ] 4.11 Number formatting uses toLocaleString
+[ ] 4.12 updateStats helper correctly increments/maxes values
+
+========================================================================
+SECTION 5: ACHIEVEMENTS (16 tests)
+========================================================================
+[ ] 5.1  Achievements screen renders all 10 achievement cards
+[ ] 5.2  Unlocked achievements show icon, title, description, ✓
+[ ] 5.3  Locked achievements show at 50% opacity
+[ ] 5.4  "First Victory" unlocks after first win
+[ ] 5.5  "On Fire" unlocks at 5-placement correct streak
+[ ] 5.6  "Unstoppable" unlocks at 10-placement streak
+[ ] 5.7  "Perfectionist" unlocks with all objects placed correctly
+[ ] 5.8  "Speed Demon" unlocks with >50% time remaining
+[ ] 5.9  "Dedicated" unlocks after 50 games played
+[ ] 5.10 "Rising Star" unlocks at level 5
+[ ] 5.11 "Master" unlocks at level 10
+[ ] 5.12 "High Scorer" unlocks at 100+ points
+[ ] 5.13 "Flawless" unlocks with no errors
+[ ] 5.14 AchievementPopup appears at top with animation
+[ ] 5.15 Popup auto-dismisses after 4 seconds
+[ ] 5.16 "← Back" button returns to menu
+
+========================================================================
+SECTION 6: DAILY CHALLENGE (14 tests)
+========================================================================
+[ ] 6.1  Daily screen renders calendar week (Sun-Sat)
+[ ] 6.2  Current day highlighted with indigo border
+[ ] 6.3  Completed days show ✓, incomplete show ○
+[ ] 6.4  Current streak and best streak displayed
+[ ] 6.5  Streak increments on daily completion
+[ ] 6.6  Best streak updates when current surpasses it
+[ ] 6.7  "Start Daily Placement" button active for incomplete day
+[ ] 6.8  Button disabled with "✓ Completed Today" after completion
+[ ] 6.9  Daily seed is date-based (deterministic SHA-256)
+[ ] 6.10 Score multiplier info (1.5×) displayed
+[ ] 6.11 "← Back" button returns to menu
+[ ] 6.12 Daily completion persists in localStorage
+[ ] 6.13 Calendar week resets at start of new week
+[ ] 6.14 markDailyComplete prevents double completion
+
+========================================================================
+SECTION 7: PAUSE DIALOG (10 tests)
+========================================================================
+[ ] 7.1  Pause overlay covers full screen with backdrop blur
+[ ] 7.2  Dialog shows objects placed (X/Y format)
+[ ] 7.3  Dialog shows elapsed time (MM:SS format)
+[ ] 7.4  "Resume" button calls onResume and closes
+[ ] 7.5  "Restart" button calls onRestart
+[ ] 7.6  "Exit to Menu" calls onExit → returns to menu
+[ ] 7.7  Dialog entrance animation (scale from 0.9)
+[ ] 7.8  Buttons have correct visual hierarchy (Resume = primary indigo)
+[ ] 7.9  Game timer paused while dialog is open
+[ ] 7.10 Dialog rendered above all game UI (z-50)
+
+========================================================================
+SECTION 8: CONFETTI (10 tests)
+========================================================================
+[ ] 8.1  Confetti does not render when active=false
+[ ] 8.2  Confetti renders 60 particles when active=true
+[ ] 8.3  Particles have random colors from 8-color palette
+[ ] 8.4  Particles animate outward from center
+[ ] 8.5  Particles fade to opacity 0
+[ ] 8.6  Confetti disappears after duration (default 3000ms)
+[ ] 8.7  pointer-events-none so confetti doesn't block DnD
+[ ] 8.8  Particles have mixed shapes (circle and rectangle)
+[ ] 8.9  Re-triggering creates fresh particle set
+[ ] 8.10 No memory leaks (timeout cleared on unmount)
+
+========================================================================
+SECTION 9: MEMORIZE PHASE (16 tests)
+========================================================================
+[ ] 9.1  Idle phase shows InstructionScreen with Start button
+[ ] 9.2  Start button calls API POST /game/start
+[ ] 9.3  API returns seed, config, gameSessionId, objectTypes
+[ ] 9.4  Board generated: objects picked via seeded shuffle from 16-item pool
+[ ] 9.5  Cell positions picked via seeded shuffle from all grid cells
+[ ] 9.6  Memorize grid shows yellow border + objects in positions
+[ ] 9.7  Objects animate in with spring scale (sequential delay)
+[ ] 9.8  "Remember where each object is placed!" text pulsing yellow
+[ ] 9.9  GameHeader shows "MEMORIZE!" label + countdown
+[ ] 9.10 Memorize phase lasts config.memorizeTimeMs (default 5s)
+[ ] 9.11 Grid matches config.gridSize (default 4×4)
+[ ] 9.12 Exactly config.objectCount objects placed on grid
+[ ] 9.13 Empty cells shown as gray with no emoji
+[ ] 9.14 Occupied cells shown with yellow background tint
+[ ] 9.15 Objects are emoji-based (star, heart, diamond, etc.)
+[ ] 9.16 Auto-transition to recall phase after memorize time
+
+========================================================================
+SECTION 10: RECALL PHASE & DRAG-AND-DROP (22 tests)
+========================================================================
+[ ] 10.1  Grid transitions to RecallGrid (blue border, droppable cells)
+[ ] 10.2  Objects appear shuffled in ObjectTray below grid
+[ ] 10.3  Tray shuffle uses offset seed (seed + 999)
+[ ] 10.4  PointerSensor activated with 5px distance constraint
+[ ] 10.5  TouchSensor activated with 100ms delay + 5px tolerance
+[ ] 10.6  Dragging object shows scale + purple highlight
+[ ] 10.7  Hovering over droppable cell shows blue highlight
+[ ] 10.8  Dropping on cell places object (green border + emoji)
+[ ] 10.9  Object removed from tray when placed (30% opacity)
+[ ] 10.10 Clicking placed object removes it back to tray
+[ ] 10.11 Object can be moved between cells (auto-removes from previous)
+[ ] 10.12 Timer counts down from recallTimeMs
+[ ] 10.13 Timer turns red + pulses at ≤5 seconds
+[ ] 10.14 GameHeader shows "Place Objects" + placed/total count
+[ ] 10.15 Submit button shows count "Submit (X/Y)"
+[ ] 10.16 Submit disabled when 0 objects placed
+[ ] 10.17 Submit enabled when ≥1 object placed
+[ ] 10.18 Auto-submit when timer reaches 0
+[ ] 10.19 Auto-submit fires only once (useRef guard)
+[ ] 10.20 Tray shows "Drag objects to their remembered positions"
+[ ] 10.21 Draggable disabled for already-placed objects
+[ ] 10.22 DndContext wraps RecallGrid + ObjectTray
+
+========================================================================
+SECTION 11: SCORING & RESULTS (14 tests)
+========================================================================
+[ ] 11.1  accuracy = correctCount / totalObjects
+[ ] 11.2  baseScore = round(accuracy × 100)
+[ ] 11.3  timeBonus = floor(timeBonusMultiplier × remainingMs / recallTimeMs)
+[ ] 11.4  finalScore = baseScore + timeBonus
+[ ] 11.5  Perfect accuracy (100%) → baseScore = 100
+[ ] 11.6  Zero placements → baseScore = 0
+[ ] 11.7  Timer expired → timeBonus = 0
+[ ] 11.8  ResultScreen shows finalScore (server score if available)
+[ ] 11.9  "Replay" button now returns to menu (not handleStart)
+[ ] 11.10 Score submitted to API: POST /game/submit
+[ ] 11.11 API receives: gameSessionId, attempts[], clientScore
+[ ] 11.12 PlacementAttempt: objectId, placedCellIndex, correctCellIndex, isCorrect
+[ ] 11.13 Sound: objectPlace on drop, objectCorrect/Wrong on submit
+[ ] 11.14 Sound: levelComplete / gameOver on results
+
+========================================================================
+SECTION 12: APP INTEGRATION (8 tests)
+========================================================================
+[ ] 12.1  App.tsx: ErrorBoundary → ThemeProvider → AppProviders → OfflineBanner → AppRouter
+[ ] 12.2  AppRouter: BrowserRouter → single route → GamePage
+[ ] 12.3  GamePage appPhase starts at 'menu'
+[ ] 12.4  All phase transitions work correctly
+[ ] 12.5  Back buttons return to menu from all screens
+[ ] 12.6  ThemeProvider context available in all components
+[ ] 12.7  ErrorBoundary catches rendering errors
+[ ] 12.8  OfflineBanner shows when network disconnected
+
+========================================================================
+SECTION 13: ENGINE & BACKEND (6 tests)
+========================================================================
+[ ] 13.1  Mulberry32 PRNG deterministic from seed
+[ ] 13.2  seededShuffle produces unbiased permutation
+[ ] 13.3  Object pool has 16 items (5 shapes, 3 nature, 2 food, 3 animal, 3 misc)
+[ ] 13.4  Backend combo engine: max 4× multiplier, milestone every 3
+[ ] 13.5  Backend daily challenge: SHA-256 seeded, scaling difficulty
+[ ] 13.6  Backend 5 boosters: TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO
+
+========================================================================
+NOTES
+========================================================================
+- Default config: 4×4 grid, 3 objects, 5s memorize, 90s recall
+- Scoring: accuracy × 100 + floor(multiplier × remaining/total)
+- Level progression: 4×4/3obj/5s → 7×7/12obj/1.8s
+- Drag-and-drop: @dnd-kit/core (PointerSensor + TouchSensor)
+- Object pool: 16 emojis across 5 categories
+- Audio: 6 sounds (objectPlace, objectCorrect, objectWrong, etc.)
+- State: Custom hooks, NOT Zustand
+- Routing: react-router-dom (single route to GamePage)
+- appPhase state machine wraps game phases in GamePage
+- Auto-submit on timer expiry with useRef guard
+========================================================================

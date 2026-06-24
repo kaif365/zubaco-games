@@ -1,0 +1,249 @@
+╔══════════════════════════════════════════════════════════════════╗
+║           ZUBACO - REMAINING ITEMS (Post-Code Fixes)            ║
+║           Generated: May 24, 2026                               ║
+╚══════════════════════════════════════════════════════════════════╝
+
+All CODE-LEVEL fixes from 44 audit reports are DONE.
+Below is what remains — these are ops, infra, process, and launch tasks.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ BEFORE FIRST DEPLOY (Do these before going to production)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 1. RUN DATABASE MIGRATION
+      cd zubaco-platform
+      npx prisma migrate deploy
+      (This applies the compliance schema: tds_records, age_verified, state, etc.)
+
+[ ] 2. INSTALL NEW DEPENDENCIES
+      cd zubaco-platform && npm install nestjs-pino pino-http pino-pretty @nestjs/schedule google-auth-library jwks-rsa helmet
+      cd zubaco-mobile && npm install react-native-keychain
+
+[ ] 3. SET ENVIRONMENT VARIABLES (add to .env / AWS Parameter Store / Secrets Manager)
+      # Auth
+      INTERNAL_API_KEY=<generate-strong-key>
+      APPLE_CLIENT_ID=<from-apple-developer>
+      APPLE_TEAM_ID=<from-apple-developer>
+      APPLE_KEY_ID=<from-apple-developer>
+      
+      # Wallet
+      RAZORPAYX_ACCOUNT_NUMBER=<your-razorpayx-virtual-account>
+      
+      # App
+      DATABASE_POOL_SIZE=5
+      APP_MIN_VERSION=1.0.0
+      APP_LATEST_VERSION=1.0.0
+      ADMIN_CORS_ORIGINS=https://admin.zubaco.com
+      CORS_ORIGINS=https://play.zubaco.com
+
+[ ] 4. VERIFY RAZORPAYX SETUP
+      - Activate RazorpayX on your Razorpay dashboard
+      - Get the virtual account number for payouts
+      - Test with a ₹1 payout to your own bank account
+
+[ ] 5. APPLE SIGN-IN SETUP
+      - Configure Sign in with Apple in Apple Developer portal
+      - Generate the private key (.p8 file)
+      - Set APPLE_KEY_ID, APPLE_TEAM_ID, APPLE_CLIENT_ID
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ TIER 3: MONITORING & OBSERVABILITY (Week before launch)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 6. SET UP CLOUDWATCH ALARMS
+      - CPU > 80% on ECS tasks
+      - Memory > 85% 
+      - RDS connections > 80% of max
+      - 5xx error rate > 1%
+      - P95 latency > 2 seconds
+      - Redis memory > 70%
+
+[ ] 7. SET UP ERROR TRACKING (Sentry or similar)
+      - npm install @sentry/nestjs
+      - Configure DSN in production env
+      - Add Sentry.init() in main.ts
+      - Set up Slack/email alerts for new errors
+
+[ ] 8. SET UP LOG AGGREGATION
+      - CloudWatch Logs already configured via ECS
+      - Pino structured logs are ready (JSON format in production)
+      - Create CloudWatch Insights queries for:
+        * Failed payments
+        * Anti-cheat flags
+        * Wallet balance discrepancies (from daily cron)
+        * TDS deductions
+
+[ ] 9. FINANCIAL MONITORING DASHBOARD
+      - Total deposits vs withdrawals (daily)
+      - GST collected (monthly)
+      - TDS deducted (monthly) 
+      - Failed payout rate
+      - Average withdrawal processing time
+
+[ ] 10. UPTIME MONITORING
+       - Set up health check monitoring (UptimeRobot / AWS Route53 health checks)
+       - /api/v1/health endpoint already exists
+       - Alert if down > 30 seconds
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ TIER 3: SECURITY HARDENING (Before public launch)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 11. PENETRATION TEST
+       - Hire a third-party pen testing firm
+       - Scope: API endpoints, auth flows, payment flows
+       - Fix any findings before launch
+       - Budget: ₹2-5 lakhs for a reputable firm
+
+[ ] 12. WAF RULES REVIEW
+       - AWS WAF is configured in Terraform
+       - Review/add rules for:
+         * SQL injection patterns
+         * XSS patterns  
+         * Rate limiting at edge (supplement app-level throttle)
+         * Geo-blocking if needed (CloudFront)
+
+[ ] 13. SECRETS ROTATION PLAN
+       - JWT secret: rotate every 90 days (support multiple valid secrets)
+       - Razorpay keys: rotate annually
+       - Internal API keys: rotate every 6 months
+       - Database password: rotate quarterly
+       - Document the rotation procedure
+
+[ ] 14. BACKUP & DISASTER RECOVERY
+       - RDS automated backups: verify 7-day retention
+       - Test restore procedure (restore to a test instance)
+       - Redis: enable AOF persistence if not already
+       - Document RTO/RPO targets (suggested: RTO 1hr, RPO 15min)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ TIER 4: LOAD TESTING & PERFORMANCE (1-2 weeks before launch)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 15. LOAD TEST SETUP
+       - Tool: k6 or Artillery
+       - Scenarios to test:
+         * 1000 concurrent game sessions
+         * 100 simultaneous deposits
+         * Tournament registration spike (5000 users in 1 min)
+         * Leaderboard reads under load
+       - Target: P99 < 500ms at 1000 concurrent users
+
+[ ] 16. DATABASE PERFORMANCE
+       - Run EXPLAIN ANALYZE on heavy queries
+       - Verify indexes are being used (pg_stat_statements)
+       - Consider read replicas if needed post-launch
+       - Connection pooling: PgBouncer if > 100 concurrent connections
+
+[ ] 17. REDIS CAPACITY PLANNING
+       - Current usage: OTP storage, withdrawal intents, rate limiting
+       - Estimate memory: ~500 bytes per key × max concurrent users
+       - ElastiCache cache.t3.small should handle up to 50K concurrent
+       - Set up eviction policy: allkeys-lru
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ TIER 4: COMPLIANCE & LEGAL (Before accepting real money)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 18. LEGAL REVIEW
+       - Get ToS reviewed by a gaming law attorney
+       - Privacy Policy compliance with DPDP Act 2023
+       - Responsible Gaming policy review
+       - State-wise legality confirmation (already blocking 8 states in code)
+
+[ ] 19. GST REGISTRATION
+       - Register for GST (28% on online gaming)
+       - Set up monthly GST filing process
+       - Integrate with accounting software (Tally/Zoho Books)
+
+[ ] 20. TDS COMPLIANCE
+       - Register as TDS deductor on TRACES portal
+       - Quarterly TDS return filing (Form 26QC or 26Q)
+       - Issue TDS certificates (Form 16A) to users annually
+       - Test: verify TDS calculation matches IT rules
+
+[ ] 21. RBI / PAYMENT COMPLIANCE
+       - Ensure Razorpay agreement covers online gaming
+       - KYC flow compliance with RBI guidelines
+       - UPI auto-debit consent (if applicable)
+       - Nodal account requirements for gaming platforms
+
+[ ] 22. DATA PROTECTION (DPDP Act)
+       - Appoint a Data Protection Officer
+       - Data Processing Agreement with AWS, Razorpay
+       - Consent mechanism is implemented (code done ✓)
+       - Data deletion endpoint exists (code done ✓)
+       - Cross-border data transfer assessment (AWS ap-south-1 = India ✓)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ TIER 4: DOCUMENTATION (Ongoing)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 23. API DOCUMENTATION
+       - Swagger/OpenAPI is enabled in non-production (code done ✓)
+       - Generate and publish API docs for game backends
+       - Document WebView integration contract
+
+[ ] 24. RUNBOOK
+       - How to deploy (CI/CD already set up ✓)
+       - How to rollback
+       - How to handle failed payouts
+       - How to handle reconciliation discrepancies
+       - How to ban a user / review cheat flags
+
+[ ] 25. INCIDENT RESPONSE PLAN
+       - Define severity levels (P1-P4)
+       - Escalation matrix
+       - Communication templates
+       - Post-mortem process
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SUMMARY OF COMPLETED CODE FIXES (for reference)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ T1-001: Google OAuth server-side token verification
+✅ T1-002: Apple OAuth JWKS verification  
+✅ T1-003: JWT secrets throw on missing
+✅ T1-004: Token O(1) SHA-256 lookup
+✅ T1-005: InternalApiGuard on anti-cheat
+✅ T1-006: OTP brute-force lockout (10 attempts/15min)
+✅ T1-007: Deposit double-credit prevention (atomic)
+✅ T1-008: Withdrawal double-spend (SELECT FOR UPDATE)
+✅ T1-009: deductEntryFee in tournament registration
+✅ T1-010: Razorpay payment amount verification
+✅ T1-011: RazorpayX payout integration
+✅ T1-012: Daily withdrawal limits (3/day, ₹50k)
+✅ T1-013: Age verification (18+)
+✅ T1-014: Geo-fencing (8 banned states)
+✅ T1-015: TDS 30% on net winnings
+✅ T1-016: GST 28% calculation
+✅ T1-017: Terms of Service endpoint
+✅ T1-018: Privacy Policy endpoint
+✅ T1-019: Consent collection (timestamps)
+✅ T1-020: Account deletion endpoint
+✅ T1-021: CORS restricted (admin)
+✅ T1-022: Helmet security headers
+✅ T1-023: Server seed hash (provable fairness)
+✅ T1-024: Input validation DTOs
+✅ T1-025: DB connection pool limit
+✅ T1-026: Body size limit (1MB)
+✅ T1-027: Health endpoint
+✅ T1-028: Score validation (anti-cheat)
+✅ T1-029: BOLA fix (session ownership)
+✅ T1-030: Same game config for tournament
+✅ T1-031: WebView token security
+✅ T1-032: Secure token storage (Keychain)
+✅ T1-033: App version check endpoint
+✅ T1-034: CI test pipeline
+✅ T1-035: Env var validation
+✅ T1-036: NODE_ENV=production (Terraform)
+✅ T1-037: Swagger disabled in production
+✅ T1-038: Webhook IP validation
+✅ T2-009: Structured logging (Pino)
+✅ T2-015: Two-step withdrawal with OTP
+✅ T2-016: Bank detail 48h cooling period
+✅ T2-018: Wallet cleanup cron (expire deposits + reconciliation)
+✅ T2-021: Per-endpoint rate limiting (@Throttle)
+✅ T2-022/023/024: BOLA ownership checks (notification, bank, challenge)
+
+Total: 43 code fixes completed | 25 ops/legal/process items remaining

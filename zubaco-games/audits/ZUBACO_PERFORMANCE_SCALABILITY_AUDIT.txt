@@ -1,0 +1,256 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║       ZUBACO GAMING PLATFORM - PERFORMANCE & SCALABILITY AUDIT                   ║
+║                                                                                  ║
+║  Document Version: 1.0                                                           ║
+║  Audit Date: 2026-05-23                                                          ║
+║  Scope: Query performance, caching, bottlenecks, scalability limits             ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                          EXECUTIVE SUMMARY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PERFORMANCE SCORE: 30/100 (HIGH RISK - WILL DEGRADE UNDER LOAD)
+
+The platform has several architectural decisions that will cause performance
+degradation as user count grows. Key issues include: O(N) bcrypt scan for token
+refresh, unbounded database queries, no caching layer for read-heavy endpoints,
+and a single database instance serving 22 services. Without intervention, the
+platform will become unusably slow at ~1000 concurrent users.
+
+IDENTIFIED BOTTLENECKS:
+  1. Token refresh: O(N) bcrypt comparison (N = all refresh tokens)
+  2. Leaderboard queries: Full table scan, no caching
+  3. Database connections: 85 max, 22 services competing
+  4. Admin exports: SELECT * without pagination (OOM risk)
+  5. Anti-cheat: 2 additional queries per score submission
+  6. Analytics: Real-time aggregation on large tables
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 1: DATABASE PERFORMANCE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.1 TOKEN REFRESH - O(N) BOTTLENECK                                             │
+│ Severity: CRITICAL                                                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Current token refresh flow (token.service.ts):                                 │
+│                                                                                 │
+│ To verify a refresh token, the system must:                                    │
+│ 1. Get ALL non-expired refresh tokens from database                           │
+│ 2. For EACH token: bcrypt.compare(submitted_token, stored_hash)               │
+│ 3. If match found → valid                                                     │
+│                                                                                 │
+│ Performance impact:                                                             │
+│   1,000 users × 3 devices = 3,000 refresh tokens                             │
+│   bcrypt.compare = ~100ms per comparison                                      │
+│   Worst case: 3,000 × 100ms = 300 SECONDS per refresh request!               │
+│   Average case: 1,500 × 100ms = 150 seconds                                  │
+│                                                                                 │
+│ At 10,000 users: System completely unusable (timeout on every token refresh)  │
+│                                                                                 │
+│ FIX: Use token_hash as LOOKUP KEY (index on token_hash column):               │
+│   1. Hash the refresh token with SHA-256 (fast, one-way)                      │
+│   2. Store SHA-256 hash in token_hash column (indexed)                        │
+│   3. On refresh: SHA-256 the submitted token → lookup by hash                │
+│   4. O(1) lookup instead of O(N) comparison                                  │
+│                                                                                 │
+│ NOTE: Schema already has token_hash as @unique - the O(N) bcrypt scan         │
+│ suggests the SERVICE implementation isn't using the index properly.            │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.2 LEADERBOARD QUERIES                                                         │
+│ Severity: HIGH                                                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Leaderboard reads are the MOST FREQUENT queries on a gaming platform.          │
+│ Every player checks leaderboards multiple times per session.                   │
+│                                                                                 │
+│ Current: Direct database query on every leaderboard request.                   │
+│ - orderBy: { score: 'desc' }                                                  │
+│ - Index exists: @@index([leaderboard_id, score(sort: Desc)])                  │
+│ - Still requires disk I/O for every request                                   │
+│                                                                                 │
+│ At 10,000 DAU hitting leaderboard 5x/session = 50,000 queries/day             │
+│ = ~35 queries/minute sustained                                                │
+│                                                                                 │
+│ SOLUTION: Redis-backed leaderboard cache:                                      │
+│   - Redis Sorted Sets (ZADD, ZREVRANGE) for O(log N) ranking                 │
+│   - Cache TTL: 30 seconds for real-time feel                                 │
+│   - Cache invalidation on score update                                        │
+│   - Reduces DB queries by 99%                                                │
+│                                                                                 │
+│ Currently: Redis is available but NOT used for leaderboard caching.           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.3 ADMIN ANALYTICS - REAL-TIME AGGREGATION                                     │
+│ Severity: MEDIUM                                                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ analytics.service.ts getOverview() runs 8 queries in parallel:                 │
+│   - COUNT(users)                                                               │
+│   - COUNT(users WHERE last_login today)                                       │
+│   - COUNT(users WHERE last_login this month)                                  │
+│   - SUM(transactions WHERE type=DEPOSIT)                                      │
+│   - SUM(transactions WHERE type=DEPOSIT AND this month)                       │
+│   - COUNT(seasons WHERE active)                                               │
+│   - COUNT(game_sessions)                                                       │
+│   - COUNT(game_sessions WHERE today)                                          │
+│                                                                                 │
+│ At 100K users + 1M sessions:                                                  │
+│   Each COUNT/SUM = full table scan or index scan                              │
+│   8 concurrent heavy queries on admin dashboard load                          │
+│   Response time: 2-10 seconds                                                 │
+│                                                                                 │
+│ SOLUTION:                                                                       │
+│   - Materialized views or summary tables (updated every 5 min)               │
+│   - Background job to compute analytics                                       │
+│   - Cache results in Redis (5-minute TTL)                                    │
+│   - Use COUNT estimates for approximate metrics                              │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 1.4 N+1 QUERY PATTERNS                                                          │
+│ Severity: MEDIUM                                                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Tournament queries use Prisma `include` which generates JOINs (good).          │
+│ But some patterns may produce N+1:                                             │
+│                                                                                 │
+│ getActiveSeasons():                                                             │
+│   include: { stages: { include: { stage_games: true } } }                     │
+│   This is 3 levels of nesting → 3 sequential queries.                         │
+│   With 5 seasons × 5 stages × 4 games = potentially large result set.        │
+│                                                                                 │
+│ getUserFlags() fetches 50 flags then does in-memory filtering:                 │
+│   .filter(f => f.severity === 'CRITICAL').length                              │
+│   Should use GROUP BY at database level.                                      │
+│                                                                                 │
+│ RECOMMENDATION:                                                                 │
+│   - Enable Prisma query logging in development                                │
+│   - Profile with EXPLAIN ANALYZE on production queries                        │
+│   - Add database indexes for common filter patterns                           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 2: CACHING STRATEGY (OR LACK THEREOF)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 2.1 CURRENT CACHING: NONE                                                       │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Redis is deployed but used ONLY for:                                           │
+│ - ThrottlerModule storage (rate limiting)                                     │
+│ - OTP temporary storage                                                       │
+│                                                                                 │
+│ NOT CACHED (but should be):                                                    │
+│                                                                                 │
+│ Endpoint                      │ Frequency    │ Cache TTL  │ Impact             │
+│ ─────────────────────────────────────────────────────────────────────────────  │
+│ GET /leaderboard/game/:type   │ Very High    │ 30s        │ Massive DB relief  │
+│ GET /free-play/config/:g/:l   │ High         │ 1 hour     │ Static data        │
+│ GET /tournament/seasons       │ High         │ 5 min      │ Same for all users │
+│ GET /users/me                 │ Very High    │ 30s        │ Per-user cache     │
+│ GET /notifications            │ High         │ 10s        │ Fan-out reduction  │
+│ GET /social/friends           │ Medium       │ 5 min      │ List doesn't change│
+│ GET /free-play/progress       │ High         │ 60s        │ Per-user           │
+│ Admin analytics overview      │ Low          │ 5 min      │ Heavy aggregation  │
+│                                                                                 │
+│ ESTIMATED DB LOAD REDUCTION WITH CACHING: 70-80%                               │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 3: SCALABILITY LIMITS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.1 SCALING CEILING ANALYSIS                                                    │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Component              │ Limit              │ When Hit        │ Fix             │
+│ ─────────────────────────────────────────────────────────────────────────────  │
+│ RDS connections        │ 85                 │ Day 1 (22 svc)  │ Proxy/upgrade   │
+│ Token refresh O(N)     │ ~100 users         │ Week 1          │ SHA-256 lookup  │
+│ Single RDS instance    │ ~5000 DAU          │ Month 2-3       │ Read replicas   │
+│ ECS task limit (account)│ 500               │ Unlikely        │ Quota increase  │
+│ Redis memory 3GB       │ ~10K cached items  │ With caching    │ Upgrade         │
+│ Admin export (no page) │ ~50K users         │ Month 3-4       │ Streaming       │
+│ Leaderboard no-cache   │ ~1000 concurrent   │ Tournament peak │ Redis sorted set│
+│ ALB concurrent         │ Unlimited (AWS)    │ N/A             │ N/A             │
+│                                                                                 │
+│ FIRST BOTTLENECK: Database connections (Day 1)                                 │
+│ SECOND BOTTLENECK: Token refresh performance (Week 1)                          │
+│ THIRD BOTTLENECK: Leaderboard performance (First tournament)                   │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 3.2 TOURNAMENT SPIKE HANDLING                                                   │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│ Tournament events create traffic spikes:                                       │
+│ - Registration opens: 5,000 concurrent requests in 60 seconds                 │
+│ - Stage opens: All registered players start games simultaneously              │
+│ - Stage closes: All players check rankings at same time                       │
+│                                                                                 │
+│ Current handling: Auto-scaling (1→10 for platform)                             │
+│ Scale-up time: ~3 minutes (new Fargate task launch)                           │
+│ During those 3 minutes: Existing single task handles ALL requests.            │
+│                                                                                 │
+│ SOLUTION:                                                                       │
+│   - Pre-warm before known events (schedule scale-up 10 min before)            │
+│   - Queue-based processing for registrations (SQS exists but unused)          │
+│   - Cache leaderboards aggressively during spike                              │
+│   - Rate limit per-user (not just per-IP) during spikes                      │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+             SECTION 4: SCORING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Component                         │ Score  │ Status
+──────────────────────────────────────────────────────
+Database Query Efficiency         │ 35/100 │ O(N) scan, no aggregation cache
+Caching Strategy                  │ 5/100  │ Redis exists but unused for cache
+Connection Management             │ 20/100 │ 85 max for 22 services
+Horizontal Scaling                │ 40/100 │ Auto-scaling exists
+Spike Handling                    │ 20/100 │ No pre-warming, no queue
+Data Growth Management            │ 30/100 │ Auto-extending storage
+API Response Times                │ 40/100 │ Acceptable now, degrade at scale
+──────────────────────────────────────────────────────
+WEIGHTED AVERAGE                  │ 30/100 │ WILL BREAK UNDER LOAD
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                END OF PERFORMANCE & SCALABILITY AUDIT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

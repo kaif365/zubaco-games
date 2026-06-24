@@ -1,0 +1,179 @@
+========================================================================
+RAPID CATEGORY SORT – FULL GAME ANALYSIS
+========================================================================
+Version: 1.0
+Location: C:\game\zubaco-games-repo\zubaco-games\rapid-category-sort\rapid-sort-frontend\
+
+========================================================================
+1. OVERVIEW
+========================================================================
+Rapid Category Sort is a timed sorting game where words/items appear 
+one at a time and the player must quickly swipe or tap left/right to 
+sort each item into the correct category. Items auto-advance on a 
+timer so speed is critical. Think Tinder-swipe meets word categorization.
+
+Genre: Reflex / Classification / Time-pressure
+Core loop: Item appears → Player swipes left or right → Correct/Wrong feedback → Next item
+
+========================================================================
+2. TECH STACK
+========================================================================
+- React 19 + Vite + TypeScript
+- TailwindCSS 3.4 (className-based dark theme)
+- framer-motion (animations, AnimatePresence)
+- react-i18next (translations)
+- @tanstack/react-query (QueryClient, not used for game state)
+- react-router-dom (BrowserRouter, single route)
+- Custom hooks (useState + useCallback + useRef)
+- No Zustand/Redux
+
+========================================================================
+3. PROJECT STRUCTURE
+========================================================================
+src/
+├── App.tsx                     (ErrorBoundary → ThemeProvider → QueryClientProvider → BrowserRouter → GamePage)
+├── main.tsx
+├── audio/                      (AudioManager, AudioProvider, soundRegistry, types, useAudio)
+├── components/
+│   ├── ErrorBoundary.tsx
+│   ├── InstructionScreen.tsx   (idle state UI with start button)
+│   ├── OfflineBanner.tsx
+│   └── ResultScreen.tsx        (generic result with score/stats/replay)
+├── features/rapid-sort/
+│   ├── components/
+│   │   ├── CategoryLanes.tsx   (left/right tap zones with category labels)
+│   │   ├── FallingItem.tsx     (animated word card, spring animation)
+│   │   ├── GameHeader.tsx      (timer, correct/wrong counts, streak, progress bar)
+│   │   ├── GameOverScreen.tsx  (detailed score breakdown)
+│   │   └── GamePage.tsx        (main orchestrator)
+│   ├── engine/
+│   │   ├── contentGenerator.ts (CATEGORY_BANK: 16 pairs, item generation)
+│   │   ├── random.ts           (mulberry32, seededShuffle, computeFinalSeed)
+│   │   └── scorer.ts           (calculateScore: correct/wrong/missed)
+│   ├── hooks/
+│   │   ├── useGameSession.ts   (API: startGame, submitResult, endGame)
+│   │   └── useRapidSort.ts     (game logic: phases, items, timer, swipe)
+│   └── save-progress/
+│       ├── saveProgressOutbox.ts (localStorage save/sync outbox)
+│       └── saveProgressTypes.ts  (RapidSortProgressEntry, RapidSortSavePayload)
+├── hooks/
+│   ├── useAudio.ts
+│   ├── useSocket.ts
+│   └── useTheme.tsx            (ThemeProvider with dark/light/system)
+├── services/
+│   ├── crypto.ts
+│   ├── httpClient.ts
+│   └── socketClient.ts
+├── styles/
+├── types/
+│   └── game.ts                 (SortDirection, CategoryPair, CategoryItem, StageConfig, etc.)
+└── i18n/
+
+========================================================================
+4. GAME MECHANICS
+========================================================================
+
+4.1 PHASES
+- idle: Shows InstructionScreen, player clicks "Start"
+- playing: Items appear one at a time, player swipes left/right
+- finished: Shows ResultScreen with score breakdown
+
+4.2 CATEGORY SYSTEM
+- 16 category pairs in CATEGORY_BANK (Animal/Plant, Fruit/Vegetable, Hot/Cold, etc.)
+- Each pair has 8 items per side (16 items total per pair)
+- Game selects `categoryPoolSize` pairs from bank (shuffled by seed)
+- Items interleaved from selected pairs then shuffled
+- Category labels rotate: items shown in batches per pair
+
+4.3 ITEM PRESENTATION
+- Items appear one at a time with spring animation (FallingItem)
+- Two half-screen tap zones (CategoryLanes): left (blue) and right (orange)
+- Category labels shown at top-left/top-right
+- Item auto-advances after itemIntervalMs (missed = penalty)
+- feedbackColor: correct=emerald, wrong=red, default=gray
+
+4.4 SCORING
+- Correct: +pointsPerCorrect (default 10)
+- Wrong: -penaltyPerWrong (default 5)
+- Missed: -penaltyPerWrong (default 5)
+- Final score = max(0, total)
+- No time bonus — speed IS the score (faster = more items answered)
+
+4.5 CONTROLS
+- Touch: Tap left half or right half of screen
+- Keyboard: ArrowLeft/a = left, ArrowRight/d = right
+
+4.6 DEFAULT CONFIG (StageConfig)
+- totalItems: 10
+- itemIntervalMs: (varies by level)
+- itemVisibleMs: (display time)
+- timeLimitMs: 60000 (60s)
+- pointsPerCorrect: 10
+- penaltyPerWrong: 5
+- categoryPoolSize: 3
+
+========================================================================
+5. BACKEND LEVEL CONFIGURATION
+========================================================================
+Level | Time(ms) | Items | Categories | Multiplier
+------|----------|-------|------------|----------
+  1   |  60000   |  10   |     3      |   1.0×
+  2   |  55000   |  12   |     3      |   1.2×
+  3   |  50000   |  14   |     4      |   1.4×
+  4   |  48000   |  16   |     4      |   1.6×
+  5   |  45000   |  18   |     4      |   1.8×
+  6   |  42000   |  20   |     5      |   2.0×
+  7   |  40000   |  22   |     5      |   2.3×
+  8   |  38000   |  24   |     5      |   2.6×
+  9   |  35000   |  26   |     6      |   3.0×
+  10  |  30000   |  30   |     6      |   3.5×
+
+========================================================================
+6. AUDIO (8 sounds)
+========================================================================
+- itemSwipe: plays on player swipe
+- sortCorrect: correct classification
+- sortWrong: wrong classification
+- combo: streak milestone reached
+- levelComplete: game won
+- gameOver: time expired
+- timerWarning: timer low
+- uiClick: menu interactions
+
+========================================================================
+7. BACKEND ENGINES
+========================================================================
+- achievementEngine: 10 achievements (First Win, Streak 5, Streak 10, Perfect, Speed Demon, etc.)
+- boosterEngine: 5 boosters (Time Freeze, Hint, Skip, Double Points, Undo)
+- comboEngine: streak tracking, multiplier step 0.25 per 3-streak, max 4.0×
+- dailyChallenge: SHA-256 date-based seed, difficulty by day of week, 1.5× bonus
+- leaderboard: standard
+- scoreHistory: standard
+- levelConfig: 10 levels (above table)
+
+========================================================================
+8. SAVE PROGRESS SYSTEM
+========================================================================
+- RapidSortProgressEntry: levelIndex, score, stars, completedAt, timeTakenMs, movesUsed, hintsUsed
+- localStorage keys: 'rapid-sort-save-progress', 'rapid-sort-save-outbox'
+- Functions: saveLevel, getProgress, getLevelProgress, getHighestCompletedLevel, getTotalScore
+- Outbox pattern for offline sync
+- Only saves if new score > existing score for that level
+
+========================================================================
+9. API ENDPOINTS
+========================================================================
+POST /game/start     → { stageId } → { gameSessionId, endTime, serverTime, config, seed }
+POST /game/submit    → { gameSessionId, answers, clientScore } → { finalScore, status, correctCount, wrongCount, missedCount }
+POST /game/game-over → { gameSessionId, reason }
+
+========================================================================
+10. INTEGRATION NOTES
+========================================================================
+- App.tsx uses BrowserRouter with single Route "/*" → GamePage
+- Uses @tanstack/react-query (QueryClientProvider) but game state is custom hooks
+- ThemeProvider wraps entire app
+- ResultScreen.onReplay currently calls handleStart (API call) → change to setAppPhase('menu')
+- Need to add appPhase state machine wrapping existing phases
+- Game already has save-progress system — Gold Standard components will add parallel menu layer
+========================================================================

@@ -1,0 +1,468 @@
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                    ARROWS GAME — COMPLETE CODEBASE ANALYSIS                     ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+════════════════════════════════════════════════════════════════════════════════════
+1. GAME CONCEPT & MECHANICS
+════════════════════════════════════════════════════════════════════════════════════
+
+NAME: Arrows (aka "Snake Arrows" — arrows rendered as snakes)
+
+SIMILAR GAMES:
+- "Arrow Puzzle" by Popcore Games (mobile)
+- "Unblock Arrow" puzzle games
+- "Snake Sort" / "Sort Puzzle" hybrids
+
+CORE MECHANIC:
+  → Grid-based puzzle where colored arrows (snakes) sit on cells
+  → Each arrow has a HEAD DIRECTION (up/down/left/right)
+  → Player taps an arrow → if the path in its head direction is CLEAR (no other
+    arrows blocking), the arrow slides off the board and is removed
+  → If the path is BLOCKED by another arrow, the move is invalid (life lost)
+  → Goal: Remove ALL arrows from the board
+
+RULES:
+  1. Arrows occupy multiple cells (waypoints from tail to head)
+  2. An arrow can only leave if ALL cells between its head and the board edge
+     (in its head direction) are empty
+  3. Order of removal matters — it's a sequence puzzle
+  4. Player has limited LIVES (mistakes) and HINTS
+  5. Timed gameplay with scoring based on completion + time bonus
+
+GAME FLOW:
+  Tutorial (local 4×4 warmup) → Start screen → Server game (multiple rounds)
+  Each round = a new board with different arrow configurations
+  Game ends when all rounds complete OR timer expires
+
+════════════════════════════════════════════════════════════════════════════════════
+2. TECH STACK
+════════════════════════════════════════════════════════════════════════════════════
+
+FRONTEND:
+  ├── React 19 + TypeScript 5.7 + Vite 6
+  ├── Phaser 4 (game engine — renders snakes/arrows on canvas)
+  ├── TailwindCSS 3.4 + shadcn/ui (Radix UI)
+  ├── TanStack Query v5 (API caching)
+  ├── React Router v7
+  ├── Axios (HTTP)
+  ├── i18next (internationalization)
+  ├── GSAP (arrow animations in React components)
+  └── Jest + React Testing Library
+
+BACKEND:
+  ├── NestJS 11 + TypeScript
+  ├── Prisma (PostgreSQL)
+  ├── Bun runtime (not Node.js!)
+  ├── Restate SDK (distributed state machine for game sessions)
+  ├── AWS SNS/SQS (event publishing)
+  ├── OpenTelemetry (tracing)
+  ├── Socket.IO (WebSockets — real-time updates)
+  ├── BullMQ (job queues)
+  ├── Swagger (API docs)
+  └── Custom encryption layer (request/response encryption)
+
+KEY DIFFERENCE FROM COLOUR-SORTING:
+  → Uses Phaser 4 for canvas-based rendering (snake animations)
+  → Uses Restate for distributed game session state (not just DB)
+  → Uses Bun instead of Node.js
+  → Has encryption layer on API requests
+  → Has WebSocket support
+  → Has anti-cheat system (CheatFlags in DB)
+  → Has stage/level admin configuration system
+
+════════════════════════════════════════════════════════════════════════════════════
+3. DIRECTORY STRUCTURE
+════════════════════════════════════════════════════════════════════════════════════
+
+arrows/
+├── arrows-frontend/
+│   ├── src/
+│   │   ├── app/            (providers, router)
+│   │   ├── components/
+│   │   │   ├── game/       (Arrow.tsx, Board.tsx, HUD.tsx, GameOver.tsx, WinOverlay.tsx)
+│   │   │   ├── PhaserGame.tsx  (Phaser 4 canvas wrapper)
+│   │   │   ├── shared/     (OfflineStatusModal, GameClearModal)
+│   │   │   └── ui/         (Alert, etc.)
+│   │   ├── constants/      (api.ts, game.ts, storage.ts, ui.ts)
+│   │   ├── dev/            (devLevel.ts — bypass for local testing)
+│   │   ├── features/
+│   │   │   ├── leaderboard/
+│   │   │   └── stage-content/  (API + hooks for admin content)
+│   │   ├── game/
+│   │   │   ├── GameScene.ts     (MAIN Phaser scene — snake rendering + logic)
+│   │   │   ├── gameLevels.ts    (empty — levels come from server)
+│   │   │   ├── gameTypes.ts     (all type definitions + GAME_EVENTS)
+│   │   │   └── serverRoundBridge.ts  (React↔Phaser data bridge)
+│   │   ├── hooks/
+│   │   │   ├── useGame.ts       (local game logic reducer)
+│   │   │   ├── useGameApi.ts    (API hooks: auth, start, submit, next, end)
+│   │   │   ├── useNetworkStatus.ts
+│   │   │   └── useDebounce.ts
+│   │   ├── lib/game/
+│   │   │   ├── types.ts    (ArrowPiece, Board, Level, GameState, GameAction)
+│   │   │   ├── logic.ts    (buildBoard, canMove, removeArrow, isWon)
+│   │   │   └── levels.ts   (5 hardcoded local levels for tutorial/offline)
+│   │   ├── locales/         (i18n translations)
+│   │   ├── pages/
+│   │   │   ├── HomePage.tsx (MAIN page — game orchestration, server integration)
+│   │   │   └── LevelEditorPage.tsx
+│   │   ├── services/
+│   │   │   ├── gameApiClient.ts     (axios client with encryption)
+│   │   │   ├── httpClient.ts
+│   │   │   ├── liveSessionStorage.ts (persist session across refresh)
+│   │   │   └── demoSessionStorage.ts
+│   │   └── utils/           (crypto, security, storage)
+│   ├── micro-screens/       (shared result/instruction screens)
+│   └── public/assets/
+│       ├── snake-head.svg, snake-segment.svg, snake-tail.svg
+│       └── sounds/ (background_sound.mp3, success_sound.mp3, tap_sound.mp3,
+│                    whoosh_sound.mp3, wrong_step.mp3)
+│
+└── arrows-backend/
+    ├── src/
+    │   ├── game/
+    │   │   ├── game.controller.ts    (REST endpoints: game-start, next-board, submit-moves, end-board, end-game)
+    │   │   ├── game.service.ts       (core business logic — DB operations, board picking)
+    │   │   ├── game.module.ts
+    │   │   ├── game-session-restate.service.ts (Restate virtual object handler)
+    │   │   ├── game-session.restate.ts
+    │   │   ├── game-expiry.service.ts (timer expiry handling)
+    │   │   ├── game-restate-state.types.ts (InFlightSession/Board/Arrow/Move)
+    │   │   ├── dto/                   (submit-moves.dto.ts)
+    │   │   ├── engine/
+    │   │   │   ├── achievementEngine.ts  (10 achievements)
+    │   │   │   ├── boosterEngine.ts      (TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO)
+    │   │   │   ├── comboEngine.ts        (streak + multiplier system)
+    │   │   │   ├── dailyChallenge.ts     (date-seeded daily puzzle)
+    │   │   │   ├── leaderboard.ts        (in-memory ranked leaderboard)
+    │   │   │   └── scoreHistory.ts       (player stats computation)
+    │   │   └── utils/
+    │   │       ├── move-validator.ts  (buildCellMap, isPathClear, replayMoves)
+    │   │       └── score.util.ts      (calculateRoundScore, calculateTimeBonus)
+    │   ├── admin/           (admin endpoints)
+    │   ├── aws/ (SNS)
+    │   ├── circuit-breaker/
+    │   ├── common/ (constants, decorators, guards, prisma)
+    │   ├── config/
+    │   ├── crypto/ (encryption decorator + middleware)
+    │   ├── feature-flags/
+    │   ├── hardening/
+    │   ├── http-cache/
+    │   ├── idempotency/
+    │   ├── queue/ (BullMQ)
+    │   ├── redis/
+    │   ├── secrets/
+    │   ├── server/
+    │   ├── shutdown/
+    │   ├── tracing/ (OpenTelemetry)
+    │   ├── user/
+    │   └── ws/ (WebSocket gateway)
+    └── prisma/
+        ├── schema.prisma    (Level, Board, Arrow, GameSession, GameSessionBoard,
+        │                     GameSessionArrow, GameMove, CheatFlag, StageConfig, etc.)
+        ├── migrations/
+        └── seed.ts
+
+════════════════════════════════════════════════════════════════════════════════════
+4. CORE GAME LOGIC
+════════════════════════════════════════════════════════════════════════════════════
+
+LOCAL (tutorial mode — lib/game/logic.ts):
+  - buildBoard(level): creates 2D grid from level definition
+  - canMove(arrow, board): checks if arrow's head direction path is clear
+  - removeArrow(id, board): removes arrow from board (replaces cell with null)
+  - isWon(board): checks if all cells are null (all arrows removed)
+
+SERVER (move-validator.ts):
+  - buildCellMap(arrows): maps "x,y" → arrowId for occupied cells
+  - isPathClear(head, direction, gridX, gridY, cellMap): checks from head outward
+  - replayMoves(moves, arrows, gridX, gridY): validates batch of moves
+
+SCORING (score.util.ts):
+  - calculateRoundScore(completed, arrowsRemoved, totalArrows, maxScore)
+    → Perfect clear = maxScore, partial = proportional
+  - calculateTimeBonus(timeRemainingMs, timeLimitSeconds, maxTimeBonus)
+    → Linear scaling: faster finish = more bonus
+
+COMBO (comboEngine.ts):
+  - Every consecutive correct removal increases streak
+  - Multiplier = 1 + floor(streak/3) × 0.25 (max 4x)
+  - Bonus = streak × 10 × multiplier
+  - Miss resets streak to 0
+
+════════════════════════════════════════════════════════════════════════════════════
+5. PHASER GAME ENGINE (GameScene.ts)
+════════════════════════════════════════════════════════════════════════════════════
+
+RENDERING:
+  - Arrows rendered as SNAKES (body segments + head + tail sprites)
+  - Snake motion uses sine-wave slithering (configurable amplitude/frequency)
+  - Each arrow has colored body, animated head, and tail
+  - Grid dots shown as background reference
+
+ANIMATIONS:
+  - Intro: Snakes appear progressively with delay (animates from tail to head)
+  - Move: Snake slides forward (head direction) at MOVE_CELLS_PER_SEC = 20
+  - Reverse: If server says blocked, snake reverses at 0.35× speed
+  - Flash: Invalid moves cause 2.2s red flash on the snake
+  - Clear burst: 320ms particle burst when snake exits board
+  - Anticipation: 110ms squish before move starts
+
+INTERACTION:
+  - Player taps a cell → ARROW_CLICKED event → React sends to server
+  - Server responds with ACK (success/blocked)
+  - If success: snake animates forward and exits → ARROW_CLEARED
+  - If blocked: snake moves forward briefly then reverses
+
+CONTROLS (via custom events):
+  CMD_RETRY, CMD_NEXT, CMD_GOTO, CMD_GUIDES, CMD_HINT, CMD_AUTOPLAY, CMD_ZOOM
+
+════════════════════════════════════════════════════════════════════════════════════
+6. GAME PHASES & SERVER COMMUNICATION
+════════════════════════════════════════════════════════════════════════════════════
+
+PHASES (HomePage.tsx):
+  1. "tutorial"        → Local 4×4 warm-up (no server)
+  2. "start"           → "Begin" screen (tutorial done)
+  3. "connecting"      → Auth + fetch first board
+  4. "server_game"     → Active gameplay (Phaser rendering)
+  5. "waiting_round"   → Round ended, showing success, loading next
+  6. "calculating_result" → Final round done, fetching final score
+
+API ENDPOINTS (game.controller.ts):
+  POST /v1/game/game-start     → Creates session, returns first board
+  GET  /v1/game/next-board     → Returns next round board
+  POST /v1/game/submit-moves   → Batch submit moves (every 5s)
+  POST /v1/game/end-board      → End current round, get round score
+  POST /v1/game/end-game       → Finalize game, get total score
+  GET  /v1/game/game-status    → Resume/check existing session
+
+MOVE BATCHING:
+  - Moves accumulated locally and sent every 5 seconds
+  - Each move has a UUID (idempotency key)
+  - Server replays moves to validate and update state
+
+SESSION PERSISTENCE:
+  - liveSessionStorage: persists session to localStorage for page refresh recovery
+  - Restate: persists server-side state for crash recovery
+
+════════════════════════════════════════════════════════════════════════════════════
+7. DATABASE SCHEMA
+════════════════════════════════════════════════════════════════════════════════════
+
+KEY MODELS:
+  Level       → id, name, isDemo, difficultyScore
+  Board       → id, levelId, gridX, gridY
+  Arrow       → id, boardId, color, headDirection (0-3), waypoints (JSON), sortOrder
+  GameSession → id, userId, stageId, expiryAt, status, score, timeBonus
+  GameSessionBoard → id, sessionId, roundNumber, boardId, gridX, gridY, score
+  GameSessionArrow → id, sessionId, sessionBoardId, color, headDirection, waypoints, removedAt
+  GameMove    → id, sessionId, sessionArrowId, clientMoveId, x, y, success, clickedAt
+  CheatFlag   → id, userId, sessionId, sessionBoardId, flagType, evidence
+  StageConfig → id, stageId, timeLimit, maxTimeBonus, enableDemo, isEnabled
+  StageLevelConfig → stageConfigId, levelId, boardCount, order, maxScore
+
+════════════════════════════════════════════════════════════════════════════════════
+8. ENGINE FEATURES (Already in Backend)
+════════════════════════════════════════════════════════════════════════════════════
+
+✅ Achievements (10 types: FIRST_WIN, STREAK_5/10, PERFECT, SPEED_DEMON, etc.)
+✅ Boosters (TIME_FREEZE, HINT, SKIP, DOUBLE_POINTS, UNDO)
+✅ Combo System (streak-based multiplier up to 4x)
+✅ Daily Challenge (SHA-256 seeded, day-of-week difficulty)
+✅ Leaderboard (in-memory ranked board, top N, around-user)
+✅ Score History (player stats: totalGames, averageScore, highScore, etc.)
+✅ Anti-Cheat (CheatFlag system with evidence JSON)
+✅ Move Validation (server-side replay of all moves)
+✅ Session Crash Recovery (Restate state + DB)
+✅ Encryption (request/response encryption layer)
+✅ Idempotency (move UUIDs prevent double-processing)
+
+════════════════════════════════════════════════════════════════════════════════════
+9. FRONTEND FEATURES (Already Built)
+════════════════════════════════════════════════════════════════════════════════════
+
+✅ Phaser 4 snake rendering with slither animations
+✅ Sound effects (tap, success, whoosh, wrong_step, background music)
+✅ Lives system (6 lives, hearts display)
+✅ Hints system (3 per game — highlights correct arrow)
+✅ Zoom control (adjustable board zoom)
+✅ Tutorial mode (local levels, no server needed)
+✅ Demo mode (pre-loaded boards for showcasing)
+✅ Offline detection + modal
+✅ Session persistence (survive page refresh)
+✅ Internationalization (i18n ready)
+✅ Landscape detection (force portrait)
+✅ GSAP arrow animations (React fallback components)
+✅ Level editor page (LevelEditorPage.tsx)
+✅ Multiple stages/themes (7 stage themes)
+
+════════════════════════════════════════════════════════════════════════════════════
+10. WHAT'S MISSING / NEEDS IMPROVEMENT (P1–P4)
+════════════════════════════════════════════════════════════════════════════════════
+
+P1 — CRITICAL (Needed for playable local demo):
+  ├── [ ] Local game mode that works without Restate/server (dev-friendly)
+  ├── [ ] Proper level progression UI (level selector with lock/unlock)
+  ├── [ ] Game result screen with score breakdown
+  ├── [ ] Timer display during gameplay (HUD shows lives but no timer)
+  ├── [ ] Sound toggle in game UI (quick mute button)
+
+P2 — IMPORTANT (Polish & engagement):
+  ├── [ ] Undo button during gameplay (booster exists in backend, not wired in UI)
+  ├── [ ] Combo streak display in HUD
+  ├── [ ] Confetti/celebration on round win
+  ├── [ ] Animated transitions between rounds
+  ├── [ ] Daily challenge UI screen
+  ├── [ ] Achievements UI (popup + gallery)
+  ├── [ ] Settings screen (sound, theme, music volume)
+
+P3 — NICE TO HAVE (Retention):
+  ├── [ ] Stats/history screen with charts
+  ├── [ ] Leaderboard UI
+  ├── [ ] Booster activation UI (use TIME_FREEZE, HINT from inventory)
+  ├── [ ] Tutorial overlay for first-time users (step-by-step)
+  ├── [ ] Progressive difficulty display
+
+P4 — FUTURE:
+  ├── [ ] Multiplayer mode
+  ├── [ ] Custom level sharing
+  ├── [ ] Seasonal themes
+  ├── [ ] Ad integration hooks
+
+════════════════════════════════════════════════════════════════════════════════════
+11. CONFIGURATION & ENVIRONMENT
+════════════════════════════════════════════════════════════════════════════════════
+
+BACKEND (.env):
+  DATABASE_URL=postgresql://zubaco:zubaco_dev_2024@localhost:5432/zubaco
+  PORT=3000
+  JWT_SECRET=dev-jwt-secret-min-32-chars-here
+  ENCRYPTION_KEY=0123456789abcdef...
+
+FRONTEND (.env.example):
+  VITE_API_BASE_URL=https://arrows.dev.ZUBACO.app
+  VITE_STAGE_NUMBER=1
+  VITE_DEV_LEVEL=false (set true to bypass server)
+  VITE_ENABLE_ENCRYPTION=false
+  VITE_DEV_SESSION_URL=<staging mock auth>
+
+GAME CONSTANTS:
+  MAX_LIVES = 100 (effectively unlimited in current config)
+  MAX_HINTS = 3
+  MOVE_CELLS_PER_SEC = 20
+  FLASH_MS = 2200 (invalid move flash duration)
+  MOVE_BATCH_INTERVAL_MS = 5000 (batch moves every 5s)
+  NEXT_BOARD_DELAY_MS = 2500 (pause between rounds)
+
+════════════════════════════════════════════════════════════════════════════════════
+12. CROSS-GAME CONSISTENCY PLAN
+════════════════════════════════════════════════════════════════════════════════════
+
+Features that should be CONSISTENT across ALL games in the platform:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FEATURE              │ DESCRIPTION                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 1. Menu System       │ Main menu → Play / Levels / Daily / Settings /       │
+│                      │ Achievements / Stats (same layout for every game)    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 2. Settings Screen   │ Sound toggle, Music volume, Theme (dark/light/sys),  │
+│                      │ Language selector — same UI pattern                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 3. Achievement System│ Same 10 achievement types with game-specific         │
+│                      │ thresholds. Same popup notification. Same gallery UI │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 4. Daily Challenge   │ Same date-seeded approach. Same "1.5x bonus"         │
+│                      │ multiplier system. Same UI entry point.              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 5. Stats Screen      │ Same layout: total games, high score, avg score,     │
+│                      │ win rate, streak, recent scores bar chart            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 6. Sound System      │ useAudio hook with same API: play(type), isEnabled,  │
+│                      │ setEnabled. Sound types: tap, correct, incorrect,    │
+│                      │ complete, countdown, start                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 7. Score Display     │ Consistent score breakdown on game end: base score,  │
+│                      │ time bonus, combo bonus, total. Same animation.      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 8. Level Selector    │ Grid of levels with lock/unlock, stars/progress,     │
+│                      │ progressive unlock. Same visual style.               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 9. Tutorial System   │ Step-by-step overlay for new players. Same style     │
+│                      │ (numbered steps, highlight, next button).            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 10. Confetti/Win FX  │ Same celebration animation on game completion.       │
+│                      │ Particle burst, score popup, "Next Level" button.    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 11. Game Header      │ Timer + moves/score + combo badge + mute button +    │
+│                      │ undo + restart. Same component layout per game.      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 12. HTTP/Auth Layer  │ Same auto-JWT dev auth pattern. Same httpClient      │
+│                      │ setup. Same error handling.                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 13. Color Palette    │ Consistent dark theme base (gray-900 bg), accent     │
+│                      │ colors per game (indigo for colour-sort, amber/gold  │
+│                      │ for arrows), but same structural colors.             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 14. Responsive Layout│ Same breakpoint strategy, same max-width containers, │
+│                      │ same mobile-first approach.                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+════════════════════════════════════════════════════════════════════════════════════
+13. IMPLEMENTATION PLAN FOR ARROWS
+════════════════════════════════════════════════════════════════════════════════════
+
+PHASE 1: Make it run locally (dev mode)
+  1. Set up VITE_DEV_LEVEL=true mode to work with local levels
+  2. Ensure the 5 hardcoded levels work without Phaser (React Board component)
+  3. Wire up timer, scoring, and lives display
+  4. Add proper game-over and win screens
+
+PHASE 2: Consistent UI layer (matching colour-sorting)
+  1. Main menu screen (same pattern as colour-sorting)
+  2. Level selector (10 levels, progressive unlock)
+  3. Settings screen (sound toggle, theme)
+  4. Game header (timer, moves, combo, mute, undo, restart)
+  5. Confetti on win
+  6. Tutorial for first-time players
+
+PHASE 3: Backend integration enhancements
+  1. Wire achievements to UI (popup notifications)
+  2. Wire daily challenge to UI
+  3. Wire leaderboard to UI
+  4. Wire boosters (HINT, UNDO, TIME_FREEZE) to UI buttons
+  5. Stats screen with score history
+
+PHASE 4: Polish
+  1. Animations (GSAP for arrow exit, shake for wrong move)
+  2. Sound effects integration (already has MP3 files!)
+  3. Combo streak visual display
+  4. Theme consistency with colour-sorting
+
+════════════════════════════════════════════════════════════════════════════════════
+14. KEY FILES TO MODIFY/CREATE
+════════════════════════════════════════════════════════════════════════════════════
+
+MODIFY:
+  - src/pages/HomePage.tsx (add menu system, level selection)
+  - src/components/game/HUD.tsx (add timer, combo, mute button)
+  - src/hooks/useGame.ts (add timer, scoring, undo)
+  - src/lib/game/levels.ts (add more levels or procedural generation)
+
+CREATE:
+  - src/components/game/GameMenu.tsx (main menu)
+  - src/components/game/LevelSelector.tsx
+  - src/components/game/Settings.tsx
+  - src/components/game/Achievements.tsx
+  - src/components/game/StatsScreen.tsx
+  - src/components/game/DailyChallenge.tsx
+  - src/components/game/Tutorial.tsx
+  - src/components/game/Confetti.tsx
+  - src/components/game/GameResult.tsx (score breakdown)
+  - src/hooks/useAudio.ts (consistent with colour-sorting)
+  - src/hooks/useTimer.ts
+
+════════════════════════════════════════════════════════════════════════════════════
+END OF ANALYSIS
+════════════════════════════════════════════════════════════════════════════════════

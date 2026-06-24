@@ -1,0 +1,235 @@
+========================================================================
+RAPID CATEGORY SORT – COMPREHENSIVE TEST CHECKLIST
+========================================================================
+Total Test Cases: 148
+Version: 1.0
+Game: Rapid Category Sort
+Stack: React 19 + Vite + TypeScript + TailwindCSS 3 + Framer Motion + i18next
+
+========================================================================
+SECTION 1: MENU SCREEN (14 tests)
+========================================================================
+[ ] 1.1  Menu renders with game title "Rapid Category Sort" and ⚡ emoji
+[ ] 1.2  All 6 buttons visible: Play, Levels, Daily Challenge, Achievements, Statistics, Settings
+[ ] 1.3  Buttons animate in sequentially with stagger delay (0.06s)
+[ ] 1.4  Tapping "Play" transitions to game (appPhase='game')
+[ ] 1.5  Tapping "Levels" transitions to level selector
+[ ] 1.6  Tapping "Daily Challenge" transitions to daily screen
+[ ] 1.7  Tapping "Achievements" transitions to achievements screen
+[ ] 1.8  Tapping "Statistics" transitions to stats screen
+[ ] 1.9  Tapping "Settings" transitions to settings screen
+[ ] 1.10 Each button has unique gradient color
+[ ] 1.11 Menu is the initial screen (appPhase = 'menu')
+[ ] 1.12 Active button scale animation on tap (scale 0.97)
+[ ] 1.13 Subtitle text "Sort items fast before time runs out!" visible
+[ ] 1.14 Menu takes full screen height (min-h-screen)
+
+========================================================================
+SECTION 2: LEVEL SELECTOR (18 tests)
+========================================================================
+[ ] 2.1  Level grid renders 10 levels in 5-column layout
+[ ] 2.2  Level 1 is unlocked by default
+[ ] 2.3  Levels 2-10 are locked initially (show 🔒)
+[ ] 2.4  Unlocked levels show level number, item count, stars
+[ ] 2.5  Item count labels: 10→12→14→16→18→20→22→24→26→30
+[ ] 2.6  Stars display (0-3) for each completed level
+[ ] 2.7  Locked levels have reduced opacity and disabled click
+[ ] 2.8  Tapping unlocked level transitions to game
+[ ] 2.9  Completing level N unlocks level N+1
+[ ] 2.10 Star calculation: 3★ = 95%+ accuracy
+[ ] 2.11 Star calculation: 2★ = 75-94% accuracy
+[ ] 2.12 Star calculation: 1★ = any completion
+[ ] 2.13 "← Back" button returns to menu
+[ ] 2.14 Level configs scale: time 60s→30s, items 10→30, categories 3→6
+[ ] 2.15 localStorage persistence survives page refresh
+[ ] 2.16 Level grid entrance animation (scale from 0.8)
+[ ] 2.17 Score multiplier increases per level (1.0× to 3.5×)
+[ ] 2.18 Corrupted localStorage gracefully falls back to defaults
+
+========================================================================
+SECTION 3: SETTINGS (12 tests)
+========================================================================
+[ ] 3.1  Settings screen renders with Sound, Volume, Dark Mode toggles
+[ ] 3.2  Sound toggle reflects current state from localStorage
+[ ] 3.3  Toggling sound updates state and saves immediately
+[ ] 3.4  Volume slider shows current percentage (0-100)
+[ ] 3.5  Volume slider disabled when sound is off
+[ ] 3.6  Volume changes persist across page refresh
+[ ] 3.7  Dark Mode toggle switches theme
+[ ] 3.8  Theme preference persists in localStorage
+[ ] 3.9  Toggle pill animation slides correctly (framer-motion)
+[ ] 3.10 "← Back" button returns to menu
+[ ] 3.11 Settings load default values if no localStorage data
+[ ] 3.12 Invalid localStorage values handled gracefully
+
+========================================================================
+SECTION 4: STATISTICS (12 tests)
+========================================================================
+[ ] 4.1  Stats screen renders all 10 stat cards in 2-column grid
+[ ] 4.2  Displays: Games Played, Total Correct, Total Wrong, Total Missed
+[ ] 4.3  Displays: Best Streak, High Score, Avg Accuracy, Time Played
+[ ] 4.4  Displays: Perfect Games, Highest Level
+[ ] 4.5  All stats start at 0 for new player
+[ ] 4.6  Average accuracy = totalCorrect / (correct + wrong + missed) × 100
+[ ] 4.7  Time format: "0m" / "Xm" / "Xh Xm"
+[ ] 4.8  Stats entrance animation (opacity + y translate)
+[ ] 4.9  "← Back" button returns to menu
+[ ] 4.10 Stats survive page refresh via localStorage
+[ ] 4.11 Number formatting uses toLocaleString
+[ ] 4.12 updateStats helper correctly increments/maxes values
+
+========================================================================
+SECTION 5: ACHIEVEMENTS (16 tests)
+========================================================================
+[ ] 5.1  Achievements screen renders all 10 achievement cards
+[ ] 5.2  Unlocked achievements show icon, title, description, ✓
+[ ] 5.3  Locked achievements show at 50% opacity
+[ ] 5.4  "First Victory" unlocks after first game completed
+[ ] 5.5  "On Fire" unlocks with 5-item streak
+[ ] 5.6  "Unstoppable" unlocks with 10-item streak
+[ ] 5.7  "Perfectionist" unlocks with 100% accuracy
+[ ] 5.8  "Speed Demon" unlocks with >50% time remaining
+[ ] 5.9  "Dedicated" unlocks after 50 games played
+[ ] 5.10 "Rising Star" unlocks at level 5
+[ ] 5.11 "Master" unlocks at level 10
+[ ] 5.12 "High Scorer" unlocks at 1000+ points
+[ ] 5.13 "Flawless" unlocks with 0 wrong and 0 missed
+[ ] 5.14 AchievementPopup appears at top with animation
+[ ] 5.15 Popup auto-dismisses after 4 seconds
+[ ] 5.16 "← Back" button returns to menu
+
+========================================================================
+SECTION 6: DAILY CHALLENGE (14 tests)
+========================================================================
+[ ] 6.1  Daily screen renders calendar week (Sun-Sat)
+[ ] 6.2  Current day highlighted with purple border
+[ ] 6.3  Completed days show ✓, incomplete show ○
+[ ] 6.4  Current streak and best streak displayed
+[ ] 6.5  Streak increments on daily completion
+[ ] 6.6  Best streak updates when current surpasses it
+[ ] 6.7  "Start Daily Sort" button active for incomplete day
+[ ] 6.8  Button disabled with "✓ Completed Today" after completion
+[ ] 6.9  Daily seed is date-based (deterministic hash)
+[ ] 6.10 Score multiplier info (1.5×) displayed
+[ ] 6.11 "← Back" button returns to menu
+[ ] 6.12 Daily completion persists in localStorage
+[ ] 6.13 Calendar week resets at start of new week
+[ ] 6.14 markDailyComplete prevents double completion
+
+========================================================================
+SECTION 7: PAUSE DIALOG (10 tests)
+========================================================================
+[ ] 7.1  Pause overlay covers full screen with backdrop blur
+[ ] 7.2  Dialog shows current item number / total items
+[ ] 7.3  Dialog shows elapsed time (MM:SS format)
+[ ] 7.4  "Resume" button calls onResume and closes
+[ ] 7.5  "Restart" button calls onRestart
+[ ] 7.6  "Exit to Menu" calls onExit → returns to menu
+[ ] 7.7  Dialog entrance animation (scale from 0.9)
+[ ] 7.8  Buttons have correct visual hierarchy (Resume = primary purple)
+[ ] 7.9  Game timer paused while dialog is open
+[ ] 7.10 Dialog rendered above all game UI (z-50)
+
+========================================================================
+SECTION 8: CONFETTI (10 tests)
+========================================================================
+[ ] 8.1  Confetti does not render when active=false
+[ ] 8.2  Confetti renders 60 particles when active=true
+[ ] 8.3  Particles have random colors from 8-color palette
+[ ] 8.4  Particles animate outward from center
+[ ] 8.5  Particles fade to opacity 0
+[ ] 8.6  Confetti disappears after duration (default 3000ms)
+[ ] 8.7  pointer-events-none so confetti doesn't block taps
+[ ] 8.8  Particles have mixed shapes (circle and rectangle)
+[ ] 8.9  Re-triggering creates fresh particle set
+[ ] 8.10 No memory leaks (timeout cleared on unmount)
+
+========================================================================
+SECTION 9: CORE GAMEPLAY – ITEM PRESENTATION (16 tests)
+========================================================================
+[ ] 9.1  Idle phase shows InstructionScreen with Start button
+[ ] 9.2  Start button calls API POST /game/start
+[ ] 9.3  API returns seed, config, gameSessionId, serverTime
+[ ] 9.4  CategoryLanes: left half (blue) and right half (orange)
+[ ] 9.5  Category labels shown at top-left and top-right
+[ ] 9.6  FallingItem appears center-top with spring animation
+[ ] 9.7  Item shows text label (word to categorize)
+[ ] 9.8  Items auto-advance after itemIntervalMs
+[ ] 9.9  Missed items (no tap) count as penalty
+[ ] 9.10 feedbackColor: emerald (correct), red (wrong), gray (default)
+[ ] 9.11 AnimatePresence for smooth item transitions
+[ ] 9.12 16 category pairs in CATEGORY_BANK
+[ ] 9.13 Each pair has 8 items per side
+[ ] 9.14 Category labels rotate through selected pairs
+[ ] 9.15 Items shuffled deterministically via mulberry32(seed)
+[ ] 9.16 Random left/right swap for category assignment variety
+
+========================================================================
+SECTION 10: CORE GAMEPLAY – SORTING & CONTROLS (14 tests)
+========================================================================
+[ ] 10.1  Tap left half → swipe('left') registered
+[ ] 10.2  Tap right half → swipe('right') registered
+[ ] 10.3  Keyboard: ArrowLeft/a = left, ArrowRight/d = right
+[ ] 10.4  Correct sort → streak increments, correct feedback
+[ ] 10.5  Wrong sort → streak resets to 0, wrong feedback
+[ ] 10.6  Correct feedback flash: ✓ emerald-400, scale animation
+[ ] 10.7  Wrong feedback flash: ✗ red-400, scale animation
+[ ] 10.8  whileTap visual feedback on category lanes
+[ ] 10.9  Only one answer per item (answeredCurrentRef prevents double)
+[ ] 10.10 Streak ≥3 shows "🔥 X streak!" indicator
+[ ] 10.11 Progress bar shows current item / total items
+[ ] 10.12 Timer countdown in seconds (top-right)
+[ ] 10.13 Timer turns red when ≤ 10 seconds
+[ ] 10.14 Timer pulse animation when low
+
+========================================================================
+SECTION 11: SCORING & RESULTS (14 tests)
+========================================================================
+[ ] 11.1  Score: correct × pointsPerCorrect (10)
+[ ] 11.2  Score: wrong × penaltyPerWrong (5) subtracted
+[ ] 11.3  Score: missed × penaltyPerWrong (5) subtracted
+[ ] 11.4  Final score = max(0, total) — never negative
+[ ] 11.5  ResultScreen shows final score
+[ ] 11.6  GameOverScreen breakdown: correct/wrong/missed/accuracy
+[ ] 11.7  Auto-submit on phase='finished' via useEffect
+[ ] 11.8  Submit POST /game/submit: gameSessionId, answers, clientScore
+[ ] 11.9  Server score replaces client score when available
+[ ] 11.10 "Replay" button returns to menu (setAppPhase('menu'))
+[ ] 11.11 Confetti on correctCount > 8
+[ ] 11.12 Timer expiry → phase='finished', clearTimers
+[ ] 11.13 All items sorted → phase='finished'
+[ ] 11.14 Sound: sortCorrect, sortWrong, gameOver at appropriate times
+
+========================================================================
+SECTION 12: APP INTEGRATION (12 tests)
+========================================================================
+[ ] 12.1  App.tsx: ErrorBoundary → ThemeProvider → QueryClientProvider → BrowserRouter → GamePage
+[ ] 12.2  GamePage appPhase starts at 'menu'
+[ ] 12.3  All phase transitions work correctly
+[ ] 12.4  Back buttons return to menu from all screens
+[ ] 12.5  Game session maintained across phase transitions
+[ ] 12.6  ThemeProvider context available in all components
+[ ] 12.7  ErrorBoundary catches rendering errors
+[ ] 12.8  OfflineBanner shows when network disconnected
+[ ] 12.9  All imports resolve correctly (path aliases @/)
+[ ] 12.10 Timer cleanup on unmount (clearTimers in useEffect return)
+[ ] 12.11 BrowserRouter single route "/*" → GamePage
+[ ] 12.12 Save-progress outbox for offline resilience
+
+========================================================================
+NOTES
+========================================================================
+- Tinder-swipe style: items appear one at a time, swipe left/right
+- 16 category pairs (Animal/Plant, Fruit/Vegetable, Hot/Cold, etc.)
+- 8 items per side per pair (16 items total per pair)
+- Auto-advance: unanswered items count as missed (penalty)
+- No time bonus — speed IS the score (faster response = fewer misses)
+- Default: 10 items, 60s timer, +10/correct, -5/wrong, -5/missed, 3 categories
+- Level progression: time 60s→30s, items 10→30, categories 3→6
+- Controls: touch (half-screen taps) + keyboard (arrows/a/d)
+- Audio: 8 sounds (itemSwipe, sortCorrect, sortWrong, combo, etc.)
+- Backend: 5 boosters, combo engine (4× max, step 0.25 per 3-streak), daily challenge
+- State: Custom hooks (useState + useCallback + useRef), @tanstack/react-query for client
+- BrowserRouter with single catch-all route → GamePage handles everything
+- Confetti triggers on 8+ correct answers
+========================================================================
