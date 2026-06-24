@@ -11,9 +11,10 @@ import { markDailyComplete } from './DailyChallenge';
 interface GameBoardProps {
   onReturnToMenu?: () => void;
   isDaily?: boolean;
+  level?: number;
 }
 
-export function GameBoard({ onReturnToMenu, isDaily }: GameBoardProps) {
+export function GameBoard({ onReturnToMenu, isDaily, level }: GameBoardProps) {
   const { phase, config, currentQuestion, questionIndex, score, loading, result, startGame, handleTypedAnswer } = useTypingGame();
   const { play } = useAudio();
   const prevScoreRef = useRef(score);
@@ -30,7 +31,7 @@ export function GameBoard({ onReturnToMenu, isDaily }: GameBoardProps) {
   }, [phase, score, play]);
 
   if (phase === 'idle') return (
-    <InstructionScreen onStart={() => { play('start'); startGame(); }} loading={loading} />
+    <InstructionScreen onStart={() => { play('start'); startGame(level); }} loading={loading} />
   );
 
   if (phase === 'finished') {

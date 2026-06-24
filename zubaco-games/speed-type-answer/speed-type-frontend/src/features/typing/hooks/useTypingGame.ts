@@ -22,11 +22,11 @@ export function useTypingGame() {
   const answerTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const questionStartRef = useRef(0);
 
-  const startGame = useCallback(async () => {
+  const startGame = useCallback(async (level?: number) => {
     setLoading(true);
     try {
       const clientSeed = crypto.randomUUID();
-      const { data } = await httpClient.post<{ data: StartGameResponse }>('/game/start', { clientSeed });
+      const { data } = await httpClient.post<{ data: StartGameResponse }>('/game/start', { clientSeed, level });
       const resp = data.data;
       sessionIdRef.current = resp.gameSessionId;
       setConfig(resp.config);

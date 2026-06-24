@@ -11,6 +11,7 @@ import { GameBoard } from '../features/typing/components/GameBoard';
 
 export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
+  const [currentLevel, setCurrentLevel] = useState(1);
   const [isDaily, setIsDaily] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -23,7 +24,8 @@ export function GamePage() {
     setAppPhase('menu');
   }, []);
 
-  const handleSelectLevel = useCallback((_level: number) => {
+  const handleSelectLevel = useCallback((level: number) => {
+    setCurrentLevel(level);
     setAppPhase('game');
   }, []);
 
@@ -61,7 +63,7 @@ export function GamePage() {
       case 'daily':
         return <DailyChallenge onBack={handleBackToMenu} onStartDaily={handleStartDaily} />;
       case 'game':
-        return <GameBoard onReturnToMenu={() => { setIsDaily(false); handleBackToMenu(); }} isDaily={isDaily} />;
+        return <GameBoard onReturnToMenu={() => { setIsDaily(false); handleBackToMenu(); }} isDaily={isDaily} level={currentLevel} />;
       default:
         return <MenuScreen onNavigate={handleNavigate} />;
     }
