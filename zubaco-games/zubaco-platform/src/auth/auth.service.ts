@@ -200,6 +200,14 @@ export class AuthService {
     await this.tokenService.revokeAllUserTokens(userId);
   }
 
+  // ─── TOKEN VERIFICATION (Internal) ─────────────────────────────
+
+  verifyAccessToken(token: string): { userId: string } | null {
+    const payload = this.tokenService.verifyAccessToken(token);
+    if (!payload) return null;
+    return { userId: payload.sub };
+  }
+
   // ─── HELPERS ───────────────────────────────────────────────────
 
   private sanitizeUser(user: any) {

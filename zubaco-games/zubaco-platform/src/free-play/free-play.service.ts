@@ -2,6 +2,8 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EnergyService } from './energy.service';
+import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
+import { LeaderboardService } from '../leaderboard/leaderboard.service';
 import { GameType } from '.prisma/client';
 
 @Injectable()
@@ -10,6 +12,8 @@ export class FreePlayService {
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
     private readonly energyService: EnergyService,
+    private readonly antiCheat: AntiCheatService,
+    private readonly leaderboard: LeaderboardService,
   ) {}
 
   // ─── GET PROGRESS FOR ALL GAMES ───────────────────────────────
@@ -206,6 +210,16 @@ export class FreePlayService {
     // Award XP
     const xpEarned = this.calculateXp(stars, session.level || 1);
     await this.usersService.addXp(userId, xpEarned);
+
+    // Run anti-cheat analysis
+    try {
+      await this.antiCheat.analyzeGameResult(userId, sessionId, score, durationMs, session.game_type);
+    } catch { /* anti-cheat failure shouldn't block game completion */ }
+
+    // Update leaderboard
+    try {
+      await this.leaderboard.updateScore(userId, session.game_type, score);
+    } catch { /* leaderboard failure shouldn't block game completion */ }
 
     return {
       score,

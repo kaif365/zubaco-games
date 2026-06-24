@@ -79,4 +79,28 @@ export class AuthController {
   ) {
     return this.authService.linkAccount(userId, dto);
   }
+
+  /**
+   * Internal endpoint: Verify a platform access token and return the userId.
+   * Used by game backends to validate tokens injected via WebView.
+   * Protected by API key (not user JWT).
+   */
+  @Post('verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyToken(
+    @Body() dto: { token: string },
+    @Req() req: any,
+  ) {
+    const apiKey = req.headers['x-api-key'];
+    const expectedKey = process.env.INTERNAL_API_KEY;
+    if (!expectedKey || apiKey !== expectedKey) {
+      return { valid: false, userId: null };
+    }
+
+    const result = this.authService.verifyAccessToken(dto.token);
+    if (!result) {
+      return { valid: false, userId: null };
+    }
+    return { valid: true, userId: result.userId };
+  }
 }

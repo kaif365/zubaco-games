@@ -1,18 +1,27 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import * as crypto from 'crypto';
+import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
+import { LeaderboardService } from '../leaderboard/leaderboard.service';
+import { ScoreValidatorService } from './score-validator.service';
+import { generateServerSeed, hashServerSeed, computeFinalSeed } from './seed-rng';
 
 @Injectable()
 export class GameSessionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly antiCheat: AntiCheatService,
+    private readonly leaderboard: LeaderboardService,
+    private readonly scoreValidator: ScoreValidatorService,
+  ) {}
 
   /**
    * Primary game session flow used by the mobile app WebView integration.
    * Matches the contract: POST /UserContest/{key}/startGame
    */
   async startGame(userId: string, gameType: string, config: any) {
-    const serverSeed = crypto.randomBytes(32).toString('hex');
-    const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+    const serverSeed = generateServerSeed();
+    const serverSeedHash = hashServerSeed(serverSeed);
+    const numericSeed = computeFinalSeed(serverSeed);
 
     const session = await this.prisma.gameSession.create({
       data: {
@@ -26,8 +35,10 @@ export class GameSessionService {
 
     return {
       gameSessionId: session.id,
-      serverSeedHash, // Give hash before game, reveal actual seed after
+      serverSeedHash, // Commitment hash — reveal actual seed after game
+      seed: numericSeed, // Numeric seed for game content generation
       startedAt: session.started_at,
+      config: config || {},
     };
   }
 
@@ -75,8 +86,9 @@ export class GameSessionService {
       throw new ForbiddenException('You have already played this game in this stage');
     }
 
-    const serverSeed = crypto.randomBytes(32).toString('hex');
-    const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+    const serverSeed = generateServerSeed();
+    const serverSeedHash = hashServerSeed(serverSeed);
+    const numericSeed = computeFinalSeed(serverSeed);
 
     // Use ONLY the server-side level config - never trust client config
     const gameConfig = stageGame.level_config?.config || {};
@@ -96,6 +108,7 @@ export class GameSessionService {
     return {
       gameSessionId: session.id,
       serverSeedHash,
+      seed: numericSeed,
       gameType: stageGame.game_type,
       config: gameConfig, // Send config to client so game can render
       startedAt: session.started_at,
@@ -154,6 +167,18 @@ export class GameSessionService {
       throw new ForbiddenException('Duration exceeds session age');
     }
 
+    // Phase 2: Server-side score validation against game formula bounds
+    const validationResult = this.scoreValidator.validateScore(
+      session.game_type,
+      session.config as Record<string, any>,
+      score,
+      durationMs,
+    );
+
+    if (!validationResult.valid) {
+      throw new ForbiddenException(`Score rejected: ${validationResult.reason}`);
+    }
+
     const updated = await this.prisma.gameSession.update({
       where: { id: sessionId },
       data: {
@@ -165,6 +190,28 @@ export class GameSessionService {
       },
     });
 
-    return { success: true, score: updated.score };
+    // Phase 1: Run anti-cheat analysis (async-safe — doesn't block response on failure)
+    let flagsRaised = 0;
+    try {
+      const cheatResult = await this.antiCheat.analyzeGameResult(
+        userId,
+        sessionId,
+        score,
+        durationMs,
+        session.game_type,
+      );
+      flagsRaised = cheatResult.flags_raised;
+    } catch {
+      // Anti-cheat failure should not block game completion
+    }
+
+    // Update leaderboard
+    try {
+      await this.leaderboard.updateScore(userId, session.game_type, score);
+    } catch {
+      // Leaderboard failure should not block game completion
+    }
+
+    return { success: true, score: updated.score, flags_raised: flagsRaised };
   }
 }
