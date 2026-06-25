@@ -39,6 +39,11 @@ interface Config {
         region: string;
         accessKeyId: string;
         secretAccessKey: string;
+        s3: {
+            assetsBucket: string;
+            publicBaseUrl: string;
+            uploadUrlTtlSeconds: number;
+        };
         sqs: {
             cheatFlagQueueUrl: string;
             gameQueueUrls: Record<string, string>;
@@ -88,6 +93,12 @@ export const config: Config = {
         region: getEnvVar('AWS_REGION'),
         accessKeyId: getEnvVar('AWS_ACCESS_KEY_ID'),
         secretAccessKey: getEnvVar('AWS_SECRET_ACCESS_KEY'),
+        s3: {
+            assetsBucket: getEnvVar('AWS_S3_ASSETS_BUCKET', 'zubaco-assets'),
+            // Public CDN / bucket base URL used to build asset URLs after upload.
+            publicBaseUrl: process.env['AWS_S3_PUBLIC_BASE_URL'] || '',
+            uploadUrlTtlSeconds: parseInt(process.env['AWS_S3_UPLOAD_URL_TTL'] || '900', 10),
+        },
         sqs: {
             cheatFlagQueueUrl: getEnvVar('AWS_SQS_CHEAT_FLAG_QUEUE_URL'),
             gameQueueUrls: {
