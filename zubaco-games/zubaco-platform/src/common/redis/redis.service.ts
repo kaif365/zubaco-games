@@ -58,6 +58,10 @@ export class RedisService implements OnModuleDestroy {
     return this.client.zscore(key, member);
   }
 
+  async zcard(key: string): Promise<number> {
+    return this.client.zcard(key);
+  }
+
   onModuleDestroy() {
     this.client.disconnect();
   }

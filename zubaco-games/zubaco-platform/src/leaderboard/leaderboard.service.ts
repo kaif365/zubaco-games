@@ -182,4 +182,78 @@ export class LeaderboardService {
       totalPages: Math.ceil(total / limit),
     };
   }
+
+  // ─── REAL-TIME STAGE LEADERBOARD (REDIS) ───────────────────────
+
+  /**
+   * Update a player's cumulative score in the live stage leaderboard.
+   * Called after every tournament game submission.
+   */
+  async updateStageScore(stageId: string, userId: string, totalScore: number) {
+    const redisKey = `lb:stage:${stageId}`;
+    await this.redis.zadd(redisKey, totalScore, userId);
+  }
+
+  /**
+   * Get live stage leaderboard from Redis with user details.
+   * Falls back to DB if Redis is empty.
+   */
+  async getLiveStageLeaderboard(stageId: string, page = 1, limit = 50) {
+    const redisKey = `lb:stage:${stageId}`;
+    const start = (page - 1) * limit;
+    const end = start + limit - 1;
+
+    const cached = await this.redis.zrevrange(redisKey, start, end, true);
+
+    if (cached && cached.length > 0) {
+      const entries: { user_id: string; score: number }[] = [];
+      for (let i = 0; i < cached.length; i += 2) {
+        entries.push({ user_id: cached[i], score: parseInt(cached[i + 1]) });
+      }
+
+      const userIds = entries.map((e) => e.user_id);
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, username: true, display_name: true, avatar_url: true },
+      });
+      const userMap = new Map(users.map((u) => [u.id, u]));
+
+      const total = await this.redis.zcard(redisKey);
+
+      return {
+        rankings: entries.map((e, i) => ({
+          rank: start + i + 1,
+          user: userMap.get(e.user_id) || { id: e.user_id },
+          score: e.score,
+        })),
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      };
+    }
+
+    // Fallback to DB
+    return this.getStageLeaderboard(stageId, page, limit);
+  }
+
+  /**
+   * Get a specific user's live rank in a stage.
+   */
+  async getMyStageRank(stageId: string, userId: string): Promise<{ rank: number | null; score: number | null }> {
+    const redisKey = `lb:stage:${stageId}`;
+    const rank = await this.redis.zrevrank(redisKey, userId);
+    const score = await this.redis.zscore(redisKey, userId);
+
+    return {
+      rank: rank !== null ? rank + 1 : null,
+      score: score ? parseInt(score) : null,
+    };
+  }
+
+  /**
+   * Clean up Redis sorted set for a stage (called after elimination closes).
+   */
+  async clearStageLeaderboard(stageId: string) {
+    await this.redis.del(`lb:stage:${stageId}`);
+  }
 }

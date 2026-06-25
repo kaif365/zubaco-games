@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { TournamentService } from './tournament.service';
 import { EliminationService } from './elimination.service';
+import { LeaderboardService } from '../leaderboard/leaderboard.service';
+import { PrismaService } from '../common/prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GeoFencingGuard } from '../compliance/geo-fencing.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -12,6 +14,8 @@ export class TournamentController {
   constructor(
     private readonly tournamentService: TournamentService,
     private readonly eliminationService: EliminationService,
+    private readonly leaderboardService: LeaderboardService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('seasons')
@@ -56,8 +60,40 @@ export class TournamentController {
     @Query('limit') limit?: number,
   ) {
     // Find the stage ID from season + stage number
-    const { PrismaService } = require('../common/prisma/prisma.service');
-    // Note: in production, inject PrismaService properly
-    return this.eliminationService.getStageRankings(seasonId, page || 1, limit || 50);
+    const stage = await this.prisma.seasonStage.findUnique({
+      where: { season_id_stage_number: { season_id: seasonId, stage_number: Number(stageNumber) } },
+    });
+    if (!stage) return { rankings: [], total: 0, page: 1, totalPages: 0 };
+
+    return this.eliminationService.getStageRankings(stage.id, page || 1, limit || 50);
+  }
+
+  @Get('seasons/:seasonId/stages/:stageNumber/live')
+  async getLiveLeaderboard(
+    @Param('seasonId') seasonId: string,
+    @Param('stageNumber') stageNumber: number,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    const stage = await this.prisma.seasonStage.findUnique({
+      where: { season_id_stage_number: { season_id: seasonId, stage_number: Number(stageNumber) } },
+    });
+    if (!stage) return { rankings: [], total: 0, page: 1, totalPages: 0 };
+
+    return this.leaderboardService.getLiveStageLeaderboard(stage.id, page || 1, limit || 50);
+  }
+
+  @Get('seasons/:seasonId/stages/:stageNumber/my-rank')
+  async getMyStageRank(
+    @CurrentUser() userId: string,
+    @Param('seasonId') seasonId: string,
+    @Param('stageNumber') stageNumber: number,
+  ) {
+    const stage = await this.prisma.seasonStage.findUnique({
+      where: { season_id_stage_number: { season_id: seasonId, stage_number: Number(stageNumber) } },
+    });
+    if (!stage) return { rank: null, score: null };
+
+    return this.leaderboardService.getMyStageRank(stage.id, userId);
   }
 }

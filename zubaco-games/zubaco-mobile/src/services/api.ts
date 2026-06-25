@@ -130,6 +130,18 @@ class ApiClient {
     });
   }
 
+  getStageRankings(seasonId: string, stageNumber: number, page = 1, limit = 50) {
+    return this.request(`/tournament/seasons/${seasonId}/stages/${stageNumber}/rankings?page=${page}&limit=${limit}`);
+  }
+
+  getLiveStageLeaderboard(seasonId: string, stageNumber: number, page = 1, limit = 50) {
+    return this.request(`/tournament/seasons/${seasonId}/stages/${stageNumber}/live?page=${page}&limit=${limit}`);
+  }
+
+  getMyStageRank(seasonId: string, stageNumber: number) {
+    return this.request<{ rank: number | null; score: number | null }>(`/tournament/seasons/${seasonId}/stages/${stageNumber}/my-rank`);
+  }
+
   // ─── Leaderboard ──────────────────────────────────────────────
 
   getGameLeaderboard(gameType: string, page = 1) {

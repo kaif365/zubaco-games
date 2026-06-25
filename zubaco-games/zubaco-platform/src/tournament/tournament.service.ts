@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, ConflictException }
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AgeVerificationService } from '../compliance/age-verification.service';
+import { LeaderboardService } from '../leaderboard/leaderboard.service';
 import { GameType } from '.prisma/client';
 import * as crypto from 'crypto';
 
@@ -11,6 +12,7 @@ export class TournamentService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly ageVerification: AgeVerificationService,
+    private readonly leaderboardService: LeaderboardService,
   ) {}
 
   // ─── LIST ACTIVE SEASONS ───────────────────────────────────────
@@ -191,7 +193,7 @@ export class TournamentService {
 
     // Update stage entry totals
     if (session.stage_entry) {
-      await this.prisma.stageEntry.update({
+      const updatedStageEntry = await this.prisma.stageEntry.update({
         where: { id: session.stage_entry.id },
         data: {
           total_score: { increment: score },
@@ -199,6 +201,13 @@ export class TournamentService {
           games_played: { increment: 1 },
         },
       });
+
+      // Update real-time Redis leaderboard
+      await this.leaderboardService.updateStageScore(
+        session.stage_entry.season_stage_id,
+        userId,
+        updatedStageEntry.total_score,
+      );
 
       // Check if all 4 games completed
       const stageEntry = await this.prisma.stageEntry.findUnique({
