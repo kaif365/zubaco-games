@@ -8,6 +8,7 @@ import { bridge } from '../bridge/webview-bridge';
 import type { ZubacoContext } from '../bridge/webview-bridge';
 import { createGameApi } from '../api/client';
 import type { ApiClientConfig, StartSessionResponse, SubmitResultResponse } from '../api/client';
+import { RulesScreen } from './RulesScreen';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -241,7 +242,13 @@ export function GameShell({
           onReady: handleInstructionsReady,
           stage: session.stage,
           gameType,
-        }) || <DefaultInstructions onReady={handleInstructionsReady} />}
+        }) || (
+          <RulesScreen
+            gameType={gameType}
+            stage={session.stage}
+            onReady={handleInstructionsReady}
+          />
+        )}
       </>
     );
   }
@@ -295,17 +302,6 @@ function DefaultError({ error, retry }: { error: string; retry: () => void }) {
       <div style={{ color: '#ef4444', fontSize: '1.1rem', marginBottom: '1rem', textAlign: 'center' }}>{error}</div>
       <button onClick={retry} style={{ padding: '0.75rem 2rem', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}>
         Retry
-      </button>
-    </div>
-  );
-}
-
-function DefaultInstructions({ onReady }: { onReady: () => void }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a0a', padding: '2rem' }}>
-      <div style={{ color: '#fff', fontSize: '1.5rem', marginBottom: '2rem' }}>Ready to Play?</div>
-      <button onClick={onReady} style={{ padding: '1rem 3rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '0.75rem', fontSize: '1.1rem', cursor: 'pointer' }}>
-        Start Game
       </button>
     </div>
   );

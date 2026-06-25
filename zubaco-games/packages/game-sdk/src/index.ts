@@ -27,8 +27,10 @@ export type { MoveEntry, UseMoveQueueOptions, MoveQueueState, MoveQueueActions }
 // Shell
 export { GameShell } from './shell/GameShell';
 export { TimerDisplay } from './shell/TimerDisplay';
+export { RulesScreen, getGameRules, GAME_RULES } from './shell/RulesScreen';
 export type { GameShellProps, GameRenderProps, ResultScreenProps, GamePhase } from './shell/GameShell';
 export type { TimerDisplayProps } from './shell/TimerDisplay';
+export type { RulesScreenProps, GameRules, DemoVariant } from './shell/RulesScreen';
 
 // Encryption
 export { encrypt, decrypt } from './encryption/crypto';
