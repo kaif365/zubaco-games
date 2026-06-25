@@ -107,9 +107,16 @@ export class OtpService {
   private generateSecureOtp(length: number): string {
     const digits = '0123456789';
     let otp = '';
-    const bytes = crypto.randomBytes(length);
-    for (let i = 0; i < length; i++) {
-      otp += digits[bytes[i] % 10];
+    // Rejection sampling to avoid modulo bias: only accept bytes in [0, 250) so each
+    // of the 10 digits is equally likely.
+    const max = 250; // largest multiple of 10 <= 256
+    while (otp.length < length) {
+      const bytes = crypto.randomBytes(length);
+      for (let i = 0; i < bytes.length && otp.length < length; i++) {
+        if (bytes[i] < max) {
+          otp += digits[bytes[i] % 10];
+        }
+      }
     }
     return otp;
   }

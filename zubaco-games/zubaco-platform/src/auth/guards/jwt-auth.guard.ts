@@ -21,6 +21,18 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     const userId = request.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid token payload');
 
+    // Only access tokens may authenticate requests.
+    if (request.user?.type && request.user.type !== 'access') {
+      throw new UnauthorizedException('Invalid token type');
+    }
+
+    // Forced-logout / session revocation: reject any access token issued before the
+    // user's revocation cutoff set by logout-all.
+    const revokedBefore = await this.redis.get(`revoked_before:${userId}`);
+    if (revokedBefore && request.user?.iat && request.user.iat < parseInt(revokedBefore, 10)) {
+      throw new UnauthorizedException('Session has been revoked');
+    }
+
     // Check ban status (cached in Redis for performance — 60s TTL)
     const banCacheKey = `ban_check:${userId}`;
     const cached = await this.redis.get(banCacheKey);

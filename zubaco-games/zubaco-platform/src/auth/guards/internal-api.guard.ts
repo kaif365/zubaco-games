@@ -1,4 +1,5 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class InternalApiGuard implements CanActivate {
@@ -16,10 +17,17 @@ export class InternalApiGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const providedKey = request.headers['x-internal-api-key'];
 
-    if (!providedKey || providedKey !== this.apiKey) {
+    if (typeof providedKey !== 'string' || !this.safeEqual(providedKey, this.apiKey)) {
       throw new UnauthorizedException('Invalid internal API key');
     }
 
     return true;
+  }
+
+  private safeEqual(provided: string, expected: string): boolean {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
   }
 }

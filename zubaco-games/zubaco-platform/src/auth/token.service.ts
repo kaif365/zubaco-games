@@ -19,7 +19,7 @@ export class TokenService {
   async generateTokenPair(userId: string, deviceId?: string) {
     const accessToken = this.jwt.sign(
       { sub: userId, type: 'access' },
-      { secret: config.jwt.accessSecret, expiresIn: '15m' },
+      { secret: config.jwt.accessSecret, expiresIn: config.jwt.accessExpiry as import('ms').StringValue, algorithm: 'HS256' },
     );
 
     const refreshTokenRaw = uuidv4();
@@ -44,25 +44,46 @@ export class TokenService {
     };
   }
 
-  async verifyRefreshToken(token: string): Promise<{ userId: string } | null> {
+  /**
+   * Atomically consume (rotate) a refresh token.
+   * The delete on the unique `token_hash` is a single row-level operation, so two
+   * concurrent refresh attempts with the same token cannot both succeed — exactly one
+   * deletion wins, the other resolves to "not found". This provides single-use semantics
+   * and prevents refresh-token replay / race-based double minting.
+   * Returns the owning user + device on success, or null if the token is unknown,
+   * already consumed, or expired.
+   */
+  async consumeRefreshToken(token: string): Promise<{ userId: string; deviceId?: string } | null> {
     const tokenHash = this.hashToken(token);
 
-    const stored = await this.prisma.refreshToken.findFirst({
-      where: {
-        token_hash: tokenHash,
-        expires_at: { gt: new Date() },
-      },
-    });
+    let deleted: { user_id: string; device_id: string | null; expires_at: Date };
+    try {
+      deleted = await this.prisma.refreshToken.delete({
+        where: { token_hash: tokenHash },
+        select: { user_id: true, device_id: true, expires_at: true },
+      });
+    } catch {
+      // P2025 — record not found (unknown or already consumed by a concurrent request)
+      return null;
+    }
 
-    if (!stored) return null;
-    return { userId: stored.user_id };
+    if (deleted.expires_at <= new Date()) {
+      return null;
+    }
+
+    return { userId: deleted.user_id, deviceId: deleted.device_id ?? undefined };
   }
 
-  async revokeRefreshToken(token: string): Promise<void> {
+  /**
+   * Revoke a single refresh token belonging to the given user.
+   * The `user_id` predicate enforces ownership so a caller cannot revoke another
+   * user's session even if they somehow learn its token value.
+   */
+  async revokeRefreshToken(userId: string, token: string): Promise<void> {
     const tokenHash = this.hashToken(token);
 
     await this.prisma.refreshToken.deleteMany({
-      where: { token_hash: tokenHash },
+      where: { token_hash: tokenHash, user_id: userId },
     });
   }
 
@@ -72,7 +93,12 @@ export class TokenService {
 
   verifyAccessToken(token: string): { sub: string } | null {
     try {
-      return this.jwt.verify(token, { secret: config.jwt.accessSecret });
+      const payload = this.jwt.verify<{ sub: string; type?: string }>(token, {
+        secret: config.jwt.accessSecret,
+        algorithms: ['HS256'],
+      });
+      if (payload.type !== 'access') return null;
+      return { sub: payload.sub };
     } catch {
       return null;
     }

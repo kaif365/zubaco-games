@@ -1,15 +1,17 @@
 import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { RedisService } from '../common/redis/redis.service';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { AppleStrategy } from './strategies/apple.strategy';
-import * as bcrypt from 'bcrypt';
+import { LinkAccountDto } from './dto/link-account.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly otpService: OtpService,
     private readonly tokenService: TokenService,
     private readonly googleStrategy: GoogleStrategy,
@@ -67,7 +69,7 @@ export class AuthService {
     return this.googleLogin(googleProfile);
   }
 
-  async googleLogin(googleProfile: { id: string; email: string; name: string; picture?: string }) {
+  async googleLogin(googleProfile: { id: string; email: string; name: string; picture?: string; emailVerified?: boolean }) {
     const existing = await this.prisma.authProvider.findUnique({
       where: { provider_provider_id: { provider: 'GOOGLE', provider_id: googleProfile.id } },
       include: { user: true },
@@ -82,8 +84,13 @@ export class AuthService {
       return { user: this.sanitizeUser(existing.user), ...tokens };
     }
 
-    // Check if email already exists (link accounts)
-    let user = await this.prisma.user.findUnique({ where: { email: googleProfile.email } });
+    // Check if email already exists (link accounts).
+    // Only auto-link by email when Google asserts the email is verified, otherwise an
+    // attacker controlling an unverified-email Google account could hijack an existing user.
+    let user =
+      googleProfile.emailVerified
+        ? await this.prisma.user.findUnique({ where: { email: googleProfile.email } })
+        : null;
 
     if (user) {
       // Link Google to existing account
@@ -173,31 +180,43 @@ export class AuthService {
   // ─── TOKEN REFRESH ─────────────────────────────────────────────
 
   async refreshTokens(refreshToken: string) {
-    const payload = await this.tokenService.verifyRefreshToken(refreshToken);
+    // Atomic single-use rotation: consuming the token deletes it in one row-level
+    // operation, so concurrent reuse / replay cannot mint two token families.
+    const payload = await this.tokenService.consumeRefreshToken(refreshToken);
     if (!payload) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // Invalidate old refresh token (rotation)
-    await this.tokenService.revokeRefreshToken(refreshToken);
-
     const user = await this.prisma.user.findUnique({ where: { id: payload.userId } });
-    if (!user || user.is_banned) {
+    if (!user || user.is_banned || user.deleted_at) {
       throw new UnauthorizedException('Account suspended');
     }
 
-    const tokens = await this.tokenService.generateTokenPair(user.id);
+    const tokens = await this.tokenService.generateTokenPair(user.id, payload.deviceId);
     return { user: this.sanitizeUser(user), ...tokens };
   }
 
   // ─── LOGOUT ────────────────────────────────────────────────────
 
-  async logout(refreshToken: string): Promise<void> {
-    await this.tokenService.revokeRefreshToken(refreshToken);
+  async logout(userId: string, refreshToken: string): Promise<void> {
+    await this.tokenService.revokeRefreshToken(userId, refreshToken);
   }
 
   async logoutAll(userId: string): Promise<void> {
     await this.tokenService.revokeAllUserTokens(userId);
+    // Invalidate every already-issued access token for this user: any access token whose
+    // `iat` predates this cutoff is rejected by JwtAuthGuard. TTL matches the max access
+    // token lifetime, after which all such tokens have expired naturally.
+    await this.redis.set(
+      `revoked_before:${userId}`,
+      String(Math.floor(Date.now() / 1000)),
+      this.accessTokenTtlSeconds(),
+    );
+  }
+
+  private accessTokenTtlSeconds(): number {
+    // Generous upper bound covering the configured access-token lifetime.
+    return 24 * 60 * 60;
   }
 
   // ─── TOKEN VERIFICATION (Internal) ─────────────────────────────
@@ -217,28 +236,40 @@ export class AuthService {
 
   // ─── ACCOUNT LINKING ───────────────────────────────────────────
 
-  async linkAccount(
-    userId: string,
-    dto: { provider: 'google' | 'apple' | 'phone'; provider_id?: string; phone?: string; email?: string },
-  ) {
+  async linkAccount(userId: string, dto: LinkAccountDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('User not found');
 
-    if (dto.provider === 'google') {
-      if (!dto.provider_id) throw new ConflictException('Google ID required');
-      const existing = await this.prisma.user.findFirst({ where: { google_id: dto.provider_id, id: { not: userId } } });
-      if (existing) throw new ConflictException('This Google account is already linked to another user');
-      await this.prisma.user.update({ where: { id: userId }, data: { google_id: dto.provider_id, email: dto.email || user.email } });
-    } else if (dto.provider === 'apple') {
-      if (!dto.provider_id) throw new ConflictException('Apple ID required');
-      const existing = await this.prisma.user.findFirst({ where: { apple_id: dto.provider_id, id: { not: userId } } });
-      if (existing) throw new ConflictException('This Apple account is already linked to another user');
-      await this.prisma.user.update({ where: { id: userId }, data: { apple_id: dto.provider_id, email: dto.email || user.email } });
-    } else if (dto.provider === 'phone') {
+    if (dto.provider === 'phone') {
       if (!dto.phone) throw new ConflictException('Phone number required');
       const existing = await this.prisma.user.findFirst({ where: { phone: dto.phone, id: { not: userId } } });
       if (existing) throw new ConflictException('This phone number is already linked to another user');
-      await this.prisma.user.update({ where: { id: userId }, data: { phone: dto.phone } });
+      await this.prisma.user.update({ where: { id: userId }, data: { phone: dto.phone, is_verified: true } });
+      return { message: 'phone account linked successfully' };
+    }
+
+    // OAuth providers (google/apple) are stored in the AuthProvider table — the same
+    // source of truth the login flows resolve identities against — so linked accounts
+    // are actually recognised on subsequent logins.
+    const provider = dto.provider === 'google' ? 'GOOGLE' : 'APPLE';
+    if (!dto.provider_id) throw new ConflictException(`${dto.provider} ID required`);
+
+    const existing = await this.prisma.authProvider.findUnique({
+      where: { provider_provider_id: { provider, provider_id: dto.provider_id } },
+    });
+    if (existing && existing.user_id !== userId) {
+      throw new ConflictException(`This ${dto.provider} account is already linked to another user`);
+    }
+
+    if (!existing) {
+      await this.prisma.authProvider.create({
+        data: {
+          user_id: userId,
+          provider,
+          provider_id: dto.provider_id,
+          provider_email: dto.email,
+        },
+      });
     }
 
     return { message: `${dto.provider} account linked successfully` };

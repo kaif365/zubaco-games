@@ -8,12 +8,14 @@ import {
   Req,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { SendOtpDto } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { AppleLoginDto } from './dto/apple-login.dto';
+import { LinkAccountDto } from './dto/link-account.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 
@@ -44,12 +46,14 @@ export class AuthController {
 
   @Post('apple')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   async appleLogin(@Body() dto: AppleLoginDto) {
     return this.authService.appleLoginWithToken(dto.identity_token, dto.name);
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
   async refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refreshTokens(dto.refresh_token);
   }
@@ -57,8 +61,8 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
-  async logout(@Body() dto: RefreshTokenDto) {
-    await this.authService.logout(dto.refresh_token);
+  async logout(@CurrentUser() userId: string, @Body() dto: RefreshTokenDto) {
+    await this.authService.logout(userId, dto.refresh_token);
     return { message: 'Logged out' };
   }
 
@@ -75,7 +79,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async linkAccount(
     @CurrentUser() userId: string,
-    @Body() dto: { provider: 'google' | 'apple' | 'phone'; provider_id?: string; phone?: string; email?: string },
+    @Body() dto: LinkAccountDto,
   ) {
     return this.authService.linkAccount(userId, dto);
   }
@@ -93,7 +97,7 @@ export class AuthController {
   ) {
     const apiKey = req.headers['x-api-key'];
     const expectedKey = process.env.INTERNAL_API_KEY;
-    if (!expectedKey || apiKey !== expectedKey) {
+    if (!expectedKey || !timingSafeEqualStr(apiKey, expectedKey)) {
       return { valid: false, userId: null };
     }
 
@@ -103,4 +107,16 @@ export class AuthController {
     }
     return { valid: true, userId: result.userId };
   }
+}
+
+/**
+ * Constant-time comparison of two strings to avoid leaking the secret via timing.
+ * Returns false on any length mismatch or non-string input.
+ */
+function timingSafeEqualStr(provided: unknown, expected: string): boolean {
+  if (typeof provided !== 'string') return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }

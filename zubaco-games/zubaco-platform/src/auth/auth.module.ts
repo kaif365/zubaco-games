@@ -16,7 +16,8 @@ import { config } from '../config';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({
       secret: config.jwt.accessSecret,
-      signOptions: { expiresIn: '15m' },
+      signOptions: { expiresIn: config.jwt.accessExpiry as import('ms').StringValue, algorithm: 'HS256' },
+      verifyOptions: { algorithms: ['HS256'] },
     }),
   ],
   controllers: [AuthController],

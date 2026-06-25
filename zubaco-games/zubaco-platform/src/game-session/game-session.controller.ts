@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Body, Param, Headers, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
+import * as crypto from 'crypto';
 import { GameSessionService } from './game-session.service';
 import { ScoreValidatorService } from './score-validator.service';
 import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
@@ -94,7 +95,12 @@ export class InternalGameController {
   ) {}
 
   private validateApiKey(apiKey: string) {
-    if (!this.INTERNAL_API_KEY || apiKey !== this.INTERNAL_API_KEY) {
+    if (!this.INTERNAL_API_KEY || typeof apiKey !== 'string') {
+      throw new UnauthorizedException('Invalid API key');
+    }
+    const a = Buffer.from(apiKey);
+    const b = Buffer.from(this.INTERNAL_API_KEY);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
       throw new UnauthorizedException('Invalid API key');
     }
   }

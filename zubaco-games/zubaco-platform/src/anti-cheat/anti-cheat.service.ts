@@ -75,6 +75,14 @@ export class AntiCheatService {
   }
 
   /**
+   * Immediately reflect a ban/unban in the JwtAuthGuard ban cache (`ban_check:<id>`) so
+   * access is blocked/restored at once instead of waiting for the 60s cache TTL.
+   */
+  private async syncBanCache(userId: string, banned: boolean): Promise<void> {
+    await this.redis.set(`ban_check:${userId}`, banned ? 'banned' : 'active', 60);
+  }
+
+  /**
    * Check if user is allowed to start a game based on risk score.
    * Returns: { allowed, reason?, riskScore, penaltyTier }
    */
@@ -477,6 +485,7 @@ export class AntiCheatService {
       });
       // Schedule unban in Redis (24h key)
       await this.redis.set(`tempban:${userId}`, '1', 86400);
+      await this.syncBanCache(userId, true);
     }
 
     // Check critical count for perma-ban (Tier 5)
@@ -493,6 +502,7 @@ export class AntiCheatService {
           penalty_tier: 5,
         },
       });
+      await this.syncBanCache(userId, true);
       this.logger.warn(`PERMA-BAN: User ${userId} — ${criticalCount} critical flags`);
     }
   }
@@ -537,6 +547,7 @@ export class AntiCheatService {
         where: { id: flag.user_id },
         data: { is_banned: true, ban_reason: `Admin ban: Anti-cheat flag ${flagId}` },
       });
+      await this.syncBanCache(flag.user_id, true);
     }
 
     if (action === 'dismiss') {
@@ -556,20 +567,24 @@ export class AntiCheatService {
 
   async banUser(userId: string, reason: string) {
     await this.redis.set(`risk:${userId}`, '150', 86400); // Set max risk
-    return this.prisma.user.update({
+    const result = await this.prisma.user.update({
       where: { id: userId },
       data: { is_banned: true, ban_reason: reason, penalty_tier: 5 },
     });
+    await this.syncBanCache(userId, true);
+    return result;
   }
 
   async unbanUser(userId: string) {
     await this.resetRiskScore(userId);
     await this.redis.del(`cooldown:${userId}`);
     await this.redis.del(`tempban:${userId}`);
-    return this.prisma.user.update({
+    const result = await this.prisma.user.update({
       where: { id: userId },
       data: { is_banned: false, ban_reason: null, penalty_tier: 0 },
     });
+    await this.syncBanCache(userId, false);
+    return result;
   }
 
   async getUserFlags(userId: string) {

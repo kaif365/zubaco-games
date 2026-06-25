@@ -10,7 +10,7 @@ export class GoogleStrategy {
     this.client = new OAuth2Client(config.google.clientId);
   }
 
-  async verifyToken(idToken: string): Promise<{ id: string; email: string; name: string; picture?: string }> {
+  async verifyToken(idToken: string): Promise<{ id: string; email: string; name: string; picture?: string; emailVerified: boolean }> {
     try {
       const ticket = await this.client.verifyIdToken({
         idToken,
@@ -25,6 +25,7 @@ export class GoogleStrategy {
         email: payload.email,
         name: payload.name || payload.email.split('@')[0],
         picture: payload.picture,
+        emailVerified: payload.email_verified === true,
       };
     } catch (error) {
       throw new UnauthorizedException('Google token verification failed');

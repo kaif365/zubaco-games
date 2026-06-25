@@ -3,11 +3,9 @@ export const config = {
     accessSecret: (() => {
       const secret = process.env.JWT_ACCESS_SECRET;
       if (!secret) throw new Error('FATAL: JWT_ACCESS_SECRET environment variable is required');
-      return secret;
-    })(),
-    refreshSecret: (() => {
-      const secret = process.env.JWT_REFRESH_SECRET;
-      if (!secret) throw new Error('FATAL: JWT_REFRESH_SECRET environment variable is required');
+      if (secret.length < 32) {
+        throw new Error('FATAL: JWT_ACCESS_SECRET must be at least 32 characters for adequate entropy');
+      }
       return secret;
     })(),
     accessExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',
@@ -57,12 +55,13 @@ if (config.app.env === 'production') {
   const required = [
     'DATABASE_URL',
     'JWT_ACCESS_SECRET',
-    'JWT_REFRESH_SECRET',
     'RAZORPAY_KEY_ID',
     'RAZORPAY_KEY_SECRET',
     'RAZORPAY_WEBHOOK_SECRET',
     'INTERNAL_API_KEY',
     'GOOGLE_CLIENT_ID',
+    'APPLE_CLIENT_ID',
+    'SMS_API_KEY',
     'REDIS_HOST',
   ];
   const missing = required.filter((key) => !process.env[key]);
