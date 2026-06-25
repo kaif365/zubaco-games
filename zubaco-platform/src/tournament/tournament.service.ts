@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AgeVerificationService } from '../compliance/age-verification.service';
 import { ScoringService } from '../scoring/scoring.service';
+import { PuzzleService } from '../rng/puzzle.service';
 import { GameType } from '.prisma/client';
 import * as crypto from 'crypto';
 
@@ -13,6 +14,7 @@ export class TournamentService {
     private readonly walletService: WalletService,
     private readonly ageVerification: AgeVerificationService,
     private readonly scoring: ScoringService,
+    private readonly puzzle: PuzzleService,
   ) {}
 
   // ─── LIST ACTIVE SEASONS ───────────────────────────────────────
@@ -156,6 +158,11 @@ export class TournamentService {
 
     // Create session
     const serverSeed = crypto.randomBytes(32).toString('hex');
+
+    // Deterministically generate a server-authored board for validatable puzzles.
+    const generated = this.puzzle.generate(stageGame.game_type, serverSeed, config);
+    const clientConfig = generated ? { ...config, server_board: generated.board } : config;
+
     const session = await this.prisma.gameSession.create({
       data: {
         user_id: userId,
@@ -163,7 +170,10 @@ export class TournamentService {
         mode: 'TOURNAMENT',
         stage_entry_id: stageEntry.id,
         server_seed: serverSeed,
-        config,
+        config: clientConfig,
+        metadata: generated
+          ? { _puzzle: { solution: generated.solution, fingerprint: generated.fingerprint, meta: generated.meta } }
+          : undefined,
       },
     });
 
@@ -171,7 +181,7 @@ export class TournamentService {
       session_id: session.id,
       game_type: stageGame.game_type,
       server_seed: serverSeed,
-      config,
+      config: clientConfig,
     };
   }
 

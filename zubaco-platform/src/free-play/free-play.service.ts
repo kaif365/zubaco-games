@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EnergyService } from './energy.service';
 import { ScoringService } from '../scoring/scoring.service';
+import { PuzzleService } from '../rng/puzzle.service';
 import { GameType } from '.prisma/client';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class FreePlayService {
     private readonly usersService: UsersService,
     private readonly energyService: EnergyService,
     private readonly scoring: ScoringService,
+    private readonly puzzle: PuzzleService,
   ) {}
 
   // ─── GET PROGRESS FOR ALL GAMES ───────────────────────────────
@@ -109,6 +111,13 @@ export class FreePlayService {
 
     // Create game session
     const serverSeed = this.generateServerSeed();
+
+    // Deterministically generate a server-authored board for validatable puzzles.
+    const generated = this.puzzle.generate(gameType, serverSeed, levelConfig.config);
+    const clientConfig = generated
+      ? { ...(levelConfig.config as any), server_board: generated.board }
+      : (levelConfig.config as any);
+
     const session = await this.prisma.gameSession.create({
       data: {
         user_id: userId,
@@ -116,14 +125,17 @@ export class FreePlayService {
         mode: 'FREE_PLAY',
         level,
         server_seed: serverSeed,
-        config: levelConfig.config as any,
+        config: clientConfig,
+        metadata: generated
+          ? { _puzzle: { solution: generated.solution, fingerprint: generated.fingerprint, meta: generated.meta } }
+          : undefined,
       },
     });
 
     return {
       session_id: session.id,
       server_seed: serverSeed,
-      config: levelConfig.config,
+      config: clientConfig,
       level,
     };
   }
@@ -147,15 +159,34 @@ export class FreePlayService {
 
     // ── Server-authoritative scoring (client score is never trusted) ──
     const claimedScore = typeof score === 'number' ? score : null;
-    const result = this.scoring.score(session.game_type, metadata, session.config);
-    const authoritativeScore = result.validated
+
+    // Fold deterministic puzzle truth (shortest path, fingerprint) into metadata.
+    const storedPuzzle = (session.metadata as any)?._puzzle;
+    let boardTampered = false;
+    const scoringMeta = { ...(metadata || {}) };
+    if (storedPuzzle) {
+      if (storedPuzzle.meta?.shortest_path && Array.isArray(scoringMeta.rounds)) {
+        scoringMeta.rounds = scoringMeta.rounds.map((r: any) => ({
+          ...r,
+          shortestPath: r.shortestPath ?? storedPuzzle.meta.shortest_path,
+        }));
+      }
+      if (metadata?.board_fingerprint) {
+        boardTampered = metadata.board_fingerprint !== storedPuzzle.fingerprint;
+      }
+    }
+
+    const result = this.scoring.score(session.game_type, scoringMeta, session.config);
+    const authoritativeScore = boardTampered
+      ? 0
+      : result.validated
       ? result.score
       : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
     score = authoritativeScore;
 
     const discrepancy =
       claimedScore !== null && result.validated ? Math.abs(claimedScore - result.score) : 0;
-    const flagged = !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
+    const flagged = boardTampered || !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
 
     // Update session
     await this.prisma.gameSession.update({
@@ -164,10 +195,11 @@ export class FreePlayService {
         score: authoritativeScore,
         max_score: result.maxScore,
         duration_ms: durationMs,
-        outcome: 'COMPLETED',
+        outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
         completed_at: new Date(),
         metadata: {
           ...(metadata || {}),
+          ...(storedPuzzle ? { _puzzle: storedPuzzle } : {}),
           _scoring: {
             claimed_score: claimedScore,
             server_score: result.score,
@@ -175,6 +207,7 @@ export class FreePlayService {
             validated: result.validated,
             breakdown: result.breakdown,
             discrepancy,
+            board_tampered: boardTampered,
             flagged,
           },
         },

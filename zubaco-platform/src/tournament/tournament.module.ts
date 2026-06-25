@@ -5,9 +5,10 @@ import { EliminationService } from './elimination.service';
 import { WalletModule } from '../wallet/wallet.module';
 import { ComplianceModule } from '../compliance/compliance.module';
 import { ScoringModule } from '../scoring/scoring.module';
+import { RngModule } from '../rng/rng.module';
 
 @Module({
-  imports: [WalletModule, ComplianceModule, ScoringModule],
+  imports: [WalletModule, ComplianceModule, ScoringModule, RngModule],
   controllers: [TournamentController],
   providers: [TournamentService, EliminationService],
   exports: [TournamentService],

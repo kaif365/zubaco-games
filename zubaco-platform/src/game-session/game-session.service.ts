@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
+import { PuzzleService } from '../rng/puzzle.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class GameSessionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly scoring: ScoringService,
+    private readonly puzzle: PuzzleService,
   ) {}
 
   /**
@@ -18,19 +20,28 @@ export class GameSessionService {
     const serverSeed = crypto.randomBytes(32).toString('hex');
     const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
 
+    // Deterministically generate a server-authored board for validatable puzzles.
+    const generated = this.puzzle.generate(gameType, serverSeed, config || {});
+    const clientConfig = generated ? { ...(config || {}), server_board: generated.board } : config || {};
+
     const session = await this.prisma.gameSession.create({
       data: {
         user_id: userId,
         game_type: gameType as any,
         mode: 'FREE_PLAY',
         server_seed: serverSeed,
-        config: config || {},
+        config: clientConfig,
+        // Solution/fingerprint kept server-side only; never returned at start.
+        metadata: generated
+          ? { _puzzle: { solution: generated.solution, fingerprint: generated.fingerprint, meta: generated.meta } }
+          : undefined,
       },
     });
 
     return {
       gameSessionId: session.id,
       serverSeedHash, // Give hash before game, reveal actual seed after
+      config: clientConfig,
       startedAt: session.started_at,
     };
   }
@@ -85,6 +96,10 @@ export class GameSessionService {
     // Use ONLY the server-side level config - never trust client config
     const gameConfig = stageGame.level_config?.config || {};
 
+    // Deterministically generate a server-authored board for validatable puzzles.
+    const generated = this.puzzle.generate(stageGame.game_type, serverSeed, gameConfig);
+    const clientConfig = generated ? { ...gameConfig, server_board: generated.board } : gameConfig;
+
     const session = await this.prisma.gameSession.create({
       data: {
         user_id: userId,
@@ -93,7 +108,10 @@ export class GameSessionService {
         level: stageGame.level_config ? undefined : stageGame.game_order,
         stage_entry_id: stageEntryId,
         server_seed: serverSeed,
-        config: gameConfig, // Server-side config only
+        config: clientConfig, // Server-side config only
+        metadata: generated
+          ? { _puzzle: { solution: generated.solution, fingerprint: generated.fingerprint, meta: generated.meta } }
+          : undefined,
       },
     });
 
@@ -101,7 +119,7 @@ export class GameSessionService {
       gameSessionId: session.id,
       serverSeedHash,
       gameType: stageGame.game_type,
-      config: gameConfig, // Send config to client so game can render
+      config: clientConfig, // Send config to client so game can render
       startedAt: session.started_at,
     };
   }
@@ -163,17 +181,41 @@ export class GameSessionService {
       throw new ForbiddenException('Duration exceeds session age');
     }
 
+    // ── Deterministic puzzle validation ───────────────────────────
+    // For server-generated puzzles, fold the authoritative server values
+    // (shortest path, fingerprint check) into the scoring metadata so the
+    // client cannot inflate efficiency-based scores.
+    const storedPuzzle = (session.metadata as any)?._puzzle;
+    let boardTampered = false;
+    const scoringMeta = { ...(metadata || {}) };
+    if (storedPuzzle) {
+      // Inject the server-computed shortest path for maze efficiency scoring.
+      if (storedPuzzle.meta?.shortest_path && Array.isArray(scoringMeta.rounds)) {
+        scoringMeta.rounds = scoringMeta.rounds.map((r: any) => ({
+          ...r,
+          shortestPath: r.shortestPath ?? storedPuzzle.meta.shortest_path,
+        }));
+      }
+      // If the client reported a board fingerprint, it must match the server's.
+      if (metadata?.board_fingerprint) {
+        boardTampered = metadata.board_fingerprint !== storedPuzzle.fingerprint;
+      }
+    }
+
     // ── Server-authoritative scoring ──────────────────────────────
     const claimedScore = typeof score === 'number' ? score : null;
-    const result = this.scoring.score(session.game_type, metadata, session.config);
-    const authoritativeScore = result.validated
-      ? result.score
-      : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
+    const result = this.scoring.score(session.game_type, scoringMeta, session.config);
+    const authoritativeScore =
+      boardTampered
+        ? 0
+        : result.validated
+        ? result.score
+        : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
 
     // Flag a meaningful gap between what the client claimed and what we computed.
     const discrepancy =
       claimedScore !== null && result.validated ? Math.abs(claimedScore - result.score) : 0;
-    const flagged = !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
+    const flagged = boardTampered || !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
 
     const updated = await this.prisma.gameSession.update({
       where: { id: sessionId },
@@ -181,10 +223,11 @@ export class GameSessionService {
         score: authoritativeScore,
         max_score: result.maxScore,
         duration_ms: durationMs,
-        outcome: 'COMPLETED',
+        outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
         completed_at: new Date(),
         metadata: {
           ...(metadata || {}),
+          ...(storedPuzzle ? { _puzzle: storedPuzzle } : {}),
           _scoring: {
             claimed_score: claimedScore,
             server_score: result.score,
@@ -192,6 +235,7 @@ export class GameSessionService {
             validated: result.validated,
             breakdown: result.breakdown,
             discrepancy,
+            board_tampered: boardTampered,
             flagged,
           },
         },
