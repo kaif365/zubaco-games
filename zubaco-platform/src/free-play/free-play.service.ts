@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EnergyService } from './energy.service';
+import { ScoringService } from '../scoring/scoring.service';
 import { GameType } from '.prisma/client';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class FreePlayService {
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
     private readonly energyService: EnergyService,
+    private readonly scoring: ScoringService,
   ) {}
 
   // ─── GET PROGRESS FOR ALL GAMES ───────────────────────────────
@@ -143,20 +145,44 @@ export class FreePlayService {
       throw new NotFoundException('Game session not found or already completed');
     }
 
+    // ── Server-authoritative scoring (client score is never trusted) ──
+    const claimedScore = typeof score === 'number' ? score : null;
+    const result = this.scoring.score(session.game_type, metadata, session.config);
+    const authoritativeScore = result.validated
+      ? result.score
+      : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
+    score = authoritativeScore;
+
+    const discrepancy =
+      claimedScore !== null && result.validated ? Math.abs(claimedScore - result.score) : 0;
+    const flagged = !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
+
     // Update session
     await this.prisma.gameSession.update({
       where: { id: sessionId },
       data: {
-        score,
+        score: authoritativeScore,
+        max_score: result.maxScore,
         duration_ms: durationMs,
         outcome: 'COMPLETED',
         completed_at: new Date(),
-        metadata: metadata || undefined,
+        metadata: {
+          ...(metadata || {}),
+          _scoring: {
+            claimed_score: claimedScore,
+            server_score: result.score,
+            max_score: result.maxScore,
+            validated: result.validated,
+            breakdown: result.breakdown,
+            discrepancy,
+            flagged,
+          },
+        },
       },
     });
 
-    // Calculate stars (1-3 based on score thresholds)
-    const stars = this.calculateStars(score, session.config as any);
+    // Calculate stars (1-3 based on server-computed score vs. max)
+    const stars = this.calculateStars(score, { max_score: result.maxScore, ...(session.config as any) });
 
     // Update progress
     const progress = await this.prisma.gameProgress.findUnique({

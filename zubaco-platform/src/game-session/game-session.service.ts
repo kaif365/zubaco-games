@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { ScoringService } from '../scoring/scoring.service';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class GameSessionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scoring: ScoringService,
+  ) {}
 
   /**
    * Primary game session flow used by the mobile app WebView integration.
@@ -134,11 +138,16 @@ export class GameSessionService {
   }
 
   /**
-   * Submit game result - called by game frontend after play
+   * Submit game result - called by game frontend after play.
+   *
+   * The `score` argument is the CLIENT-CLAIMED score and is NEVER trusted. The
+   * authoritative score is re-derived server-side from the submitted `metadata`
+   * (verifiable game facts) using the ScoringService. A large discrepancy
+   * between the claimed and server score is recorded for anti-cheat review.
    */
   async submitResult(sessionId: string, userId: string, score: number, durationMs: number, metadata?: any) {
     // Hard reject obviously invalid values
-    if (score < 0) throw new ForbiddenException('Invalid score');
+    if (typeof score === 'number' && score < 0) throw new ForbiddenException('Invalid score');
     if (durationMs < 1000) throw new ForbiddenException('Invalid duration');
     if (durationMs > 1800000) throw new ForbiddenException('Session timeout exceeded'); // 30 min max
 
@@ -154,17 +163,41 @@ export class GameSessionService {
       throw new ForbiddenException('Duration exceeds session age');
     }
 
+    // ── Server-authoritative scoring ──────────────────────────────
+    const claimedScore = typeof score === 'number' ? score : null;
+    const result = this.scoring.score(session.game_type, metadata, session.config);
+    const authoritativeScore = result.validated
+      ? result.score
+      : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
+
+    // Flag a meaningful gap between what the client claimed and what we computed.
+    const discrepancy =
+      claimedScore !== null && result.validated ? Math.abs(claimedScore - result.score) : 0;
+    const flagged = !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
+
     const updated = await this.prisma.gameSession.update({
       where: { id: sessionId },
       data: {
-        score,
+        score: authoritativeScore,
+        max_score: result.maxScore,
         duration_ms: durationMs,
         outcome: 'COMPLETED',
         completed_at: new Date(),
-        metadata,
+        metadata: {
+          ...(metadata || {}),
+          _scoring: {
+            claimed_score: claimedScore,
+            server_score: result.score,
+            max_score: result.maxScore,
+            validated: result.validated,
+            breakdown: result.breakdown,
+            discrepancy,
+            flagged,
+          },
+        },
       },
     });
 
-    return { success: true, score: updated.score };
+    return { success: true, score: updated.score, max_score: updated.max_score, validated: result.validated };
   }
 }

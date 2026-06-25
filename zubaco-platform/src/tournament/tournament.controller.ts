@@ -45,7 +45,7 @@ export class TournamentController {
     @CurrentUser() userId: string,
     @Body() dto: SubmitTournamentResultDto,
   ) {
-    return this.tournamentService.submitTournamentResult(userId, dto.session_id, dto.score, dto.duration_ms);
+    return this.tournamentService.submitTournamentResult(userId, dto.session_id, dto.score, dto.duration_ms, dto.metadata);
   }
 
   @Get('seasons/:seasonId/stages/:stageNumber/rankings')

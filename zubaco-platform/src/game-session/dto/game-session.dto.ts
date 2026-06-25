@@ -13,6 +13,9 @@ export class SubmitTournamentResultDto {
   @Min(1000, { message: 'Duration too short' })
   @Max(600000, { message: 'Duration exceeds maximum (10 minutes)' })
   duration_ms: number;
+
+  @IsOptional()
+  metadata?: any;
 }
 
 export class StartGameDto {

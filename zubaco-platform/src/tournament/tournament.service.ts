@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, ConflictException }
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AgeVerificationService } from '../compliance/age-verification.service';
+import { ScoringService } from '../scoring/scoring.service';
 import { GameType } from '.prisma/client';
 import * as crypto from 'crypto';
 
@@ -11,6 +12,7 @@ export class TournamentService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly ageVerification: AgeVerificationService,
+    private readonly scoring: ScoringService,
   ) {}
 
   // ─── LIST ACTIVE SEASONS ───────────────────────────────────────
@@ -175,7 +177,13 @@ export class TournamentService {
 
   // ─── SUBMIT TOURNAMENT GAME RESULT ─────────────────────────────
 
-  async submitTournamentResult(userId: string, sessionId: string, score: number, durationMs: number) {
+  async submitTournamentResult(
+    userId: string,
+    sessionId: string,
+    score: number,
+    durationMs: number,
+    metadata?: any,
+  ) {
     const session = await this.prisma.gameSession.findFirst({
       where: { id: sessionId, user_id: userId, mode: 'TOURNAMENT', outcome: null },
       include: { stage_entry: true },
@@ -183,10 +191,41 @@ export class TournamentService {
 
     if (!session) throw new NotFoundException('Tournament session not found or already completed');
 
+    // ── Server-authoritative scoring (the only score that counts toward
+    //    elimination). The client-claimed score is never trusted. ──
+    const claimedScore = typeof score === 'number' ? score : null;
+    const result = this.scoring.score(session.game_type, metadata, session.config);
+    const authoritativeScore = result.validated
+      ? result.score
+      : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
+    score = authoritativeScore;
+
+    const discrepancy =
+      claimedScore !== null && result.validated ? Math.abs(claimedScore - result.score) : 0;
+    const flagged = !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
+
     // Update session
     await this.prisma.gameSession.update({
       where: { id: sessionId },
-      data: { score, duration_ms: durationMs, outcome: 'COMPLETED', completed_at: new Date() },
+      data: {
+        score: authoritativeScore,
+        max_score: result.maxScore,
+        duration_ms: durationMs,
+        outcome: 'COMPLETED',
+        completed_at: new Date(),
+        metadata: {
+          ...(metadata || {}),
+          _scoring: {
+            claimed_score: claimedScore,
+            server_score: result.score,
+            max_score: result.maxScore,
+            validated: result.validated,
+            breakdown: result.breakdown,
+            discrepancy,
+            flagged,
+          },
+        },
+      },
     });
 
     // Update stage entry totals
