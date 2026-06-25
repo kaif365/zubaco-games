@@ -16,3 +16,7 @@ dist/
 .env
 .env.*
 !.env.example
+!docker/env/.env.dev
+!docker/env/.env.qa
+!docker/env/.env.staging
+!docker/env/.env.production

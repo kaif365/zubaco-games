@@ -108,18 +108,23 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.50"
-          memory: 256M
+          cpus: "1.00"
+          memory: 512M
         reservations:
-          cpus: "0.10"
-          memory: 64M
+          cpus: "0.25"
+          memory: 128M
     command: >
       redis-server
-      --maxmemory 192mb
+      --maxmemory 384mb
       --maxmemory-policy allkeys-lru
       --save ""
       --appendonly no
       --protected-mode yes
+      --tcp-backlog 511
+      --timeout 300
+      --tcp-keepalive 60
+      --hz 10
+      --lfu-log-factor 10
 
   # ─── Game Backends ───
   colour-sorting-backend:

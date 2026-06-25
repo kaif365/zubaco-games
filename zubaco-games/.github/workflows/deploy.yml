@@ -143,6 +143,58 @@ jobs:
 
       - name: Deploy to ECS
         run: |
-          echo "Triggering ECS service update..."
-          # Placeholder: Replace with actual deployment (ECS update-service, kubectl apply, etc.)
-          # aws ecs update-service --cluster zubaco-prod --service $SERVICE --force-new-deployment
+          echo "Deploying platform service..."
+          aws ecs update-service \
+            --cluster zubaco-production \
+            --service zubaco-platform \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Deploying admin service..."
+          aws ecs update-service \
+            --cluster zubaco-production \
+            --service zubaco-admin \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Run database migrations
+        run: |
+          echo "Running Prisma migrations via ECS run-task..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster zubaco-production \
+            --task-definition zubaco-platform-production \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$(aws ecs describe-services --cluster zubaco-production --services zubaco-platform --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' --output text | tr '\t' ',')],securityGroups=[$(aws ecs describe-services --cluster zubaco-production --services zubaco-platform --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups' --output text | tr '\t' ',')],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"platform","command":["npx","prisma","migrate","deploy"]}]}' \
+            --query 'tasks[0].taskArn' --output text \
+            --region ${{ env.AWS_REGION }})
+          echo "Migration task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster zubaco-production --tasks "$TASK_ARN" --region ${{ env.AWS_REGION }}
+          EXIT_CODE=$(aws ecs describe-tasks --cluster zubaco-production --tasks "$TASK_ARN" --query 'tasks[0].containers[0].exitCode' --output text --region ${{ env.AWS_REGION }})
+          if [ "$EXIT_CODE" != "0" ]; then echo "Migration failed with exit code $EXIT_CODE"; exit 1; fi
+          echo "Migrations complete."
+
+      - name: Wait for deployment stability
+        run: |
+          echo "Waiting for platform service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster zubaco-production \
+            --services zubaco-platform \
+            --region ${{ env.AWS_REGION }}
+          echo "Deployment stable."
+
+      - name: Health check
+        run: |
+          ALB_DNS=$(aws elbv2 describe-load-balancers --names zubaco-production --query 'LoadBalancers[0].DNSName' --output text --region ${{ env.AWS_REGION }} 2>/dev/null || echo "")
+          if [ -n "$ALB_DNS" ]; then
+            for i in 1 2 3 4 5; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$ALB_DNS/api/v1/health" --max-time 10 2>/dev/null || echo "000")
+              if [ "$STATUS" = "200" ]; then echo "Health check passed!"; exit 0; fi
+              echo "Attempt $i: HTTP $STATUS, retrying in 15s..."
+              sleep 15
+            done
+            echo "Health check failed after 5 attempts"
+            exit 1
+          else
+            echo "ALB not found, skipping health check"
+          fi

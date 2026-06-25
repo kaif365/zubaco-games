@@ -1,0 +1,188 @@
+name: Deploy to Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - staging
+          - production
+      service:
+        description: "Service to deploy"
+        required: true
+        type: choice
+        default: platform
+        options:
+          - platform
+          - admin
+          - all
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set cluster name
+        id: cluster
+        run: echo "name=zubaco-${{ github.event.inputs.environment }}" >> "$GITHUB_OUTPUT"
+
+      # ─── Build & Push Platform ───────────────────────────────
+      - name: Build & push platform image
+        if: github.event.inputs.service == 'platform' || github.event.inputs.service == 'all'
+        run: |
+          docker buildx build \
+            --file docker/backend.Dockerfile \
+            --build-arg GAME_DIR="zubaco-platform" \
+            --tag "$ECR_REGISTRY/zubaco-platform:${{ github.sha }}" \
+            --tag "$ECR_REGISTRY/zubaco-platform:${{ github.event.inputs.environment }}-latest" \
+            --push \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            .
+
+      # ─── Build & Push Admin ──────────────────────────────────
+      - name: Build & push admin image
+        if: github.event.inputs.service == 'admin' || github.event.inputs.service == 'all'
+        run: |
+          docker buildx build \
+            --file docker/backend.Dockerfile \
+            --build-arg GAME_DIR="zubaco-admin-panel-repo/zubaco-admin-panel/backend" \
+            --tag "$ECR_REGISTRY/zubaco-admin-backend:${{ github.sha }}" \
+            --tag "$ECR_REGISTRY/zubaco-admin-backend:${{ github.event.inputs.environment }}-latest" \
+            --push \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            .
+
+      # ─── Database Migrations ─────────────────────────────────
+      - name: Run Prisma migrations
+        if: github.event.inputs.service == 'platform' || github.event.inputs.service == 'all'
+        run: |
+          CLUSTER="${{ steps.cluster.outputs.name }}"
+          TASK_DEF="zubaco-platform-${{ github.event.inputs.environment }}"
+          SERVICE="zubaco-platform"
+
+          # Get network config from existing service
+          SUBNETS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' --output text | tr '\t' ',')
+          SG=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups' --output text | tr '\t' ',')
+
+          echo "Running migration task..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$CLUSTER" \
+            --task-definition "$TASK_DEF" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"platform","command":["npx","prisma","migrate","deploy"]}]}' \
+            --query 'tasks[0].taskArn' --output text)
+
+          echo "Waiting for migration task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::Migration failed with exit code $EXIT_CODE"
+            exit 1
+          fi
+          echo "Migrations applied successfully."
+
+      # ─── Deploy Services ─────────────────────────────────────
+      - name: Deploy platform service
+        if: github.event.inputs.service == 'platform' || github.event.inputs.service == 'all'
+        run: |
+          aws ecs update-service \
+            --cluster "${{ steps.cluster.outputs.name }}" \
+            --service zubaco-platform \
+            --force-new-deployment
+
+      - name: Deploy admin service
+        if: github.event.inputs.service == 'admin' || github.event.inputs.service == 'all'
+        run: |
+          aws ecs update-service \
+            --cluster "${{ steps.cluster.outputs.name }}" \
+            --service zubaco-admin \
+            --force-new-deployment
+
+      # ─── Wait for Stability ──────────────────────────────────
+      - name: Wait for deployment stability
+        run: |
+          CLUSTER="${{ steps.cluster.outputs.name }}"
+          SERVICES=""
+          if [[ "${{ github.event.inputs.service }}" == "platform" || "${{ github.event.inputs.service }}" == "all" ]]; then
+            SERVICES="$SERVICES zubaco-platform"
+          fi
+          if [[ "${{ github.event.inputs.service }}" == "admin" || "${{ github.event.inputs.service }}" == "all" ]]; then
+            SERVICES="$SERVICES zubaco-admin"
+          fi
+
+          for SVC in $SERVICES; do
+            echo "Waiting for $SVC to stabilize..."
+            aws ecs wait services-stable --cluster "$CLUSTER" --services "$SVC"
+            echo "$SVC is stable."
+          done
+
+      # ─── Health Check ────────────────────────────────────────
+      - name: Post-deploy health check
+        if: github.event.inputs.service == 'platform' || github.event.inputs.service == 'all'
+        run: |
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names "${{ steps.cluster.outputs.name }}" \
+            --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null || echo "")
+
+          if [ -z "$ALB_DNS" ]; then
+            echo "ALB not found, skipping health check"
+            exit 0
+          fi
+
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$ALB_DNS/api/v1/health" --max-time 10 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS, retrying in 15s..."
+            sleep 15
+          done
+          echo "::error::Health check failed after 5 attempts"
+          exit 1
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Environment:** ${{ github.event.inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Service:** ${{ github.event.inputs.service }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Cluster:** ${{ steps.cluster.outputs.name }}" >> "$GITHUB_STEP_SUMMARY"

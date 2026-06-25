@@ -8,6 +8,11 @@ terraform {
     }
   }
 
+  # Backend key is overridden per environment:
+  #   terraform init -backend-config="key=dev/terraform.tfstate"
+  #   terraform init -backend-config="key=qa/terraform.tfstate"
+  #   terraform init -backend-config="key=staging/terraform.tfstate"
+  #   terraform init -backend-config="key=production/terraform.tfstate"
   backend "s3" {
     bucket         = "zubaco-terraform-state"
     key            = "production/terraform.tfstate"
