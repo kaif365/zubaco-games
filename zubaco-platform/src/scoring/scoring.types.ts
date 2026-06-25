@@ -79,6 +79,8 @@ export interface ScoringMetadata {
   correctPlacements?: number;
   /** Colour-sort / path-opt: optimal move/cost benchmark. */
   optimalMoves?: number;
+  /** Colour-sort / path-opt: moves/cost actually taken (whole-game level). */
+  movesTaken?: number;
   /** Connections / streak games: number of valid groups found. */
   groupsFound?: number;
   /** Connections / streak games: longest streak of consecutive correct. */

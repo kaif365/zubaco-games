@@ -102,7 +102,9 @@ export class GameSessionService {
 
     // Deterministically generate a server-authored board for validatable puzzles.
     const generated = this.puzzle.generate(stageGame.game_type, serverSeed, gameConfig);
-    const clientConfig = generated ? { ...gameConfig, server_board: generated.board } : gameConfig;
+    const clientConfig = generated
+      ? { ...(gameConfig as Record<string, unknown>), server_board: generated.board }
+      : gameConfig;
 
     const session = await this.prisma.gameSession.create({
       data: {
