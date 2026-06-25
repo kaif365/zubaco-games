@@ -5,6 +5,7 @@ import { AgeVerificationService } from '../compliance/age-verification.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { PuzzleService } from '../rng/puzzle.service';
 import { WebhookService } from '../webhook/webhook.service';
+import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
 import { GameType } from '.prisma/client';
 import * as crypto from 'crypto';
 
@@ -17,6 +18,7 @@ export class TournamentService {
     private readonly scoring: ScoringService,
     private readonly puzzle: PuzzleService,
     private readonly webhook: WebhookService,
+    private readonly antiCheat: AntiCheatService,
   ) {}
 
   // ─── LIST ACTIVE SEASONS ───────────────────────────────────────
@@ -300,6 +302,20 @@ export class TournamentService {
       }
     }
 
+    // Run anti-cheat analysis on the authoritative result (best-effort).
+    try {
+      await this.antiCheat.analyzeGameResult(
+        userId,
+        session.id,
+        authoritativeScore,
+        durationMs,
+        session.game_type,
+        { metadata, claimedScore, serverScore: result.score, boardTampered },
+      );
+    } catch {
+      // Never block result submission on anti-cheat analysis failures.
+    }
+
     // Notify the Base Platform of the validated result (durable, signed, async).
     await this.webhook.emitGameResult({
       session_id: session.id,
@@ -319,8 +335,6 @@ export class TournamentService {
 
     return { score, total_score: (session.stage_entry?.total_score || 0) + score };
   }
-
-  // ─── HELPERS ───────────────────────────────────────────────────
 
   /**
    * 1-based registration week relative to the season start date. Week 1 covers

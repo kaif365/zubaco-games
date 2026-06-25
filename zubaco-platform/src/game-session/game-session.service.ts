@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { PuzzleService } from '../rng/puzzle.service';
 import { WebhookService } from '../webhook/webhook.service';
+import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class GameSessionService {
     private readonly scoring: ScoringService,
     private readonly puzzle: PuzzleService,
     private readonly webhook: WebhookService,
+    private readonly antiCheat: AntiCheatService,
   ) {}
 
   /**
@@ -243,6 +245,20 @@ export class GameSessionService {
         },
       },
     });
+
+    // Run anti-cheat analysis on the authoritative result (best-effort).
+    try {
+      await this.antiCheat.analyzeGameResult(
+        userId,
+        updated.id,
+        authoritativeScore,
+        durationMs,
+        updated.game_type,
+        { metadata, claimedScore, serverScore: result.score, boardTampered },
+      );
+    } catch {
+      // Never block result submission on anti-cheat analysis failures.
+    }
 
     // Notify the Base Platform of the validated result (durable, signed, async).
     await this.webhook.emitGameResult({
