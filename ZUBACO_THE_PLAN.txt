@@ -264,6 +264,13 @@ Legend: [ ] todo   [~] in progress   [x] done+SEEN-working   [!] blocked/bug
   2026-06-25  Note: runElimination has NO public endpoint/cron — triggered by
               admin/test only (admin panel drives it in prod). Webhook emit ran
               (no BASE_PLATFORM_WEBHOOK_URL -> graceful no-op).
-  2026-06-25  Next: smoke wallet/leaderboard/social/notification; per-game
-              backends (Phase 3); SDK build (Phase 4); frontends (Phase 5-7).
+  2026-06-25  Platform modules smoke-PASS: wallet (auto-created, INR bal 0),
+              wallet/transactions, leaderboard (user #1 score 92 — server score
+              flowed through to leaderboard!), notifications, tournament/seasons
+              ([] because E2E season COMPLETED). users/me + auth all good.
+              => ENTIRE CENTRAL PLATFORM verified working end-to-end.
+  2026-06-25  Minor inconsistency: otp/verify returns camelCase accessToken/
+              refreshToken; auth/refresh returns snake_case access_token.
+  2026-06-25  Next: per-game backends (Phase 3); SDK build (Phase 4);
+              20 frontends + game<->platform loop (Phase 5-7).
 ################################################################################
