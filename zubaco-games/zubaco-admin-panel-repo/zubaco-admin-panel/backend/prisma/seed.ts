@@ -82,16 +82,30 @@ const GAMES: Array<{
 
 const TOURNAMENTS = [{ name: 'Founders Cup', stage_numbers: [1, 2, 3] }];
 
-const ADMIN_EMAIL = process.env.ADMIN_SEED_EMAIL || 'admin@ZUBACO.com';
+const IS_PRODUCTION = (process.env.NODE_ENV || 'development') === 'production';
+
+// In production the seed admin MUST be provided via env — never fall back to a
+// well-known default credential. Defaults are only permitted in non-production.
+if (IS_PRODUCTION && (!process.env.ADMIN_SEED_EMAIL || !process.env.ADMIN_SEED_PASSWORD)) {
+    throw new Error('FATAL: ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD must be set in production');
+}
+
+const ADMIN_EMAIL = process.env.ADMIN_SEED_EMAIL || 'admin@zubaco.local';
 const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD || 'Admin@123456';
 
 async function seedAdmin(prisma: PrismaClient) {
-    const password = await hashPassword(ADMIN_PASSWORD);
+    const existing = await prisma.admin.findUnique({ where: { email: ADMIN_EMAIL } });
 
-    await prisma.admin.upsert({
-        where: { email: ADMIN_EMAIL },
-        update: { password },
-        create: {
+    // Idempotent and non-destructive: never overwrite an existing admin's password on
+    // re-seed (which would silently reset a rotated credential back to the seed value).
+    if (existing) {
+        console.log(`Admin already present, leaving credentials untouched: ${ADMIN_EMAIL}`);
+        return;
+    }
+
+    const password = await hashPassword(ADMIN_PASSWORD);
+    await prisma.admin.create({
+        data: {
             email: ADMIN_EMAIL,
             password,
         },
