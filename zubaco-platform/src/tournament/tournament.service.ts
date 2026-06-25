@@ -4,6 +4,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { AgeVerificationService } from '../compliance/age-verification.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { PuzzleService } from '../rng/puzzle.service';
+import { WebhookService } from '../webhook/webhook.service';
 import { GameType } from '.prisma/client';
 import * as crypto from 'crypto';
 
@@ -15,6 +16,7 @@ export class TournamentService {
     private readonly ageVerification: AgeVerificationService,
     private readonly scoring: ScoringService,
     private readonly puzzle: PuzzleService,
+    private readonly webhook: WebhookService,
   ) {}
 
   // ─── LIST ACTIVE SEASONS ───────────────────────────────────────
@@ -201,18 +203,36 @@ export class TournamentService {
 
     if (!session) throw new NotFoundException('Tournament session not found or already completed');
 
+    // ── Deterministic puzzle validation ───────────────────────────
+    const storedPuzzle = (session.metadata as any)?._puzzle;
+    let boardTampered = false;
+    const scoringMeta = { ...(metadata || {}) };
+    if (storedPuzzle) {
+      if (storedPuzzle.meta?.shortest_path && Array.isArray(scoringMeta.rounds)) {
+        scoringMeta.rounds = scoringMeta.rounds.map((r: any) => ({
+          ...r,
+          shortestPath: r.shortestPath ?? storedPuzzle.meta.shortest_path,
+        }));
+      }
+      if (metadata?.board_fingerprint) {
+        boardTampered = metadata.board_fingerprint !== storedPuzzle.fingerprint;
+      }
+    }
+
     // ── Server-authoritative scoring (the only score that counts toward
     //    elimination). The client-claimed score is never trusted. ──
     const claimedScore = typeof score === 'number' ? score : null;
-    const result = this.scoring.score(session.game_type, metadata, session.config);
-    const authoritativeScore = result.validated
+    const result = this.scoring.score(session.game_type, scoringMeta, session.config);
+    const authoritativeScore = boardTampered
+      ? 0
+      : result.validated
       ? result.score
       : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
     score = authoritativeScore;
 
     const discrepancy =
       claimedScore !== null && result.validated ? Math.abs(claimedScore - result.score) : 0;
-    const flagged = !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
+    const flagged = boardTampered || !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
 
     // Update session
     await this.prisma.gameSession.update({
@@ -221,10 +241,11 @@ export class TournamentService {
         score: authoritativeScore,
         max_score: result.maxScore,
         duration_ms: durationMs,
-        outcome: 'COMPLETED',
+        outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
         completed_at: new Date(),
         metadata: {
           ...(metadata || {}),
+          ...(storedPuzzle ? { _puzzle: storedPuzzle } : {}),
           _scoring: {
             claimed_score: claimedScore,
             server_score: result.score,
@@ -232,6 +253,7 @@ export class TournamentService {
             validated: result.validated,
             breakdown: result.breakdown,
             discrepancy,
+            board_tampered: boardTampered,
             flagged,
           },
         },
@@ -262,6 +284,23 @@ export class TournamentService {
         });
       }
     }
+
+    // Notify the Base Platform of the validated result (durable, signed, async).
+    await this.webhook.emitGameResult({
+      session_id: session.id,
+      user_id: userId,
+      game_type: session.game_type as any,
+      mode: 'TOURNAMENT',
+      score: authoritativeScore,
+      max_score: result.maxScore,
+      duration_ms: durationMs,
+      outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
+      stage_entry_id: session.stage_entry_id,
+      level: session.level,
+      flagged,
+      validated: result.validated,
+      completed_at: new Date().toISOString(),
+    });
 
     return { score, total_score: (session.stage_entry?.total_score || 0) + score };
   }

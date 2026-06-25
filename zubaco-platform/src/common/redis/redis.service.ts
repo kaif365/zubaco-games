@@ -58,6 +58,22 @@ export class RedisService implements OnModuleDestroy {
     return this.client.zscore(key, member);
   }
 
+  async zrangebyscore(
+    key: string,
+    min: number | string,
+    max: number | string,
+    limit?: number,
+  ): Promise<string[]> {
+    if (limit !== undefined) {
+      return this.client.zrangebyscore(key, min, max, 'LIMIT', 0, limit);
+    }
+    return this.client.zrangebyscore(key, min, max);
+  }
+
+  async zrem(key: string, member: string): Promise<number> {
+    return this.client.zrem(key, member);
+  }
+
   onModuleDestroy() {
     this.client.disconnect();
   }

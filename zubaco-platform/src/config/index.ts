@@ -36,6 +36,17 @@ export const config = {
     region: process.env.AWS_REGION || 'ap-south-1',
     s3Bucket: process.env.AWS_S3_BUCKET || 'zubaco-assets',
   },
+  webhook: {
+    // Base Platform endpoint that receives validated game results.
+    basePlatformUrl: process.env.BASE_PLATFORM_WEBHOOK_URL || '',
+    // Shared secret used to HMAC-sign outbound webhook payloads.
+    signingSecret: process.env.WEBHOOK_SIGNING_SECRET || '',
+    maxAttempts: parseInt(process.env.WEBHOOK_MAX_ATTEMPTS || '5', 10),
+    // Base backoff in seconds; actual delay = base * 2^attempt (capped).
+    backoffBaseSeconds: parseInt(process.env.WEBHOOK_BACKOFF_BASE_SECONDS || '5', 10),
+    backoffMaxSeconds: parseInt(process.env.WEBHOOK_BACKOFF_MAX_SECONDS || '900', 10),
+    timeoutMs: parseInt(process.env.WEBHOOK_TIMEOUT_MS || '10000', 10),
+  },
   app: {
     port: parseInt(process.env.PORT || '3000', 10),
     env: process.env.NODE_ENV || 'development',

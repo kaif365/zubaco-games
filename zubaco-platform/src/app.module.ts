@@ -17,6 +17,7 @@ import { LoggerModule } from './common/logger/logger.module';
 import { GameSessionModule } from './game-session/game-session.module';
 import { AntiCheatModule } from './anti-cheat/anti-cheat.module';
 import { ComplianceModule } from './compliance/compliance.module';
+import { WebhookModule } from './webhook/webhook.module';
 import { HealthController } from './health.controller';
 import { AppVersionController } from './app-version.controller';
 
@@ -39,6 +40,7 @@ import { AppVersionController } from './app-version.controller';
     GameSessionModule,
     AntiCheatModule,
     ComplianceModule,
+    WebhookModule,
   ],
   controllers: [HealthController, AppVersionController],
 })

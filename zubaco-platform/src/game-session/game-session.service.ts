@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { PuzzleService } from '../rng/puzzle.service';
+import { WebhookService } from '../webhook/webhook.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class GameSessionService {
     private readonly prisma: PrismaService,
     private readonly scoring: ScoringService,
     private readonly puzzle: PuzzleService,
+    private readonly webhook: WebhookService,
   ) {}
 
   /**
@@ -240,6 +242,23 @@ export class GameSessionService {
           },
         },
       },
+    });
+
+    // Notify the Base Platform of the validated result (durable, signed, async).
+    await this.webhook.emitGameResult({
+      session_id: updated.id,
+      user_id: updated.user_id,
+      game_type: updated.game_type as any,
+      mode: updated.mode as any,
+      score: updated.score ?? 0,
+      max_score: updated.max_score ?? 0,
+      duration_ms: updated.duration_ms,
+      outcome: updated.outcome ?? 'COMPLETED',
+      stage_entry_id: updated.stage_entry_id,
+      level: updated.level,
+      flagged,
+      validated: result.validated,
+      completed_at: (updated.completed_at ?? new Date()).toISOString(),
     });
 
     return { success: true, score: updated.score, max_score: updated.max_score, validated: result.validated };

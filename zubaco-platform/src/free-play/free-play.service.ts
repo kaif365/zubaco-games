@@ -4,6 +4,7 @@ import { UsersService } from '../users/users.service';
 import { EnergyService } from './energy.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { PuzzleService } from '../rng/puzzle.service';
+import { WebhookService } from '../webhook/webhook.service';
 import { GameType } from '.prisma/client';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class FreePlayService {
     private readonly energyService: EnergyService,
     private readonly scoring: ScoringService,
     private readonly puzzle: PuzzleService,
+    private readonly webhook: WebhookService,
   ) {}
 
   // ─── GET PROGRESS FOR ALL GAMES ───────────────────────────────
@@ -265,6 +267,23 @@ export class FreePlayService {
     // Award XP
     const xpEarned = this.calculateXp(stars, session.level || 1);
     await this.usersService.addXp(userId, xpEarned);
+
+    // Notify the Base Platform of the validated result (durable, signed, async).
+    await this.webhook.emitGameResult({
+      session_id: session.id,
+      user_id: userId,
+      game_type: session.game_type as any,
+      mode: 'FREE_PLAY',
+      score: authoritativeScore,
+      max_score: result.maxScore,
+      duration_ms: durationMs,
+      outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
+      stage_entry_id: null,
+      level: session.level,
+      flagged,
+      validated: result.validated,
+      completed_at: new Date().toISOString(),
+    });
 
     return {
       score,
