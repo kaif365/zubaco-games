@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   StyleSheet,
   RefreshControl,
 } from 'react-native';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '../../services/api';
 
 interface Notification {
   id: string;
@@ -17,30 +19,27 @@ interface Notification {
   read: boolean;
 }
 
-// TODO: Replace with API call using @tanstack/react-query
-const PLACEHOLDER_NOTIFICATIONS: Notification[] = [
-  { id: '1', icon: '🏆', title: 'Tournament Starting', body: 'The Speed Challenge starts in 10 minutes!', timeAgo: '5 min ago', read: false },
-  { id: '2', icon: '💰', title: 'Winnings Credited', body: '₹50 has been added to your wallet.', timeAgo: '2 hours ago', read: false },
-  { id: '3', icon: '👥', title: 'New Referral', body: 'Your friend Arjun just joined Zubaco!', timeAgo: '5 hours ago', read: true },
-  { id: '4', icon: '🎮', title: 'New Game Available', body: 'Try the new Logic Reflector game now.', timeAgo: '1 day ago', read: true },
-  { id: '5', icon: '⚡', title: 'Energy Refilled', body: 'Your energy is fully restored. Play now!', timeAgo: '2 days ago', read: true },
-];
-
 export const NotificationsScreen: React.FC = () => {
-  const [notifications, setNotifications] = useState<Notification[]>(PLACEHOLDER_NOTIFICATIONS);
-  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    // TODO: Refetch notifications from API
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+  const { data, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => api.getNotifications(),
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => api.markNotificationRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
+  const onRefresh = useCallback(() => { refetch(); }, [refetch]);
+
+  const notifications: Notification[] = (data as { notifications?: Notification[] })?.notifications ?? [];
 
   const markAsRead = (id: string) => {
-    // TODO: Call API to mark notification as read
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+    markReadMutation.mutate(id);
   };
 
   const renderNotification = ({ item }: { item: Notification }) => (
@@ -70,7 +69,7 @@ export const NotificationsScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
+            refreshing={isFetching}
             onRefresh={onRefresh}
             tintColor="#6C3CE1"
           />

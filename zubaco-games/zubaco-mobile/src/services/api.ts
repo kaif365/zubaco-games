@@ -185,6 +185,23 @@ class ApiClient {
   markNotificationRead(id: string) {
     return this.request(`/notifications/${id}/read`, { method: 'POST' });
   }
+
+  registerPushToken(token: string, platform: 'ios' | 'android') {
+    return this.request('/notifications/push-token', {
+      method: 'POST',
+      body: JSON.stringify({ token, platform }),
+    });
+  }
+
+  // ─── KYC ──────────────────────────────────────────────────────
+
+  submitKyc(data: { pan: string; aadhaar: string; selfie_url: string }) {
+    return this.request('/kyc/submit', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  getKycStatus() {
+    return this.request<{ status: string; verified_at?: string }>('/kyc/status');
+  }
 }
 
 export const api = new ApiClient();

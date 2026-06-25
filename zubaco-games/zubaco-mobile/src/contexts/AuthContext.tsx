@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { SecureStorage } from '../services/secureStorage';
 import { api } from '../services/api';
+import { pushNotificationService } from '../services/pushNotification';
+import { analyticsService } from '../services/analytics';
 
 interface User {
   id: string;
@@ -39,6 +41,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         api.setToken(token);
         const profile = await api.getProfile();
         setUser(profile);
+        // Init push notifications on app resume with existing session
+        pushNotificationService.init();
+        pushNotificationService.refreshToken();
       }
     } catch {
       await SecureStorage.clearTokens();
@@ -51,6 +56,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await SecureStorage.setTokens(tokens.accessToken, tokens.refreshToken);
     api.setToken(tokens.accessToken);
     setUser(userData);
+    // Initialize push notifications after login
+    pushNotificationService.init();
+    pushNotificationService.refreshToken();
+    // Set analytics user
+    analyticsService.setUserId(userData.id);
   }
 
   async function logout() {
