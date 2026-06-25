@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Param, Headers, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { GameSessionService } from './game-session.service';
 import { ScoreValidatorService } from './score-validator.service';
 import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
@@ -84,6 +84,7 @@ export class GameSessionController {
  * Protected by API key (not user JWT) — game backends call this after gameplay ends.
  */
 @Controller('internal/game')
+@SkipThrottle()
 export class InternalGameController {
   private readonly INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 

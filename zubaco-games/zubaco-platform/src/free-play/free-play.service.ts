@@ -213,7 +213,13 @@ export class FreePlayService {
 
     // Run anti-cheat analysis
     try {
-      await this.antiCheat.analyzeGameResult(userId, sessionId, score, durationMs, session.game_type);
+      await this.antiCheat.analyzeGameResult({
+        userId,
+        sessionId,
+        score,
+        durationMs,
+        gameType: session.game_type,
+      });
     } catch { /* anti-cheat failure shouldn't block game completion */ }
 
     // Update leaderboard

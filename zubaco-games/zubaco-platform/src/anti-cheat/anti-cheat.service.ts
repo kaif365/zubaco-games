@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { DeviceDetectionService } from './device-detection.service';
-import { GameType, CheatFlagType, CheatSeverity } from '.prisma/client';
+import { GameType, CheatFlagType, CheatSeverity, Prisma } from '.prisma/client';
 import { InputSignature, detectBotPattern, detectPatternShift } from '../game-session/utils/input-analyzer';
 import { isValidMoveHash } from '../game-session/utils/move-hasher';
 
@@ -302,7 +302,7 @@ export class AntiCheatService {
           user_id: userId,
           game_type: gameType,
           outcome: 'COMPLETED',
-          input_signature: { not: null },
+          input_signature: { not: Prisma.AnyNull },
           id: { not: sessionId },
         },
         orderBy: { completed_at: 'desc' },

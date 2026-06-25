@@ -1,9 +1,10 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { config } from '../../config';
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
+  private readonly logger = new Logger(RedisService.name);
   private readonly client: Redis;
 
   constructor() {
@@ -12,7 +13,34 @@ export class RedisService implements OnModuleDestroy {
       port: config.redis.port,
       password: config.redis.password,
       maxRetriesPerRequest: 3,
+      enableReadyCheck: true,
+      retryStrategy: (times: number) => Math.min(times * 200, 5000),
+      reconnectOnError: (err: Error) => {
+        const target = 'READONLY';
+        return err.message.includes(target);
+      },
     });
+
+    // Prevent unhandled 'error' events from crashing the process
+    this.client.on('error', (err) => {
+      this.logger.error(`Redis connection error: ${err.message}`);
+    });
+    this.client.on('reconnecting', (delay: number) => {
+      this.logger.warn(`Redis reconnecting in ${delay}ms`);
+    });
+    this.client.on('ready', () => {
+      this.logger.log('Redis connection ready');
+    });
+  }
+
+  /**
+   * Acquire a distributed lock using SET NX with expiry.
+   * Returns true if the lock was acquired (caller is the single leader for `ttlSeconds`).
+   * Used to guarantee scheduled jobs run on exactly one instance.
+   */
+  async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+    const result = await this.client.set(key, '1', 'EX', ttlSeconds, 'NX');
+    return result === 'OK';
   }
 
   async get(key: string): Promise<string | null> {

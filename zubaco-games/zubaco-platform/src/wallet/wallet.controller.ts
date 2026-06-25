@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Delete, Body, Param, Query, Headers, UseGuards, RawBodyRequest, Req } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
+import { Request } from 'express';
 import { WalletService } from './wallet.service';
 import { PaymentGatewayService } from './payment-gateway.service';
 import { KycService } from './kyc.service';
@@ -68,9 +69,10 @@ export class WalletController {
   }
 
   @Post('webhook/razorpay')
+  @SkipThrottle()
   @UseGuards(RazorpayWebhookGuard)
-  async razorpayWebhook(@Body() body: any, @Headers('x-razorpay-signature') signature: string) {
-    return this.paymentGateway.handleWebhook(body, signature);
+  async razorpayWebhook(@Req() req: RawBodyRequest<Request>, @Headers('x-razorpay-signature') signature: string) {
+    return this.paymentGateway.handleWebhook(req.rawBody as Buffer, signature);
   }
 
   // ─── KYC ENDPOINTS ─────────────────────────────────────────────

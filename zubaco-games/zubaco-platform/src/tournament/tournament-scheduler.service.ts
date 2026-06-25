@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { RedisService } from '../common/redis/redis.service';
 import { EliminationService } from './elimination.service';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class TournamentSchedulerService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly eliminationService: EliminationService,
   ) {}
 
@@ -18,6 +20,7 @@ export class TournamentSchedulerService {
    */
   @Cron('*/5 * * * *')
   async openDueStages() {
+    if (!(await this.redis.acquireLock('lock:cron:openDueStages', 290))) return;
     const now = new Date();
 
     const stagesToOpen = await this.prisma.seasonStage.findMany({
@@ -51,6 +54,7 @@ export class TournamentSchedulerService {
    */
   @Cron('*/5 * * * *')
   async closeDueStages() {
+    if (!(await this.redis.acquireLock('lock:cron:closeDueStages', 290))) return;
     const now = new Date();
 
     const stagesToClose = await this.prisma.seasonStage.findMany({
@@ -139,6 +143,7 @@ export class TournamentSchedulerService {
    */
   @Cron('0 * * * *')
   async activateSeasons() {
+    if (!(await this.redis.acquireLock('lock:cron:activateSeasons', 3500))) return;
     const now = new Date();
 
     const seasonsToActivate = await this.prisma.season.findMany({

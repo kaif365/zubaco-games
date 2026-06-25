@@ -1,10 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { RedisService } from '../common/redis/redis.service';
 
 @Injectable()
 export class WalletCleanupService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(WalletCleanupService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   /**
    * Every 30 minutes: expire abandoned PENDING deposit transactions
@@ -12,6 +18,7 @@ export class WalletCleanupService {
    */
   @Cron(CronExpression.EVERY_30_MINUTES)
   async expireAbandonedDeposits() {
+    if (!(await this.redis.acquireLock('lock:cron:expireAbandonedDeposits', 1700))) return;
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
 
     const result = await this.prisma.transaction.updateMany({
@@ -24,7 +31,7 @@ export class WalletCleanupService {
     });
 
     if (result.count > 0) {
-      console.log(`[WalletCleanup] Expired ${result.count} abandoned deposit(s)`);
+      this.logger.log(`Expired ${result.count} abandoned deposit(s)`);
     }
   }
 
@@ -34,6 +41,7 @@ export class WalletCleanupService {
    */
   @Cron('0 3 * * *', { timeZone: 'Asia/Kolkata' })
   async dailyReconciliation() {
+    if (!(await this.redis.acquireLock('lock:cron:dailyReconciliation', 3600))) return;
     const wallets = await this.prisma.wallet.findMany({
       select: { user_id: true, balance: true, bonus_balance: true },
     });
@@ -61,8 +69,10 @@ export class WalletCleanupService {
     }
 
     if (discrepancies.length > 0) {
-      console.error(`[RECONCILIATION ALERT] ${discrepancies.length} wallet balance discrepancies found:`, discrepancies.slice(0, 5));
-      // TODO: Send alert to monitoring/ops team
+      this.logger.error(
+        `[RECONCILIATION ALERT] ${discrepancies.length} wallet balance discrepancies found: ` +
+          JSON.stringify(discrepancies.slice(0, 5)),
+      );
     }
   }
 }

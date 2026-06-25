@@ -3,6 +3,14 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import * as crypto from 'crypto';
 
+/** Length-safe, timing-safe hex signature comparison (avoids RangeError on mismatched input). */
+function safeSignatureEqual(expectedHex: string, providedHex: string): boolean {
+  if (typeof providedHex !== 'string' || expectedHex.length !== providedHex.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(Buffer.from(expectedHex), Buffer.from(providedHex));
+}
+
 interface RazorpayOrder {
   id: string;
   amount: number;
@@ -81,7 +89,7 @@ export class PaymentGatewayService {
       .update(`${orderId}|${paymentId}`)
       .digest('hex');
 
-    if (!crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature))) {
+    if (!safeSignatureEqual(expectedSignature, signature)) {
       throw new BadRequestException('Invalid payment signature');
     }
 
@@ -104,17 +112,22 @@ export class PaymentGatewayService {
 
   // ─── WEBHOOK HANDLER ───────────────────────────────────────────
 
-  async handleWebhook(body: any, signature: string) {
-    // Verify webhook signature using timing-safe comparison
+  async handleWebhook(rawBody: Buffer, signature: string) {
+    if (!rawBody || rawBody.length === 0) {
+      throw new BadRequestException('Missing webhook body');
+    }
+
+    // Verify webhook signature over the RAW request bytes (Razorpay signs the raw payload)
     const expectedSignature = crypto
       .createHmac('sha256', this.webhookSecret)
-      .update(JSON.stringify(body))
+      .update(rawBody)
       .digest('hex');
 
-    if (!crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature))) {
+    if (!safeSignatureEqual(expectedSignature, signature)) {
       throw new BadRequestException('Invalid webhook signature');
     }
 
+    const body = JSON.parse(rawBody.toString('utf8'));
     const event = body.event;
     const payload = body.payload?.payment?.entity;
 
