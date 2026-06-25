@@ -18,7 +18,7 @@ function createPrismaClient(): PrismaClient {
     database: decodeURIComponent(dbUrl.pathname.slice(1)),
     user: decodeURIComponent(dbUrl.username),
     password: decodeURIComponent(dbUrl.password),
-    ssl: { rejectUnauthorized: false },
+    ssl: dbUrl.searchParams.get('sslmode') === 'disable' ? false : { rejectUnauthorized: false },
   });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({ adapter });

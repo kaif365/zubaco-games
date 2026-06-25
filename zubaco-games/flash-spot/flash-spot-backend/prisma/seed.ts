@@ -1,10 +1,24 @@
 import { PrismaClient } from '../generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
-const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL } as any);
+const _dbUrl = new URL(process.env.DATABASE_URL!);
+const prisma = new PrismaClient({
+    adapter: new PrismaPg(
+        new Pool({
+            host: _dbUrl.hostname,
+            port: Number(_dbUrl.port) || 5432,
+            database: decodeURIComponent(_dbUrl.pathname.slice(1)),
+            user: decodeURIComponent(_dbUrl.username),
+            password: decodeURIComponent(_dbUrl.password),
+            ssl: _dbUrl.searchParams.get('sslmode') === 'disable' ? false : { rejectUnauthorized: false },
+        }),
+    ),
+});
 
 const stages = [
     {

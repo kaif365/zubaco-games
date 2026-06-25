@@ -5,9 +5,10 @@ import { PrismaHealthIndicator } from './prisma.health';
 import { RedisHealthIndicator } from './redis.health';
 import { QueueHealthIndicator } from './queue.health';
 import { PrismaModule } from '../common/prisma/prisma.module';
+import { QueueModule } from '../queue/queue.module';
 
 @Module({
-  imports: [TerminusModule, PrismaModule],
+  imports: [TerminusModule, PrismaModule, QueueModule],
   controllers: [HealthController],
   providers: [PrismaHealthIndicator, RedisHealthIndicator, QueueHealthIndicator],
 })

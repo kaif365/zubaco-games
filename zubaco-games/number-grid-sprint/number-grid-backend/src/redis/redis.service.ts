@@ -18,7 +18,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       db: Number(process.env.REDIS_DB) || 0,
       lazyConnect: true,
       maxRetriesPerRequest: 3,
-      retryStrategy(times) {
+      retryStrategy(times: number) {
         if (times > 5) return null;
         return Math.min(times * 200, 2000);
       },

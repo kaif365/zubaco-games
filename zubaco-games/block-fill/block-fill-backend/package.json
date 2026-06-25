@@ -42,9 +42,12 @@
     "@prisma/client": "7.7.0",
     "@restatedev/restate-sdk": "^1.14.0",
     "@restatedev/restate-sdk-clients": "^1.14.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "@types/helmet": "^0.0.48",
     "axios": "^1.15.2",
     "bullmq": "^5.77.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
     "compression": "^1.8.1",
     "helmet": "^8.2.0",
     "ioredis": "^5.10.1",
@@ -55,13 +58,12 @@
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "prisma": "7.7.0",
+    "redis": "^4.7.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
     "swagger-ui-express": "^5.0.1",
-    "zod": "^4.3.6",
-    "@socket.io/redis-adapter": "^8.3.0",
-    "redis": "^4.7.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
