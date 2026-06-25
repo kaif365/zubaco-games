@@ -44,6 +44,15 @@ export class TournamentService {
       throw new BadRequestException('Season registration is closed');
     }
 
+    // ── Weekly registration cutoff (Week 5/6 close) ──
+    // Registration is open only during the configured number of weekly windows
+    // measured from the season start date.
+    const registrationWeek = this.currentRegistrationWeek(season.start_date);
+    const registrationWeeks = (season as any).registration_weeks ?? 5;
+    if (registrationWeek > registrationWeeks) {
+      throw new BadRequestException('Registration has closed for this season');
+    }
+
     // Check if already registered
     const existing = await this.prisma.seasonEntry.findUnique({
       where: { user_id_season_id: { user_id: userId, season_id: seasonId } },
@@ -65,18 +74,24 @@ export class TournamentService {
       await this.walletService.deductEntryFee(userId, seasonId, Number(season.entry_fee));
     }
 
-    // Assign to cohort (round-robin)
-    const cohort = await this.assignCohort(seasonId);
+    // Assign to the weekly bucket matching the registration week.
+    const cohort = await this.assignWeeklyBucket(seasonId, registrationWeek);
 
     const entry = await this.prisma.seasonEntry.create({
       data: {
         user_id: userId,
         season_id: seasonId,
         cohort_id: cohort?.id,
-      },
+        registration_week: registrationWeek,
+      } as any,
     });
 
-    return { entry_id: entry.id, season: season.name, cohort: cohort?.name || null };
+    return {
+      entry_id: entry.id,
+      season: season.name,
+      cohort: cohort?.name || null,
+      registration_week: registrationWeek,
+    };
   }
 
   // ─── GET MY SEASON STATUS ──────────────────────────────────────
@@ -307,28 +322,42 @@ export class TournamentService {
 
   // ─── HELPERS ───────────────────────────────────────────────────
 
-  private async assignCohort(seasonId: string) {
-    const cohorts = await this.prisma.cohort.findMany({
-      where: { season_id: seasonId },
-      include: { _count: { select: { entries: true } } },
+  /**
+   * 1-based registration week relative to the season start date. Week 1 covers
+   * the first 7 days after start_date. Used to bucket users by sign-up week.
+   */
+  private currentRegistrationWeek(startDate: Date, now: Date = new Date()): number {
+    const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
+    const diff = now.getTime() - new Date(startDate).getTime();
+    if (diff < 0) return 1; // pre-launch registrations land in week 1
+    return Math.floor(diff / MS_PER_WEEK) + 1;
+  }
+
+  /**
+   * Find or create the weekly bucket ("Cohort") for the given registration week.
+   * Each week maps to exactly one bucket (enforced by a unique constraint), so
+   * all users who register in the same week compete against each other through
+   * the pre-bucketing stages.
+   */
+  private async assignWeeklyBucket(seasonId: string, registrationWeek: number) {
+    const existing = await this.prisma.cohort.findFirst({
+      where: { season_id: seasonId, registration_week: registrationWeek } as any,
     });
+    if (existing) return existing;
 
-    if (cohorts.length === 0) return null;
-
-    // Find cohort with fewest players
-    cohorts.sort((a, b) => a._count.entries - b._count.entries);
-    const target = cohorts[0];
-
-    if (target._count.entries >= target.max_players) {
-      // All cohorts full — create a new one
-      return this.prisma.cohort.create({
+    try {
+      return await this.prisma.cohort.create({
         data: {
           season_id: seasonId,
-          name: `Cohort ${cohorts.length + 1}`,
-        },
+          name: `Week ${registrationWeek} Bucket`,
+          registration_week: registrationWeek,
+        } as any,
+      });
+    } catch {
+      // Lost a race to create the bucket — fetch the winner.
+      return this.prisma.cohort.findFirst({
+        where: { season_id: seasonId, registration_week: registrationWeek } as any,
       });
     }
-
-    return target;
   }
 }

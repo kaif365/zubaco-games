@@ -246,6 +246,14 @@ model Season {
   entry_fee       Decimal?     @db.Decimal(10, 2)
   max_players     Int?
   rules           Json?        // Elimination rules, tiebreakers, etc.
+  // ── Weekly bucketing ──
+  // Number of weekly registration windows ("buckets"). Registration closes
+  // after this many weeks from start_date (the Week 5/6 cutoff).
+  registration_weeks Int       @default(5)
+  // Stages with stage_number <= bucketing_stage are PRE-BUCKETING: eliminations
+  // run within each weekly bucket. Stages above it are POST-BUCKETING: all
+  // surviving buckets merge into one unified pool.
+  bucketing_stage    Int       @default(3)
   created_at      DateTime     @default(now())
   updated_at      DateTime     @updatedAt
 
@@ -316,6 +324,8 @@ model SeasonEntry {
   user_id     String
   season_id   String
   cohort_id   String?
+  // Weekly bucket index (1-based) this user registered in.
+  registration_week Int?
   status      EntryStatus @default(ACTIVE)
   registered_at DateTime  @default(now())
 
@@ -362,6 +372,8 @@ model Cohort {
   id          String   @id @default(uuid())
   season_id   String
   name        String
+  // The weekly registration window this bucket represents (1-based).
+  registration_week Int?
   max_players Int      @default(10000)
   region      String?
   created_at  DateTime @default(now())
@@ -369,6 +381,7 @@ model Cohort {
   season  Season        @relation(fields: [season_id], references: [id], onDelete: Cascade)
   entries SeasonEntry[]
 
+  @@unique([season_id, registration_week])
   @@index([season_id])
   @@map("cohorts")
 }
