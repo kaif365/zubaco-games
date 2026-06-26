@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '.prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { OtpService } from '../auth/otp.service';
@@ -114,6 +115,44 @@ export class WalletService {
   }
 
   async deductEntryFee(userId: string, seasonId: string, amount: number) {
+    return this.prisma.$transaction((tx) => this.deductEntryFeeTx(tx, userId, seasonId, amount));
+  }
+
+  /**
+   * Transaction-aware entry-fee debit. Must be called inside an existing
+   * interactive transaction so the debit is atomic with the caller's writes
+   * (e.g. season-entry creation). Uses a row lock to prevent concurrent
+   * balance races.
+   */
+  async deductEntryFeeTx(tx: Prisma.TransactionClient, userId: string, seasonId: string, amount: number) {
+    const [wallet] = await tx.$queryRawUnsafe<any[]>(
+      `SELECT * FROM "wallets" WHERE "user_id" = $1 FOR UPDATE`,
+      userId,
+    );
+    if (!wallet) throw new BadRequestException('Wallet not found');
+
+    const balance = Number(wallet.balance);
+    const bonus = Number(wallet.bonus_balance);
+    if (balance + bonus < amount) throw new BadRequestException('Insufficient balance for entry fee');
+
+    const deductFromBonus = Math.min(bonus, amount);
+    const deductFromBalance = amount - deductFromBonus;
+    const newBalance = balance - deductFromBalance;
+    const newBonus = bonus - deductFromBonus;
+
+    await tx.wallet.update({ where: { user_id: userId }, data: { balance: newBalance, bonus_balance: newBonus } });
+    await tx.transaction.create({
+      data: { user_id: userId, type: 'ENTRY_FEE', amount, balance_after: newBalance + newBonus, status: 'COMPLETED', reference_id: seasonId, description: 'Season entry fee' },
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * Refund a season entry fee (e.g. when a season is cancelled). Credited to the
+   * withdrawable balance with a REFUND transaction record.
+   */
+  async refundEntryFee(userId: string, seasonId: string, amount: number) {
     return this.prisma.$transaction(async (tx) => {
       const [wallet] = await tx.$queryRawUnsafe<any[]>(
         `SELECT * FROM "wallets" WHERE "user_id" = $1 FOR UPDATE`,
@@ -121,21 +160,14 @@ export class WalletService {
       );
       if (!wallet) throw new BadRequestException('Wallet not found');
 
-      const balance = Number(wallet.balance);
-      const bonus = Number(wallet.bonus_balance);
-      if (balance + bonus < amount) throw new BadRequestException('Insufficient balance for entry fee');
+      const newBalance = Number(wallet.balance) + amount;
 
-      const deductFromBonus = Math.min(bonus, amount);
-      const deductFromBalance = amount - deductFromBonus;
-      const newBalance = balance - deductFromBalance;
-      const newBonus = bonus - deductFromBonus;
-
-      await tx.wallet.update({ where: { user_id: userId }, data: { balance: newBalance, bonus_balance: newBonus } });
+      await tx.wallet.update({ where: { user_id: userId }, data: { balance: newBalance } });
       await tx.transaction.create({
-        data: { user_id: userId, type: 'ENTRY_FEE', amount, balance_after: newBalance + newBonus, status: 'COMPLETED', reference_id: seasonId, description: 'Season entry fee' },
+        data: { user_id: userId, type: 'REFUND', amount, balance_after: newBalance + Number(wallet.bonus_balance), status: 'COMPLETED', reference_id: seasonId, description: 'Season entry fee refund' },
       });
 
-      return { success: true };
+      return { new_balance: newBalance };
     });
   }
 

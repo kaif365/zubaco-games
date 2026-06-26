@@ -1,9 +1,12 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AgeVerificationService } from '../compliance/age-verification.service';
 import { LeaderboardService } from '../leaderboard/leaderboard.service';
-import { GameType } from '.prisma/client';
+import { ScoreValidatorService } from '../game-session/score-validator.service';
+import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
+import { TournamentEventsService } from './tournament-events.service';
+import { GameType, Prisma } from '.prisma/client';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -13,6 +16,9 @@ export class TournamentService {
     private readonly walletService: WalletService,
     private readonly ageVerification: AgeVerificationService,
     private readonly leaderboardService: LeaderboardService,
+    private readonly scoreValidator: ScoreValidatorService,
+    private readonly antiCheat: AntiCheatService,
+    private readonly events: TournamentEventsService,
   ) {}
 
   // ─── LIST ACTIVE SEASONS ───────────────────────────────────────
@@ -36,40 +42,68 @@ export class TournamentService {
   async registerForSeason(userId: string, seasonId: string) {
     const season = await this.prisma.season.findUnique({ where: { id: seasonId } });
     if (!season) throw new NotFoundException('Season not found');
-    if (season.status !== 'REGISTRATION' && season.status !== 'ACTIVE') {
+    // Registration is only permitted while the season is in the REGISTRATION
+    // window. Allowing it during ACTIVE let players join mid-tournament and skip
+    // prior eliminations (fairness defect).
+    if (season.status !== 'REGISTRATION') {
       throw new BadRequestException('Season registration is closed');
     }
 
-    // Check if already registered
+    // Fast-path duplicate check (authoritatively re-checked inside the locked tx)
     const existing = await this.prisma.seasonEntry.findUnique({
       where: { user_id_season_id: { user_id: userId, season_id: seasonId } },
     });
     if (existing) throw new ConflictException('Already registered for this season');
 
-    // Check max players
-    if (season.max_players) {
-      const count = await this.prisma.seasonEntry.count({ where: { season_id: seasonId } });
-      if (count >= season.max_players) {
-        throw new BadRequestException('Season is full');
-      }
-    }
-
-    // Deduct entry fee if applicable
-    if (season.entry_fee && Number(season.entry_fee) > 0) {
-      // Age verification required for paid tournaments
+    const entryFee = season.entry_fee ? Number(season.entry_fee) : 0;
+    // Age verification required for paid tournaments (do this before opening the tx)
+    if (entryFee > 0) {
       await this.ageVerification.ensureAgeVerified(userId);
-      await this.walletService.deductEntryFee(userId, seasonId, Number(season.entry_fee));
     }
 
-    // Assign to cohort (round-robin)
-    const cohort = await this.assignCohort(seasonId);
+    // Atomic registration: lock the season row so capacity checks, the entry-fee
+    // debit, cohort assignment and entry creation are serialized and all-or-nothing.
+    const { entry, cohort } = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(`SELECT id FROM "seasons" WHERE id = $1 FOR UPDATE`, seasonId);
 
-    const entry = await this.prisma.seasonEntry.create({
-      data: {
-        user_id: userId,
-        season_id: seasonId,
-        cohort_id: cohort?.id,
-      },
+      // Authoritative duplicate check under the lock
+      const dup = await tx.seasonEntry.findUnique({
+        where: { user_id_season_id: { user_id: userId, season_id: seasonId } },
+      });
+      if (dup) throw new ConflictException('Already registered for this season');
+
+      // Capacity check under the lock (prevents max_players over-fill race)
+      if (season.max_players) {
+        const count = await tx.seasonEntry.count({ where: { season_id: seasonId } });
+        if (count >= season.max_players) {
+          throw new BadRequestException('Season is full');
+        }
+      }
+
+      // Entry-fee debit is atomic with entry creation (rolls back together on failure)
+      if (entryFee > 0) {
+        await this.walletService.deductEntryFeeTx(tx, userId, seasonId, entryFee);
+      }
+
+      // Cohort assignment is serialized by the season row lock (no duplicate
+      // overflow cohorts, no over-fill).
+      const assignedCohort = await this.assignCohortTx(tx, seasonId);
+
+      const created = await tx.seasonEntry.create({
+        data: {
+          user_id: userId,
+          season_id: seasonId,
+          cohort_id: assignedCohort?.id,
+        },
+      });
+
+      return { entry: created, cohort: assignedCohort };
+    });
+
+    this.events.emit('tournament.registered', seasonId, {
+      userId,
+      entryId: entry.id,
+      cohortId: cohort?.id ?? null,
     });
 
     return { entry_id: entry.id, season: season.name, cohort: cohort?.name || null };
@@ -180,21 +214,64 @@ export class TournamentService {
   async submitTournamentResult(userId: string, sessionId: string, score: number, durationMs: number) {
     const session = await this.prisma.gameSession.findFirst({
       where: { id: sessionId, user_id: userId, mode: 'TOURNAMENT', outcome: null },
-      include: { stage_entry: true },
+      include: {
+        stage_entry: {
+          include: { season_stage: { include: { stage_games: true } } },
+        },
+      },
     });
 
     if (!session) throw new NotFoundException('Tournament session not found or already completed');
 
-    // Update session
-    await this.prisma.gameSession.update({
-      where: { id: sessionId },
-      data: { score, duration_ms: durationMs, outcome: 'COMPLETED', completed_at: new Date() },
-    });
+    // Hard bounds + plausibility (mirrors the free-play submit path)
+    if (score < 0) throw new BadRequestException('Invalid score');
+    if (durationMs < 1000) throw new BadRequestException('Invalid duration');
+    const elapsed = Date.now() - new Date(session.started_at).getTime();
+    if (durationMs > elapsed + 5000) {
+      throw new ForbiddenException('Duration exceeds session age');
+    }
 
-    // Update stage entry totals
-    if (session.stage_entry) {
-      const updatedStageEntry = await this.prisma.stageEntry.update({
-        where: { id: session.stage_entry.id },
+    const stage = session.stage_entry?.season_stage;
+    if (!session.stage_entry || !stage) {
+      throw new BadRequestException('Tournament session is not linked to a stage');
+    }
+
+    // Reject submissions once the stage is no longer open or its close time has
+    // passed — otherwise late results could mutate already-ranked entries.
+    if (stage.status !== 'OPEN') {
+      throw new BadRequestException('Stage is closed; submissions are no longer accepted');
+    }
+    if (stage.close_date && new Date(stage.close_date) <= new Date()) {
+      throw new BadRequestException('Stage close time has passed; submission rejected');
+    }
+
+    // Server-side score validation against the game's theoretical bounds.
+    const validation = this.scoreValidator.validateScore(
+      session.game_type,
+      session.config as Record<string, any>,
+      score,
+      durationMs,
+    );
+    if (!validation.valid) {
+      throw new ForbiddenException(`Score rejected: ${validation.reason}`);
+    }
+
+    const stageEntryId = session.stage_entry.id;
+    const totalGames = stage.stage_games.length;
+
+    // Atomic submit: claim the session (double-submit guard) and update the
+    // stage-entry totals in a single transaction.
+    const updatedStageEntry = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.gameSession.updateMany({
+        where: { id: sessionId, user_id: userId, mode: 'TOURNAMENT', outcome: null },
+        data: { score, duration_ms: durationMs, outcome: 'COMPLETED', completed_at: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException('Tournament session already completed');
+      }
+
+      const entry = await tx.stageEntry.update({
+        where: { id: stageEntryId },
         data: {
           total_score: { increment: score },
           total_time_ms: { increment: durationMs },
@@ -202,34 +279,47 @@ export class TournamentService {
         },
       });
 
-      // Update real-time Redis leaderboard
-      await this.leaderboardService.updateStageScore(
-        session.stage_entry.season_stage_id,
-        userId,
-        updatedStageEntry.total_score,
-      );
-
-      // Check if all 4 games completed
-      const stageEntry = await this.prisma.stageEntry.findUnique({
-        where: { id: session.stage_entry.id },
-        include: { season_stage: { include: { stage_games: true } } },
-      });
-
-      if (stageEntry && stageEntry.games_played >= stageEntry.season_stage.stage_games.length) {
-        await this.prisma.stageEntry.update({
-          where: { id: stageEntry.id },
+      if (totalGames > 0 && entry.games_played >= totalGames && !entry.completed_at) {
+        return tx.stageEntry.update({
+          where: { id: entry.id },
           data: { completed_at: new Date() },
         });
       }
+
+      return entry;
+    });
+
+    // Update real-time Redis leaderboard (non-blocking)
+    try {
+      await this.leaderboardService.updateStageScore(stage.id, userId, updatedStageEntry.total_score);
+    } catch {
+      // Leaderboard failure should not block submission persistence
     }
 
-    return { score, total_score: (session.stage_entry?.total_score || 0) + score };
+    // Run anti-cheat analysis on the money-bearing tournament result (non-blocking)
+    try {
+      await this.antiCheat.clearActiveSession(userId);
+      await this.antiCheat.analyzeGameResult({
+        userId,
+        sessionId,
+        score,
+        durationMs,
+        gameType: session.game_type,
+        ipAddress: session.ip_address || undefined,
+        deviceFingerprint: session.device_fingerprint || undefined,
+        mode: session.mode,
+      });
+    } catch {
+      // Anti-cheat failure should not block submission persistence
+    }
+
+    return { score, total_score: updatedStageEntry.total_score };
   }
 
   // ─── HELPERS ───────────────────────────────────────────────────
 
-  private async assignCohort(seasonId: string) {
-    const cohorts = await this.prisma.cohort.findMany({
+  private async assignCohortTx(tx: Prisma.TransactionClient, seasonId: string) {
+    const cohorts = await tx.cohort.findMany({
       where: { season_id: seasonId },
       include: { _count: { select: { entries: true } } },
     });
@@ -241,8 +331,9 @@ export class TournamentService {
     const target = cohorts[0];
 
     if (target._count.entries >= target.max_players) {
-      // All cohorts full — create a new one
-      return this.prisma.cohort.create({
+      // All cohorts full — create a new one. Safe under the season row lock held
+      // by the caller (no duplicate overflow cohorts).
+      return tx.cohort.create({
         data: {
           season_id: seasonId,
           name: `Cohort ${cohorts.length + 1}`,

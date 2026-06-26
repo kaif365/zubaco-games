@@ -3,6 +3,8 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { EliminationService } from './elimination.service';
+import { WalletService } from '../wallet/wallet.service';
+import { TournamentEventsService } from './tournament-events.service';
 
 @Injectable()
 export class TournamentSchedulerService {
@@ -12,6 +14,8 @@ export class TournamentSchedulerService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly eliminationService: EliminationService,
+    private readonly walletService: WalletService,
+    private readonly events: TournamentEventsService,
   ) {}
 
   /**
@@ -37,6 +41,10 @@ export class TournamentSchedulerService {
         await this.prisma.seasonStage.update({
           where: { id: stage.id },
           data: { status: 'OPEN' },
+        });
+        this.events.emit('tournament.stage.opened', stage.season.id, {
+          stageId: stage.id,
+          stageNumber: stage.stage_number,
         });
         this.logger.log(
           `Opened Stage ${stage.stage_number} of "${stage.season.name}" (${stage.id})`,
@@ -65,7 +73,6 @@ export class TournamentSchedulerService {
       },
       include: {
         season: {
-          select: { id: true, name: true },
           include: {
             stages: { orderBy: { stage_number: 'asc' }, select: { id: true, stage_number: true, status: true } },
           },
@@ -81,6 +88,12 @@ export class TournamentSchedulerService {
           `Elimination for Stage ${stage.stage_number} of "${stage.season.name}": ` +
             `${result.survived} survived, ${result.eliminated} eliminated`,
         );
+        this.events.emit('tournament.stage.closed', stage.season.id, {
+          stageId: stage.id,
+          stageNumber: stage.stage_number,
+          survived: result.survived,
+          eliminated: result.eliminated,
+        });
 
         // 2. Check if this was the final stage
         const allStages = stage.season.stages;
@@ -109,6 +122,11 @@ export class TournamentSchedulerService {
 
           // Distribute prizes
           await this.eliminationService.distributePrizes(stage.season.id, stage.id);
+
+          this.events.emit('tournament.season.completed', stage.season.id, {
+            finalStageId: stage.id,
+            winners: survivingEntries.length,
+          });
 
           this.logger.log(
             `Season "${stage.season.name}" completed. ${survivingEntries.length} winner(s).`,
@@ -159,6 +177,71 @@ export class TournamentSchedulerService {
         this.logger.log(`Season "${season.name}" opened for registration`);
       } catch (err) {
         this.logger.error(`Failed to activate season ${season.id}:`, err);
+      }
+    }
+  }
+
+  /**
+   * Every 5 minutes: tear down CANCELLED seasons. Refund the entry fee for every
+   * still-active registration (paid seasons only), mark those entries WITHDRAWN
+   * and close any open stages. Idempotent: only ACTIVE entries are processed, so
+   * re-runs never double-refund.
+   */
+  @Cron('*/5 * * * *')
+  async processCancelledSeasons() {
+    if (!(await this.redis.acquireLock('lock:cron:processCancelledSeasons', 290))) return;
+
+    const cancelledSeasons = await this.prisma.season.findMany({
+      where: {
+        status: 'CANCELLED',
+        entries: { some: { status: 'ACTIVE' } },
+      },
+      select: { id: true, name: true, entry_fee: true },
+    });
+
+    for (const season of cancelledSeasons) {
+      try {
+        const entryFee = season.entry_fee ? Number(season.entry_fee) : 0;
+
+        const activeEntries = await this.prisma.seasonEntry.findMany({
+          where: { season_id: season.id, status: 'ACTIVE' },
+          select: { id: true, user_id: true },
+        });
+
+        for (const entry of activeEntries) {
+          try {
+            if (entryFee > 0) {
+              await this.walletService.refundEntryFee(entry.user_id, season.id, entryFee);
+            }
+            // Mark WITHDRAWN only after a successful refund so a failed refund is
+            // retried on the next run (idempotency: entry stays ACTIVE on failure).
+            await this.prisma.seasonEntry.update({
+              where: { id: entry.id },
+              data: { status: 'WITHDRAWN' },
+            });
+          } catch (entryErr) {
+            this.logger.error(
+              `Failed to refund/withdraw entry ${entry.id} for cancelled season ${season.id}:`,
+              entryErr as Error,
+            );
+          }
+        }
+
+        // Close any stages still open/locked for the cancelled season.
+        await this.prisma.seasonStage.updateMany({
+          where: { season_id: season.id, status: { in: ['LOCKED', 'OPEN'] } },
+          data: { status: 'CLOSED' },
+        });
+
+        this.events.emit('tournament.season.cancelled', season.id, {
+          refundedEntries: activeEntries.length,
+          entryFee,
+        });
+        this.logger.log(
+          `Cancelled season "${season.name}" teardown: processed ${activeEntries.length} active entr(y/ies).`,
+        );
+      } catch (err) {
+        this.logger.error(`Failed to process cancelled season ${season.id}:`, err);
       }
     }
   }

@@ -3,16 +3,24 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { WalletService } from '../wallet/wallet.service';
 import { LeaderboardService } from '../leaderboard/leaderboard.service';
+import { TournamentEventsService } from './tournament-events.service';
 
 @Injectable()
 export class EliminationService {
   private readonly logger = new Logger(EliminationService.name);
+
+  // Bound the size of any single elimination/ranking transaction so a stage with
+  // tens of thousands of finishers does not produce one giant long-held lock.
+  private static readonly RANK_CHUNK_SIZE = 500;
+  // Bound the size of any single bulk-notification call.
+  private static readonly NOTIFY_CHUNK_SIZE = 1000;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly walletService: WalletService,
     private readonly leaderboardService: LeaderboardService,
+    private readonly events: TournamentEventsService,
   ) {}
 
   /**
@@ -27,7 +35,9 @@ export class EliminationService {
 
     if (!stage) throw new Error('Stage not found');
 
-    // Get all completed stage entries
+    // Get all completed stage entries.
+    // Tiebreakers (deterministic, fair): higher score → faster time → earlier
+    // registration → stable id, so a fixed cutoff never depends on row ordering.
     const entries = await this.prisma.stageEntry.findMany({
       where: {
         season_stage_id: seasonStageId,
@@ -35,36 +45,66 @@ export class EliminationService {
       },
       orderBy: [
         { total_score: 'desc' },
-        { total_time_ms: 'asc' }, // Tiebreaker: faster wins
+        { total_time_ms: 'asc' },
+        { season_entry: { registered_at: 'asc' } },
+        { id: 'asc' },
       ],
       include: { season_entry: true },
     });
 
-    if (entries.length === 0) return { eliminated: 0, survived: 0 };
+    // Clamp elimination_pct into a sane (0,100) range before computing the cutoff
+    // so misconfigured stages cannot survive everyone or eliminate everyone via
+    // negative/over-100 slicing.
+    const clampedPct = Math.min(100, Math.max(0, stage.elimination_pct));
+    const eliminationPct = clampedPct / 100;
+    const surviveCount =
+      entries.length === 0 ? 0 : Math.max(0, Math.min(entries.length, Math.ceil(entries.length * (1 - eliminationPct))));
 
-    // Calculate cutoff
-    const eliminationPct = stage.elimination_pct / 100;
-    const surviveCount = Math.ceil(entries.length * (1 - eliminationPct));
+    // Assign ranks + eliminated flags among finishers, in bounded chunks.
+    for (let i = 0; i < entries.length; i += EliminationService.RANK_CHUNK_SIZE) {
+      const slice = entries.slice(i, i + EliminationService.RANK_CHUNK_SIZE);
+      await this.prisma.$transaction(
+        slice.map((entry, j) => {
+          const rank = i + j + 1;
+          return this.prisma.stageEntry.update({
+            where: { id: entry.id },
+            data: { rank, eliminated: rank > surviveCount },
+          });
+        }),
+      );
+    }
 
-    // Assign ranks
-    const updates = entries.map((entry, index) => {
-      const rank = index + 1;
-      const eliminated = rank > surviveCount;
-
-      return this.prisma.stageEntry.update({
-        where: { id: entry.id },
-        data: { rank, eliminated },
-      });
-    });
-
-    await this.prisma.$transaction(updates);
-
-    // Update season entries for eliminated players
+    // Update season entries for eliminated finishers
     const eliminatedEntries = entries.slice(surviveCount);
     if (eliminatedEntries.length > 0) {
       await this.prisma.seasonEntry.updateMany({
         where: { id: { in: eliminatedEntries.map((e) => e.season_entry_id) } },
         data: { status: 'ELIMINATED' },
+      });
+    }
+
+    // TOURN-Q-01: eliminate non-finishers. Anyone still ACTIVE in this season who
+    // did NOT complete this stage (no completed StageEntry) must not silently
+    // survive — they are eliminated alongside the bottom-ranked finishers.
+    const finisherSeasonEntryIds = entries.map((e) => e.season_entry_id);
+    const nonFinishers = await this.prisma.seasonEntry.findMany({
+      where: {
+        season_id: stage.season_id,
+        status: 'ACTIVE',
+        id: { notIn: finisherSeasonEntryIds },
+      },
+      select: { id: true },
+    });
+    const nonFinisherSeasonEntryIds = nonFinishers.map((n) => n.id);
+    if (nonFinisherSeasonEntryIds.length > 0) {
+      await this.prisma.seasonEntry.updateMany({
+        where: { id: { in: nonFinisherSeasonEntryIds } },
+        data: { status: 'ELIMINATED' },
+      });
+      // Flag any partial (incomplete) stage entries they may have started.
+      await this.prisma.stageEntry.updateMany({
+        where: { season_stage_id: seasonStageId, season_entry_id: { in: nonFinisherSeasonEntryIds } },
+        data: { eliminated: true },
       });
     }
 
@@ -85,16 +125,16 @@ export class EliminationService {
     const stageName = `Stage ${stageInfo?.stage_number ?? '?'}`;
     const seasonName = stageInfo?.season?.name ?? 'Tournament';
 
-    // Notify eliminated players
-    const eliminatedUserIds = await this.getSeasonEntryUserIds(
-      eliminatedEntries.map((e) => e.season_entry_id),
-    );
+    // Notify eliminated players (bottom-ranked finishers + non-finishers)
+    const eliminatedUserIds = await this.getSeasonEntryUserIds([
+      ...eliminatedEntries.map((e) => e.season_entry_id),
+      ...nonFinisherSeasonEntryIds,
+    ]);
     if (eliminatedUserIds.length > 0) {
-      await this.notificationService.sendBulkNotification(
+      await this.notifyInBatches(
         eliminatedUserIds,
-        'TOURNAMENT' as any,
         `Eliminated from ${stageName}`,
-        `You finished in the bottom ${stage.elimination_pct}% in ${seasonName} ${stageName}. Better luck next time!`,
+        `You did not advance past ${seasonName} ${stageName}. Better luck next time!`,
         { screen: 'Tournament', seasonId: stage.season_id },
       );
     }
@@ -105,19 +145,28 @@ export class EliminationService {
       survivedEntries.map((e) => e.season_entry_id),
     );
     if (survivedUserIds.length > 0) {
-      await this.notificationService.sendBulkNotification(
+      await this.notifyInBatches(
         survivedUserIds,
-        'TOURNAMENT' as any,
         `Advanced past ${stageName}! 🎉`,
         `Congratulations! You survived ${seasonName} ${stageName}. Get ready for the next round!`,
         { screen: 'Tournament', seasonId: stage.season_id },
       );
     }
 
-    return {
-      total_players: entries.length,
+    const eliminatedCount = (entries.length - surviveCount) + nonFinisherSeasonEntryIds.length;
+
+    this.events.emit('tournament.elimination.completed', stage.season_id, {
+      stageId: seasonStageId,
+      finishers: entries.length,
       survived: surviveCount,
-      eliminated: entries.length - surviveCount,
+      eliminated: eliminatedCount,
+      eliminationPct: clampedPct,
+    });
+
+    return {
+      total_players: entries.length + nonFinisherSeasonEntryIds.length,
+      survived: surviveCount,
+      eliminated: eliminatedCount,
     };
   }
 
@@ -167,22 +216,109 @@ export class EliminationService {
       });
     }
 
-    // Credit wallets and send notifications
+    if (payouts.length === 0) return;
+
+    // TOURN-WIN-01: account for the rounding remainder (paise/whole-rupee floors
+    // and the unallocated tail when there are fewer than 10 winners) by awarding
+    // it to the 1st-place winner instead of silently retaining it.
+    const distributed = payouts.reduce((sum, p) => sum + p.amount, 0);
+    const remainder = Math.round((prizePool - distributed) * 100) / 100;
+    if (remainder > 0) {
+      payouts[0].amount += remainder;
+    }
+
+    // Credit wallets and send notifications. A credit failure must not be silently
+    // dropped — retry, then record an owed FAILED transaction for reconciliation.
     for (const payout of payouts) {
+      if (payout.amount <= 0) continue;
+      await this.creditPrizeWithRetry(payout, seasonId, season.name);
+    }
+
+    this.events.emit('tournament.prize.distributed', seasonId, {
+      finalStageId,
+      prizePool,
+      payouts: payouts.map((p) => ({ userId: p.userId, rank: p.rank, amount: p.amount })),
+    });
+  }
+
+  /**
+   * Credit a single prize with bounded retries. If every attempt fails, persist an
+   * owed PRIZE_WIN transaction with FAILED status so it can be reconciled/paid out
+   * later instead of being permanently lost.
+   */
+  private async creditPrizeWithRetry(
+    payout: { userId: string; amount: number; rank: number },
+    seasonId: string,
+    seasonName: string,
+  ): Promise<void> {
+    const MAX_ATTEMPTS = 3;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         await this.walletService.creditPrize(payout.userId, payout.amount, seasonId);
 
-        await this.notificationService.sendNotification(
-          payout.userId,
-          'TOURNAMENT' as any,
-          `🏆 You won ₹${payout.amount.toLocaleString()}!`,
-          `Rank #${payout.rank} in ${season.name}. Prize has been credited to your wallet.`,
-          { screen: 'Wallet', seasonId },
-        );
+        try {
+          await this.notificationService.sendNotification(
+            payout.userId,
+            'TOURNAMENT' as any,
+            `🏆 You won ₹${payout.amount.toLocaleString()}!`,
+            `Rank #${payout.rank} in ${seasonName}. Prize has been credited to your wallet.`,
+            { screen: 'Wallet', seasonId },
+          );
+        } catch (notifyErr) {
+          // Notification failure must not undo a successful credit.
+          this.logger.warn(`Prize credited but notification failed for ${payout.userId}: ${String(notifyErr)}`);
+        }
 
         this.logger.log(`Prize ₹${payout.amount} credited to rank #${payout.rank} (${payout.userId})`);
+        return;
       } catch (err) {
-        this.logger.error(`Failed to credit prize to ${payout.userId}:`, err);
+        lastError = err;
+        this.logger.warn(
+          `Prize credit attempt ${attempt}/${MAX_ATTEMPTS} failed for ${payout.userId}: ${String(err)}`,
+        );
+      }
+    }
+
+    // All retries exhausted — record an owed ledger entry for reconciliation.
+    this.logger.error(
+      `Failed to credit prize to ${payout.userId} after ${MAX_ATTEMPTS} attempts; recording owed entry.`,
+      lastError as Error,
+    );
+    try {
+      await this.prisma.transaction.create({
+        data: {
+          user_id: payout.userId,
+          type: 'PRIZE_WIN',
+          amount: payout.amount,
+          balance_after: 0,
+          status: 'FAILED',
+          reference_id: seasonId,
+          description: `Owed tournament prize (rank #${payout.rank}) — credit failed, pending reconciliation`,
+        },
+      });
+    } catch (ledgerErr) {
+      this.logger.error(`Failed to record owed prize ledger for ${payout.userId}:`, ledgerErr as Error);
+    }
+  }
+
+  /**
+   * Send bulk notifications in bounded batches to avoid a single oversized
+   * insert/push fan-out for stages with very large player counts.
+   */
+  private async notifyInBatches(
+    userIds: string[],
+    title: string,
+    body: string,
+    data: Record<string, any>,
+  ): Promise<void> {
+    for (let i = 0; i < userIds.length; i += EliminationService.NOTIFY_CHUNK_SIZE) {
+      const batch = userIds.slice(i, i + EliminationService.NOTIFY_CHUNK_SIZE);
+      try {
+        await this.notificationService.sendBulkNotification(batch, 'TOURNAMENT' as any, title, body, data);
+      } catch (err) {
+        this.logger.warn(`Bulk notification batch failed (${batch.length} users): ${String(err)}`);
       }
     }
   }
