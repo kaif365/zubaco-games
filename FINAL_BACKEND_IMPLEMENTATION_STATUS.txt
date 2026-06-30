@@ -1,0 +1,477 @@
+================================================================================
+FINAL BACKEND IMPLEMENTATION STATUS
+ZUBACO PLATFORM — POST-ROLLOUT IMPLEMENTATION COMPLETION AUDIT
+================================================================================
+Mode ................ AUDIT ONLY (read-only; no code modified)
+Scope ............... Backend implementation completeness ONLY
+                      (NOT production / security / testing / DevOps)
+Canonical root ...... c:\zubaco-games\zubaco-platform\src
+Excluded ............ Frontend, mobile, testing, infrastructure, deployment,
+                      and the divergent duplicate tree at
+                      c:\zubaco-games\zubaco-games\zubaco-platform (out of scope)
+Method .............. Live runtime execution tracing (controllers/crons/DI),
+                      code-usage (reference) analysis, direct source reading.
+                      Conclusions are grounded ONLY in current code, not prior
+                      reports.
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+The backend is architecturally clean and MOSTLY complete: every game-completion
+path converges on one authoritative pipeline, all wallet balance mutations route
+through one ledger, tournament progression is a single idempotent orchestrator,
+enforcement has a single authoritative ban writer, admin actions flow through one
+RBAC-gated control plane, and the event bus publishes all 11 event types to two
+live subscribers (in-app + webhook).
+
+HOWEVER, the backend is NOT fully implementation-complete. Three runtime
+integrations are built as code but have NO live caller/trigger, leaving real
+end-to-end paths incomplete:
+
+  1. WITHDRAWAL DISBURSEMENT + SETTLEMENT — money is debited on withdrawal
+     request and parked in a PENDING WITHDRAWAL row, but NO live backend path
+     executes the payout (processWithdrawal) or settles/reverses it
+     (completeWithdrawal / failWithdrawal). The payout layer is dormant.
+  2. TOURNAMENT PRIZE DISBURSEMENT — reward eligibility is computed and returned,
+     but creditPrize() is never called; no backend path credits a winner's prize.
+  3. LEADERBOARD REAL-TIME WRITE — updateScore() (the only writer of the Redis
+     leaderboard zset) is never called; the in-platform leaderboard is never
+     populated by the backend (reads fall back to DB gameProgress, which only
+     free-play writes).
+
+Because at least one runtime path is incomplete, the answer to "Is backend
+implementation complete?" is NO (see §18).
+
+
+--------------------------------------------------------------------------------
+2. BACKEND ARCHITECTURE OVERVIEW
+--------------------------------------------------------------------------------
+NestJS 11 + Prisma 7 (Postgres via @prisma/adapter-pg) + Redis (ioredis).
+Single root AppModule (src/app.module.ts) wires 21 modules + 2 root controllers
+(Health, AppVersion). Global modules: PrismaModule, RedisModule, EventsModule,
+AntiCheatModule, AdminModule, WebhookModule.
+
+Authoritative foundations (all present in code):
+  - SessionLifecycle (state machine guard)         src/game-session/lifecycle/
+  - VerificationPipeline + ScoringService          src/game-session/verification/, src/scoring/
+  - SessionCompletionService                       src/game-session/completion/
+  - TournamentOrchestrator + EliminationService    src/tournament/orchestration/, src/tournament/
+  - WalletLedgerService                            src/wallet/ledger/
+  - EnforcementService                             src/anti-cheat/enforcement/
+  - EventBusService (+ in-app/webhook subscribers) src/events/
+  - AdminControlPlaneService                       src/admin/control-plane/
+  - ServiceIdentityGuard                           src/auth/service-identity/
+
+Transport: HTTP (express) only. No WebSocket gateway exists (see §6).
+
+
+--------------------------------------------------------------------------------
+3. LIVE RUNTIME EXECUTION PATHS
+--------------------------------------------------------------------------------
+GAME COMPLETION (single authoritative path; 3 entry controllers -> 1 service):
+  POST /game-session/:id/submit  -> GameSessionService.submitResult ─┐
+  POST /tournament/submit        -> TournamentService.submitTournamentResult ─┤
+  POST /free-play/submit         -> FreePlayService.submitResult ─┘
+      -> SessionCompletionService.complete()
+           1) assertTransition (lifecycle guard)
+           2) VerificationPipeline.verify() -> DefaultGameVerifier -> ScoringService.score()
+           3) gameSession.update (authoritative score/outcome)
+           4) AntiCheatService.analyzeGameResult() (best-effort; may auto-enforce)
+           5) EventBus.publish GAME_COMPLETED + VERIFICATION_PASSED/FAILED
+           6) WebhookService.emitGameResult() (durable signed outbox -> Base Platform)
+  Evidence: session-completion.service.ts (verify ~L69, events ~L137-160, webhook ~L163).
+
+TOURNAMENT:
+  POST /tournament/seasons/:id/register -> TournamentService.registerForSeason
+       -> WalletService.deductEntryFee -> WalletLedgerService.debitEntryFee (LIVE)
+  POST /tournament/seasons/.../start    -> TournamentService.startTournamentGame (server config only)
+  POST /tournament/submit               -> SessionCompletionService.complete + stageEntry score update
+  Stage progression (admin): POST /admin/control-plane/execute ADVANCE_STAGE
+       -> TournamentOrchestrator.advanceStage -> EliminationService.runElimination
+          -> EventBus.publish TOURNAMENT_PROGRESSED / TOURNAMENT_COMPLETED
+  Rewards (admin): RESOLVE_REWARDS -> TournamentOrchestrator.resolveRewardEligibility
+          -> EventBus.publish REWARD_ELIGIBLE (per winner)  [returns list ONLY; no credit]
+
+WALLET / MONEY (live):
+  GET  /wallet, /wallet/transactions                 -> reads
+  POST /wallet/deposit/create-order                  -> PaymentGateway.createDepositOrder (PENDING row)
+  POST /wallet/deposit/verify  & /wallet/webhook/razorpay
+       -> PaymentGateway.creditDepositAtomically -> WalletLedgerService.settleDeposit
+          -> EventBus.publish WALLET_CREDITED
+  POST /wallet/withdraw          -> WalletService.initiateWithdrawal (OTP + Redis intent)
+  POST /wallet/withdraw/confirm  -> WalletService.confirmWithdrawal -> requestWithdrawal
+       -> WalletLedgerService.createPendingWithdrawal (DEBITS balance, PENDING row)
+          [** path ENDS here — nothing settles/pays it; see §10 **]
+  Admin: CREDIT_WALLET -> ledger.post(ADJUSTMENT) + WALLET_CREDITED;
+         REVERSE_PAYOUT -> ledger.post(PAYOUT_REVERSAL)
+  Referral: SocialService -> WalletService.creditReferralBonus -> ledger.post(REFERRAL_CREDIT) (LIVE)
+
+ANTI-CHEAT (live):
+  SessionCompletion -> AntiCheatService.analyzeGameResult -> (≥critical) EnforcementService.enforce
+       -> user.is_banned=true (authoritative) + leaderboard.removeScore + (cond.) webhook.emitEnforcementReversal
+       -> EventBus.publish ANTI_CHEAT_ENFORCED / ACCOUNT_REVIEWED
+  Service-to-service: /anti-cheat/* (ServiceIdentityGuard) -> review/ban/unban
+  Admin: ENFORCE_ANTI_CHEAT / MARK_FOR_REVIEW -> EnforcementService.enforce
+
+ADMIN (live):
+  POST /admin/control-plane/execute (ServiceIdentityGuard) -> AdminControlPlaneService.execute
+       -> RBAC check -> Redis idempotency lock -> dispatch -> immutable audit (Redis zset)
+
+EVENT BUS (live): EventBusService.publish -> Redis outbox (per subscriber)
+  -> @Cron(EVERY_10_SECONDS) drain -> InAppEventSubscriber (NotificationService + FCM push)
+                                    -> WebhookEventSubscriber (WebhookService.emitPlatformEvent)
+  -> retry (exp backoff, 8 attempts) -> DLQ.
+
+NOTIFICATIONS (live): NotificationService.sendNotification (DB row + FCM push, env-gated).
+  Controller: GET /notifications, read, read-all, push-token.
+
+AUTH (live): /auth/otp/send|verify, /auth/google, /auth/apple, /auth/refresh,
+  /auth/logout(-all), /auth/link-account. JwtAuthGuard on user controllers;
+  ServiceIdentityGuard on admin + anti-cheat; RazorpayWebhookGuard on razorpay webhook.
+
+CRONS (all live): EventBus drain (10s), Webhook outbox (10s), WalletCleanup
+  expireAbandonedDeposits (30m), dailyReconciliation (03:00 IST).
+
+REDIS / PRISMA: single global providers; no second/legacy client.
+
+
+--------------------------------------------------------------------------------
+4. DORMANT IMPLEMENTATIONS (exist + DI-wired, but NO live caller/trigger)
+--------------------------------------------------------------------------------
+Verified via code-usage (definition-only, zero references):
+
+  - PaymentGatewayService.processWithdrawal()            payment-gateway.service.ts ~L169  [DORMANT]
+      + createRazorpayXPayout() (only called by the dormant processWithdrawal)
+      => Withdrawal disbursement/settlement never triggered. (CRITICAL — see §10/§13)
+  - WalletService.creditPrize()                          wallet.service.ts ~L132          [DORMANT]
+      => Tournament prize crediting never invoked. (CRITICAL — see §10/§13/§14)
+  - LeaderboardService.updateScore()                     leaderboard.service.ts L72       [DORMANT]
+      => Redis leaderboard zset never populated by backend. (see §10/§14)
+  - WalletService.deposit()                              wallet.service.ts ~L47           [DORMANT]
+      => Manual top-up adapter; no endpoint/caller (deposits go via Razorpay order flow).
+  - WalletLedgerService.settlePending()                  ledger.service.ts ~L481          [DORMANT]
+      => Superseded by completeWithdrawal(); no caller.
+
+NOTE on prior-report contradictions, corrected here against source:
+  - WebhookService.emitGameResult() is LIVE (called in session-completion.service.ts ~L163),
+    NOT dormant.
+  - WebhookService.emitEnforcementReversal() is LIVE (called in enforcement.service.ts,
+    conditional on PREVENT_WALLET_PAYOUT/REVERSE_PENDING_PAYOUT), NOT dormant.
+  - WalletService.requestWithdrawal() is LIVE (called by confirmWithdrawal()), NOT dormant.
+
+
+--------------------------------------------------------------------------------
+5. LEGACY IMPLEMENTATIONS
+--------------------------------------------------------------------------------
+  - AntiCheatService.unbanUser()  anti-cheat.service.ts ~L315-322  [LIVE / LEGACY]
+      Direct user.update({ is_banned: false, ban_reason: null }) — the ONE
+      remaining non-authoritative is_banned writer. There is no authoritative
+      "un-enforce"/reversal in EnforcementService, so unban bypasses the
+      enforcement plane. Functions correctly but is the lone legacy direct write.
+
+  - (Out of scope, noted) Entire duplicate tree at
+      c:\zubaco-games\zubaco-games\zubaco-platform — a second, divergent copy of
+      the backend (contains an InternalGameController + a different
+      GameSessionService that injects LeaderboardService directly). It is NOT
+      wired into the canonical app and is excluded per directive, but it is dead
+      weight in the repo and is the source of most "legacy/duplicate" noise.
+
+
+--------------------------------------------------------------------------------
+6. DEAD CODE
+--------------------------------------------------------------------------------
+Within the canonical backend there is essentially NO dead code to remove — every
+provider is injected or scheduled, every controller is wired, and Redis/Prisma
+are single shared providers.
+
+Absent (not dead, simply NOT IMPLEMENTED):
+  - WEBSOCKETS: no *.gateway.ts, no @WebSocketGateway, no WsAdapter in main.ts.
+    Real-time transport does not exist. If a WebSocket layer is expected by the
+    product, it is a missing implementation; if not, there is nothing to remove.
+
+Dormant-but-retained (candidates for removal ONLY if their features are truly
+external/abandoned): processWithdrawal/createRazorpayXPayout, creditPrize,
+updateScore, deposit, settlePending (see §4). These are NOT dead per se — they
+are built features awaiting wiring (§10).
+
+
+--------------------------------------------------------------------------------
+7. DUPLICATE RUNTIME PATHS
+--------------------------------------------------------------------------------
+None within the canonical backend:
+  - Exactly ONE game-completion path (SessionCompletionService) shared by all 3 engines.
+  - Exactly ONE verification pipeline and ONE scoring service.
+  - Exactly ONE tournament progression orchestrator (idempotent, admin-triggered).
+  - Exactly ONE authoritative balance writer (WalletLedgerService) — verified no
+    direct wallet.update/upsert balance mutation exists outside the ledger.
+  - Exactly ONE authoritative is_banned:true writer (EnforcementService); the only
+    other is_banned writer is the legacy unbanUser (false), §5.
+The only true duplication is the out-of-scope nested copy (§5).
+
+
+--------------------------------------------------------------------------------
+8. FULLY IMPLEMENTED FEATURES (end-to-end live)
+--------------------------------------------------------------------------------
+  - Authentication (OTP/Google/Apple/refresh/logout/link) + JWT + ServiceIdentity guard.
+  - Game session lifecycle + duplicate-submission guard.
+  - Server-authoritative verification + deterministic scoring (20+ game scorers).
+  - Free-play: energy, level progression, gameProgress updates.
+  - Tournament: registration (+ ledger entry-fee debit), per-game start, submission,
+    stage advancement, elimination, reward ELIGIBILITY resolution.
+  - Wallet deposits: Razorpay order -> verify/webhook -> ledger.settleDeposit (idempotent).
+  - Wallet entry-fee debit, referral bonus credit, admin credit/reverse — all via ledger.
+  - Anti-cheat detection + authoritative enforcement (ban/leaderboard-removal/review).
+  - Admin control plane: RBAC, idempotency, immutable audit.
+  - Event bus: 11/11 event types produced; in-app + webhook subscribers; retry + DLQ.
+  - Notifications: in-app persistence + FCM push (env-gated).
+  - Outbound webhook to Base Platform (game results, enforcement reversal, platform events).
+  - Wallet reconciliation + abandoned-deposit cleanup crons.
+
+
+--------------------------------------------------------------------------------
+9. PARTIALLY IMPLEMENTED FEATURES
+--------------------------------------------------------------------------------
+  - WITHDRAWALS: request side fully wired (OTP + debit + PENDING row); disbursement
+    + settlement side built but NOT triggered (§10/§13).
+  - TOURNAMENT PRIZES: eligibility computed + event emitted; actual crediting not
+    wired (creditPrize dormant) (§10/§14).
+  - LEADERBOARD: read endpoints live (Redis-with-DB-fallback); real-time Redis
+    write never invoked; tournament/standard-session scores do not update any
+    global leaderboard (only free-play updates gameProgress) (§10).
+  - ANTI-CHEAT REVERSAL: enforcement (ban) authoritative; un-enforce (unban) is a
+    legacy direct write, not authoritative (§5).
+  - NOTIFICATION CHANNELS: in-app + push live; email + SMS channels do not exist
+    (no infra). (Acceptable only if product does not require them.)
+  - SERVICE/ADMIN IDENTITY: ServiceIdentityGuard live but accepts a legacy
+    x-internal-api-key fallback unless SERVICE_IDENTITY_ENFORCE='true'; admin
+    adminId/role are read from the request body (role re-verified server-side
+    against ROLE_PERMISSIONS, endpoint protected by the guard).
+
+
+--------------------------------------------------------------------------------
+10. MISSING BACKEND IMPLEMENTATIONS
+--------------------------------------------------------------------------------
+These are concrete, code-verified incomplete runtime integrations:
+
+  M1. WITHDRAWAL PAYOUT TRIGGER (CRITICAL).
+      confirmWithdrawal -> requestWithdrawal -> ledger.createPendingWithdrawal
+      debits the wallet and writes a PENDING WITHDRAWAL row. NOTHING invokes
+      PaymentGatewayService.processWithdrawal() (zero references), so the
+      RazorpayX payout never runs and completeWithdrawal()/failWithdrawal() are
+      never reached. Net effect: user balance is debited but the withdrawal is
+      never paid out, settled, or auto-reversed by any backend runtime path.
+      Missing: a live trigger (admin action / worker / cron) calling processWithdrawal.
+
+  M2. TOURNAMENT PRIZE CREDITING (CRITICAL for money completeness).
+      WalletService.creditPrize() has zero references. RESOLVE_REWARDS only
+      returns the eligibility list. No backend path turns "reward eligible" into
+      a wallet credit. Missing: wiring from reward resolution (or an admin action)
+      to creditPrize()/ledger.post(TOURNAMENT_PAYOUT).
+
+  M3. LEADERBOARD SCORE WRITE.
+      LeaderboardService.updateScore() has zero references; the Redis zset
+      `lb:game:<type>:all-time` is never written by the backend. Tournament and
+      standard game-session completions do not update any global leaderboard
+      (only free-play writes gameProgress, used by the DB fallback). Missing:
+      a call from the completion path (or an external ingestion contract) to
+      populate the leaderboard.
+
+  M4. (Minor) AUTHORITATIVE UNBAN.
+      No EnforcementService reversal exists; unbanUser writes is_banned=false
+      directly. Missing: an authoritative un-enforce path if unban must be audited
+      like enforcement.
+
+Note: M1/M2 may be "by design via the external Base Platform" (game results and
+platform events are forwarded by webhook). But within THIS backend, the code to
+perform them exists yet is unreachable — so as a BACKEND IMPLEMENTATION audit,
+these paths are incomplete.
+
+
+--------------------------------------------------------------------------------
+11. BLOCKER STATUS TABLE
+--------------------------------------------------------------------------------
+(Blocker IDs mapped to code areas by inference, since this audit reads CURRENT
+code, not prior reports. Status: FULLY / PARTIAL / NOT IMPLEMENTED / OBSOLETE.)
+
+ID         AREA / CODE EVIDENCE                                            STATUS
+---------  -------------------------------------------------------------  ----------------
+GAME-001   Lifecycle/dup-submission guard (assertTransition in complete)  FULLY RESOLVED
+GAME-002   Server-authoritative verification+scoring (verify->score)      FULLY RESOLVED
+ALL GAME   Unified completion via SessionCompletionService (3 engines)    FULLY RESOLVED
+SCORE-001  Deterministic server-side ScoringService (registry+fallback)   FULLY RESOLVED
+SCORE-002  Client score never trusted (fingerprint/tamper -> score 0)     FULLY RESOLVED
+AUTH-001   JWT auth + refresh/rotation + logout (refreshToken deletes)    FULLY RESOLVED
+AUTH-002   Service-to-service identity (ServiceIdentityGuard)             PARTIAL (legacy
+           legacy x-internal-api-key fallback unless ENFORCE='true'                api-key fallback)
+AUTH-003   Non-spoofable admin actor                                      PARTIAL (adminId/role
+           ServiceIdentityGuard + role re-verify, but id/role from body            from body)
+WALLET-001 Withdrawal disbursement/settlement (processWithdrawal)         NOT IMPLEMENTED
+           dormant; no live trigger; funds debited but never paid                  (no live caller)
+WALLET-002 Single money plane (all balance writes via ledger)            FULLY RESOLVED
+TOURN-001  Single authoritative orchestrator (advanceStage, idempotent)   FULLY RESOLVED
+TOURN-002  Elimination (weekly-bucket vs unified pool)                    FULLY RESOLVED
+TOURN-003  Reward eligibility resolution                                  FULLY RESOLVED
+           (NB: prize DISBURSEMENT/crediting not wired — see M2)
+NOTIF-001  Unified event bus (publish-once, outbox, retry, DLQ)           FULLY RESOLVED
+NOTIF-002  Subscribers reachable (in-app + webhook registered)            FULLY RESOLVED
+NOTIF-003  Delivery channels: in-app + FCM push live                      PARTIAL (email/SMS
+           email + SMS channels do not exist                                       not implemented)
+ADMIN-001  Single admin control plane entry (execute/dispatch)            FULLY RESOLVED
+ADMIN-002  RBAC (ROLE_PERMISSIONS enforced)                               FULLY RESOLVED
+ADMIN-003  Idempotency (Redis lock per requestId)                         FULLY RESOLVED
+ADMIN-004  Immutable audit trail (append-only Redis zset)                 FULLY RESOLVED
+ACHEAT-001 Detection in completion (analyzeGameResult, auto-enforce)      FULLY RESOLVED
+ACHEAT-002 Authoritative enforcement plane (single is_banned:true writer) PARTIAL (unban still
+                                                                                   legacy direct)
+ARCH-001   Single authoritative paths (no duplicate runtime in canonical) FULLY RESOLVED
+ARCH-002   No legacy/parallel writers (wallet/tournament/ban)             PARTIAL (legacy unban;
+                                                                                   dormant payout/prize)
+TEST-001   Testing                                                        OBSOLETE (excluded
+                                                                                   from this audit)
+INFRA-001  Infrastructure                                                 OBSOLETE (excluded)
+(extra) LEADERBOARD write path (updateScore) never invoked                NOT IMPLEMENTED (M3)
+
+
+--------------------------------------------------------------------------------
+12. RUNTIME WIRING VERIFICATION
+--------------------------------------------------------------------------------
+  - All 14 controllers are declared in modules imported (transitively) by
+    AppModule; none orphaned.
+  - All authoritative foundations have live callers EXCEPT the dormant payout/
+    prize/leaderboard-write methods (§4).
+  - @Global modules (Events, AntiCheat, Admin, Webhook, Prisma, Redis) correctly
+    expose their services; cross-module injection (e.g., EventBus into tournament/
+    enforcement; WebhookService into the webhook subscriber) compiles and resolves.
+  - All 4 cron schedulers are @Cron-decorated in providers registered with
+    ScheduleModule.forRoot() — live.
+  - Guards correctly applied: JwtAuthGuard (user APIs), ServiceIdentityGuard
+    (admin + anti-cheat), RazorpayWebhookGuard (razorpay webhook), plus geo/
+    compliance guards on wallet/tournament.
+
+
+--------------------------------------------------------------------------------
+13. MONEY FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  DEPOSIT ......... LIVE & complete. create-order(PENDING) -> verify/webhook ->
+                    ledger.settleDeposit (atomic claim, idempotent) -> WALLET_CREDITED.
+  ENTRY FEE ....... LIVE & complete. register -> deductEntryFee -> ledger.debitEntryFee.
+  REFERRAL ........ LIVE & complete. social -> creditReferralBonus -> ledger.post.
+  ADMIN ADJUST .... LIVE & complete. CREDIT_WALLET/REVERSE_PAYOUT -> ledger.post.
+  WITHDRAWAL REQ .. LIVE. confirm -> requestWithdrawal -> ledger.createPendingWithdrawal
+                    (debits balance, PENDING row).
+  WITHDRAWAL PAY .. ** INCOMPLETE (M1) ** processWithdrawal/createRazorpayXPayout/
+                    completeWithdrawal/failWithdrawal all dormant — no live trigger.
+  PRIZE PAYOUT .... ** INCOMPLETE (M2) ** creditPrize dormant; rewards resolved but
+                    not credited by any backend path.
+  INVARIANT ....... All balance mutations confined to WalletLedgerService (verified).
+                    Pre-existing TDS gross/net reconciliation nuance noted in code
+                    (reconciliation subtracts net payout) — not a wiring gap.
+
+
+--------------------------------------------------------------------------------
+14. TOURNAMENT FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  REGISTRATION .... LIVE (entry fee via ledger; weekly bucketing).
+  PLAY/SUBMIT ..... LIVE (server config; SessionCompletion; stageEntry score update).
+  PROGRESSION ..... LIVE (admin ADVANCE_STAGE -> orchestrator -> elimination ->
+                    next stage open / season complete; TOURNAMENT_PROGRESSED/COMPLETED).
+  ELIMINATION ..... LIVE (per-bucket vs unified pool; transactional).
+  REWARD ELIG ..... LIVE (RESOLVE_REWARDS -> resolveRewardEligibility -> REWARD_ELIGIBLE).
+  REWARD PAYOUT ... ** INCOMPLETE (M2) ** no crediting path.
+  LEADERBOARD ..... ** INCOMPLETE (M3) ** tournament scores never update a global
+                    leaderboard; updateScore dormant.
+  No cron auto-advance (by design; admin-triggered). No legacy/parallel progression.
+
+
+--------------------------------------------------------------------------------
+15. ANTICHEAT FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  DETECTION ....... LIVE. SessionCompletion -> analyzeGameResult (flags; best-effort).
+  AUTO-ENFORCE .... LIVE. ≥critical -> EnforcementService.enforce (single $tx;
+                    is_banned=true; leaderboard.removeScore; conditional
+                    webhook.emitEnforcementReversal; ANTI_CHEAT_ENFORCED event).
+  ADMIN ENFORCE ... LIVE. ENFORCE_ANTI_CHEAT / MARK_FOR_REVIEW via control plane.
+  SERVICE APIs .... LIVE. /anti-cheat/* under ServiceIdentityGuard.
+  BAN WRITER ...... Single authoritative is_banned:true writer (EnforcementService).
+  UNBAN ........... LEGACY direct is_banned:false write (unbanUser) — not authoritative (§5).
+
+
+--------------------------------------------------------------------------------
+16. EVENT FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  PRODUCERS ....... 11/11 PlatformEventType values have a live producer:
+                    GAME_COMPLETED, VERIFICATION_PASSED/FAILED (session completion);
+                    TOURNAMENT_PROGRESSED/COMPLETED, REWARD_ELIGIBLE (orchestrator);
+                    WALLET_CREDITED (deposit + admin), PAYOUT_SETTLED/REVERSED
+                    (payment gateway — NB published from the dormant processWithdrawal,
+                    so PAYOUT_SETTLED/REVERSED are only reachable if M1 is wired);
+                    ANTI_CHEAT_ENFORCED, ACCOUNT_REVIEWED (enforcement).
+  PUBLISH ......... Idempotent (Redis setnx on deterministic event id, 7-day).
+  OUTBOX/RETRY/DLQ  Live drain @10s, exp backoff, 8-attempt cap, dead-letter set.
+  SUBSCRIBERS ..... in-app (NotificationService + FCM push) and webhook
+                    (emitPlatformEvent -> signed outbox -> Base Platform). Both
+                    registered in DI_EVENT_SUBSCRIBERS and reachable.
+  CAVEAT .......... TOURNAMENT_PROGRESSED/COMPLETED carry no userId, so the in-app
+                    subscriber no-ops for them (webhook-delivered only).
+                    PAYOUT_SETTLED/PAYOUT_REVERSED depend on M1 to ever fire.
+
+
+--------------------------------------------------------------------------------
+17. REMAINING BACKEND WORK
+--------------------------------------------------------------------------------
+  1. (M1) Wire a live trigger for withdrawal disbursement: invoke
+     PaymentGatewayService.processWithdrawal() for PENDING withdrawals (admin
+     action, queue, or cron), enabling completeWithdrawal/failWithdrawal and
+     PAYOUT_SETTLED/PAYOUT_REVERSED.
+  2. (M2) Wire tournament prize crediting: connect reward resolution to
+     WalletService.creditPrize()/ledger.post(TOURNAMENT_PAYOUT), or formally
+     delegate to the Base Platform and remove the dormant method.
+  3. (M3) Wire leaderboard score writes: call LeaderboardService.updateScore()
+     from the completion path (or define the external ingestion contract), so the
+     global leaderboard reflects tournament/standard sessions.
+  4. (M4) Add an authoritative un-enforce path (replace legacy direct unbanUser).
+  5. (Hardening, optional for "implementation complete") Enforce ServiceIdentity
+     (remove api-key fallback) and derive admin adminId/role from the verified
+     identity rather than the request body.
+  6. (Decide) Email/SMS notification channels — implement only if required.
+  7. (Cleanup) Remove the out-of-scope divergent duplicate backend tree.
+
+
+--------------------------------------------------------------------------------
+18. IS BACKEND IMPLEMENTATION COMPLETE?
+--------------------------------------------------------------------------------
+ANSWER: NO.
+
+At least one live runtime path is incomplete, so per the audit rule the answer is
+NO. Remaining backend implementation items (code-verified):
+
+  [CRITICAL] M1 — Withdrawal disbursement & settlement is dormant. Balance is
+             debited on request but no live path executes the payout
+             (processWithdrawal), settlement (completeWithdrawal), or reversal
+             (failWithdrawal). Withdrawals cannot actually complete in-backend.
+  [CRITICAL] M2 — Tournament prize crediting is dormant (creditPrize never
+             called). Winners are resolved but never credited by any backend path.
+  [MAJOR]    M3 — Leaderboard real-time write is dormant (updateScore never
+             called). Tournament/standard game scores never update a global
+             leaderboard; only free-play feeds the DB fallback.
+  [MINOR]    M4 — Unban is a legacy direct is_banned write with no authoritative
+             enforcement-reversal counterpart.
+  [HARDENING/OPTIONAL] ServiceIdentity api-key fallback + admin identity sourced
+             from request body; email/SMS channels absent; WebSocket transport
+             absent (only if the product requires real-time).
+
+Everything else — game completion, verification, scoring, deposits, entry fees,
+referrals, admin adjustments, tournament progression/elimination/eligibility,
+anti-cheat detection+enforcement, admin control plane (RBAC/idempotency/audit),
+event bus (producers + subscribers + retry + DLQ), notifications (in-app + push),
+outbound webhooks, and the wallet crons — is implemented and live.
+
+Once M1–M3 (and ideally M4 + the hardening items) are wired, the backend
+implementation would be complete, leaving only testing, frontend, infrastructure,
+operations, deployment, and production readiness.
+
+================================================================================
+END OF REPORT — FINAL_BACKEND_IMPLEMENTATION_STATUS
+================================================================================

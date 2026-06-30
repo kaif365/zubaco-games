@@ -42,7 +42,22 @@ export class WebhookService {
     await this.enqueue('enforcement.reversal', data);
   }
 
-  private async enqueue(type: WebhookEventType, data: unknown): Promise<void> {
+  /**
+   * Forward an authoritative platform event to the Base Platform. Additive and
+   * config-gated (no-op when BASE_PLATFORM_WEBHOOK_URL is unset); reuses the
+   * durable signed outbox (retry + DLQ). The envelope id is the platform event
+   * id, so redelivery is idempotent (the Base Platform dedupes on it).
+   */
+  async emitPlatformEvent(
+    eventType: string,
+    data: unknown,
+    userId: string | undefined,
+    eventId: string,
+  ): Promise<void> {
+    await this.enqueue('platform.event', { event_type: eventType, user_id: userId ?? null, data }, eventId);
+  }
+
+  private async enqueue(type: WebhookEventType, data: unknown, id?: string): Promise<void> {
     if (!config.webhook.basePlatformUrl) {
       // No destination configured (e.g. local dev). Skip silently.
       this.logger.debug(`Webhook ${type} not emitted: BASE_PLATFORM_WEBHOOK_URL unset`);
@@ -50,7 +65,7 @@ export class WebhookService {
     }
 
     const envelope: WebhookEnvelope = {
-      id: randomUUID(),
+      id: id ?? randomUUID(),
       type,
       timestamp: new Date().toISOString(),
       data,

@@ -1,0 +1,332 @@
+================================================================================
+IMPLEMENTATION SUMMARY — BACKEND_COMPLETION_004
+AUTHORITATIVE UNBAN / ENFORCEMENT REVERSAL (resolves M4)
+ZUBACO PLATFORM
+================================================================================
+Mode ................ IMPLEMENTATION (code modified; additive + minimal wiring)
+Canonical root ...... c:\zubaco-games\zubaco-platform\src
+Build ............... GREEN (prisma generate OK; nest build BUILD_EXIT=0)
+Breaking changes .... NONE (no API route/DB schema change; one additive event)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Resolve backend implementation item M4: the enforcement architecture is
+authoritative (EnforcementService.enforce() is the single, transactional,
+audited, idempotent ban plane), but the un-ban / enforcement-reversal path still
+performed a legacy direct Prisma is_banned mutation (AntiCheatService.unbanUser).
+Replace it with an authoritative enforcement-reversal runtime, reusing the
+existing enforcement infrastructure — no redesign.
+
+
+--------------------------------------------------------------------------------
+2. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+A new authoritative reversal entry point was added to the existing enforcement
+plane and the only runtime unban path was rewired through it:
+
+  Admin -> POST /anti-cheat/users/:id/unban   (ServiceIdentityGuard)
+    -> AntiCheatService.unbanUser(userId, actor)
+         -> EnforcementService.reverse({ userId, reason, reversedBy })   (NEW)
+              Redis concurrency lock (idempotent)
+              Prisma $transaction: clear is_banned + ban_reason  (authoritative)
+              post-commit ACCOUNT_RESTORED event (audit, deduped)
+         -> return restored user (existing API contract preserved)
+
+reverse() mirrors enforce() exactly: one transaction, a Redis idempotency lock,
+and a deterministic post-commit platform event. The legacy direct is_banned write
+in unbanUser was removed; the only is_banned writes that now exist in the
+canonical tree both live inside EnforcementService (enforce sets it, reverse
+clears it). ServiceIdentity is now also threaded into the unban endpoint (the
+actor is recorded as reversedBy), matching the existing ban endpoint.
+
+Result: no live runtime performs a direct is_banned unban write; every unban
+flows through the authoritative enforcement layer; audit, ServiceIdentity, and
+idempotency are preserved; event publication is added. M4 = RESOLVED (see §19).
+
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+  - src/anti-cheat/enforcement/enforcement.service.ts
+      Added the authoritative reverse(req: ReversalRequest) method (Redis lock +
+      transactional is_banned/ban_reason clear + post-commit ACCOUNT_RESTORED
+      event). Imports extended with ReversalRequest/ReversalResult. enforce() is
+      unchanged.
+
+  - src/anti-cheat/enforcement/enforcement.types.ts
+      Added ReversalRequest and ReversalResult interfaces (additive).
+
+  - src/anti-cheat/anti-cheat.service.ts
+      unbanUser() no longer performs a direct Prisma is_banned write. It now calls
+      EnforcementService.reverse() and returns the resulting user for the existing
+      API contract (mirrors banUser()). Added optional reversedBy actor param.
+
+  - src/anti-cheat/anti-cheat.controller.ts
+      The unban endpoint now captures the authenticated actor from
+      req.serviceIdentity (set by ServiceIdentityGuard) and passes it to
+      unbanUser(), consistent with the ban endpoint. Route and body unchanged.
+
+  - src/events/event.types.ts
+      Added PlatformEventType.ACCOUNT_RESTORED (additive). Existing subscribers
+      handle it safely (in-app maps only specific types -> no notification;
+      webhook forwards generically, config-gated).
+
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+  None. The authoritative reversal lives on the existing EnforcementService
+  (no new service — no redesign).
+
+
+--------------------------------------------------------------------------------
+5. FILES REMOVED
+--------------------------------------------------------------------------------
+  None.
+
+
+--------------------------------------------------------------------------------
+6. UNBAN FLOW — BEFORE
+--------------------------------------------------------------------------------
+  Admin -> POST /anti-cheat/users/:id/unban   (ServiceIdentityGuard)
+    -> AntiCheatService.unbanUser(userId)
+         -> prisma.user.update({ is_banned: false, ban_reason: null })
+            ** LEGACY DIRECT MUTATION **
+  No transaction boundary beyond the single row, no enforcement-plane audit
+  event, no recorded actor, no idempotency guard. This was the single remaining
+  direct is_banned write.
+
+
+--------------------------------------------------------------------------------
+7. UNBAN FLOW — AFTER
+--------------------------------------------------------------------------------
+  Admin -> POST /anti-cheat/users/:id/unban   (ServiceIdentityGuard)
+    -> capture actor = req.serviceIdentity
+    -> AntiCheatService.unbanUser(userId, actor)
+         -> EnforcementService.reverse({ userId, reason: 'Admin unban',
+                                         reversedBy: actor })
+              SETNX acheat:reverse:<userId>            (concurrency/idempotency)
+              prisma.$transaction:
+                read current is_banned
+                update is_banned=false, ban_reason=null  (authoritative)
+              if was banned -> publish ACCOUNT_RESTORED  (audit, deduped id)
+              release lock (DB transition is naturally idempotent)
+         -> return prisma.user.findUnique(...)          (unchanged API contract)
+
+
+--------------------------------------------------------------------------------
+8. RUNTIME TRIGGER ADDED
+--------------------------------------------------------------------------------
+  Trigger: EnforcementService.reverse(), invoked by AntiCheatService.unbanUser,
+  which is the single live runtime unban caller (the ServiceIdentityGuard-gated
+  POST /anti-cheat/users/:userId/unban endpoint).
+  Trace of unban flows in the canonical tree:
+    - Manual admin unban .......... POST /anti-cheat/users/:id/unban -> wired.
+    - Appeal approval / account restoration / review completion / emergency unban
+      .......... no separate runtime exists; all would call the same
+      AntiCheatService.unbanUser adapter, which is now authoritative.
+  No new endpoint, route, cron, or controller was added.
+
+
+--------------------------------------------------------------------------------
+9. ENFORCEMENT REVERSAL
+--------------------------------------------------------------------------------
+  reverse() is the symmetric counterpart to enforce(), reusing the same engine
+  and patterns (no redesign):
+    - Single authoritative plane: the only code that clears is_banned.
+    - Transactional: the is_banned/ban_reason clear runs inside one Prisma
+      $transaction (all-or-nothing), reading prior state to detect a real
+      transition.
+    - Post-commit external effect: the ACCOUNT_RESTORED event is emitted only
+      after the transaction commits, exactly as enforce() emits its events.
+    - Minimal: only the un-ban semantics were added; enforce() and all penalty
+      logic are untouched.
+
+
+--------------------------------------------------------------------------------
+10. AUDIT TRAIL
+--------------------------------------------------------------------------------
+  - Authoritative audit signal: the post-commit ACCOUNT_RESTORED platform event
+    carries { user_id, reason, reversed_by }, where reversed_by is the
+    ServiceIdentity actor. This is the same audit mechanism enforce() uses
+    (ANTI_CHEAT_ENFORCED / ACCOUNT_REVIEWED events), routed through the durable
+    event bus + signed webhook outbox to the Base Platform.
+  - Actor capture: the unban endpoint now records the authenticated calling
+    service (req.serviceIdentity) instead of an anonymous mutation, closing the
+    previous "no recorded actor" gap.
+  - No schema change was required to add this audit (event-based, consistent with
+    the enforcement plane).
+
+
+--------------------------------------------------------------------------------
+11. EVENT FLOW
+--------------------------------------------------------------------------------
+  - New event: ACCOUNT_RESTORED (account.restored), published once per real
+    banned -> not-banned transition, with userId and { user_id, reason,
+    reversed_by }. Deterministic id account.restored:<userId> (bus dedup).
+  - Consumption (existing subscribers, unchanged):
+      * InAppEventSubscriber ignores it (not in its title map) -> NO notification
+        (Notifications untouched, per scope).
+      * WebhookEventSubscriber forwards it generically to the Base Platform via
+        the existing signed, config-gated, deduped outbox (no-op when no URL).
+  - enforce()'s ANTI_CHEAT_ENFORCED / ACCOUNT_REVIEWED events are unchanged.
+
+
+--------------------------------------------------------------------------------
+12. IDEMPOTENCY VERIFICATION
+--------------------------------------------------------------------------------
+  Layer 1 — Concurrency lock: SETNX acheat:reverse:<userId> rejects a concurrent
+            in-flight reversal for the same user (returns alreadyReversed),
+            mirroring enforce()'s acheat:enforce lock.
+  Layer 2 — Naturally-idempotent transition: clearing an already-clear ban is a
+            DB no-op; the event is published only on a genuine banned->not-banned
+            transition, so a repeat unban neither errors nor double-audits.
+  Layer 3 — Event dedup: ACCOUNT_RESTORED uses a deterministic id, so retries of
+            the same reversal never duplicate the audit/webhook fan-out (same
+            model as enforce()).
+  Note:     the lock is released post-operation (finally) — unlike enforce()'s
+            24h hold — specifically so a legitimate later re-ban/un-ban cycle is
+            never permanently blocked; idempotency is still fully preserved by
+            layers 2 and 3.
+
+
+--------------------------------------------------------------------------------
+13. DATABASE CHANGES
+--------------------------------------------------------------------------------
+  None. No schema change, no migration. The same User.is_banned / User.ban_reason
+  columns are written, now exclusively from inside EnforcementService and within
+  a transaction. (DB is a dummy/unmigrated instance in this environment,
+  consistent with prior phases; prisma generate + nest build are green.)
+
+
+--------------------------------------------------------------------------------
+14. API CHANGES
+--------------------------------------------------------------------------------
+  None. POST /anti-cheat/users/:userId/unban keeps the same route, request body
+  and response shape (the restored user). Actor capture is server-side from the
+  ServiceIdentity context, not a new client field.
+
+
+--------------------------------------------------------------------------------
+15. SECURITY IMPACT
+--------------------------------------------------------------------------------
+  - The unban endpoint remains behind ServiceIdentityGuard, and the actor is now
+    recorded (reversed_by) rather than anonymous — improved accountability.
+  - The single-enforcement-plane invariant is restored: both ban and un-ban are
+    written only by EnforcementService, eliminating an ungoverned direct mutation
+    that bypassed the enforcement engine.
+  - Reversal is transactional and idempotent, preventing partial/duplicate state.
+  - No new external surface; no secrets logged.
+
+
+--------------------------------------------------------------------------------
+16. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+  - Per unban (a rare admin operation): one SETNX, one EXPIRE, one short
+    transaction (1 read + 1 update), one conditional event publish, one DEL.
+    All O(1); negligible overhead versus the previous single update.
+  - No change to any hot path (gameplay, leaderboard, wallet, tournament).
+
+
+--------------------------------------------------------------------------------
+17. BUILD RESULT
+--------------------------------------------------------------------------------
+  Command:
+    $env:NODE_EXTRA_CA_CERTS="C:\TEMP\cisco-umbrella-ca.crt";
+    npx prisma generate ; npm run build
+  Output:
+    - Prisma Client v7.8.0 generated successfully.
+    - nest build completed; BUILD_EXIT=0.
+  Static analysis: no TypeScript/lint errors in new or modified files.
+  STATUS: GREEN.
+
+
+--------------------------------------------------------------------------------
+18. TESTS EXECUTED
+--------------------------------------------------------------------------------
+  None executed (testing is out of scope for this phase, and the environment uses
+  a dummy/unmigrated DB so the endpoint cannot be exercised end-to-end here).
+  Verification performed by:
+    - tracing every unban flow in the canonical tree (single endpoint ->
+      AntiCheatService.unbanUser -> EnforcementService.reverse),
+    - confirming the canonical tree's only is_banned writes now both live inside
+      EnforcementService (enforce sets; reverse clears),
+    - guard/idempotency review (Redis lock + transition-gated event + dedup id),
+    - static type/compile checks (no errors) and green prisma generate + build.
+  NOTE: a nested duplicate working copy exists at
+  c:\zubaco-games\zubaco-games\zubaco-platform (and zubaco-games-repo) outside the
+  build root; it was intentionally NOT modified (not the canonical/built tree).
+  Recommended runtime tests are in §21.
+
+
+--------------------------------------------------------------------------------
+19. M4 STATUS
+--------------------------------------------------------------------------------
+  M4 — AUTHORITATIVE UNBAN / ENFORCEMENT REVERSAL: FULLY RESOLVED.
+
+  Acceptance checklist:
+    [x] No live runtime performs direct is_banned writes for unban (the legacy
+        prisma.user.update in unbanUser was removed; clearing is_banned now
+        happens only inside EnforcementService.reverse).
+    [x] Every unban flows through the authoritative enforcement layer
+        (endpoint -> unbanUser -> EnforcementService.reverse).
+    [x] Audit trail preserved/added (post-commit ACCOUNT_RESTORED event with the
+        ServiceIdentity actor, via the enforcement event/webhook plane).
+    [x] RBAC preserved (endpoint remains under ServiceIdentityGuard; no new
+        privilege path introduced).
+    [x] ServiceIdentity preserved (actor captured from req.serviceIdentity and
+        recorded as reversed_by, matching the ban endpoint).
+    [x] Event publication preserved/added (ACCOUNT_RESTORED, deduped id).
+    [x] Idempotency preserved (Redis concurrency lock + naturally-idempotent
+        transition + deterministic event id).
+
+
+--------------------------------------------------------------------------------
+20. REMAINING BACKEND ITEMS
+--------------------------------------------------------------------------------
+  Core runtime gaps M1–M4 are now all resolved (withdrawal disbursement, prize
+  crediting, leaderboard runtime, authoritative unban).
+  - Optional hardening (not gaps): enforce ServiceIdentity everywhere (remove any
+    api-key fallback); derive admin actor strictly from verified identity;
+    deterministic RazorpayX payout idempotency key (M1 crash-window edge).
+  - Housekeeping (non-runtime): a nested duplicate working copy exists under
+    c:\zubaco-games\zubaco-games and zubaco-games-repo; consider consolidating to
+    avoid drift (outside the build root; not touched here).
+
+
+--------------------------------------------------------------------------------
+21. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+  BACKEND_HARDENING_001 — ServiceIdentity & actor hardening across admin/anti-
+  cheat surfaces, plus a deterministic external-payout idempotency key. No core
+  runtime gaps remain.
+  Suggested runtime tests for M4 once a real DB is available:
+    - happy path: banned user -> unban -> is_banned=false, ban_reason=null, one
+      ACCOUNT_RESTORED event with reversed_by = actor;
+    - idempotency: repeat unban of an already-unbanned user -> no error, no second
+      event; two concurrent unbans -> one applies, the other returns
+      alreadyReversed;
+    - re-ban then unban -> reversal succeeds again (lock not permanently held);
+    - audit: ACCOUNT_RESTORED forwarded to the Base Platform webhook when
+      configured;
+    - no-direct-write: grep confirms no is_banned mutation outside
+      EnforcementService.
+
+
+--------------------------------------------------------------------------------
+22. FINAL STATUS
+--------------------------------------------------------------------------------
+  M4 FULLY RESOLVED. Un-ban is now an authoritative, transactional, idempotent,
+  audited enforcement-reversal runtime (EnforcementService.reverse), invoked by
+  the single ServiceIdentity-gated unban endpoint and emitting a deduped
+  ACCOUNT_RESTORED event. The legacy direct is_banned mutation is gone; both ban
+  and un-ban are written only by the enforcement plane. Build is GREEN. No
+  API/DB/breaking changes and no enforcement redesign (one additive event +
+  minimal wiring). With M1–M4 complete, only optional hardening remains.
+
+================================================================================
+END OF REPORT — IMPLEMENTATION_SUMMARY_BACKEND_COMPLETION_004
+================================================================================

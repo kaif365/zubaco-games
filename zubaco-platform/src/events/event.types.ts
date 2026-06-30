@@ -19,6 +19,8 @@ export enum PlatformEventType {
   PAYOUT_REVERSED = 'payout.reversed',
   ANTI_CHEAT_ENFORCED = 'anticheat.enforced',
   ACCOUNT_REVIEWED = 'account.reviewed',
+  ACCOUNT_RESTORED = 'account.restored',
+  LEADERBOARD_UPDATED = 'leaderboard.updated',
 }
 
 /** Current schema version for every published event payload. */

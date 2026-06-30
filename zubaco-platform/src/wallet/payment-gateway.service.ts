@@ -1,5 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { WalletLedgerService } from './ledger/ledger.service';
+import { EventBusService } from '../events/event-bus.service';
+import { PlatformEventType } from '../events/event.types';
 import * as crypto from 'crypto';
 
 interface RazorpayOrder {
@@ -15,7 +18,11 @@ export class PaymentGatewayService {
   private readonly keySecret: string;
   private readonly webhookSecret: string;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: WalletLedgerService,
+    private readonly events: EventBusService,
+  ) {
     this.keyId = process.env.RAZORPAY_KEY_ID || '';
     this.keySecret = process.env.RAZORPAY_KEY_SECRET || '';
     this.webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
@@ -128,42 +135,33 @@ export class PaymentGatewayService {
 
   // ─── ATOMIC CREDIT (prevents double-credit race) ──────────────
 
+  /**
+   * Deposit settlement is delegated to the authoritative wallet ledger
+   * (`settleDeposit`), which atomically claims the PENDING DEPOSIT row
+   * (PENDING -> COMPLETED, single writer) and credits the cash bucket with a full
+   * audit trail. The claim is the idempotency guard, so a webhook + verify race
+   * cannot double-credit. WALLET_CREDITED is published once, only on the winning
+   * claim, keyed deterministically so duplicate publishes are suppressed.
+   */
   private async creditDepositAtomically(orderId: string, paymentId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      // Atomically claim: only update if still PENDING (single writer wins)
-      const updated = await tx.transaction.updateMany({
-        where: { reference_id: orderId, status: 'PENDING', type: 'DEPOSIT' },
-        data: { status: 'COMPLETED' },
-      });
-
-      if (updated.count === 0) {
-        // Already processed (by webhook or verify), not an error
-        return { success: true, already_processed: true };
-      }
-
-      const transaction = await tx.transaction.findFirst({
-        where: { reference_id: orderId, type: 'DEPOSIT' },
-      });
-
-      if (!transaction) {
-        throw new BadRequestException('Transaction not found');
-      }
-
-      // Credit wallet atomically
-      await tx.wallet.upsert({
-        where: { user_id: transaction.user_id },
-        create: { user_id: transaction.user_id, balance: transaction.amount },
-        update: { balance: { increment: transaction.amount } },
-      });
-
-      // Update metadata with payment ID
-      await tx.transaction.update({
-        where: { id: transaction.id },
-        data: { metadata: { ...(transaction.metadata as any), razorpay_payment_id: paymentId } },
-      });
-
-      return { success: true, amount: Number(transaction.amount) };
-    });
+    const result = await this.ledger.settleDeposit(orderId, paymentId);
+    if (!result.applied) {
+      // Already settled by the other of {verify, webhook}, or cancelled — not an error.
+      return { success: true, already_processed: true };
+    }
+    await this.events.publish(
+      PlatformEventType.WALLET_CREDITED,
+      {
+        amount: result.amount,
+        source: 'deposit',
+        reference_id: orderId,
+        transaction_id: result.transactionId,
+        balance_after: result.balanceAfter,
+      },
+      result.userId,
+      `wallet.credited:deposit:${orderId}`,
+    );
+    return { success: true, amount: result.amount };
   }
 
   // ─── PAYOUT via RazorpayX ──────────────────────────────────────
@@ -187,44 +185,44 @@ export class PaymentGatewayService {
       throw new BadRequestException('No verified bank detail found');
     }
 
+    // Razorpay flow is unchanged. The payout itself is the only step that can
+    // fail; isolate it so a failure (and only a failure) triggers the ledger
+    // reversal/refund.
+    let payoutResult: { id: string; status: string };
     try {
-      const payoutResult = await this.createRazorpayXPayout(
+      payoutResult = await this.createRazorpayXPayout(
         transaction.user_id,
         Number(transaction.amount),
         bankDetail,
       );
-
-      await this.prisma.transaction.update({
-        where: { id: transactionId },
-        data: {
-          status: 'COMPLETED',
-          metadata: {
-            ...(transaction.metadata as any),
-            payout_id: payoutResult.id,
-            payout_status: payoutResult.status,
-          },
-        },
-      });
-
-      return { success: true, payout_id: payoutResult.id };
     } catch (error: any) {
-      // Mark as failed but don't lose the transaction
-      await this.prisma.transaction.update({
-        where: { id: transactionId },
-        data: {
-          status: 'FAILED',
-          metadata: { ...(transaction.metadata as any), error: error.message },
-        },
-      });
-
-      // Refund wallet balance
-      await this.prisma.wallet.update({
-        where: { user_id: transaction.user_id },
-        data: { balance: { increment: transaction.amount } },
-      });
-
+      const reversed = await this.ledger.failWithdrawal(transactionId, error.message);
+      if (reversed.applied) {
+        await this.events.publish(
+          PlatformEventType.PAYOUT_REVERSED,
+          { transaction_id: transactionId, amount: Number(transaction.amount), error: error.message },
+          transaction.user_id,
+          `payout.reversed:${transactionId}`,
+        );
+      }
       throw new BadRequestException(`Payout failed: ${error.message}`);
     }
+
+    // Authoritative settlement (PENDING -> COMPLETED, no balance movement).
+    const settled = await this.ledger.completeWithdrawal(transactionId, {
+      payoutId: payoutResult.id,
+      payoutStatus: payoutResult.status,
+    });
+    if (settled.applied) {
+      await this.events.publish(
+        PlatformEventType.PAYOUT_SETTLED,
+        { transaction_id: transactionId, payout_id: payoutResult.id, amount: Number(transaction.amount) },
+        transaction.user_id,
+        `payout.settled:${transactionId}`,
+      );
+    }
+
+    return { success: true, payout_id: payoutResult.id };
   }
 
   /**

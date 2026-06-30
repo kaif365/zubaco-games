@@ -1,0 +1,332 @@
+================================================================================
+IMPLEMENTATION SUMMARY — BACKEND_COMPLETION_001
+WITHDRAWAL DISBURSEMENT + SETTLEMENT (resolves M1)
+ZUBACO PLATFORM
+================================================================================
+Mode ................ IMPLEMENTATION (code modified; additive only)
+Canonical root ...... c:\zubaco-games\zubaco-platform\src
+Build ............... GREEN (prisma generate OK; nest build BUILD_EXIT=0)
+Breaking changes .... NONE (no API, DB schema, or signature changes)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Resolve backend implementation item M1: complete the authoritative withdrawal
+lifecycle. Before this change the backend debited the wallet and created a
+PENDING WITHDRAWAL row, but NO live runtime path executed the RazorpayX payout or
+the settlement/reversal. Wire the existing (dormant) payout/settlement methods
+into a single live runtime without redesigning the payment architecture or
+introducing duplicate payout/settlement/reversal.
+
+
+--------------------------------------------------------------------------------
+2. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+The dormant payout chain was already fully self-contained:
+
+  processWithdrawal(txId)
+    -> createRazorpayXPayout(...)            (RazorpayX disbursement)
+    -> on success: ledger.completeWithdrawal -> PAYOUT_SETTLED
+    -> on failure: ledger.failWithdrawal    -> PAYOUT_REVERSED (refund)
+
+The ONLY missing piece was a live caller of processWithdrawal(). A single,
+minimal authoritative runtime was added: a cron-based disbursement worker
+(WithdrawalDisbursementService) that scans PENDING WITHDRAWAL rows and invokes
+processWithdrawal() under a per-transaction Redis lock. No payment logic, ledger
+logic, API, or schema was changed — the change is purely additive (one new
+provider + its module registration).
+
+Result: processWithdrawal() now has a LIVE runtime caller; completeWithdrawal()
+and failWithdrawal() are reachable; payout settlement is no longer dormant;
+retries remain idempotent. M1 = RESOLVED (see §20).
+
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+  - src/wallet/wallet.module.ts
+      Registered WithdrawalDisbursementService as a provider (import + providers
+      array). No exports added (worker is internal to the module). No other
+      change.
+
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+  - src/wallet/withdrawal-disbursement.service.ts
+      WithdrawalDisbursementService — the live disbursement runtime:
+        * @Cron(EVERY_MINUTE) disbursePendingWithdrawals()
+        * run-level Redis lock (no overlapping batches)
+        * per-transaction Redis lock (no duplicate payout execution)
+        * delegates each PENDING row to PaymentGatewayService.processWithdrawal()
+
+
+--------------------------------------------------------------------------------
+5. FILES REMOVED
+--------------------------------------------------------------------------------
+  None.
+
+
+--------------------------------------------------------------------------------
+6. WITHDRAWAL FLOW — BEFORE
+--------------------------------------------------------------------------------
+  POST /wallet/withdraw          -> initiateWithdrawal (OTP + Redis intent)
+  POST /wallet/withdraw/confirm  -> confirmWithdrawal
+        -> requestWithdrawal
+           -> WalletLedger.createPendingWithdrawal
+              -> wallet debited, PENDING WITHDRAWAL row created
+                 ** RUNTIME ENDS HERE **
+
+  Dormant (no live caller):
+     processWithdrawal(), createRazorpayXPayout(),
+     completeWithdrawal(), failWithdrawal()
+  Net effect: funds debited, never paid out, never settled, never reversed.
+
+
+--------------------------------------------------------------------------------
+7. WITHDRAWAL FLOW — AFTER
+--------------------------------------------------------------------------------
+  POST /wallet/withdraw/confirm -> confirmWithdrawal -> requestWithdrawal
+        -> WalletLedger.createPendingWithdrawal  (wallet debited, PENDING row)
+
+  [NEW LIVE RUNTIME — every minute]
+  WithdrawalDisbursementService.disbursePendingWithdrawals()
+        -> find PENDING WITHDRAWAL rows (age > 5s, oldest first, batch 20)
+        -> per-row: acquire Redis lock withdrawal:disburse:lock:<txId>
+              -> PaymentGatewayService.processWithdrawal(txId)
+                    -> createRazorpayXPayout(...)
+                    -> SUCCESS: ledger.completeWithdrawal (PENDING->COMPLETED)
+                                 -> publish PAYOUT_SETTLED
+                    -> FAILURE: ledger.failWithdrawal (PENDING->FAILED + refund)
+                                 -> publish PAYOUT_REVERSED
+              -> release lock
+  Row leaves PENDING on success/failure, so it is never re-picked.
+
+
+--------------------------------------------------------------------------------
+8. RUNTIME TRIGGER ADDED
+--------------------------------------------------------------------------------
+  Type ............ Scheduler (NestJS @Cron), mirroring existing wallet-cleanup
+                    and event/webhook outbox-drain patterns already in the codebase.
+  Schedule ........ CronExpression.EVERY_MINUTE.
+  Why a worker .... A retrying worker (not an inline call in the HTTP request
+                    path) is the minimal authoritative runtime: it keeps payout
+                    latency/timeouts off the user request, and naturally retries
+                    PENDING rows blocked by transient conditions, while the
+                    per-transaction lock guarantees no duplicate payout. No new
+                    queue/admin endpoint was introduced (none required).
+  Selection ....... type=WITHDRAWAL, status=PENDING, created_at < now-5s,
+                    order by created_at asc, take 20.
+
+
+--------------------------------------------------------------------------------
+9. SETTLEMENT FLOW (success)
+--------------------------------------------------------------------------------
+  createRazorpayXPayout succeeds (payout id + status)
+    -> WalletLedgerService.completeWithdrawal(txId, {payoutId, payoutStatus})
+         -> $transaction: updateMany WHERE status=PENDING,type=WITHDRAWAL
+            SET status=COMPLETED  (claim.count===0 => already settled => no-op)
+         -> metadata stamped with payout id/status + _settlement audit
+         -> NO balance movement (debit already happened at PENDING creation)
+    -> EventBus.publish PAYOUT_SETTLED  (key: payout.settled:<txId>, dedup'd)
+
+
+--------------------------------------------------------------------------------
+10. FAILURE FLOW (reversal)
+--------------------------------------------------------------------------------
+  createRazorpayXPayout throws
+    -> WalletLedgerService.failWithdrawal(txId, error.message)
+         -> $transaction: updateMany WHERE status=PENDING,type=WITHDRAWAL
+            SET status=FAILED  (claim.count===0 => already reversed => no-op)
+         -> row-locked wallet refund: balance += net payout (mirrors legacy refund)
+         -> metadata stamped with error + _reversal audit
+    -> EventBus.publish PAYOUT_REVERSED  (key: payout.reversed:<txId>, dedup'd)
+    -> processWithdrawal rethrows BadRequestException; the worker catches it and
+       logs (already refunded). The row is now FAILED and is not re-picked.
+
+  Pre-payout guard failure (e.g. no verified primary bank detail) throws BEFORE
+  any payout and does NOT reverse — the row stays PENDING and is retried on a
+  later tick once the user's bank detail is available. No money is debited again
+  (the debit already happened once at PENDING creation).
+
+
+--------------------------------------------------------------------------------
+11. IDEMPOTENCY VERIFICATION
+--------------------------------------------------------------------------------
+  Layer 1 — Run lock: withdrawal:disburse:run (setnx + 55s TTL) prevents two
+            overlapping cron ticks from draining the same batch concurrently.
+  Layer 2 — Per-transaction lock: withdrawal:disburse:lock:<txId> (setnx + 300s
+            TTL) ensures only one in-flight payout execution per withdrawal. This
+            is the authoritative guard against DUPLICATE PAYOUT EXECUTION.
+  Layer 3 — Ledger claim: completeWithdrawal / failWithdrawal flip PENDING ->
+            COMPLETED / FAILED via updateMany WHERE status=PENDING. A second
+            attempt finds claim.count===0 and is a no-op, so SETTLEMENT and
+            REVERSAL each apply at most once.
+  Layer 4 — State exit: a settled (COMPLETED) or reversed (FAILED) row no longer
+            matches the PENDING selection, so it is never re-picked.
+  Events:   PAYOUT_SETTLED / PAYOUT_REVERSED are published with deterministic
+            keys (payout.settled:<txId> / payout.reversed:<txId>); the event bus
+            de-duplicates by id, so even a re-publish cannot double-emit.
+
+  Residual edge (pre-existing, NOT introduced by this change; left intact per
+  "do not redesign payment architecture"): if the process crashes AFTER RazorpayX
+  confirms the payout but BEFORE completeWithdrawal commits, the row remains
+  PENDING and a later tick would re-attempt the payout. The RazorpayX call uses a
+  non-deterministic reference_id, so this narrow crash-window is not de-duplicated
+  at the gateway. This is an inherent property of the existing processWithdrawal
+  design and is out of scope for the minimal M1 wiring; it is documented here for
+  honesty and flagged as a candidate hardening (deterministic payout idempotency
+  key) for a future phase.
+
+
+--------------------------------------------------------------------------------
+12. LEDGER VERIFICATION
+--------------------------------------------------------------------------------
+  - The wallet ledger (WalletLedgerService) remains the SOLE authoritative writer
+    of balances and withdrawal state. The worker performs NO balance mutation and
+    NO transaction-status mutation itself — it only calls processWithdrawal, which
+    routes all money/state changes through completeWithdrawal / failWithdrawal.
+  - Debit happens once at PENDING creation; settlement moves no money; reversal
+    refunds exactly the net payout under a row lock (FOR UPDATE).
+  - No new direct wallet.update / transaction.update was introduced anywhere.
+
+
+--------------------------------------------------------------------------------
+13. EVENTS PUBLISHED
+--------------------------------------------------------------------------------
+  - PAYOUT_SETTLED  — now LIVE/reachable (was only reachable from dormant code).
+                      Emitted by processWithdrawal after completeWithdrawal.
+  - PAYOUT_REVERSED — now LIVE/reachable. Emitted by processWithdrawal after
+                      failWithdrawal (and also from the existing inline failure
+                      branch).
+  No new event types were added; both already existed in PlatformEventType. The
+  in-app + webhook subscribers consume them via the existing event bus.
+
+
+--------------------------------------------------------------------------------
+14. DATABASE CHANGES
+--------------------------------------------------------------------------------
+  None. No schema change, no migration. The worker only READS PENDING WITHDRAWAL
+  rows (select id) and lets the existing ledger methods perform writes. (DB is a
+  dummy/unmigrated instance in this environment, consistent with prior phases;
+  prisma generate + nest build are green.)
+
+
+--------------------------------------------------------------------------------
+15. API CHANGES
+--------------------------------------------------------------------------------
+  None. No controller, route, request/response shape, or guard was added or
+  modified. The disbursement runtime is internal (cron worker).
+
+
+--------------------------------------------------------------------------------
+16. SECURITY IMPACT
+--------------------------------------------------------------------------------
+  - No new external surface (no endpoint added).
+  - Payout execution remains server-side only, gated by the existing verified
+    primary bank-detail requirement inside processWithdrawal.
+  - Per-transaction Redis lock prevents concurrent double-payout (financial
+    safety). No secrets logged. RazorpayX credentials usage unchanged.
+  - No change to authentication/authorization.
+
+
+--------------------------------------------------------------------------------
+17. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+  - One additional cron firing per minute; each tick does one indexed query
+    (type+status+created_at) bounded to 20 rows, and only performs outbound
+    RazorpayX calls when PENDING withdrawals exist.
+  - Run-level lock prevents pile-up if a batch runs long.
+  - Negligible steady-state overhead; payout latency stays off the HTTP request
+    path.
+
+
+--------------------------------------------------------------------------------
+18. BUILD RESULT
+--------------------------------------------------------------------------------
+  Command:
+    $env:NODE_EXTRA_CA_CERTS="C:\TEMP\cisco-umbrella-ca.crt";
+    npx prisma generate ; npm run build
+  Output:
+    - Prisma Client v7.8.0 generated successfully.
+    - nest build completed; BUILD_EXIT=0.
+  Static analysis: no TypeScript/lint errors in the new or modified files.
+  STATUS: GREEN.
+
+
+--------------------------------------------------------------------------------
+19. TESTS EXECUTED
+--------------------------------------------------------------------------------
+  None executed (testing is explicitly out of scope for this phase, and the
+  environment uses a dummy/unmigrated DB so the payout runtime cannot be
+  end-to-end exercised here). Verification was performed by:
+    - source tracing of the full PENDING -> payout -> settle/reverse path,
+    - static type/compile checks (no errors),
+    - green prisma generate + nest build.
+  Recommended runtime tests are listed in §22.
+
+
+--------------------------------------------------------------------------------
+20. M1 STATUS
+--------------------------------------------------------------------------------
+  M1 — WITHDRAWAL DISBURSEMENT + SETTLEMENT: FULLY RESOLVED.
+
+  Acceptance checklist:
+    [x] processWithdrawal() has a LIVE runtime caller
+        (WithdrawalDisbursementService.disburseOne -> processWithdrawal).
+    [x] completeWithdrawal() is reachable (success branch of processWithdrawal).
+    [x] failWithdrawal() is reachable (failure branch of processWithdrawal).
+    [x] Payout settlement is no longer dormant (PAYOUT_SETTLED/PAYOUT_REVERSED
+        now reachable via a live trigger).
+    [x] Retries remain idempotent (run lock + per-tx lock + ledger PENDING-claim
+        + state-exit + event de-dup).
+
+  Note: one pre-existing crash-window edge (payout confirmed but settlement not
+  yet committed) is documented in §11 as inherent to the untouched payment
+  gateway design; it does not affect normal-operation idempotency and was left
+  intact per the "do not redesign payment architecture" constraint.
+
+
+--------------------------------------------------------------------------------
+21. REMAINING BACKEND ITEMS
+--------------------------------------------------------------------------------
+  (From FINAL_BACKEND_IMPLEMENTATION_STATUS.txt — M1 now resolved.)
+  - M2 — Tournament prize crediting (creditPrize dormant; rewards resolved but
+         never credited by any backend path).  [OPEN]
+  - M3 — Leaderboard real-time write (updateScore dormant; tournament/standard
+         scores never update a global leaderboard).  [OPEN]
+  - M4 — Authoritative un-enforce/unban path (unbanUser is a legacy direct
+         is_banned write).  [OPEN, minor]
+  - Hardening (optional): enforce ServiceIdentity (remove api-key fallback);
+         derive admin actor identity from verified identity, not request body;
+         deterministic RazorpayX payout idempotency key (closes the §11 edge).
+
+
+--------------------------------------------------------------------------------
+22. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+  BACKEND_COMPLETION_002 — Tournament prize crediting (M2): wire reward
+  resolution (or an admin action) to WalletService.creditPrize() /
+  ledger.post(TOURNAMENT_PAYOUT), with the same idempotency discipline used here,
+  OR formally delegate prize crediting to the Base Platform and retire the dormant
+  method. Suggested runtime tests for M1 to run once a real DB is available:
+    - happy path: PENDING -> payout success -> COMPLETED + PAYOUT_SETTLED, balance
+      unchanged at settlement;
+    - failure path: payout error -> FAILED + refund + PAYOUT_REVERSED;
+    - idempotency: concurrent ticks / lock contention -> single payout;
+    - no-bank-detail: row stays PENDING, retried later, no double debit.
+
+
+--------------------------------------------------------------------------------
+23. FINAL STATUS
+--------------------------------------------------------------------------------
+  M1 FULLY RESOLVED. Withdrawal disbursement + settlement is now a single live,
+  idempotent, ledger-authoritative runtime. Build is GREEN. No API/DB/breaking
+  changes. The change is additive (one new cron worker + its module
+  registration). Remaining backend items: M2, M3, M4 (+ optional hardening).
+
+================================================================================
+END OF REPORT — IMPLEMENTATION_SUMMARY_BACKEND_COMPLETION_001
+================================================================================

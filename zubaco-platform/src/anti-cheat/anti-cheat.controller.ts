@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { AntiCheatService } from './anti-cheat.service';
 import { ServiceIdentityGuard } from '../auth/service-identity/service-identity.guard';
 import { CheatSeverity } from '.prisma/client';
@@ -27,10 +27,14 @@ export class AntiCheatController {
 
   @Post('flags/:id/review')
   async reviewFlag(
+    @Req() req: any,
     @Param('id') flagId: string,
-    @Body() body: { action: 'dismiss' | 'warn' | 'ban'; admin_id: string },
+    @Body() body: { action: 'dismiss' | 'warn' | 'ban' },
   ) {
-    return this.antiCheatService.reviewFlag(flagId, body.admin_id, body.action);
+    // Actor is the authenticated calling service (ServiceIdentityGuard sets
+    // req.serviceIdentity), never a spoofable body field.
+    const actor = (req?.serviceIdentity as string) ?? 'service:unknown';
+    return this.antiCheatService.reviewFlag(flagId, actor, body.action);
   }
 
   @Get('users/:userId/flags')
@@ -39,12 +43,16 @@ export class AntiCheatController {
   }
 
   @Post('users/:userId/ban')
-  async banUser(@Param('userId') userId: string, @Body() body: { reason: string }) {
-    return this.antiCheatService.banUser(userId, body.reason);
+  async banUser(@Req() req: any, @Param('userId') userId: string, @Body() body: { reason: string }) {
+    const actor = (req?.serviceIdentity as string) ?? 'service:unknown';
+    return this.antiCheatService.banUser(userId, body.reason, actor);
   }
 
   @Post('users/:userId/unban')
-  async unbanUser(@Param('userId') userId: string) {
-    return this.antiCheatService.unbanUser(userId);
+  async unbanUser(@Req() req: any, @Param('userId') userId: string) {
+    // Actor is the authenticated calling service (ServiceIdentityGuard sets
+    // req.serviceIdentity), never a spoofable body field.
+    const actor = (req?.serviceIdentity as string) ?? 'service:unknown';
+    return this.antiCheatService.unbanUser(userId, actor);
   }
 }

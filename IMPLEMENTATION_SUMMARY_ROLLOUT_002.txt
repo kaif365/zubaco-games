@@ -1,0 +1,410 @@
+================================================================================
+IMPLEMENTATION SUMMARY — ZUBACO ENTERPRISE IMPLEMENTATION
+PHASE: ROLLOUT-002  (Unify the game-completion pipeline)
+MODE:  IMPLEMENTATION
+DATE:  2026-06-30
+SCOPE: c:\zubaco-games\zubaco-platform  (NestJS 11 + Prisma + Postgres + Redis)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Make EVERY game-completion path execute the existing authoritative pipeline
+instead of a divergent legacy path. Before this phase only ONE engine
+(game-session) ran GAME-001 lifecycle + GAME-002 verification; the free-play and
+tournament submit paths bypassed both and re-implemented scoring inline. This
+phase routes all three completion engines through a single shared authoritative
+completion path:
+
+   Lifecycle -> Verification -> Score validation -> Anti-cheat detection
+   -> Tournament progression (where applicable) -> Wallet eligibility
+   (where applicable, downstream) -> Event publication.
+
+Only existing foundations were integrated. No system was redesigned. No wallet,
+tournament, admin, event, RNG, auth, scoring, or infrastructure architecture was
+modified.
+
+--------------------------------------------------------------------------------
+2. FILES MODIFIED
+--------------------------------------------------------------------------------
+- src/game-session/game-session.service.ts
+    submitResult() now delegates the pipeline to SessionCompletionService.
+    Kept its input guards (score>=0, 1000ms <= duration <= 30min, duration must
+    not exceed session age). Removed the now-shared inline verification /
+    persist / anti-cheat / webhook block and its unused imports.
+
+- src/game-session/game-session.module.ts
+    Registered SessionCompletionService as a provider and exported it.
+
+- src/free-play/free-play.service.ts
+    submitResult() now calls SessionCompletionService.complete() for the
+    authoritative pipeline, then layers ONLY its own domain post-processing
+    (stars, level unlock, progress, XP) on the authoritative score. Removed the
+    legacy direct ScoringService.score() bypass, the duplicated board-tamper
+    logic, the inline session write, and the direct anti-cheat + webhook calls.
+
+- src/free-play/free-play.module.ts
+    Imports GameSessionModule (for SessionCompletionService); dropped the now
+    unused direct ScoringModule import.
+
+- src/tournament/tournament.service.ts
+    submitTournamentResult() now calls SessionCompletionService.complete(), then
+    applies ONLY tournament progression (stage-entry total_score / total_time_ms
+    / games_played increments and stage completion). Removed the legacy direct
+    ScoringService.score() bypass, duplicated board-tamper logic, inline session
+    write, and direct anti-cheat + webhook calls.
+
+- src/tournament/tournament.module.ts
+    Imports GameSessionModule (for SessionCompletionService). ScoringModule kept
+    (still used by other tournament providers).
+
+--------------------------------------------------------------------------------
+3. FILES CREATED
+--------------------------------------------------------------------------------
+- src/game-session/completion/session-completion.service.ts
+    SessionCompletionService — the single authoritative completion path. Public
+    method complete(session, { claimedScore, durationMs, metadata }) runs:
+      assertTransition(ACTIVE->RESULT_PROCESSING)          [GAME-001]
+      VerificationPipeline.verify() (authoritative score)  [GAME-002]
+      assertTransition(RESULT_PROCESSING->COMPLETED)       [GAME-001]
+      prisma.gameSession.update(...) with _verification metadata
+      AntiCheatService.analyzeGameResult() (best-effort)   [ACHEAT-001]
+      EventBusService.publish(GAME_COMPLETED) +
+        publish(VERIFICATION_PASSED|FAILED)                [Event Bus]
+      WebhookService.emitGameResult() (durable, signed)    [Base Platform]
+    Returns a CompletionOutcome { session, status, authoritativeScore, maxScore,
+    durationMs, outcome, flagged, validated } each engine builds its result on.
+
+--------------------------------------------------------------------------------
+4. FILES REMOVED
+--------------------------------------------------------------------------------
+None. (Legacy logic was removed in-place from the three services, not by
+deleting files.)
+
+--------------------------------------------------------------------------------
+5. RUNTIME EXECUTION PATHS BEFORE
+--------------------------------------------------------------------------------
+Three independent completion engines wrote GameSession with DIVERGENT logic:
+
+  A) POST /api/v1/game-session/{id}/submit  (GameSessionService.submitResult)
+       AUTHORITATIVE: assertTransition + VerificationPipeline.verify
+       + anti-cheat + webhook.  (NO event-bus publication.)
+
+  B) POST /api/v1/free-play/submit          (FreePlayService.submitResult)
+       BYPASS: ScoringService.score() directly, duplicated board-tamper check,
+       inline session write (_scoring metadata), anti-cheat + webhook.
+       NO lifecycle guard. NO verification pipeline. NO event-bus publication.
+
+  C) POST /api/v1/tournament/submit         (TournamentService.submitTournamentResult)
+       BYPASS: ScoringService.score() directly, duplicated board-tamper check,
+       inline session write (_scoring metadata), stage-entry totals,
+       anti-cheat + webhook.
+       NO lifecycle guard. NO verification pipeline. NO event-bus publication.
+
+Result: two of the three live completion paths were NOT authoritative, with
+divergent (copy-pasted, separately maintained) scoring/integrity semantics, and
+none of the three reached the event bus on completion.
+
+--------------------------------------------------------------------------------
+6. RUNTIME EXECUTION PATHS AFTER
+--------------------------------------------------------------------------------
+All three engines now converge on ONE authoritative routine:
+
+  A) POST /api/v1/game-session/{id}/submit
+       GameSessionService.submitResult (input guards)
+         -> SessionCompletionService.complete()
+
+  B) POST /api/v1/free-play/submit
+       FreePlayService.submitResult
+         -> SessionCompletionService.complete()
+         -> then stars / level unlock / progress / XP (free-play domain only)
+
+  C) POST /api/v1/tournament/submit
+       TournamentService.submitTournamentResult
+         -> SessionCompletionService.complete()
+         -> then stage-entry total_score/total_time_ms/games_played + stage
+            completion (tournament progression)
+
+SessionCompletionService.complete() (every path):
+   ACTIVE -> RESULT_PROCESSING            (GAME-001 lifecycle guard)
+   -> VerificationPipeline.verify         (GAME-002 authoritative score)
+   -> RESULT_PROCESSING -> COMPLETED      (GAME-001 lifecycle guard)
+   -> persist authoritative result (_verification metadata)
+   -> AntiCheatService.analyzeGameResult  (ACHEAT-001 detection)
+   -> EventBus.publish GAME_COMPLETED + VERIFICATION_PASSED/FAILED
+   -> WebhookService.emitGameResult       (drives downstream leaderboard /
+                                           tournament progression / wallet
+                                           eligibility on the Base Platform)
+
+Score equivalence: the DefaultGameVerifier re-implements the exact scoring,
+shortest-path folding, board-fingerprint tamper check, discrepancy thresholds
+and authoritative-score formula that free-play/tournament used inline, so the
+migration is score-equivalent (no silent change to scores, stars, or totals).
+
+--------------------------------------------------------------------------------
+7. AUTHORITATIVE SERVICES NOW REACHABLE
+--------------------------------------------------------------------------------
+Reached by ALL three completion engines in live runtime (previously only by
+game-session, and the event bus by none):
+
+  - GAME-001 Session Lifecycle (assertTransition)          — now all 3 paths
+  - GAME-002 Verification Pipeline (authoritative score)   — now all 3 paths
+  - Score validation (via the verification pipeline)       — now all 3 paths
+  - ACHEAT-001 Enforcement/detection (analyzeGameResult)   — now all 3 paths
+  - Event Bus (GAME_COMPLETED, VERIFICATION_PASSED/FAILED) — now all 3 paths
+                                                             (NEW; was 0 paths)
+  - Base-Platform webhook (signed, durable)                — now all 3 paths
+
+Tournament progression: stage-entry totals + stage completion are updated
+in-path for the tournament engine (reachable). Full orchestrator-driven stage
+ADVANCEMENT (TournamentOrchestrator.advanceStage / resolveRewardEligibility) is
+NOT called from the completion path — it remains driven by the cron / Admin
+Control Plane (ROLLOUT-001) and the Base-Platform webhook. See sections 9 & 19.
+
+Wallet eligibility: NOT invoked directly from the completion path. It continues
+to be driven downstream via the signed webhook to the Base Platform and via the
+Admin Control Plane (WalletLedgerService). This was intentional — see section 9.
+
+--------------------------------------------------------------------------------
+8. LEGACY PATHS REMOVED
+--------------------------------------------------------------------------------
+- free-play.service: removed the direct ScoringService.score() completion
+  bypass, the duplicated board-fingerprint tamper logic, the inline
+  gameSession.update completion write (_scoring), and the direct
+  anti-cheat + webhook calls. Free-play no longer has an independent completion
+  path; it delegates to the authoritative pipeline.
+
+- tournament.service: removed the direct ScoringService.score() completion
+  bypass, the duplicated board-fingerprint tamper logic, the inline
+  gameSession.update completion write (_scoring), and the direct
+  anti-cheat + webhook calls. Tournament no longer has an independent completion
+  path; it delegates to the authoritative pipeline.
+
+- game-session.service: removed its now-duplicated inline pipeline (moved into
+  the shared SessionCompletionService). Its public behaviour is unchanged.
+
+There are now ZERO completion engines that bypass GAME-001 + GAME-002.
+(Verified: the only services that write GameSession.outcome to a terminal value
+via a submit are the three above; all now call SessionCompletionService.)
+
+--------------------------------------------------------------------------------
+9. REMAINING LEGACY PATHS
+--------------------------------------------------------------------------------
+The completion pipeline itself has no remaining legacy bypass. However, the
+following remain OUTSIDE the completion hot path (by design / out of scope):
+
+- Tournament stage ADVANCEMENT and elimination: still driven by
+  EliminationService + the tournament cron + Admin Control Plane, not by the
+  per-game completion call. Completion only updates stage-entry totals.
+- Wallet crediting / payout eligibility: still driven by the Base-Platform
+  webhook consumer and the Admin Control Plane (WalletLedgerService). The
+  completion path does NOT directly credit wallets. This avoids a second,
+  parallel money path (double-credit risk) and honors the constraint not to
+  modify wallet/tournament architecture.
+- The "two control planes" money/enforcement concern from full_audit.txt
+  (legacy WalletService direct credit/withdraw, anti-cheat.service direct
+  is_banned writes) is NOT addressed here — it is a separate rollout phase.
+
+--------------------------------------------------------------------------------
+10. BLOCKERS FULLY RESOLVED
+--------------------------------------------------------------------------------
+- "Game completion bypass" (the ROLLOUT-001 audit sub-finding: "free-play.service
+  and tournament.service submit paths bypass GAME-001 lifecycle + GAME-002
+  verification"): FULLY RESOLVED. All three completion engines now execute the
+  same authoritative Lifecycle + Verification + Anti-cheat + Event pipeline in
+  live runtime, with no divergent scoring path remaining.
+
+- "Event bus emits only 1 of 11 event types on completion / completion never
+  reaches the event bus": RESOLVED for the completion domain — every completion
+  now publishes GAME_COMPLETED and VERIFICATION_PASSED/FAILED. (Other event
+  types remain unemitted; see section 11.)
+
+--------------------------------------------------------------------------------
+11. BLOCKERS PARTIALLY RESOLVED
+--------------------------------------------------------------------------------
+- ROLLOUT-002 (the umbrella "authoritative completion reaches every applicable
+  service"): PARTIALLY RESOLVED. Lifecycle, Verification, Score validation,
+  Anti-cheat and Event publication are now reached by every completion path.
+  Tournament progression is reached only at the stage-entry-totals level;
+  orchestrator-driven stage advancement and wallet eligibility are still driven
+  downstream (webhook + Admin Control Plane), not from the completion path.
+  Marked PARTIAL because "Tournament progression (where applicable)" and "Wallet
+  eligibility (where applicable)" are not directly reachable IN the completion
+  call — they remain in their existing downstream owners, which this phase was
+  told not to modify.
+
+- Event-type coverage: of the 11 PlatformEventType values, completion now emits
+  GAME_COMPLETED + VERIFICATION_PASSED/FAILED (and ADMIN/WALLET events come from
+  ROLLOUT-001). TOURNAMENT_PROGRESSED/COMPLETED, REWARD_ELIGIBLE, PAYOUT_*,
+  ACCOUNT_REVIEWED are still not emitted from this layer.
+
+--------------------------------------------------------------------------------
+12. BLOCKERS NOT TOUCHED
+--------------------------------------------------------------------------------
+- TEST-001 (no automated test suite; project has 0 tests).
+- The legacy dual money/enforcement control planes (WalletService direct paths,
+  anti-cheat.service direct is_banned writes) — separate phase.
+- Transaction.reference_id UNIQUE constraint (DB migration) — separate phase.
+- All 14 per-game blockers and the broader AUTH/ARCH/NOTIF items.
+These span multiple services / databases / rollout phases and were intentionally
+left untouched (no fake completion).
+
+--------------------------------------------------------------------------------
+13. SECURITY IMPACT
+--------------------------------------------------------------------------------
+POSITIVE:
+- free-play and tournament completions are now fully server-authoritative: the
+  GAME-002 verification pipeline (not a client-trusting inline path) derives the
+  score; client score/duration are diffed only, never authoritative. Board
+  fingerprint tamper -> DISQUALIFIED uniformly.
+- Lifecycle guard (assertTransition) now applies to all completion engines,
+  enforcing one terminal transition and rejecting illegal transitions uniformly.
+- Anti-cheat detection runs on every completion path (already true for two; now
+  guaranteed through one routine, eliminating drift).
+- Duration is bounded to real session age on every path (free-play previously
+  stored raw client duration).
+NEUTRAL:
+- No authentication/authorization surface changed. Endpoints, guards and DTOs
+  are unchanged. Event publication is internal and idempotent.
+NO REGRESSIONS identified.
+
+--------------------------------------------------------------------------------
+14. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+NEGLIGIBLE / NEUTRAL.
+- The same work (verify + single gameSession.update + anti-cheat + webhook) runs
+  as before; it is now in one shared method instead of three copies.
+- Added per completion: two EventBus.publish calls = a few O(1) Redis ops
+  (SETNX dedupe + ZADD to the outbox), wrapped best-effort. No new DB round trip,
+  no new synchronous network call (webhook + events are Redis-queued and drained
+  by existing crons).
+- Verification replaces the previously-inline ScoringService.score() call with
+  the same ScoringService.score() call via the default verifier — equal cost.
+
+--------------------------------------------------------------------------------
+15. DATABASE CHANGES
+--------------------------------------------------------------------------------
+None. No schema change, no migration, no new table/column/index. `prisma
+generate` was run (client regenerated, no drift). Completion still writes the
+existing GameSession fields; the per-session JSON metadata key changed from
+`_scoring` (free-play/tournament) to the unified `_verification` block — a
+JSON-shape change only, consumed by no other code (verified).
+
+--------------------------------------------------------------------------------
+16. API CHANGES
+--------------------------------------------------------------------------------
+None (no breaking changes). All three endpoints keep identical routes, guards,
+request DTOs and response shapes:
+  POST /api/v1/game-session/{id}/submit  -> { success, score, max_score, validated }
+  POST /api/v1/free-play/submit          -> { score, stars, xp_earned,
+                                              level_completed, next_level_unlocked }
+  POST /api/v1/tournament/submit         -> { score, total_score }
+Only internal constructor dependencies of the three services changed (DI), which
+is not part of the public API.
+
+--------------------------------------------------------------------------------
+17. BUILD RESULTS
+--------------------------------------------------------------------------------
+- prisma generate ..... PASS (Prisma Client v7.8.0 regenerated, exit 0)
+- nest build .......... PASS (exit 0; GREEN)
+- TypeScript errors ... 0 across all modified/created files
+- lint ................ N/A (the `lint` npm script references eslint, which is
+                        not installed / not a declared devDependency —
+                        pre-existing orphaned tooling, unrelated to this phase)
+
+Overall gate (nest build) = GREEN.
+
+--------------------------------------------------------------------------------
+18. TESTS EXECUTED
+--------------------------------------------------------------------------------
+None executed — the project defines NO `test` script and ships zero automated
+tests (pre-existing TEST-001). Verification for this phase was:
+  - Static: 0 TypeScript/compile errors on all touched files.
+  - Build:  prisma generate + nest build both exit 0 (GREEN).
+  - Reachability reasoning: DI graph resolves (SessionCompletionService is
+    provided/exported by GameSessionModule; consumed by GameSessionModule,
+    FreePlayModule, TournamentModule which now import it; its deps —
+    VerificationPipeline (same module), PrismaService/AntiCheatService/
+    WebhookService/EventBusService (@Global) — all resolve; no module cycle
+    introduced). Routes/controllers/DTOs unchanged, so the three live endpoints
+    reach the new path.
+No runtime integration test was run (no harness; DB/Redis not provisioned here).
+
+--------------------------------------------------------------------------------
+19. KNOWN LIMITATIONS
+--------------------------------------------------------------------------------
+- Wallet eligibility and orchestrator-driven tournament stage advancement are
+  NOT invoked synchronously from the completion call; they remain driven by the
+  Base-Platform webhook and the Admin Control Plane. So "completion -> wallet
+  credit" and "completion -> stage advance" are eventually-consistent downstream,
+  not in-line. (Deliberate: avoids a parallel money path and respects the "do
+  not modify wallet/tournament architecture" constraint.)
+- No automated test asserts the unified behaviour end-to-end (TEST-001).
+- Event consumers for GAME_COMPLETED / VERIFICATION_* are not yet implemented
+  (the in-app subscriber ignores these types), so publication is currently
+  audit/observability-grade, not yet wired to a downstream action.
+- The metadata key rename (_scoring -> _verification) means historical sessions
+  retain `_scoring`; any future reader must handle both shapes.
+
+--------------------------------------------------------------------------------
+20. ROLLBACK RISK
+--------------------------------------------------------------------------------
+LOW–MEDIUM.
+- Additive core (one new service) plus in-place refactors of three submit
+  methods and three module wirings. No schema/route/DTO/contract change.
+- Behaviour is score-equivalent (default verifier == prior inline scoring), so
+  user-visible results (scores, stars, totals) should not change.
+- Rollback = revert the three services + three modules + delete the new
+  completion service; no data migration needed (metadata is forward/back
+  compatible since nothing reads it).
+- Medium only because three live endpoints now share one routine: a defect in
+  SessionCompletionService would affect all completion paths at once (mitigated
+  by score-equivalence and a green build).
+
+--------------------------------------------------------------------------------
+21. REMAINING WORK
+--------------------------------------------------------------------------------
+- Wire completion-driven (or webhook-consumer-driven) calls into
+  TournamentOrchestrator.advanceStage / resolveRewardEligibility and
+  WalletLedgerService so tournament progression + wallet eligibility become
+  first-class authoritative steps rather than downstream-only.
+- Implement event subscribers/actions for GAME_COMPLETED / VERIFICATION_* and
+  emit the remaining tournament/reward/payout event types.
+- Retire the legacy dual money/enforcement control planes (single authoritative
+  money path) and add the Transaction.reference_id UNIQUE constraint.
+- Establish the automated test harness (TEST-001) and cover the unified path.
+- Restore a working lint toolchain (declare/install eslint).
+
+--------------------------------------------------------------------------------
+22. RECOMMENDED NEXT PHASE (ONLY ONE)
+--------------------------------------------------------------------------------
+TEST-001 — Stand up the automated test harness (Jest + supertest) and add
+integration tests that assert all three completion endpoints execute the single
+authoritative pipeline (lifecycle transitions, verification authority, anti-cheat
+invocation, event publication, score-equivalence). This converts ROLLOUT-002
+from "compiles + reasoned-reachable" into "continuously verified" before any
+further cut-over of wallet/tournament progression into the completion path.
+
+--------------------------------------------------------------------------------
+23. FINAL STATUS
+--------------------------------------------------------------------------------
+PARTIAL.
+
+What is COMPLETE and reachable in live runtime: every game-completion path
+(game-session, free-play, tournament) now executes the SINGLE authoritative
+pipeline — GAME-001 lifecycle, GAME-002 verification + score validation,
+ACHEAT-001 anti-cheat detection, and Event Bus publication — with the legacy
+divergent scoring bypass fully removed and the build GREEN.
+
+Why not COMPLETE overall: the phase goal also lists "Tournament progression
+(where applicable)" and "Wallet eligibility (where applicable)" as completion
+steps. Tournament progression is reached only at the stage-entry-totals level;
+orchestrator-driven stage advancement and wallet crediting are still owned by
+the downstream webhook consumer + Admin Control Plane and are intentionally not
+invoked from the completion hot path (modifying wallet/tournament architecture
+was explicitly out of scope, and a second in-line money path would risk
+double-credit). Those remain eventually-consistent downstream, so the umbrella
+blocker is honestly PARTIALLY RESOLVED, not COMPLETE.
+
+Build = GREEN (prisma generate exit 0, nest build exit 0). Report generated.
+================================================================================

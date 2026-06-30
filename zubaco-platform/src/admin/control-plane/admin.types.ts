@@ -18,6 +18,7 @@ export enum AdminRole {
 export enum AdminAction {
   ADVANCE_STAGE = 'ADVANCE_STAGE',
   RESOLVE_REWARDS = 'RESOLVE_REWARDS',
+  DISTRIBUTE_REWARDS = 'DISTRIBUTE_REWARDS',
   CREDIT_WALLET = 'CREDIT_WALLET',
   REVERSE_PAYOUT = 'REVERSE_PAYOUT',
   ENFORCE_ANTI_CHEAT = 'ENFORCE_ANTI_CHEAT',
@@ -29,10 +30,11 @@ export const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminAction>> = {
   [AdminRole.READ_ONLY]: new Set(),
   [AdminRole.SUPPORT]: new Set([AdminAction.MARK_FOR_REVIEW]),
   [AdminRole.OPERATOR]: new Set([AdminAction.ADVANCE_STAGE, AdminAction.RESOLVE_REWARDS, AdminAction.MARK_FOR_REVIEW]),
-  [AdminRole.FINANCE]: new Set([AdminAction.CREDIT_WALLET, AdminAction.REVERSE_PAYOUT]),
+  [AdminRole.FINANCE]: new Set([AdminAction.CREDIT_WALLET, AdminAction.REVERSE_PAYOUT, AdminAction.DISTRIBUTE_REWARDS]),
   [AdminRole.SUPER_ADMIN]: new Set([
     AdminAction.ADVANCE_STAGE,
     AdminAction.RESOLVE_REWARDS,
+    AdminAction.DISTRIBUTE_REWARDS,
     AdminAction.CREDIT_WALLET,
     AdminAction.REVERSE_PAYOUT,
     AdminAction.ENFORCE_ANTI_CHEAT,

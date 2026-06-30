@@ -1,10 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GameType, CheatFlagType, CheatSeverity } from '.prisma/client';
+import { EnforcementService } from './enforcement/enforcement.service';
+import { EnforcementAction } from './enforcement/enforcement.types';
 
 @Injectable()
 export class AntiCheatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly enforcement: EnforcementService,
+  ) {}
 
   // ─── SCORE ANOMALY DETECTION ───────────────────────────────────
 
@@ -139,11 +144,19 @@ export class AntiCheatService {
     });
 
     if (criticalCount >= 3) {
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { is_banned: true, ban_reason: 'Automated: Multiple critical anti-cheat violations' },
+      // Single enforcement plane: the ban is written by EnforcementService, never
+      // here. enforce() sets is_banned + ban_reason and purges refresh tokens
+      // atomically and idempotently. The session sweep below remains for the
+      // "disqualify ALL of the user's open sessions" cleanup that enforce does
+      // not cover (it scopes session disqualification to the supplied sessionId).
+      await this.enforcement.enforce({
+        userId,
+        sessionId,
+        reason: 'Automated: Multiple critical anti-cheat violations',
+        actions: [EnforcementAction.INVALIDATE_REWARDS],
+        confirmed: true,
+        enforcedBy: 'system:auto-anti-cheat',
       });
-      // Revoke access: kill active sessions and refresh tokens immediately.
       await this.invalidateUserSessions(userId);
     }
 
@@ -252,21 +265,25 @@ export class AntiCheatService {
 
   // ─── ADMIN: REVIEW FLAG ───────────────────────────────────────
 
-  async reviewFlag(flagId: string, adminId: string, action: 'dismiss' | 'warn' | 'ban') {
+  async reviewFlag(flagId: string, actor: string, action: 'dismiss' | 'warn' | 'ban') {
     const flag = await this.prisma.cheatFlag.update({
       where: { id: flagId },
       data: {
         reviewed: true,
-        reviewed_by: adminId,
+        reviewed_by: actor,
         reviewed_at: new Date(),
         action_taken: action,
       },
     });
 
     if (action === 'ban') {
-      await this.prisma.user.update({
-        where: { id: flag.user_id },
-        data: { is_banned: true, ban_reason: `Admin ban: Anti-cheat flag ${flagId}` },
+      // Authoritative ban via the single enforcement plane.
+      await this.enforcement.enforce({
+        userId: flag.user_id,
+        reason: `Admin ban: Anti-cheat flag ${flagId}`,
+        actions: [EnforcementAction.INVALIDATE_REWARDS],
+        confirmed: true,
+        enforcedBy: actor,
       });
       await this.invalidateUserSessions(flag.user_id);
     }
@@ -276,20 +293,35 @@ export class AntiCheatService {
 
   // ─── ADMIN: BAN/UNBAN ─────────────────────────────────────────
 
-  async banUser(userId: string, reason: string) {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: { is_banned: true, ban_reason: reason },
+  /**
+   * Compatibility adapter. The ban itself is written by EnforcementService
+   * (single enforcement plane); this method only adds the all-sessions sweep and
+   * returns the resulting user for the existing API contract.
+   */
+  async banUser(userId: string, reason: string, enforcedBy = 'service:anti-cheat') {
+    await this.enforcement.enforce({
+      userId,
+      reason,
+      actions: [EnforcementAction.INVALIDATE_REWARDS],
+      confirmed: true,
+      enforcedBy,
     });
     await this.invalidateUserSessions(userId);
-    return user;
+    return this.prisma.user.findUnique({ where: { id: userId } });
   }
 
-  async unbanUser(userId: string) {
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { is_banned: false, ban_reason: null },
+  // NOTE: un-ban is now authoritative. The ban reversal is written by
+  // EnforcementService.reverse() (the single enforcement plane) inside one
+  // transaction, idempotently, with a post-commit ACCOUNT_RESTORED audit event.
+  // This adapter only returns the resulting user for the existing API contract
+  // and performs NO direct is_banned mutation.
+  async unbanUser(userId: string, reversedBy = 'service:anti-cheat') {
+    await this.enforcement.reverse({
+      userId,
+      reason: 'Admin unban',
+      reversedBy,
     });
+    return this.prisma.user.findUnique({ where: { id: userId } });
   }
 
   // ─── USER FLAG SUMMARY ────────────────────────────────────────

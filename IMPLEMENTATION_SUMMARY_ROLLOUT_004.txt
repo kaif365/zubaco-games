@@ -1,0 +1,379 @@
+================================================================================
+IMPLEMENTATION_SUMMARY_ROLLOUT_004.txt
+SINGLE MONEY PLANE + SINGLE ENFORCEMENT PLANE
+Repository: c:\zubaco-games\zubaco-platform  (canonical)
+Mode: IMPLEMENTATION. Build kept GREEN. No breaking API changes. No redesign.
+================================================================================
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Collapse the two remaining "split-brain" runtime planes onto a single
+authoritative implementation each, WITHOUT changing business rules or
+transaction semantics and WITHOUT breaking the build:
+
+  PART A (Money)       Route live wallet mutations through WalletLedgerService
+                       instead of bespoke direct $transaction blocks, wherever
+                       it is genuinely safe to do so.
+  PART B (Enforcement) Make EnforcementService the only authoritative path that
+                       writes User.is_banned; protect enforcement endpoints and
+                       remove spoofable identity fields.
+
+The deliverable is honesty about what is now truly single-plane at RUNTIME and
+what still remains split.
+
+--------------------------------------------------------------------------------
+2. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Money plane:
+  - The two CLEANLY-routable live money flows were moved onto the ledger:
+      * Referral bonus  -> WalletLedgerService.post(REFERRAL_CREDIT)
+      * Season entry fee -> WalletLedgerService.debitEntryFee(...)
+    Tournament prize was already routed in ROLLOUT-003 (TOURNAMENT_PAYOUT).
+  - Storage-level idempotency was added (Transaction.ledger_key UNIQUE) so the
+    ledger no longer relies on Redis locks alone.
+  - Deposit and withdrawal/settlement were deliberately NOT routed (see s.7/s.12)
+    because doing so would change transaction semantics (double-credit / loss of
+    the PENDING lifecycle). They remain on WalletService and are documented.
+  => Money plane is MORE unified but NOT 100% single-plane. PARTIALLY RESOLVED.
+
+Enforcement plane:
+  - Every authoritative-eligible User.is_banned write in the canonical source now
+    flows through EnforcementService.enforce(): the anti-cheat auto-ban, the
+    admin flag-review ban, and the admin banUser endpoint. AntiCheatService no
+    longer writes is_banned directly for bans.
+  - The only remaining direct is_banned write is unbanUser, because
+    EnforcementService has no authoritative "un-enforce" / reversal action
+    (inventing one is a redesign and out of scope). It is service-identity gated.
+  - The spoofable body.admin_id was removed from the review/ban endpoints; the
+    actor is now derived from the authenticated service identity.
+  => Enforcement bans are single-plane; unban remains direct. PARTIALLY RESOLVED.
+
+Build is GREEN (prisma generate + nest build, exit 0).
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+src/wallet/ledger/ledger.types.ts
+    + FinancialOperation.REFERRAL_CREDIT, FinancialOperation.ENTRY_FEE_DEBIT.
+
+src/wallet/ledger/ledger.service.ts
+    + REFERRAL_CREDIT added to CREDIT_OPS.
+    + txType(): REFERRAL_CREDIT -> 'REFERRAL_BONUS', ENTRY_FEE_DEBIT -> 'ENTRY_FEE'.
+    + post(): idempotency now keyed on Transaction.ledger_key (UNIQUE) instead of
+      a status='COMPLETED' reference_id lookup; writes ledger_key; on a P2002
+      unique-violation race it returns the existing row as a duplicate.
+    + new debitEntryFee(): authoritative cross-bucket (bonus-first, then cash)
+      entry-fee debit writing a single ENTRY_FEE row, same Redis lock + ledger_key
+      idempotency + _ledger audit block.
+
+src/wallet/wallet.service.ts
+    ~ deductEntryFee()    -> thin adapter delegating to ledger.debitEntryFee().
+    ~ creditReferralBonus()-> thin adapter delegating to ledger.post(REFERRAL_CREDIT).
+      Both keep their existing signatures, return shapes and error contracts.
+
+prisma/schema.prisma
+    + Transaction.ledger_key String? @unique  (NULL for all legacy rows).
+
+src/anti-cheat/anti-cheat.service.ts
+    + injects EnforcementService.
+    ~ auto-ban (analyzeGameResult, criticalCount>=3) -> enforcement.enforce(...).
+    ~ reviewFlag() 'ban' branch -> enforcement.enforce(...); param renamed
+      adminId->actor; reviewed_by now stores the authenticated actor.
+    ~ banUser() -> compatibility adapter calling enforcement.enforce(...).
+    ~ unbanUser() -> unchanged direct write, now explicitly documented as the one
+      remaining direct is_banned mutation (no authoritative reversal exists).
+
+src/anti-cheat/anti-cheat.controller.ts
+    ~ reviewFlag/banUser: removed spoofable body.admin_id; actor derived from
+      req.serviceIdentity (set by ServiceIdentityGuard). Added @Req().
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+prisma/migrations/20260630_transaction_ledger_key/migration.sql
+    ALTER TABLE "transactions" ADD COLUMN "ledger_key" TEXT;
+    CREATE UNIQUE INDEX "transactions_ledger_key_key" ON "transactions"("ledger_key");
+
+--------------------------------------------------------------------------------
+5. FILES REMOVED
+--------------------------------------------------------------------------------
+None. (No parallel implementation files were deleted; legacy code paths were
+converted into compatibility adapters in place.)
+
+--------------------------------------------------------------------------------
+6. RUNTIME MONEY FLOW (BEFORE)
+--------------------------------------------------------------------------------
+  Deposit  : Razorpay verify/webhook -> PaymentGatewayService.creditDepositAtomically
+             (claims a pre-created PENDING DEPOSIT row, direct $transaction).      [ledger-bypass]
+  Entry fee: tournament.register -> WalletService.deductEntryFee
+             (direct $transaction, bonus-first split, single ENTRY_FEE row,
+             NO idempotency).                                                      [ledger-bypass]
+  Referral : social.service x2 -> WalletService.creditReferralBonus
+             (direct $transaction, bonus credit, NO idempotency).                  [ledger-bypass]
+  Prize    : WalletLedgerService.post(TOURNAMENT_PAYOUT)  (ROLLOUT-003).           [ledger]
+  Withdraw : WalletService.requestWithdrawal -> creates PENDING WITHDRAWAL +
+             TDS_DEDUCTION rows (direct).                                          [ledger-bypass]
+  Admin adj: AdminControlPlaneService -> ledger.post(ADJUSTMENT/PAYOUT_REVERSAL).  [ledger]
+
+--------------------------------------------------------------------------------
+7. RUNTIME MONEY FLOW (AFTER)
+--------------------------------------------------------------------------------
+  Deposit  : UNCHANGED -> creditDepositAtomically.   [ledger-bypass, INTENTIONAL]
+             Reason: the live deposit uses a pre-created-PENDING-row claim model.
+             ledger.post() creates a fresh COMPLETED row, so routing it would
+             DOUBLE-CREDIT (one claimed row + one new ledger row). Genuinely not
+             safe without rewriting the gateway lifecycle = transaction-semantics
+             change. Left as-is. (DEPOSIT_CREDIT operation deliberately NOT added.)
+  Entry fee: tournament.register -> WalletService.deductEntryFee
+             -> WalletLedgerService.debitEntryFee(ENTRY_FEE_DEBIT).               [ledger]
+             Same bonus-first split, same single ENTRY_FEE row, same combined
+             balance_after, same "Insufficient balance for entry fee" error.
+             NOW idempotent per (season,user) via ledger_key + audited.
+  Referral : social.service x2 -> WalletService.creditReferralBonus
+             -> WalletLedgerService.post(REFERRAL_CREDIT, bucket='bonus').         [ledger]
+             Same REFERRAL_BONUS type + bonus bucket. NOW idempotent per
+             (referral,user) so referrer and referred each credit exactly once.
+  Prize    : UNCHANGED -> ledger.post(TOURNAMENT_PAYOUT).                          [ledger]
+  Withdraw : UNCHANGED -> requestWithdrawal.          [ledger-bypass, INTENTIONAL]
+             Reason: ledger.post() force-writes status='COMPLETED'; withdrawals
+             require a PENDING row until external RazorpayX disbursement, then a
+             settlePending() transition. Routing through post() would skip the
+             PENDING lifecycle = transaction-semantics change. Left as-is.
+  Admin adj: UNCHANGED -> ledger.post(...).                                        [ledger]
+
+  Net: 3 of 5 live money flows (entry-fee, referral, prize) + admin adjustments
+  now execute on the authoritative ledger. Deposit + withdrawal still bypass it.
+
+--------------------------------------------------------------------------------
+8. RUNTIME ENFORCEMENT FLOW (BEFORE)
+--------------------------------------------------------------------------------
+  Two parallel writers of User.is_banned:
+   (a) EnforcementService.enforce()  - authoritative engine (Redis lock,
+       single $transaction, session/leaderboard/tournament retraction, webhook),
+       reachable via AdminControlPlaneController (ENFORCE_ANTI_CHEAT / MARK_FOR_REVIEW).
+   (b) AntiCheatService - FOUR direct prisma.user.update is_banned writes:
+       - auto-ban in analyzeGameResult (LIVE on every game completion),
+       - reviewFlag 'ban' branch,
+       - banUser,
+       - unbanUser.
+  AntiCheatController endpoints trusted a spoofable body.admin_id for attribution.
+
+--------------------------------------------------------------------------------
+9. RUNTIME ENFORCEMENT FLOW (AFTER)
+--------------------------------------------------------------------------------
+  Single authoritative ban writer: EnforcementService.enforce().
+   - auto-ban (analyzeGameResult, criticalCount>=3) -> enforce(confirmed:true,
+     INVALIDATE_REWARDS, enforcedBy:'system:auto-anti-cheat'); the all-open-
+     sessions sweep (invalidateUserSessions) is retained as cleanup only (it does
+     not write is_banned).
+   - reviewFlag 'ban' -> enforce(confirmed:true, enforcedBy:<authenticated actor>).
+   - banUser -> adapter calling enforce(confirmed:true, enforcedBy:<actor>).
+   - unbanUser -> STILL a direct is_banned:false write (no authoritative reversal
+     action exists in the engine). Service-identity gated. Documented exception.
+  AntiCheatController no longer accepts body.admin_id; the actor is taken from the
+  authenticated service identity (req.serviceIdentity) set by ServiceIdentityGuard.
+
+--------------------------------------------------------------------------------
+10. LIVE RUNTIME PATHS UPDATED
+--------------------------------------------------------------------------------
+  - tournament.register -> deductEntryFee  : now ledger-backed (ENTRY_FEE_DEBIT).
+  - social.service (referrer + referred) -> creditReferralBonus : now ledger-backed.
+  - game completion -> AntiCheatService.analyzeGameResult auto-ban : now via enforce().
+  - admin anti-cheat review/ban endpoints : now via enforce(), actor authenticated.
+
+--------------------------------------------------------------------------------
+11. LEGACY RUNTIME PATHS REMOVED
+--------------------------------------------------------------------------------
+  - AntiCheatService direct is_banned writes for BANS (auto-ban, review-ban,
+    banUser) removed; replaced by enforce() calls.
+  - Spoofable body.admin_id attribution removed from anti-cheat endpoints.
+  - WalletService bespoke direct $transaction logic for entry-fee and referral
+    replaced by ledger delegation (the methods remain as adapters).
+
+--------------------------------------------------------------------------------
+12. REMAINING LEGACY RUNTIME PATHS (still authoritative, NOT routed)
+--------------------------------------------------------------------------------
+  - Deposit credit (PaymentGatewayService.creditDepositAtomically) - atomic-claim
+    model, incompatible with ledger.post() fresh-row model.        [INTENTIONAL]
+  - Withdrawal request + TDS (WalletService.requestWithdrawal) - needs PENDING
+    lifecycle that post() cannot express.                          [INTENTIONAL]
+  - Withdrawal settlement (WalletLedgerService.settlePending) - exists but has NO
+    live disbursement caller (external RazorpayX, tracked as WALLET-001).
+  - unbanUser direct is_banned:false write - no authoritative reversal action.
+
+--------------------------------------------------------------------------------
+13. LEDGER OPERATIONS ADDED
+--------------------------------------------------------------------------------
+  REFERRAL_CREDIT  -> TransactionType REFERRAL_BONUS, credit, bonus bucket.
+                      (Added to CREDIT_OPS.)
+  ENTRY_FEE_DEBIT  -> TransactionType ENTRY_FEE, cross-bucket debit (bonus-first
+                      then cash), single combined-balance row via debitEntryFee().
+  NOT ADDED: DEPOSIT_CREDIT. Justification: the live deposit path is an atomic
+  PENDING-row claim; a ledger DEPOSIT_CREDIT op was NOT genuinely required and
+  would have created a double-credit hazard. Per directive ("ONLY if genuinely
+  required"), it was omitted.
+
+--------------------------------------------------------------------------------
+14. ENFORCEMENT CHANGES
+--------------------------------------------------------------------------------
+  - AntiCheatService injects EnforcementService (co-located in the @Global
+    AntiCheatModule; EnforcementService depends only on Prisma/Redis/Leaderboard/
+    Webhook, so no circular dependency is introduced).
+  - 3 of 4 is_banned writers converted to enforce(); 1 (unban) documented.
+  - Attribution hardened: actor sourced from authenticated x-service-id, not body.
+  - No parallel enforcement implementation was left for bans.
+
+--------------------------------------------------------------------------------
+15. DATABASE MIGRATIONS
+--------------------------------------------------------------------------------
+  20260630_transaction_ledger_key/migration.sql
+    Adds nullable UNIQUE Transaction.ledger_key.
+  - Safe against existing data: all legacy rows get ledger_key = NULL, and
+    Postgres UNIQUE indexes permit multiple NULLs, so it applies cleanly and does
+    not collide with re-used reference_id values (seasonId/referralId).
+  - NOTE: migrations CANNOT be applied in this environment (dummy DB). The schema
+    change was validated via `prisma generate` (client regenerated with
+    ledger_key) and the project compiles. Applying the migration is a deployment
+    step.
+
+--------------------------------------------------------------------------------
+16. API CHANGES
+--------------------------------------------------------------------------------
+  - POST /anti-cheat/flags/:id/review : request body no longer accepts/uses
+    `admin_id` (it was spoofable). Actor is the authenticated calling service.
+    Response shape unchanged.
+  - POST /anti-cheat/users/:userId/ban : actor now authenticated, not from body.
+    Request body `{ reason }` unchanged; response unchanged.
+  - No other public request/response contracts changed. No endpoints added or
+    removed. Internal service method signatures (reviewFlag actor, banUser
+    enforcedBy) changed but are not external contracts.
+
+--------------------------------------------------------------------------------
+17. SECURITY IMPROVEMENTS
+--------------------------------------------------------------------------------
+  - Removed spoofable identity (body.admin_id) from enforcement endpoints;
+    attribution is now bound to the cryptographically-verified service identity.
+  - Enforcement endpoints already carry ServiceIdentityGuard (class-level);
+    confirmed and retained.
+  - Money idempotency hardened from "Redis-lock only" to a DB-enforced UNIQUE
+    (ledger_key), so a lost Redis lock can no longer permit a double credit/debit;
+    a P2002 race is resolved as a duplicate rather than a partial write.
+
+--------------------------------------------------------------------------------
+18. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+  - Negligible. Entry-fee/referral now take one Redis SETNX + one ledger_key
+    lookup + one FOR UPDATE transaction (previously a FOR UPDATE transaction).
+  - One extra UNIQUE index on transactions(ledger_key); index is partial-NULL
+    heavy and only populated for ledger-written rows.
+  - No new N+1 patterns. dailyReconciliation untouched (type + bucket preserved,
+    so cash reconciliation totals are unaffected; REFERRAL_BONUS stays in the
+    bonus bucket and remains excluded from cash reconciliation).
+
+--------------------------------------------------------------------------------
+19. BUILD RESULT
+--------------------------------------------------------------------------------
+  GREEN.
+    npx prisma generate  -> Prisma Client v7.8.0 generated OK.
+    npm run build (nest build) -> exit code 0.
+    dist/src/main.js present.
+  No TypeScript errors in any modified file.
+
+--------------------------------------------------------------------------------
+20. TESTS EXECUTED
+--------------------------------------------------------------------------------
+  None. Per the directive's "DO NOT TOUCH: Testing" scope, no test files were
+  added or run. Verification was limited to: full TypeScript compilation,
+  Prisma client regeneration, and a static audit confirming the canonical source
+  now has exactly two is_banned write sites (EnforcementService.enforce and the
+  documented unbanUser). Runtime DB behavior is unverified because migrations
+  cannot be applied here.
+
+--------------------------------------------------------------------------------
+21. BLOCKERS FULLY RESOLVED
+--------------------------------------------------------------------------------
+  - Enforcement BAN split-brain: bans no longer have a parallel direct-write path.
+  - Spoofable enforcement identity (body.admin_id): removed.
+  - Entry-fee / referral lacked idempotency: now DB-enforced via ledger_key.
+  - Referral / entry-fee bypassed the authoritative money pipeline: now routed.
+
+--------------------------------------------------------------------------------
+22. BLOCKERS PARTIALLY RESOLVED
+--------------------------------------------------------------------------------
+  - "Single money plane": entry-fee + referral + prize + admin adjustments are on
+    the ledger; DEPOSIT and WITHDRAWAL/SETTLEMENT still bypass it (intentional,
+    semantics-preserving). Money plane is NOT fully unified.
+  - "Single enforcement plane": all BAN writes unified; UNBAN remains a direct
+    write because no authoritative reversal action exists.
+
+--------------------------------------------------------------------------------
+23. BLOCKERS NOT TOUCHED (out of scope by directive)
+--------------------------------------------------------------------------------
+  - Auth / Tournament / Notification redesign.
+  - Testing / CI.
+  - Infrastructure / deployment.
+  - Frontend.
+  - Game logic / RNG.
+  - Architecture redesign (e.g. rewriting deposit/withdrawal to fit the ledger,
+    or adding an authoritative un-enforce action).
+  - The DIVERGENT duplicate tree at c:\zubaco-games\zubaco-games\zubaco-platform
+    (still contains its own is_banned writers and money logic); not canonical,
+    not modified.
+
+--------------------------------------------------------------------------------
+24. KNOWN LIMITATIONS
+--------------------------------------------------------------------------------
+  - Migrations not applied (dummy DB); ledger_key idempotency is compile-verified
+    but not runtime-verified against a live database.
+  - The global Redis ledger lock key remains keyed on idempotencyKey; this is now
+    backstopped by the UNIQUE ledger_key, but all callers must continue to use
+    per-user-unique keys (referral:<rid>:<uid>, entryfee:<sid>:<uid>,
+    prize:<sid>:<uid>) to avoid cross-user lock contention.
+  - debitEntryFee is a second ledger entry method alongside post(); it exists
+    because the bonus-first cross-bucket rule cannot be expressed by the single-
+    bucket post() without complicating the shared hot path. Both are authoritative.
+  - unbanUser remains a direct is_banned write.
+  - Deposit and withdrawal remain off-ledger.
+
+--------------------------------------------------------------------------------
+25. REMAINING WORK
+--------------------------------------------------------------------------------
+  - Rework the deposit lifecycle so the gateway and the ledger share one writer
+    (e.g. ledger.settleDeposit() claiming the PENDING row), removing the double-
+    credit hazard, then route deposit through the ledger.
+  - Add a PENDING-capable ledger path (e.g. ledger.postPending + settlePending
+    wiring) for withdrawals, and connect the external RazorpayX disbursement
+    callback to settlePending (WALLET-001).
+  - Decide whether unban should become an authoritative reversal action on
+    EnforcementService; if so, design it (it is a redesign, not a routing fix).
+  - Apply 20260630_transaction_ledger_key in each environment and backfill/verify.
+  - Reconcile or retire the divergent duplicate tree.
+
+--------------------------------------------------------------------------------
+26. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+  ROLLOUT-005: "Ledger PENDING lifecycle + deposit/withdrawal convergence."
+  Introduce a PENDING-aware ledger primitive and a deposit-claim primitive so the
+  final two live money flows (deposit, withdrawal/settlement) can move onto the
+  ledger without changing semantics, achieving a true single money plane; and
+  evaluate an authoritative un-enforce action to close the unban gap.
+
+--------------------------------------------------------------------------------
+27. FINAL STATUS
+--------------------------------------------------------------------------------
+  PARTIAL.
+
+  Enforcement BAN writes: SINGLE PLANE (authoritative = EnforcementService).
+  Enforcement UNBAN: still a documented direct write -> PARTIALLY RESOLVED.
+  Money (entry-fee, referral, prize, admin adjustments): ON the ledger.
+  Money (deposit, withdrawal, settlement): still bypass the ledger -> PARTIALLY
+  RESOLVED (intentional, to preserve transaction semantics).
+
+  Per the CRITICAL RULE: COMPLETE is NOT claimed. The live runtime now executes
+  the authoritative implementation for the routed flows, the corresponding legacy
+  ban/entry-fee/referral runtime paths are no longer authoritative, and duplicate
+  ban execution no longer exists; but deposit/withdrawal money paths and the
+  unban path remain split, so the overall objective is PARTIALLY RESOLVED.
+  Build is GREEN.
+================================================================================

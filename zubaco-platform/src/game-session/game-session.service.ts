@@ -1,23 +1,15 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { ScoringService } from '../scoring/scoring.service';
 import { PuzzleService } from '../rng/puzzle.service';
-import { WebhookService } from '../webhook/webhook.service';
-import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
-import { SessionState, assertTransition } from './lifecycle/session-lifecycle';
-import { VerificationPipeline } from './verification/verification.pipeline';
-import { VerificationStatus } from './verification/verification.types';
+import { SessionCompletionService } from './completion/session-completion.service';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class GameSessionService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly scoring: ScoringService,
     private readonly puzzle: PuzzleService,
-    private readonly webhook: WebhookService,
-    private readonly antiCheat: AntiCheatService,
-    private readonly verification: VerificationPipeline,
+    private readonly completion: SessionCompletionService,
   ) {}
 
   /**
@@ -185,97 +177,25 @@ export class GameSessionService {
 
     if (!session) throw new NotFoundException('Active session not found');
 
-    // ── Canonical lifecycle: ACTIVE -> RESULT_PROCESSING -> terminal ──
-    // Single guard shared by every engine; rejects illegal/duplicate completion.
-    assertTransition(SessionState.ACTIVE, SessionState.RESULT_PROCESSING);
-
     // Verify elapsed time is plausible (session must have started before now)
     const elapsed = Date.now() - new Date(session.started_at).getTime();
     if (durationMs > elapsed + 5000) {
       throw new ForbiddenException('Duration exceeds session age');
     }
 
-    // ── Universal server-authoritative verification (GAME-002) ────
-    // Single pipeline runs BEFORE the score is persisted and BEFORE anti-cheat,
-    // webhook (leaderboard/tournament/wallet) fan-out. No client value is trusted.
-    const storedPuzzle = (session.metadata as any)?._puzzle;
-    const claimedScore = typeof score === 'number' ? score : null;
-    const verdict = this.verification.verify(
-      {
-        id: session.id,
-        userId: session.user_id,
-        gameType: session.game_type,
-        mode: session.mode,
-        config: session.config,
-        serverSeed: session.server_seed,
-        clientSeed: session.client_seed,
-        nonce: session.nonce,
-        startedAt: new Date(session.started_at),
-        metadata: session.metadata,
-        storedPuzzle,
-      },
-      { score: claimedScore, durationMs, metadata },
-    );
-
-    const boardTampered = verdict.status === VerificationStatus.REJECTED;
-    const authoritativeScore = verdict.authoritativeScore;
-    const flagged = verdict.status !== VerificationStatus.VERIFIED;
-
-    assertTransition(SessionState.RESULT_PROCESSING, SessionState.COMPLETED);
-
-    const updated = await this.prisma.gameSession.update({
-      where: { id: sessionId },
-      data: {
-        score: authoritativeScore,
-        max_score: verdict.maxScore,
-        duration_ms: verdict.authoritativeDurationMs,
-        outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
-        completed_at: new Date(),
-        metadata: {
-          ...(metadata || {}),
-          ...(storedPuzzle ? { _puzzle: storedPuzzle } : {}),
-          _verification: {
-            status: verdict.status,
-            integrity: verdict.integrity,
-            validated: verdict.validated,
-            ...verdict.metadata,
-            flagged,
-          },
-        },
-      },
+    // ── Single authoritative completion path (ROLLOUT-002) ──
+    // Lifecycle -> Verification -> persist -> anti-cheat -> events -> webhook.
+    const result = await this.completion.complete(session, {
+      claimedScore: typeof score === 'number' ? score : null,
+      durationMs,
+      metadata,
     });
 
-    // Run anti-cheat analysis on the authoritative result (best-effort).
-    try {
-      await this.antiCheat.analyzeGameResult(
-        userId,
-        updated.id,
-        authoritativeScore,
-        durationMs,
-        updated.game_type,
-        { metadata, claimedScore, serverScore: verdict.metadata?.server_score, boardTampered },
-      );
-    } catch {
-      // Never block result submission on anti-cheat analysis failures.
-    }
-
-    // Notify the Base Platform of the validated result (durable, signed, async).
-    await this.webhook.emitGameResult({
-      session_id: updated.id,
-      user_id: updated.user_id,
-      game_type: updated.game_type as any,
-      mode: updated.mode as any,
-      score: updated.score ?? 0,
-      max_score: updated.max_score ?? 0,
-      duration_ms: updated.duration_ms,
-      outcome: updated.outcome ?? 'COMPLETED',
-      stage_entry_id: updated.stage_entry_id,
-      level: updated.level,
-      flagged,
-      validated: verdict.validated,
-      completed_at: (updated.completed_at ?? new Date()).toISOString(),
-    });
-
-    return { success: true, score: updated.score, max_score: updated.max_score, validated: verdict.validated };
+    return {
+      success: true,
+      score: result.authoritativeScore,
+      max_score: result.maxScore,
+      validated: result.validated,
+    };
   }
 }

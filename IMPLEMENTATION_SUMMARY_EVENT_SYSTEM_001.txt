@@ -1,0 +1,433 @@
+================================================================================
+IMPLEMENTATION SUMMARY — EVENT_SYSTEM_001
+AUTHORITATIVE EVENT BUS COMPLETION
+================================================================================
+Phase ID ............ EVENT_SYSTEM_001
+Mode ................ IMPLEMENTATION
+Build ............... GREEN (prisma generate OK, nest build exit 0)
+Scope guardrails .... No breaking API changes. No redesign. No shortcuts.
+                      Reuse existing EventBus + notification/webhook infra.
+Repo root ........... c:\zubaco-games\
+Project ............. c:\zubaco-games\zubaco-platform\
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Make EventBusService the authoritative event publisher by connecting every
+remaining live runtime producer and the remaining supported subscribers, WITHOUT
+redesigning the EventBus, notifications, or the webhook integration.
+
+At phase start the bus already had: envelope, versioning, Redis outbox, retry,
+DLQ, in-app subscriber, and wallet event publication. The unconnected producers
+were: tournament progression, tournament completion, reward eligibility,
+anti-cheat enforcement, account review. The unbuilt subscribers were: webhook,
+email, SMS, push.
+
+
+--------------------------------------------------------------------------------
+2. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Producers (PART A): all five missing live producers now publish through the bus,
+post-commit, with deterministic idempotency keys:
+  - TournamentOrchestrator.advanceStage()      -> TOURNAMENT_PROGRESSED,
+                                                  TOURNAMENT_COMPLETED
+  - TournamentOrchestrator.resolveRewardEligibility() -> REWARD_ELIGIBLE (per winner)
+  - EnforcementService.enforce()               -> ANTI_CHEAT_ENFORCED (confirmed)
+                                                  ACCOUNT_REVIEWED (mark-for-review)
+After this phase, EVERY value in PlatformEventType has a live producer that
+publishes through EventBusService.
+
+Subscribers (PART B): a Webhook subscriber was added, reusing the existing
+durable, HMAC-signed webhook outbox (retry + DLQ). It forwards platform events to
+the Base Platform via a new additive 'platform.event' envelope type, idempotent
+on the platform event id, and config-gated (no-op when no webhook URL is set).
+Email and SMS subscribers were NOT built — there is no email infrastructure at
+all, and the only SMS sender (auth OTP) is not a notification channel; wiring
+either would require new infrastructure / module coupling, i.e. a redesign,
+which is explicitly out of scope. Push is already delivered today through the
+in-app subscriber (NotificationService.sendNotification -> FCM
+sendPushNotification), so a separate push subscriber was intentionally NOT added
+(it would double-send).
+
+Outbox -> retry -> DLQ -> subscriber works unchanged for every newly connected
+producer (they all use the same publish() path). Duplicate publication is
+prevented by the bus dedupe (Redis setnx on event.id, 7-day) plus deterministic
+event ids; producer-level idempotency (tournament advance lock, enforce lock,
+ledger claims) prevents re-entry upstream.
+
+Build is GREEN.
+
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+src/tournament/orchestration/tournament.orchestrator.ts
+  - Injected EventBusService; import PlatformEventType.
+  - advanceStage(): publishes TOURNAMENT_PROGRESSED (when next stage opens) and
+    TOURNAMENT_COMPLETED (when season completes), post-commit, before return.
+  - resolveRewardEligibility(): publishes REWARD_ELIGIBLE per eligible winner.
+
+src/anti-cheat/enforcement/enforcement.service.ts
+  - Injected EventBusService; import PlatformEventType.
+  - enforce(): post-commit publishes ANTI_CHEAT_ENFORCED (req.confirmed) or
+    ACCOUNT_REVIEWED (mark-for-review path).
+
+src/webhook/webhook.types.ts
+  - Added 'platform.event' to the WebhookEventType union (additive).
+
+src/webhook/webhook.service.ts
+  - Added emitPlatformEvent(eventType, data, userId, eventId) reusing the outbox.
+  - enqueue() gained an optional `id` param so the envelope id can be the
+    platform event id (idempotent redelivery). Existing callers unchanged.
+
+src/events/events.module.ts
+  - Registered WebhookEventSubscriber in providers and in the
+    DI_EVENT_SUBSCRIBERS factory ([inApp, webhook]).
+
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+src/events/subscribers/webhook.subscriber.ts
+  - WebhookEventSubscriber (EventSubscriber). Forwards each platform event to the
+    Base Platform via WebhookService.emitPlatformEvent(). Idempotent + config-gated.
+
+(Plus this report.)
+
+
+--------------------------------------------------------------------------------
+5. FILES REMOVED
+--------------------------------------------------------------------------------
+None.
+
+
+--------------------------------------------------------------------------------
+6. EVENT PRODUCERS — BEFORE
+--------------------------------------------------------------------------------
+Publishing through EventBus already:
+  - SessionCompletionService.complete()      -> GAME_COMPLETED,
+                                                VERIFICATION_PASSED / FAILED
+  - PaymentGatewayService.creditDepositAtomically() -> WALLET_CREDITED
+  - PaymentGatewayService.processWithdrawal() -> PAYOUT_SETTLED, PAYOUT_REVERSED
+  - AdminControlPlaneService.dispatch()       -> WALLET_CREDITED (admin credit)
+
+NOT publishing (authoritative work happened, but no event):
+  - TournamentOrchestrator.advanceStage()            (progression / completion)
+  - TournamentOrchestrator.resolveRewardEligibility() (reward eligibility)
+  - EnforcementService.enforce()                     (enforcement / review)
+
+
+--------------------------------------------------------------------------------
+7. EVENT PRODUCERS — AFTER
+--------------------------------------------------------------------------------
+All of the above PLUS:
+  - TournamentOrchestrator.advanceStage()
+        nextStageOpened -> TOURNAMENT_PROGRESSED  (id `tournament.progressed:${stageId}`)
+        seasonCompleted -> TOURNAMENT_COMPLETED   (id `tournament.completed:${seasonId}`)
+  - TournamentOrchestrator.resolveRewardEligibility()
+        per winner    -> REWARD_ELIGIBLE          (id `reward.eligible:${seasonId}:${entryId}`,
+                                                    userId = winner)
+  - EnforcementService.enforce()
+        confirmed     -> ANTI_CHEAT_ENFORCED       (id `anticheat.enforced:${sessionId??userId}`)
+        mark-review   -> ACCOUNT_REVIEWED          (id `account.reviewed:${sessionId??userId}`)
+
+Result: every PlatformEventType value now has a live producer. Both new producer
+sites are reachable in the live runtime: advanceStage / resolveRewardEligibility
+via AdminControlPlaneService (ADVANCE_STAGE / RESOLVE_REWARDS admin commands);
+enforce() via both AdminControlPlaneService (ENFORCE_ANTI_CHEAT / MARK_FOR_REVIEW)
+and AntiCheatService auto-ban (wired in ROLLOUT-004).
+
+
+--------------------------------------------------------------------------------
+8. SUBSCRIBERS — BEFORE
+--------------------------------------------------------------------------------
+  - InAppEventSubscriber ('in-app'): maps a subset of events to
+    NotificationService.sendNotification(), which persists an in-app
+    notification AND triggers an FCM push. Registered in DI_EVENT_SUBSCRIBERS.
+  - No webhook / email / SMS / push event subscriber.
+
+
+--------------------------------------------------------------------------------
+9. SUBSCRIBERS — AFTER
+--------------------------------------------------------------------------------
+  - InAppEventSubscriber ('in-app'): unchanged.
+  - WebhookEventSubscriber ('webhook'): NEW. Forwards every platform event to the
+    Base Platform through the existing durable, HMAC-signed webhook outbox
+    (retry + DLQ). Idempotent (envelope id = event id; Base Platform dedupes).
+    Config-gated: a no-op when BASE_PLATFORM_WEBHOOK_URL is unset, so it adds no
+    behaviour where no destination exists.
+  - Email / SMS: NOT added (see §15 — no supporting infrastructure; would be a
+    redesign).
+  - Push: NOT added as a separate subscriber — already delivered via the in-app
+    subscriber's sendNotification -> FCM path (a second subscriber would
+    double-send).
+
+
+--------------------------------------------------------------------------------
+10. RUNTIME EVENT FLOW — BEFORE
+--------------------------------------------------------------------------------
+  Producer (wallet, game session)
+      -> EventBusService.publish()
+      -> Redis outbox (per subscriber)
+      -> drain cron (retry/backoff, DLQ)
+      -> InAppEventSubscriber
+      -> NotificationService (in-app row + FCM push)
+
+  Tournament progression/completion, reward eligibility, and enforcement did
+  NOT enter this pipeline (no publish call).
+
+  (Separately, WebhookService delivered game.result.validated and
+   enforcement.reversal to the Base Platform via direct calls — not via the bus.)
+
+
+--------------------------------------------------------------------------------
+11. RUNTIME EVENT FLOW — AFTER
+--------------------------------------------------------------------------------
+  Producer (wallet, game session, tournament orchestrator, enforcement)
+      -> EventBusService.publish(type, data, userId?, deterministicId)
+      -> dedupe on event.id (Redis setnx, 7-day) — duplicate publish suppressed
+      -> Redis outbox: one record per subscriber  (events:outbox)
+      -> drain cron every 10s (claim by zrem, exp backoff, DLQ after 8 attempts)
+      -> Subscribers:
+           in-app  -> NotificationService -> in-app notification + FCM push
+           webhook -> WebhookService.emitPlatformEvent()
+                       -> webhook outbox (events: webhook:outbox)
+                       -> webhook drain cron (HMAC-signed POST, retry, DLQ)
+                       -> Base Platform
+
+  Per live event today:
+    GAME_COMPLETED .............. game session  -> bus -> in-app(+push) -> webhook
+    VERIFICATION_PASSED/FAILED .. game session  -> bus -> (in-app only if mapped) -> webhook
+    WALLET_CREDITED ............. wallet/admin   -> bus -> in-app(+push) -> webhook
+    PAYOUT_SETTLED/REVERSED ..... wallet         -> bus -> in-app(+push) -> webhook
+    TOURNAMENT_PROGRESSED ....... orchestrator   -> bus -> webhook (no userId -> no in-app)
+    TOURNAMENT_COMPLETED ........ orchestrator   -> bus -> webhook (no userId -> no in-app)
+    REWARD_ELIGIBLE ............. orchestrator   -> bus -> in-app(+push) -> webhook
+    ANTI_CHEAT_ENFORCED ......... enforcement    -> bus -> in-app(+push) -> webhook
+    ACCOUNT_REVIEWED ............ enforcement    -> bus -> in-app(+push) -> webhook
+
+
+--------------------------------------------------------------------------------
+12. NEW EVENTS PUBLISHED
+--------------------------------------------------------------------------------
+  - TOURNAMENT_PROGRESSED  (tournament.progressed)
+  - TOURNAMENT_COMPLETED   (tournament.completed)
+  - REWARD_ELIGIBLE        (reward.eligible)        [per winner]
+  - ANTI_CHEAT_ENFORCED    (anticheat.enforced)
+  - ACCOUNT_REVIEWED       (account.reviewed)
+
+No new enum values were added — these PlatformEventType values already existed;
+this phase connected live producers to them.
+
+
+--------------------------------------------------------------------------------
+13. NEW SUBSCRIBERS ADDED
+--------------------------------------------------------------------------------
+  - WebhookEventSubscriber ('webhook') — forwards all platform events to the Base
+    Platform via the existing durable signed outbox. Idempotent + config-gated.
+
+
+--------------------------------------------------------------------------------
+14. REMAINING DORMANT EVENTS
+--------------------------------------------------------------------------------
+  - None at the producer level: every PlatformEventType value now has a live
+    producer publishing through the bus.
+  - Partial-delivery note (not a dormant event, a dormant CHANNEL for it):
+    TOURNAMENT_PROGRESSED and TOURNAMENT_COMPLETED are published without a userId
+    (they are stage/season-wide), so the in-app subscriber (which requires a
+    userId) does not fan them out to individual participants. The events ARE
+    published authoritatively and delivered to the webhook subscriber. Per-user
+    in-app fan-out for tournament-wide events would need a participant-broadcast
+    subscriber (new logic) and is out of scope here.
+
+
+--------------------------------------------------------------------------------
+15. REMAINING DORMANT SUBSCRIBERS
+--------------------------------------------------------------------------------
+  - Email subscriber: DORMANT — there is NO email infrastructure in the codebase
+    (no EmailService, no nodemailer/SendGrid/SES). Building one is new
+    infrastructure, explicitly out of scope ("do not redesign"). Not implemented.
+  - SMS subscriber: DORMANT — the only SMS sender is auth/sms.service.ts, used
+    solely to deliver login OTPs (provider MSG91/Twilio). It is not a notification
+    channel; wiring it to events would require (a) importing AuthModule into the
+    events layer (coupling/cycle risk) and (b) resolving a phone number per event.
+    That is a redesign of notifications, out of scope. Not implemented.
+  - Push subscriber: NOT a separate subscriber — push is already delivered by the
+    in-app subscriber (NotificationService.sendNotification calls the FCM
+    sendPushNotification path). A dedicated push subscriber would double-send.
+
+
+--------------------------------------------------------------------------------
+16. DATABASE CHANGES
+--------------------------------------------------------------------------------
+None. No schema migration. Prisma client regenerated (no model delta). The new
+producers reuse existing tables (seasonStage/season/stageEntry, user/gameSession);
+events flow through Redis, not new DB tables.
+
+
+--------------------------------------------------------------------------------
+17. API CHANGES
+--------------------------------------------------------------------------------
+None. No HTTP endpoints added, removed, or changed. No public method signatures
+changed (WebhookService.enqueue gained an OPTIONAL trailing param; all existing
+callers are unaffected). Producer method signatures are unchanged.
+
+
+--------------------------------------------------------------------------------
+18. SECURITY IMPROVEMENTS
+--------------------------------------------------------------------------------
+  - Single authoritative event plane: tournament, reward, and enforcement
+    lifecycle changes now emit through one audited, deduped pipeline rather than
+    silently mutating state with no signal.
+  - Idempotent publication: deterministic event ids + Redis setnx dedupe make
+    duplicate publication impossible even under retries/concurrency.
+  - Webhook forwarding reuses the existing HMAC-SHA256 signed envelope; the Base
+    Platform can verify origin and dedupe on the (now event-derived) envelope id.
+  - Post-commit emission only: every new publish runs after the authoritative DB
+    transaction/operation has committed, so no event can describe rolled-back state.
+
+
+--------------------------------------------------------------------------------
+19. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+Negligible. Each new producer adds 1-2 Redis writes (setnx + zadd per subscriber)
+on already-infrequent control-plane operations (stage advance, reward resolution,
+enforcement). The webhook subscriber adds one Redis zadd per event onto the
+existing outbox. No new hot-path work, no new DB round-trips, no N+1.
+
+
+--------------------------------------------------------------------------------
+20. BUILD RESULT
+--------------------------------------------------------------------------------
+Command:
+  $env:NODE_EXTRA_CA_CERTS="C:\TEMP\cisco-umbrella-ca.crt"
+  npx prisma generate   -> Generated Prisma Client (v7.8.0) — OK
+  npm run build (nest build) -> exit 0
+
+Result: GREEN. No TypeScript errors. get_errors on all six modified/created
+files: no errors found.
+
+
+--------------------------------------------------------------------------------
+21. TESTS EXECUTED
+--------------------------------------------------------------------------------
+No automated suite was run (Testing is out of scope; the DB is a dummy/non-applied
+instance). Verification performed:
+  - Compile / type check (nest build) — PASS.
+  - Per-file diagnostics (get_errors) — clean.
+  - Producer reachability traced via code-usage analysis (advanceStage,
+    resolveRewardEligibility, enforce all reachable from live control-plane /
+    anti-cheat paths) — PASS.
+  - DI wiring reviewed: EventsModule @Global exports EventBusService; WebhookModule
+    @Global exports WebhookService; no new import cycles introduced — PASS.
+
+
+--------------------------------------------------------------------------------
+22. BLOCKERS FULLY RESOLVED
+--------------------------------------------------------------------------------
+  - Tournament progression/completion not published — RESOLVED.
+  - Reward eligibility not published — RESOLVED.
+  - Anti-cheat enforcement not published — RESOLVED.
+  - Account review not published — RESOLVED (mark-for-review path emits
+    ACCOUNT_REVIEWED).
+  - No webhook event subscriber — RESOLVED (reachable, idempotent, reuses outbox).
+  - Duplicate publication risk — RESOLVED (deterministic ids + bus dedupe).
+
+
+--------------------------------------------------------------------------------
+23. BLOCKERS PARTIALLY RESOLVED
+--------------------------------------------------------------------------------
+  - In-app fan-out for tournament-wide events: TOURNAMENT_PROGRESSED/COMPLETED are
+    published and webhook-delivered, but not delivered as per-participant in-app
+    notifications (no userId on a stage/season-wide event; the in-app subscriber
+    is per-user). Authoritative emission is DONE; per-user broadcast is not.
+
+
+--------------------------------------------------------------------------------
+24. BLOCKERS NOT TOUCHED
+--------------------------------------------------------------------------------
+  - Email channel: no infrastructure exists; building it is out of scope.
+  - SMS-for-events: only OTP SMS exists; repurposing it is a notifications
+    redesign, out of scope.
+  - Wallet / Tournament / Auth / Game logic / Infrastructure / Frontend / Testing
+    / Admin redesign — untouched per directive.
+  - Existing direct Base-Platform webhooks (game.result.validated,
+    enforcement.reversal) left as-is (not migrated onto the bus to avoid changing
+    that external contract).
+
+
+--------------------------------------------------------------------------------
+25. KNOWN LIMITATIONS
+--------------------------------------------------------------------------------
+  - In-app subscriber is at-least-once, not exactly-once: it stamps event_id into
+    notification metadata but does not dedupe on it, so a delivery retry after a
+    partial failure could create a duplicate in-app notification/push. This is a
+    PRE-EXISTING property of InAppEventSubscriber, unchanged by this phase. The
+    bus still publishes once; only redelivery on subscriber failure is affected.
+  - Webhook subscriber forwards ALL platform events under 'platform.event'. For
+    game results and enforcement reversals the Base Platform may also receive the
+    pre-existing dedicated webhooks (game.result.validated / enforcement.reversal);
+    these are distinct envelope types and the Base Platform dedupes per id.
+  - Tournament-wide events carry no userId (see §23).
+  - Migrations cannot be applied against the dummy DB; correctness verified by
+    compile + reachability/DI review, not runtime execution.
+
+
+--------------------------------------------------------------------------------
+26. REMAINING WORK
+--------------------------------------------------------------------------------
+  - Add a participant-broadcast (or fan-out) subscriber so tournament-wide events
+    reach each participant in-app, if product wants per-user stage notifications.
+  - Make InAppEventSubscriber idempotent (dedupe sendNotification on event_id) to
+    upgrade in-app delivery to effectively exactly-once.
+  - Introduce an EmailService (new infra) before an email subscriber is feasible.
+  - Decide product policy on event SMS before wiring the OTP SMS sender to events.
+
+
+--------------------------------------------------------------------------------
+27. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+EVENT_SYSTEM_002 — "NOTIFICATION CHANNEL EXPANSION + EXACTLY-ONCE IN-APP":
+  1. Add idempotent in-app delivery (dedupe on event_id) for true exactly-once.
+  2. Add a tournament participant fan-out subscriber for stage/season events.
+  3. Introduce EmailService (new infra) + an Email subscriber for high-value
+     events (payout settled, reward eligible).
+  4. Define and (if approved) wire an SMS subscriber for critical events, reusing
+     the OTP SMS provider with explicit per-event opt-in.
+
+
+--------------------------------------------------------------------------------
+28. FINAL STATUS
+--------------------------------------------------------------------------------
+STATUS: COMPLETE (for the stated objective) — with disclosed channel caveats.
+
+Against the CRITICAL completion rule:
+  [x] Live runtime publishes through EventBus
+        (every PlatformEventType now has a live producer; tournament + reward +
+         enforcement + account-review all emit through publish()).
+  [x] Subscribers are actually reachable
+        (in-app + webhook both registered in DI_EVENT_SUBSCRIBERS and driven by
+         the drain cron; webhook reuses the live signed outbox).
+  [x] Duplicate publication is prevented
+        (deterministic event ids + Redis setnx dedupe; producer-level locks/claims
+         upstream).
+  [x] Retry + DLQ remain functional
+        (unchanged bus drain: exp backoff, 8-attempt cap, dead-letter set; webhook
+         outbox retains its own retry + DLQ).
+
+DISCLOSED, NOT HIDDEN:
+  - Email and SMS subscribers remain DORMANT because the supporting
+    infrastructure does not exist (email) or is OTP-only (SMS); implementing them
+    would be a redesign, explicitly out of scope. This is the directed behaviour
+    ("implement subscribers ONLY where architecture already supports them"), not
+    an unfinished blocker.
+  - Push has no separate subscriber by design (already delivered via in-app FCM).
+  - Tournament-wide events are published + webhook-delivered but not fanned out
+    per-participant in-app (no userId). Authoritative emission is complete; the
+    per-user broadcast channel is future work.
+
+================================================================================
+END OF REPORT — EVENT_SYSTEM_001
+================================================================================

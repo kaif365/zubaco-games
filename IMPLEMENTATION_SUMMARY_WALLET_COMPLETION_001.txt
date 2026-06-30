@@ -1,0 +1,480 @@
+================================================================================
+IMPLEMENTATION SUMMARY — WALLET_COMPLETION_001
+AUTHORITATIVE DEPOSIT + WITHDRAWAL LIFECYCLE
+================================================================================
+Phase ID ............ WALLET_COMPLETION_001 (a.k.a. ROLLOUT-005)
+Mode ................ IMPLEMENTATION
+Build ............... GREEN (prisma generate OK, nest build exit 0)
+Scope guardrails .... No breaking API changes. No redesign. No shortcuts.
+                      Business semantics preserved. Razorpay flow untouched.
+Repo root ........... c:\zubaco-games\
+Project ............. c:\zubaco-games\zubaco-platform\
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Complete the remaining Wallet architecture by converging the last off-ledger
+live money paths — Deposit and Withdrawal — onto the already-authoritative
+WalletLedger, WITHOUT changing business semantics, API contracts, or the
+Razorpay integration.
+
+Before this phase, four flows were already authoritative (routed through the
+ledger): Tournament payout, Entry fee, Referral bonus, Admin adjustment.
+
+Still legacy (direct balance mutation) at phase start:
+  - Deposit (manual)
+  - Pending deposit creation
+  - Deposit settlement (verify + webhook)
+  - Withdrawal request
+  - Withdrawal settlement
+  - Razorpay reconciliation touch-points
+
+Goal: route every deposit and withdrawal money movement through the ledger so
+that each movement yields Ledger -> Immutable audit -> Idempotency ->
+Event publication, with no duplicate credits, no double webhook execution, and
+no direct balance mutations remaining for deposit/withdrawal.
+
+
+--------------------------------------------------------------------------------
+2. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+The deposit and withdrawal money flows now converge on WalletLedgerService.
+
+Deposit:
+  - The manual deposit() entrypoint (previously direct balance mutation, no live
+    caller) is now a thin adapter over ledger.post(DEPOSIT_CREDIT).
+  - Live deposit settlement (Razorpay verify + webhook -> creditDepositAtomically)
+    now delegates to the new ledger.settleDeposit(), which atomically claims the
+    PENDING DEPOSIT row (PENDING -> COMPLETED, single writer wins) and credits the
+    cash bucket with a full audit trail. The claim is the idempotency guard, so a
+    verify+webhook race cannot double-credit. WALLET_CREDITED is published once on
+    the winning claim, keyed deterministically.
+
+Withdrawal:
+  - requestWithdrawal() (reached live via initiateWithdrawal -> OTP ->
+    confirmWithdrawal) now reserves funds through the new
+    ledger.createPendingWithdrawal(): atomic gross debit + PENDING WITHDRAWAL row
+    + TDS_DEDUCTION row, preserving the exact legacy row shape (WITHDRAWAL.amount =
+    netPayout, TDS row.amount = tds).
+  - Withdrawal settlement (processWithdrawal) now flips state through
+    ledger.completeWithdrawal() on success and ledger.failWithdrawal() on payout
+    error (refunds netPayout), each guarded against double execution by an atomic
+    status claim. PAYOUT_SETTLED / PAYOUT_REVERSED events publish once.
+
+The Razorpay HTTP integration (createRazorpayOrder, fetchRazorpayPayment,
+createRazorpayXPayout) is byte-for-byte unchanged.
+
+Honest caveat: processWithdrawal still has NO live caller in the current
+runtime (RazorpayX disbursement remains externally/operationally triggered —
+pre-existing item WALLET-001). The withdrawal SETTLEMENT path is now fully
+ledger-backed but is not yet invoked by a wired runtime trigger. Every
+withdrawal path that the live runtime DOES exercise today (request + pending
+reservation) is converged.
+
+Build is GREEN.
+
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+src/wallet/ledger/ledger.types.ts
+  - Added FinancialOperation.DEPOSIT_CREDIT.
+
+src/wallet/ledger/ledger.service.ts
+  - DEPOSIT_CREDIT added to CREDIT_OPS and txType() (maps to 'DEPOSIT').
+  - New lifecycle methods: settleDeposit(), createPendingWithdrawal(),
+    completeWithdrawal(), failWithdrawal().
+
+src/wallet/wallet.service.ts
+  - deposit() converted to a ledger.post(DEPOSIT_CREDIT) adapter.
+  - requestWithdrawal() converted to use ledger.createPendingWithdrawal()
+    (min/max/daily-limit/TDS logic preserved).
+  - Added `import { randomUUID } from 'crypto'` for unique withdrawal ledger keys.
+
+src/wallet/payment-gateway.service.ts
+  - Constructor now injects WalletLedgerService and EventBusService.
+  - Imports PlatformEventType.
+  - creditDepositAtomically() now delegates to ledger.settleDeposit() and
+    publishes WALLET_CREDITED.
+  - processWithdrawal() now uses ledger.completeWithdrawal() / failWithdrawal()
+    and publishes PAYOUT_SETTLED / PAYOUT_REVERSED.
+
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+None. (No new files required; the WalletLedger already existed and was extended
+in place. The only new artifact is this report.)
+
+
+--------------------------------------------------------------------------------
+5. FILES REMOVED
+--------------------------------------------------------------------------------
+None.
+
+
+--------------------------------------------------------------------------------
+6. DEPOSIT FLOW — BEFORE
+--------------------------------------------------------------------------------
+Manual deposit():
+  walletService.deposit(userId, amount, referenceId)
+    -> direct wallet balance increment + ad-hoc transaction row
+    (no live caller; effectively dead code)
+
+Razorpay deposit:
+  POST /wallet/deposit/create-order
+    -> createDepositOrder(): create Razorpay order + insert PENDING DEPOSIT row
+       (reference_id = order.id)
+  POST /wallet/deposit/verify  (or webhook payment.captured)
+    -> creditDepositAtomically(orderId, paymentId):
+         prisma.$transaction:
+           updateMany PENDING DEPOSIT -> COMPLETED (claim)
+           if count==0 -> already processed
+           wallet.upsert: balance += transaction.amount   <-- DIRECT MUTATION
+           transaction.update metadata += razorpay_payment_id
+       No domain event published.
+
+
+--------------------------------------------------------------------------------
+7. DEPOSIT FLOW — AFTER
+--------------------------------------------------------------------------------
+Manual deposit():
+  walletService.deposit(userId, amount, referenceId)
+    -> ledger.post({ operation: DEPOSIT_CREDIT, bucket: 'cash',
+                     idempotencyKey: `deposit:manual:${referenceId}:${userId}` })
+    -> returns { balance, amount }
+
+Razorpay deposit:
+  POST /wallet/deposit/create-order
+    -> createDepositOrder(): UNCHANGED (still creates Razorpay order + PENDING
+       DEPOSIT row). The pending state is preserved.
+  POST /wallet/deposit/verify  (or webhook payment.captured)
+    -> creditDepositAtomically(orderId, paymentId):
+         result = ledger.settleDeposit(orderId, paymentId)
+           (atomic claim PENDING DEPOSIT -> COMPLETED; FOR UPDATE wallet;
+            cash credit; balance_after recomputed; ledger_key = `deposit:${orderId}`;
+            metadata._ledger audit block + razorpay_payment_id)
+         if !result.applied -> { already_processed: true }   (race / cancelled)
+         else publish WALLET_CREDITED  (id `wallet.credited:deposit:${orderId}`)
+
+No direct wallet balance mutation remains in payment-gateway.service.ts.
+The pending -> completed semantics are preserved exactly.
+
+
+--------------------------------------------------------------------------------
+8. WITHDRAWAL FLOW — BEFORE
+--------------------------------------------------------------------------------
+Request:
+  POST /wallet/withdraw          -> initiateWithdrawal(): send OTP + Redis intent
+  POST /wallet/withdraw/confirm  -> confirmWithdrawal(): verify OTP
+    -> requestWithdrawal(userId, amount):
+         min/max + daily-limit checks
+         TDS calc (tds, netPayout)
+         prisma.$transaction:
+           wallet.update: balance -= gross               <-- DIRECT MUTATION
+           create WITHDRAWAL row (amount = netPayout, status PENDING)
+           if tds>0 create TDS_DEDUCTION row (amount = tds, status COMPLETED)
+
+Settlement (processWithdrawal — no live caller):
+  prisma.$transaction:
+    create payout via RazorpayX
+    transaction.update PENDING -> COMPLETED, or on failure
+    wallet.update: balance += netPayout (refund)         <-- DIRECT MUTATION
+  No domain events.
+
+
+--------------------------------------------------------------------------------
+9. WITHDRAWAL FLOW — AFTER
+--------------------------------------------------------------------------------
+Request:
+  POST /wallet/withdraw          -> initiateWithdrawal(): UNCHANGED
+  POST /wallet/withdraw/confirm  -> confirmWithdrawal(): UNCHANGED
+    -> requestWithdrawal(userId, amount):
+         min/max + daily-limit checks (UNCHANGED)
+         TDS calc (UNCHANGED)
+         ledger.createPendingWithdrawal({ grossAmount, netPayout, tdsAmount,
+           idempotencyKey: `withdrawal:${randomUUID()}`, reason }):
+             FOR UPDATE wallet; KYC + balance guards;
+             balance -= gross; create PENDING WITHDRAWAL row (amount = netPayout,
+             ledger_key set, _ledger audit); if tds>0 create TDS_DEDUCTION row.
+         returns { new_balance, withdrawal_amount, tds_deducted, net_payout,
+                   status: 'PENDING' }
+
+Settlement (processWithdrawal — still no live caller, see §13/§23):
+  find PENDING WITHDRAWAL row + verified bank detail
+  try createRazorpayXPayout(...)              (UNCHANGED Razorpay call)
+    on error -> ledger.failWithdrawal(txId, msg)  (claim PENDING -> FAILED;
+                FOR UPDATE wallet; refund netPayout; _reversal audit)
+                if reversed.applied -> publish PAYOUT_REVERSED; throw
+  on success -> ledger.completeWithdrawal(txId, { payoutId, payoutStatus })
+                (claim PENDING -> COMPLETED; no balance change; _settlement audit)
+                if settled.applied -> publish PAYOUT_SETTLED
+  return { success: true, payout_id }
+
+No direct wallet balance mutation remains in payment-gateway.service.ts or in
+wallet.service.ts withdrawal logic; all balance movement is in the ledger.
+
+
+--------------------------------------------------------------------------------
+10. LEDGER LIFECYCLE ADDED
+--------------------------------------------------------------------------------
+The following methods were added to WalletLedgerService (the engine itself was
+NOT redesigned; these are additive lifecycle operations):
+
+settleDeposit(referenceId, paymentId?)
+  - One $transaction: claim updateMany PENDING DEPOSIT -> COMPLETED; if count==0
+    return { applied:false, duplicate:true }; FOR UPDATE wallet; cash credit;
+    recompute balance_after; set ledger_key = `deposit:${referenceId}`; merge
+    metadata (razorpay_payment_id + _ledger audit block).
+  - Returns { applied, duplicate, transactionId?, userId?, amount?, balanceAfter? }.
+
+createPendingWithdrawal({ userId, grossAmount, netPayout, tdsAmount,
+                          idempotencyKey, reason })
+  - One $transaction: FOR UPDATE wallet; throw if no wallet; throw if
+    !kyc_verified; throw if cash < gross; balance -= gross; create PENDING
+    WITHDRAWAL row (amount = netPayout, balance_after, ledger_key, _ledger audit);
+    if tds>0 create COMPLETED TDS_DEDUCTION row (amount = tds).
+  - Returns { transactionId, balanceAfter }.
+
+completeWithdrawal(transactionId, { payoutId?, payoutStatus? })
+  - One $transaction: find WITHDRAWAL row; claim PENDING -> COMPLETED; if count==0
+    return { applied:false }; merge metadata payout_id/payout_status + _settlement.
+  - No balance change.
+  - Returns { applied }.
+
+failWithdrawal(transactionId, errorMessage)
+  - One $transaction: find WITHDRAWAL row; claim PENDING -> FAILED; if count==0
+    return { applied:false }; FOR UPDATE wallet; balance += row.amount (refund
+    netPayout — matches legacy); merge metadata error + _reversal.
+  - Returns { applied }.
+
+Also: FinancialOperation.DEPOSIT_CREDIT added; included in CREDIT_OPS; txType()
+maps DEPOSIT_CREDIT -> 'DEPOSIT' (preserving reconciliation classification).
+
+
+--------------------------------------------------------------------------------
+11. RUNTIME PATHS UPDATED
+--------------------------------------------------------------------------------
+LIVE (reachable by current API surface):
+  - POST /wallet/deposit/create-order  -> createDepositOrder (pending row; unchanged)
+  - POST /wallet/deposit/verify        -> creditDepositAtomically -> ledger.settleDeposit
+  - POST /wallet/webhook/razorpay      -> handleWebhook -> creditDepositAtomically
+                                          -> ledger.settleDeposit
+  - POST /wallet/withdraw/confirm      -> confirmWithdrawal -> requestWithdrawal
+                                          -> ledger.createPendingWithdrawal
+
+NOT LIVE (ledger-backed but no wired caller — see §13/§23):
+  - walletService.deposit()            -> ledger.post(DEPOSIT_CREDIT)
+  - paymentGateway.processWithdrawal() -> ledger.completeWithdrawal/failWithdrawal
+
+
+--------------------------------------------------------------------------------
+12. LEGACY PATHS REMOVED
+--------------------------------------------------------------------------------
+  - creditDepositAtomically's direct wallet.upsert balance increment — REMOVED
+    (replaced by ledger.settleDeposit).
+  - requestWithdrawal's direct wallet.update balance decrement + manual row
+    inserts — REMOVED (replaced by ledger.createPendingWithdrawal).
+  - processWithdrawal's direct wallet.update refund + manual status flips —
+    REMOVED (replaced by ledger.completeWithdrawal / failWithdrawal).
+  - deposit()'s direct balance mutation — REMOVED (replaced by ledger.post).
+
+
+--------------------------------------------------------------------------------
+13. REMAINING LEGACY PATHS
+--------------------------------------------------------------------------------
+Functional (NOT money-balance) legacy that intentionally remains:
+  - createDepositOrder() still writes the PENDING DEPOSIT row directly. This is a
+    pending-state creation, NOT a balance mutation, and is the input that
+    ledger.settleDeposit later claims. Preserved by design (preserves
+    pending -> completed semantics; no double credit).
+  - handleWebhook() payment.failed still does a status-only updateMany
+    (PENDING -> FAILED). No balance involved; left as-is.
+  - wallet-cleanup.service.ts expireAbandonedDeposits still flips abandoned
+    PENDING deposits to CANCELLED (status only). Out of scope; unchanged.
+
+Not-yet-wired (pre-existing WALLET-001):
+  - processWithdrawal() has no live runtime trigger because RazorpayX
+    disbursement is initiated operationally/externally. The path is now fully
+    ledger-backed but remains uninvoked by wired runtime.
+
+
+--------------------------------------------------------------------------------
+14. DATABASE CHANGES
+--------------------------------------------------------------------------------
+None this phase. No schema migration was required.
+
+The Transaction model already carries ledger_key (String? @unique, added in
+ROLLOUT-004), type, status, amount, balance_after, reference_id, metadata.
+settleDeposit / createPendingWithdrawal / complete / fail reuse these existing
+columns. Prisma client regenerated (prisma generate) — no model delta.
+
+
+--------------------------------------------------------------------------------
+15. API CHANGES
+--------------------------------------------------------------------------------
+None. No endpoints added, removed, or renamed. Request/response shapes preserved:
+  - /wallet/deposit/create-order, /wallet/deposit/verify, /wallet/webhook/razorpay
+  - /wallet/withdraw, /wallet/withdraw/confirm
+requestWithdrawal still returns { new_balance, withdrawal_amount, tds_deducted,
+net_payout, status }. Deposit settlement still returns
+{ success, amount | already_processed }.
+
+
+--------------------------------------------------------------------------------
+16. SECURITY IMPROVEMENTS
+--------------------------------------------------------------------------------
+  - Single money plane: deposit/withdrawal balance changes now occur only inside
+    WalletLedgerService, eliminating scattered ad-hoc balance mutations.
+  - Idempotency: deposit settlement is guarded by an atomic PENDING->COMPLETED
+    claim (verify + webhook race can no longer double-credit). Withdrawal
+    settlement/reversal are each guarded by atomic status claims (no double
+    payout completion, no double refund).
+  - Row-level locking: settleDeposit, createPendingWithdrawal, and failWithdrawal
+    take FOR UPDATE on the wallet row before mutating balance.
+  - Deterministic, dedup-keyed event publication (WALLET_CREDITED, PAYOUT_SETTLED,
+    PAYOUT_REVERSED) prevents duplicate downstream side-effects.
+  - Immutable audit: every movement writes a _ledger / _settlement / _reversal
+    metadata block + ledger_key for traceability.
+
+
+--------------------------------------------------------------------------------
+17. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+Negligible. Per money movement the work is unchanged in order of magnitude:
+one short DB transaction (claim + FOR UPDATE wallet + 1-2 row writes) plus one
+fire-and-forget event publish (Redis setnx + outbox). No new N+1 patterns, no
+added round-trips on the hot path. settleDeposit recomputes balance_after via a
+single FOR UPDATE read (previously an increment), which is equivalent cost.
+
+
+--------------------------------------------------------------------------------
+18. BUILD RESULT
+--------------------------------------------------------------------------------
+Command:
+  $env:NODE_EXTRA_CA_CERTS="C:\TEMP\cisco-umbrella-ca.crt"
+  npx prisma generate   -> Generated Prisma Client (v7.8.0) — OK
+  npm run build (nest build) -> exit 0
+
+Result: GREEN. No TypeScript errors. get_errors on all four modified files:
+no errors found.
+
+
+--------------------------------------------------------------------------------
+19. TESTS EXECUTED
+--------------------------------------------------------------------------------
+No automated test suite was run (Testing is explicitly out of scope for this
+phase, and the DB is a dummy/non-applied instance). Verification performed:
+  - Static type check / compile (nest build) — PASS.
+  - Per-file diagnostics (get_errors) — clean.
+  - Source audit (grep) confirming no direct deposit/withdrawal balance mutation
+    remains outside WalletLedgerService — PASS.
+
+
+--------------------------------------------------------------------------------
+20. BLOCKERS FULLY RESOLVED
+--------------------------------------------------------------------------------
+  - Deposit double-credit hazard (verify + webhook race): resolved via atomic
+    claim inside ledger.settleDeposit (no new duplicate ledger row).
+  - Direct balance mutation for deposit settlement: removed; routed to ledger.
+  - Withdrawal request direct balance mutation: removed; routed to
+    ledger.createPendingWithdrawal with preserved pending lifecycle.
+  - Withdrawal settlement/reversal double-execution: resolved via atomic status
+    claims in completeWithdrawal / failWithdrawal.
+  - Missing domain events on deposit/withdrawal: WALLET_CREDITED, PAYOUT_SETTLED,
+    PAYOUT_REVERSED now published (dedup-keyed).
+
+
+--------------------------------------------------------------------------------
+21. BLOCKERS PARTIALLY RESOLVED
+--------------------------------------------------------------------------------
+  - Withdrawal SETTLEMENT convergence: the code path is fully ledger-backed and
+    correct, but it is not yet invoked by a wired runtime trigger
+    (processWithdrawal has no live caller). The convergence work is DONE; the
+    wiring is blocked by the pre-existing external-disbursement gap (WALLET-001).
+
+
+--------------------------------------------------------------------------------
+22. BLOCKERS NOT TOUCHED
+--------------------------------------------------------------------------------
+  - WALLET-001: RazorpayX disbursement is triggered externally/operationally;
+    no in-app scheduler/queue wires processWithdrawal. Out of scope (would be a
+    new runtime path / wiring change beyond convergence).
+  - Pre-existing TDS reconciliation quirk (see §23). Intentionally preserved.
+  - Razorpay HTTP integration (createRazorpayOrder, fetchRazorpayPayment,
+    createRazorpayXPayout): untouched per directive.
+
+
+--------------------------------------------------------------------------------
+23. KNOWN LIMITATIONS
+--------------------------------------------------------------------------------
+  - TDS reconciliation quirk (PRE-EXISTING, preserved): requestWithdrawal debits
+    GROSS, but the WITHDRAWAL row.amount = netPayout while TDS_DEDUCTION.amount =
+    tds (gross = net + tds). dailyReconciliation only subtracts netPayout, so any
+    TDS-bearing withdrawal produces a tds-sized expected-vs-actual delta. This
+    behavior is byte-identical to the legacy code and was deliberately NOT
+    "fixed" here to avoid changing business/reconciliation semantics.
+  - processWithdrawal remains caller-less (WALLET-001); withdrawal settlement is
+    ledger-ready but dormant.
+  - settleDeposit recomputes balance_after at settlement time (authoritative)
+    rather than trusting the order-time estimate stored on the pending row — a
+    behavioral improvement, but a subtle difference from the legacy estimate
+    field. Net balance result is identical.
+  - Migrations cannot be applied against the dummy DB; correctness verified by
+    compile + source audit, not by runtime execution.
+
+
+--------------------------------------------------------------------------------
+24. REMAINING WORK
+--------------------------------------------------------------------------------
+  - Wire a live trigger for processWithdrawal (queue/cron/admin action) so the
+    ledger-backed settlement path executes in runtime (WALLET-001).
+  - Optionally reconcile the pre-existing TDS gross/net discrepancy in
+    dailyReconciliation (separate, semantics-changing task — needs product sign-off).
+  - Add automated integration tests for deposit settlement idempotency and
+    withdrawal pending->complete/fail lifecycle (Testing phase).
+
+
+--------------------------------------------------------------------------------
+25. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+WALLET_COMPLETION_002 — "WITHDRAWAL DISBURSEMENT WIRING + RECONCILIATION TRUE-UP":
+  1. Wire processWithdrawal to a runtime trigger (e.g. a disbursement worker
+     draining PENDING WITHDRAWAL rows, or an admin-approve action), activating the
+     already-ledger-backed settlement/reversal path.
+  2. Resolve the TDS gross/net reconciliation quirk with explicit product
+     agreement (count gross, or net+tds, consistently).
+  3. Add ledger-level integration tests for the full deposit and withdrawal
+     lifecycles.
+
+
+--------------------------------------------------------------------------------
+26. FINAL STATUS
+--------------------------------------------------------------------------------
+STATUS: COMPLETE (convergence objective met) — with one honest caveat.
+
+Brutally honest assessment against the CRITICAL completion rule:
+  [x] All LIVE deposit runtime uses the Ledger
+        (create-order pending row + verify/webhook settlement via
+         ledger.settleDeposit).
+  [x] All LIVE withdrawal runtime uses the Ledger
+        (confirmWithdrawal -> requestWithdrawal -> ledger.createPendingWithdrawal).
+  [x] Pending lifecycle preserved
+        (deposit PENDING->COMPLETED; withdrawal PENDING reserved then
+         COMPLETED/FAILED).
+  [x] No duplicate balance mutation exists
+        (atomic claims; balance changes only inside WalletLedgerService).
+  [x] Build GREEN (nest build exit 0).
+
+CAVEAT (disclosed, not hidden): the withdrawal SETTLEMENT method
+(processWithdrawal) is now fully ledger-backed but has NO wired live caller in
+the current runtime (external RazorpayX disbursement — pre-existing WALLET-001).
+Every withdrawal path the live runtime actually exercises today is converged;
+the settlement trigger wiring is the only remaining gap and is tracked for the
+next phase.
+
+================================================================================
+END OF REPORT — WALLET_COMPLETION_001
+================================================================================

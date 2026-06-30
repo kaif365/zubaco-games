@@ -1,9 +1,12 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { OtpService } from '../auth/otp.service';
 import { BankDetailService } from './bank-detail.service';
 import { TdsService } from '../compliance/tds.service';
+import { WalletLedgerService } from './ledger/ledger.service';
+import { FinancialOperation } from './ledger/ledger.types';
 import { config } from '../config';
 
 @Injectable()
@@ -14,6 +17,7 @@ export class WalletService {
     private readonly otpService: OtpService,
     private readonly bankDetailService: BankDetailService,
     private readonly tdsService: TdsService,
+    private readonly ledger: WalletLedgerService,
   ) {}
 
   async getWallet(userId: string) {
@@ -33,26 +37,24 @@ export class WalletService {
     return { transactions, total, page, totalPages: Math.ceil(total / limit) };
   }
 
+  /**
+   * Generic wallet top-up (not the Razorpay order flow). Routed through the
+   * authoritative ledger (DEPOSIT_CREDIT -> DEPOSIT type, cash bucket) so no
+   * direct balance mutation remains. Thin compatibility adapter: signature and
+   * return shape unchanged.
+   */
   async deposit(userId: string, amount: number, referenceId: string) {
     if (amount <= 0) throw new BadRequestException('Invalid amount');
-
-    return this.prisma.$transaction(async (tx) => {
-      // Lock the wallet row to prevent concurrent credits
-      const [wallet] = await tx.$queryRawUnsafe<any[]>(
-        `SELECT * FROM "wallets" WHERE "user_id" = $1 FOR UPDATE`,
-        userId,
-      );
-      if (!wallet) throw new BadRequestException('Wallet not found');
-
-      const newBalance = Number(wallet.balance) + amount;
-
-      await tx.wallet.update({ where: { user_id: userId }, data: { balance: newBalance } });
-      await tx.transaction.create({
-        data: { user_id: userId, type: 'DEPOSIT', amount, balance_after: newBalance, status: 'COMPLETED', reference_id: referenceId, description: 'Wallet top-up' },
-      });
-
-      return { balance: newBalance, amount };
+    const result = await this.ledger.post({
+      userId,
+      operation: FinancialOperation.DEPOSIT_CREDIT,
+      amount,
+      idempotencyKey: `deposit:manual:${referenceId}:${userId}`,
+      reason: 'Wallet top-up',
+      bucket: 'cash',
+      source: 'manual:deposit',
     });
+    return { balance: result.balanceAfter, amount };
   }
 
   async requestWithdrawal(userId: string, amount: number) {
@@ -73,106 +75,100 @@ export class WalletService {
       throw new BadRequestException(`Daily withdrawal limit exceeded. Remaining today: ₹${50000 - todayTotal}`);
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      // Lock the wallet row to prevent double-spend
-      const [wallet] = await tx.$queryRawUnsafe<any[]>(
-        `SELECT * FROM "wallets" WHERE "user_id" = $1 FOR UPDATE`,
-        userId,
-      );
-      if (!wallet) throw new BadRequestException('Wallet not found');
-      if (!wallet.kyc_verified) throw new BadRequestException('KYC verification required for withdrawals');
+    // Calculate TDS
+    const tds = await this.tdsService.calculateTds(userId, amount);
+    const netPayout = tds.amountAfterTds;
 
-      const balance = Number(wallet.balance);
-      if (balance < amount) throw new BadRequestException('Insufficient balance');
-
-      // Calculate TDS
-      const tds = await this.tdsService.calculateTds(userId, amount);
-      const netPayout = tds.amountAfterTds;
-      const newBalance = balance - amount;
-
-      await tx.wallet.update({ where: { user_id: userId }, data: { balance: newBalance } });
-
-      const txn = await tx.transaction.create({
-        data: { user_id: userId, type: 'WITHDRAWAL', amount: netPayout, balance_after: newBalance, status: 'PENDING', description: `Withdrawal ₹${amount} (TDS ₹${tds.tdsOnThisWithdrawal})` },
-      });
-
-      // Record TDS if applicable
-      if (tds.tdsOnThisWithdrawal > 0) {
-        await tx.transaction.create({
-          data: { user_id: userId, type: 'TDS_DEDUCTION', amount: tds.tdsOnThisWithdrawal, balance_after: newBalance, status: 'COMPLETED', description: `TDS 30% on net winnings`, reference_id: txn.id },
-        });
-      }
-
-      return {
-        new_balance: newBalance,
-        withdrawal_amount: amount,
-        tds_deducted: tds.tdsOnThisWithdrawal,
-        net_payout: netPayout,
-        status: 'PENDING',
-      };
+    // Authoritative debit + PENDING row via the wallet ledger. KYC and balance
+    // checks are enforced inside the row-locked ledger transaction; the gross
+    // amount leaves the balance, the WITHDRAWAL row carries the net payout, and
+    // TDS is recorded separately — identical rows to the legacy implementation.
+    const result = await this.ledger.createPendingWithdrawal({
+      userId,
+      grossAmount: amount,
+      netPayout,
+      tdsAmount: tds.tdsOnThisWithdrawal,
+      idempotencyKey: `withdrawal:${randomUUID()}`,
+      reason: `Withdrawal ₹${amount} (TDS ₹${tds.tdsOnThisWithdrawal})`,
     });
+
+    return {
+      new_balance: result.balanceAfter,
+      withdrawal_amount: amount,
+      tds_deducted: tds.tdsOnThisWithdrawal,
+      net_payout: netPayout,
+      status: 'PENDING',
+    };
   }
 
+  /**
+   * Season entry-fee debit. Routed through the authoritative wallet ledger
+   * (`WalletLedgerService.debitEntryFee`), which preserves the legacy rule
+   * exactly — bonus bucket spent first, then cash — and writes a single
+   * `ENTRY_FEE` row, now idempotent (per season+user) and audited. Thin
+   * compatibility adapter: signature, return shape and the insufficient-balance
+   * error contract are unchanged.
+   */
   async deductEntryFee(userId: string, seasonId: string, amount: number) {
-    return this.prisma.$transaction(async (tx) => {
-      const [wallet] = await tx.$queryRawUnsafe<any[]>(
-        `SELECT * FROM "wallets" WHERE "user_id" = $1 FOR UPDATE`,
-        userId,
-      );
-      if (!wallet) throw new BadRequestException('Wallet not found');
-
-      const balance = Number(wallet.balance);
-      const bonus = Number(wallet.bonus_balance);
-      if (balance + bonus < amount) throw new BadRequestException('Insufficient balance for entry fee');
-
-      const deductFromBonus = Math.min(bonus, amount);
-      const deductFromBalance = amount - deductFromBonus;
-      const newBalance = balance - deductFromBalance;
-      const newBonus = bonus - deductFromBonus;
-
-      await tx.wallet.update({ where: { user_id: userId }, data: { balance: newBalance, bonus_balance: newBonus } });
-      await tx.transaction.create({
-        data: { user_id: userId, type: 'ENTRY_FEE', amount, balance_after: newBalance + newBonus, status: 'COMPLETED', reference_id: seasonId, description: 'Season entry fee' },
-      });
-
-      return { success: true };
+    await this.ledger.debitEntryFee({
+      userId,
+      amount,
+      idempotencyKey: `entryfee:${seasonId}:${userId}`,
+      reason: 'Season entry fee',
+      seasonRef: seasonId,
     });
+    return { success: true };
   }
 
+  /**
+   * Tournament prize credit. Routed through the authoritative wallet ledger
+   * (`WalletLedgerService.post`) so every reward/payout shares one idempotent,
+   * row-locked, fully-audited money pipeline. Idempotency is keyed per
+   * season+user, so a retried or duplicated payout cannot double-credit.
+   * This method is now a thin compatibility adapter that preserves the legacy
+   * signature, the `PRIZE_WIN` transaction type and the cash bucket (keeping
+   * the daily reconciliation invariant intact).
+   */
   async creditPrize(userId: string, amount: number, seasonId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const [wallet] = await tx.$queryRawUnsafe<any[]>(
-        `SELECT * FROM "wallets" WHERE "user_id" = $1 FOR UPDATE`,
-        userId,
-      );
-      if (!wallet) throw new BadRequestException('Wallet not found');
-
-      const newBalance = Number(wallet.balance) + amount;
-
-      await tx.wallet.update({ where: { user_id: userId }, data: { balance: newBalance } });
-      await tx.transaction.create({
-        data: { user_id: userId, type: 'PRIZE_WIN', amount, balance_after: newBalance, status: 'COMPLETED', reference_id: seasonId, description: 'Tournament prize' },
-      });
-
-      return { new_balance: newBalance };
+    const result = await this.ledger.post({
+      userId,
+      operation: FinancialOperation.TOURNAMENT_PAYOUT,
+      amount,
+      idempotencyKey: `prize:${seasonId}:${userId}`,
+      reason: 'Tournament prize',
+      bucket: 'cash',
+      tournamentRef: seasonId,
+      source: 'tournament:prize',
     });
+    // `applied`/`duplicate` surface the ledger's at-most-once outcome so the
+    // prize payout runtime credits + notifies each winner exactly once.
+    return {
+      new_balance: result.balanceAfter,
+      applied: result.applied,
+      duplicate: result.duplicate,
+      transaction_id: result.transactionId,
+    };
   }
 
+  /**
+   * Referral bonus credit (bonus bucket). Routed through the authoritative wallet
+   * ledger (`WalletLedgerService.post`, REFERRAL_CREDIT -> REFERRAL_BONUS type,
+   * bonus bucket) so it shares the one idempotent, audited money pipeline. The
+   * idempotency key is per referral+user, so the referrer and the referred user
+   * each receive their bonus exactly once even if the referral flow retries.
+   * Thin compatibility adapter (unchanged signature).
+   */
   async creditReferralBonus(userId: string, referralId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const [wallet] = await tx.$queryRawUnsafe<any[]>(
-        `SELECT * FROM "wallets" WHERE "user_id" = $1 FOR UPDATE`,
-        userId,
-      );
-      if (!wallet) throw new BadRequestException('Wallet not found');
-
-      const bonusAmount = config.app.referralBonusAmount;
-      const newBonus = Number(wallet.bonus_balance) + bonusAmount;
-
-      await tx.wallet.update({ where: { user_id: userId }, data: { bonus_balance: newBonus } });
-      await tx.transaction.create({
-        data: { user_id: userId, type: 'REFERRAL_BONUS', amount: bonusAmount, balance_after: Number(wallet.balance) + newBonus, status: 'COMPLETED', reference_id: referralId, description: 'Referral bonus' },
-      });
+    const bonusAmount = config.app.referralBonusAmount;
+    if (!bonusAmount || bonusAmount <= 0) return;
+    await this.ledger.post({
+      userId,
+      operation: FinancialOperation.REFERRAL_CREDIT,
+      amount: bonusAmount,
+      idempotencyKey: `referral:${referralId}:${userId}`,
+      reason: 'Referral bonus',
+      bucket: 'bonus',
+      source: 'social:referral',
     });
   }
 

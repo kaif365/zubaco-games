@@ -35,3 +35,17 @@ export interface EnforcementResult {
   alreadyEnforced: boolean;
   actionsApplied: EnforcementAction[];
 }
+
+/** Authoritative reversal (un-ban) request — counterpart to EnforcementRequest. */
+export interface ReversalRequest {
+  userId: string;
+  reason: string;
+  reversedBy?: string;
+}
+
+export interface ReversalResult {
+  reversed: boolean;
+  alreadyReversed: boolean;
+  /** True when the user was actually banned before this reversal. */
+  transitioned: boolean;
+}

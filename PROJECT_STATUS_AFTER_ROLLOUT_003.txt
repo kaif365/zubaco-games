@@ -1,0 +1,523 @@
+================================================================================
+ZUBACO ENTERPRISE — POST-ROLLOUT MASTER RE-AUDIT
+PROJECT_STATUS_AFTER_ROLLOUT_003
+FINAL PRODUCTION READINESS ASSESSMENT
+================================================================================
+Date: 2026-06-30
+Mode: AUDIT ONLY — no code changed, no build changed. This file is the only
+artifact created.
+
+AUDIT SCOPE & HONESTY DISCLAIMER (read first)
+--------------------------------------------------------------------------------
+This audit was traced from the CURRENT source of the canonical platform service
+at c:\zubaco-games\zubaco-platform (every claim below about that service was
+verified against its source this pass, not from prior reports). The following
+were NOT deeply re-traced from source in this pass and are reported at lower
+confidence / as "not assessed":
+  - The 20 individual game backends (separate repos under zubaco-games-repo / the
+    per-game modules) — only their integration seam into the platform was traced.
+  - The admin-panel repo (zubaco-admin-panel-repo) — its second control plane.
+  - The frontends (zubaco-web-lobby, zubaco-mobile).
+  - The DIVERGENT DUPLICATE platform copy at
+    c:\zubaco-games\zubaco-games\zubaco-platform (see Section 7 — this is a major
+    finding: a second, divergent copy of the platform exists in-tree).
+Where a percentage or status depends on un-traced repos it is flagged.
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+The platform has materially advanced across the three rollout phases. The single
+most important change since the last re-audit: THE AUTHORITATIVE CONTROL PLANE IS
+NO LONGER DEAD CODE. ROLLOUT-001 added AdminControlPlaneController
+(POST /api/v1/admin/control-plane/execute, GET .../audit), registered in
+AdminModule which is imported by AppModule, so production requests now reach
+AdminControlPlaneService.execute() -> TournamentOrchestrator / WalletLedgerService
+/ EnforcementService / EventBusService. The prior verdict that the entire
+authoritative layer was unreachable is now SUPERSEDED.
+
+ROLLOUT-002 unified game completion: SessionCompletionService is the single
+completion path and ALL THREE engines (game-session, free-play, tournament)
+delegate to it, so lifecycle state-machine + server-authoritative verification +
+anti-cheat + event publication + Base-Platform webhook now run on every
+completion. This is the strongest, most genuinely-live improvement in the repo.
+
+ROLLOUT-003 routed the tournament prize-credit method through the authoritative
+WalletLedger, but that method has no live caller, so its runtime impact is
+"authoritative-by-construction" rather than a live cut-over.
+
+WHAT IS STILL NOT TRUE (brutal honesty):
+  - There are STILL TWO LIVE ENFORCEMENT CONTROL PLANES. The legacy
+    anti-cheat.controller (POST users/:id/ban|unban, flags/:id/review) and the
+    auto-ban inside anti-cheat.service write User.is_banned DIRECTLY with NO
+    score / leaderboard / StageEntry retraction, in parallel with the
+    authoritative EnforcementService (full retraction) reachable only via the
+    admin control plane.
+  - The LIVE money paths a real user touches (deposit, referral bonus, entry-fee
+    debit, withdrawal) STILL bypass the WalletLedger. The ledger is authoritative
+    only for admin-driven credit/reversal and the (uncalled) prize adapter.
+  - The event bus emits ~4 of 11 declared event types.
+  - There are 0 automated tests in the platform service.
+  - A divergent duplicate of the entire platform exists in-tree with its own,
+    different anti-cheat/elimination/scheduler code.
+
+Overall production readiness: ~57%. The architectural foundations are real and
+now partially live, but the money path, the enforcement path, test coverage,
+observability, and the cross-repo cut-over are not production-grade yet.
+
+================================================================================
+2. CURRENT ARCHITECTURE
+================================================================================
+Service: zubaco-platform — NestJS 11, Prisma 7.8 (pg adapter), Postgres, Redis
+(ioredis), pino logging, @nestjs/schedule cron, @nestjs/throttler.
+
+AppModule wires (verified app.module.ts): Auth, Users, FreePlay, Tournament,
+Leaderboard, Wallet, Social, Notification, Prisma, Redis, Logger, GameSession,
+AntiCheat, Compliance, Webhook, Events, Admin (+ Health/AppVersion controllers).
+
+Authoritative foundations present and their reachability:
+  - Game lifecycle:  game-session/lifecycle/session-lifecycle.ts (assertTransition)
+       -> LIVE on all 3 engines via SessionCompletionService.
+  - Verification:    game-session/verification/* (pipeline + default verifier)
+       -> LIVE on all 3 engines via SessionCompletionService.
+  - Completion:      game-session/completion/session-completion.service.ts
+       -> LIVE single completion path (ROLLOUT-002).
+  - Tournament:      tournament/orchestration/tournament.orchestrator.ts
+       -> LIVE, reachable only via admin control plane.
+  - Wallet ledger:   wallet/ledger/ledger.service.ts (post + settlePending)
+       -> LIVE for admin credit/reversal + prize adapter; NOT for user paths.
+  - Enforcement:     anti-cheat/enforcement/enforcement.service.ts
+       -> LIVE via admin control plane; runs PARALLEL to legacy anti-cheat.service.
+  - Events:          events/event-bus.service.ts (publish-once, outbox, drain cron)
+       -> LIVE, ~4/11 event types emitted.
+  - Admin plane:     admin/control-plane/* (RBAC + audit + ServiceIdentityGuard)
+       -> LIVE (ROLLOUT-001).
+
+Architectural shape: still "fat service + direct Prisma" (no repository/domain
+layer; services hold 4-5 cross-service deps). DI uses several @Global modules
+(Redis, Events, AntiCheat, Webhook, Admin, Prisma).
+
+================================================================================
+3. COMPLETED WORK (verified live in the canonical service)
+================================================================================
+[Game Session Lifecycle] COMPLETE within the platform. submitResult on
+  game-session, free-play and tournament all funnel through
+  SessionCompletionService.complete(), which enforces
+  ACTIVE -> RESULT_PROCESSING -> COMPLETED via assertTransition and rejects
+  illegal/duplicate completions. No engine bypasses it anymore.
+
+[Verification Pipeline] COMPLETE within the platform. complete() runs
+  VerificationPipeline.verify BEFORE persist; the DefaultGameVerifier re-derives
+  the authoritative score (so no client score/duration becomes authoritative),
+  enforces seed fingerprint and bounds duration. Per-gameType verifiers are
+  pluggable via DI_GAME_VERIFIERS.
+
+[Game Completion Pipeline] COMPLETE within the platform. One ordered path:
+  lifecycle -> verify -> persist (_verification metadata) -> anti-cheat analyze
+  -> events.publish(GAME_COMPLETED + VERIFICATION_PASSED/FAILED) ->
+  webhook.emitGameResult. Idempotent on session id.
+
+[Admin Control Plane reachability] COMPLETE. AdminControlPlaneController is
+  registered and guarded by ServiceIdentityGuard; execute() is RBAC deny-by-
+  default, idempotent per requestId, and appends an immutable admin:audit row
+  for every action including DENIED/DUPLICATE.
+
+[Tournament progression authority] COMPLETE within the platform. Progression
+  exists only through TournamentOrchestrator.advanceStage (Redis-locked,
+  idempotent), reachable only via the admin control plane. The user tournament
+  submit path only accumulates stage-entry totals; it never advances/eliminates.
+
+[Wallet ledger engine] COMPLETE as an engine. WalletLedgerService.post is
+  idempotent (Redis lock + prior-COMPLETED short-circuit), atomic (FOR UPDATE
+  $transaction), Decimal-correct, bucket-aware, with an immutable metadata._ledger
+  audit trail.
+
+[Event bus engine] COMPLETE as an engine. publish-once dedupe, per-subscriber
+  Redis outbox, 10s drain cron with backoff + dead-letter, InAppEventSubscriber
+  maps events -> notifications idempotently.
+
+[Localized game/wallet/anti-cheat/admin VAL fixes] COMPLETE per the prior fix
+  passes (idempotent credits, Decimal math, reconciliation set, enforcement
+  engine retractions, RBAC DTOs, etc.).
+
+================================================================================
+4. PARTIALLY COMPLETED WORK
+================================================================================
+[Wallet pipeline] PARTIAL. Authoritative for: admin CREDIT_WALLET (ADJUSTMENT),
+  admin REVERSE_PAYOUT (PAYOUT_REVERSAL), and WalletService.creditPrize (now a
+  ledger adapter — but uncalled). NOT authoritative for the live user paths:
+  deposit (PaymentGatewayService.creditDepositAtomically claims a pre-created
+  PENDING row), referral bonus (creditReferralBonus direct bonus mutation),
+  entry-fee debit (deductEntryFee), and withdrawal (requestWithdrawal/confirm,
+  which create a PENDING WITHDRAWAL that never settles via the ledger). No
+  RazorpayX disbursement caller, no settlement/reconcile cron, no reference_id
+  UNIQUE DB constraint.
+
+[Anti-cheat / enforcement] PARTIAL and DUAL. EnforcementService (full retraction)
+  is live via the admin control plane, BUT the legacy plane is also live:
+  anti-cheat.service auto-ban (in the live completion path) and
+  anti-cheat.controller ban/unban/reviewFlag write is_banned directly with NO
+  score/leaderboard/StageEntry retraction. Detector-driven enforce() calls across
+  the 20 backends and device/ip/moves capture are not wired end-to-end.
+
+[Tournament admin/cron cut-over] PARTIAL. The platform orchestrator is the SSOT,
+  but the admin-panel repo's second control plane (triggerElimination /
+  prizes.distribute) and any cron caller are not routed onto it (separate repo).
+
+[Notifications/events] PARTIAL. Engine + in-app subscriber live; only ~4/11 event
+  types are emitted (game.completed, verification.passed, verification.failed,
+  wallet.credited). No webhook/email/SMS subscriber adapter; tournament/payout/
+  enforcement/account events are not published.
+
+[Admin RBAC] PARTIAL. RBAC + audit live on the platform control plane, but
+  Admin.role is not persisted and the admin-panel repo's omnipotent
+  userType===ADMIN check + MFA/session lifecycle are not migrated.
+
+[Leaderboard] PARTIAL. Durable gameProgress write + banned-user exclusion +
+  composite tiebreaks exist, but the single durable global-leaderboard source of
+  truth (SCORE-002) is not implemented — global ranking still primarily Redis.
+
+[Auth trust model] PARTIAL. ServiceIdentityGuard (HMAC signed per-service
+  identity, nonce replay protection, key rotation) exists and guards the admin
+  control plane; legacy x-internal-api-key is still accepted while
+  SERVICE_IDENTITY_ENFORCE != 'true', and the legacy anti-cheat.controller still
+  trusts a spoofable body admin_id.
+
+================================================================================
+5. MISSING WORK (not started / not present in the canonical service)
+================================================================================
+  - Repository/domain layer (ARCH-001) — services still call Prisma directly.
+  - Shared backend library across 20 backends (ARCH-002).
+  - DB-driven scoring config (SCORE-001) — still hardcoded.
+  - Durable global-leaderboard SSOT (SCORE-002).
+  - Automated tests (TEST-001) — 0 tests, no test runner configured.
+  - Physical DB separation (INFRA-001).
+  - Withdrawal settlement + disbursement loop (WALLET-001 runtime).
+  - End-to-end server-authoritative per-game replay verifiers across 20 backends
+    (GAME-002 full) and anti-cheat signal capture/validation (ACHEAT-002 full).
+  - Webhook/email/SMS event subscriber adapters + user channel preferences.
+  - Observability stack (metrics/tracing/alerting) beyond pino logs + a health
+    controller.
+
+================================================================================
+6. DEAD CODE / DORMANT CODE (current canonical service)
+================================================================================
+  - WalletService.creditPrize: now a ledger adapter but has NO caller in this
+    service (dead at runtime; authoritative-by-construction only).
+  - WalletService.deposit: dead — the live deposit credit is
+    PaymentGatewayService.creditDepositAtomically; deposit() is an unused legacy
+    adapter.
+  - WalletService.processWithdrawal / refundEntryFee family (WALLET-VAL-01): the
+    failure/disbursement logic is hardened in place but has no live caller
+    (symptom of the missing WALLET-001 settlement pipeline).
+  - 7 of 11 PlatformEventType members are declared but never published
+    (TOURNAMENT_PROGRESSED, TOURNAMENT_COMPLETED, REWARD_ELIGIBLE, PAYOUT_SETTLED,
+    PAYOUT_REVERSED, ANTI_CHEAT_ENFORCED, ACCOUNT_REVIEWED) — dormant contract.
+  - EnforcementAction PREVENT_WALLET_PAYOUT / REVERSE_PENDING_PAYOUT trigger only
+    the external webhook; no internal ledger reversal consumes them yet.
+  - WalletLedgerService.settlePending: implemented, no live caller (awaits
+    WALLET-001 settlement loop).
+NOTE: most of this is "dormant foundation awaiting wiring", not deletable — do
+NOT delete; it is the target of the remaining rollout phases. The genuinely
+deletable items are the superseded WalletService.deposit adapter and any code in
+the divergent duplicate copy (Section 7).
+
+================================================================================
+7. DUPLICATE CODE (MAJOR FINDING)
+================================================================================
+A SECOND, DIVERGENT COPY OF THE ENTIRE PLATFORM exists in-tree at:
+    c:\zubaco-games\zubaco-games\zubaco-platform
+This copy is NOT the canonical runtime and was NOT modified by the rollouts, yet
+it contains DIFFERENT implementations of money/progression/enforcement, e.g.:
+  - tournament/elimination.service.ts HERE has a distributePrizes() method and an
+    "owed PRIZE_WIN FAILED" reconciliation path; the canonical copy does NOT.
+  - tournament/tournament-scheduler.service.ts HERE calls runElimination AND
+    distributePrizes directly (a direct progression+payout path) — the canonical
+    copy has no such scheduler.
+  - anti-cheat/anti-cheat.service.ts HERE is much larger (~650+ lines, ban cache,
+    tempban Redis keys, JwtAuthGuard ban_check invalidation) vs the canonical
+    ~300-line version.
+  - wallet/wallet.service.ts HERE has idempotent prize/referral guards and a
+    deductEntryFeeTx variant the canonical copy lacks.
+RISK: if this copy is ever built/deployed, it reintroduces a direct
+progression+prize-payout control plane and a divergent anti-cheat engine. This
+duplicate must be reconciled or deleted before any "production complete" claim.
+Other duplication: copy-paste common/ across the 20 game backends and a dead
+@zubaco/game-sdk (ARCH-002) — unchanged.
+
+================================================================================
+8. LIVE RUNTIME PATHS (OLD -> CURRENT, verified)
+================================================================================
+GAME SUBMIT (free-play / tournament / generic) — CURRENT (ROLLOUT-002):
+  Controller.submit
+    -> {FreePlay|Tournament|GameSession}Service.submitResult (input guards)
+    -> SessionCompletionService.complete:
+         assertTransition(ACTIVE->RESULT_PROCESSING)
+         -> VerificationPipeline.verify (authoritative score/duration)
+         -> assertTransition(RESULT_PROCESSING->COMPLETED) + persist
+         -> AntiCheatService.analyzeGameResult  [may AUTO-BAN directly — legacy]
+         -> EventBus.publish(GAME_COMPLETED, VERIFICATION_PASSED/FAILED)
+         -> Webhook.emitGameResult (Base Platform)
+    -> engine-specific tail (free-play: stars/XP/progress; tournament:
+       stage-entry total_score/total_time_ms/games_played + completed_at)
+  OLD: each engine inlined its own scoring/anti-cheat/webhook with no shared
+  lifecycle or verification. (Now removed.)
+
+TOURNAMENT PROGRESSION — CURRENT:
+  Admin console -> POST /admin/control-plane/execute (ServiceIdentityGuard, RBAC)
+    -> AdminControlPlaneService.execute(ADVANCE_STAGE)
+    -> TournamentOrchestrator.advanceStage (Redis lock, idempotent)
+    -> EliminationService.runElimination (qualify/eliminate) -> open next / complete
+  OLD: admin-panel triggerElimination + direct EliminationService writes (the
+  admin-repo plane still exists but is out of this service).
+
+REWARD ELIGIBILITY — CURRENT:
+  Admin -> execute(RESOLVE_REWARDS) -> TournamentOrchestrator.resolveRewardEligibility
+  (final-stage, non-banned survivors). Does NOT auto-pay (separate CREDIT_WALLET).
+
+WALLET CREDIT — CURRENT (split brain):
+  Admin credit:     execute(CREDIT_WALLET)  -> WalletLedger.post(ADJUSTMENT) + WALLET_CREDITED event  [authoritative]
+  Admin reversal:   execute(REVERSE_PAYOUT) -> WalletLedger.post(PAYOUT_REVERSAL)                      [authoritative]
+  Prize (uncalled): WalletService.creditPrize -> WalletLedger.post(TOURNAMENT_PAYOUT)                  [authoritative, dead]
+  Deposit (LIVE):   verifyPayment/webhook -> PaymentGatewayService.creditDepositAtomically             [BYPASSES ledger]
+  Referral (LIVE):  social -> WalletService.creditReferralBonus                                        [BYPASSES ledger]
+  Entry fee (LIVE): tournament.register -> WalletService.deductEntryFee                                [BYPASSES ledger]
+  Withdrawal (LIVE):wallet.confirm -> WalletService.requestWithdrawal (PENDING)                        [BYPASSES ledger]
+
+ENFORCEMENT — CURRENT (split brain):
+  Authoritative: execute(ENFORCE_ANTI_CHEAT/MARK_FOR_REVIEW) -> EnforcementService.enforce
+                 (session DISQUALIFIED, StageEntry zeroed, ban + token purge,
+                  leaderboard removal, enforcement.reversal webhook)  [full retraction]
+  Legacy LIVE:   anti-cheat.service auto-ban (3+ CRITICAL flags, in completion path)
+                 + anti-cheat.controller POST users/:id/ban|unban + flags/:id/review
+                 -> direct User.is_banned write, NO score/leaderboard/stage retraction.
+
+EVENTS -> NOTIFICATIONS — CURRENT:
+  EventBus.publish (4/11 types) -> per-subscriber outbox -> 10s drain
+  -> InAppEventSubscriber -> NotificationService (in-app). Webhook/email/SMS: none.
+
+================================================================================
+9. BLOCKER STATUS TABLE (re-verified from current source)
+================================================================================
+Legend: RESOLVED | PARTIAL | NOT STARTED | OBSOLETE
+
+ID            STATUS        WHY (from current code)
+------------- ------------- --------------------------------------------------
+AUTH-001      NOT STARTED   Sync /user/auth/me coupling unchanged; design
+                            decision pending. (Game-backend repos, not re-traced.)
+AUTH-002      PARTIAL       Platform control plane adds AdminContext+RBAC, but the
+                            legacy anti-cheat.controller still trusts a spoofable
+                            body admin_id and is live; Admin.role not persisted.
+AUTH-003      PARTIAL       ServiceIdentityGuard (signed identity, nonce, rotation)
+                            guards the admin control plane; legacy x-internal-api-key
+                            still accepted; not yet on all internal routes.
+SCORE-001     NOT STARTED   Scoring config still hardcoded in score-validator.
+SCORE-002     PARTIAL       Durable gameProgress write + banned exclusion exist;
+                            no single durable global-leaderboard SSOT (still Redis).
+ACHEAT-001    PARTIAL       EnforcementService (full retraction) live via admin
+                            plane, but legacy direct-ban paths remain live in
+                            parallel with no retraction; 20-backend wiring missing.
+ACHEAT-002    PARTIAL       device/ip threaded into start paths; server-side
+                            replay/bot validation across 20 backends not done.
+ARCH-001      NOT STARTED   No repository/domain layer; fat services persist.
+ARCH-002      NOT STARTED   No shared backend library; copy-paste common/ remains.
+TOURN-001     PARTIAL       Orchestrator is the platform SSOT & reachable; admin-
+                            repo second plane not cut over (separate repo).
+TOURN-002     PARTIAL       Weekly bucket assignment + per-cohort elimination live;
+                            bucket-scoped leaderboard/fairness tuning remain.
+TOURN-003     PARTIAL       State-machine guards enforced by orchestrator; admin/
+                            cron updateSeason/openDue/closeDue not all routed.
+GAME-001      PARTIAL       Lifecycle now enforced on ALL 3 platform engines; the
+                            20 backends + non-terminal state persistence remain.
+GAME-002      PARTIAL       Authoritative verification now runs on ALL 3 engines;
+                            per-game deterministic replay across 20 backends remain.
+WALLET-001    PARTIAL       Ledger + settlePending exist; no disbursement caller /
+                            reconcile cron; withdrawals still stranded PENDING.
+WALLET-002    PARTIAL       Ledger authoritative for admin credit/reversal + prize
+                            adapter; live deposit/referral/entry-fee/withdrawal
+                            bypass it; reference_id UNIQUE not added.
+NOTIF-001     PARTIAL       Event bus + outbox live; ~4/11 events; no webhook adapter.
+NOTIF-002     PARTIAL       Durable outbox + in-app subscriber live; not all domain
+                            emitters routed through the bus.
+NOTIF-003     PARTIAL       Subscriber seam exists; email/SMS adapters + prefs absent.
+ADMIN-001     PARTIAL       RBAC control plane live; Admin.role not persisted; admin
+                            repo omnipotent check not retired.
+ADMIN-002     PARTIAL       execute() delegates to authoritative pipelines & is live;
+                            admin-repo direct writers not pointed at it.
+ADMIN-003     PARTIAL       AdminContext+requestId+idempotency live; MFA/session
+                            lifecycle live in admin auth repo (not done).
+ADMIN-004     PARTIAL       Immutable admin:audit live with real actor; off-box +
+                            before/after + maker-checker remain.
+ROLLOUT-001   RESOLVED      Its specific objective — make the control plane
+                            REACHABLE — is done (controller registered, build green).
+                            Downstream cut-over continues in ROLLOUT-002/003 and
+                            future phases.
+TEST-001      NOT STARTED   0 tests; no test runner configured (lint also orphaned).
+INFRA-001     NOT STARTED   Single physical Postgres; infra decision, terraform
+                            present but separation not implemented.
+GAME-SPECIFIC RESOLVED*     Localized VAL/WS/RNG defects marked fixed in prior
+(ARROWS..WORD) /OPEN        passes (RESOLVED for the localized item); strategic
+                            32-bit seed widening (NUMBERGRID, OBJECTPLACEMENT,
+                            RAPIDCATEGORY, PATTERNSURVIVAL, REFLEXENDURANCE,
+                            SEQUENCERECALL, SLIDINGPUZZLE, SPEEDTYPE, TRUEFALSEBLITZ,
+                            WORDUNSCRAMBLE) still OPEN. *NOT re-traced from the 20
+                            game-backend sources this pass — confidence low.
+
+================================================================================
+10. SECURITY STATUS
+================================================================================
+STRENGTHS (verified): server-authoritative scoring on all platform engines;
+idempotent wallet ledger + idempotent event bus + idempotent enforcement
+(Redis locks, prior-row short-circuit); HMAC-signed Base-Platform webhooks;
+signed Razorpay webhook + replay ledger; ServiceIdentityGuard (HMAC, nonce
+replay protection, key rotation) on the admin control plane; RBAC deny-by-default
++ immutable audit; helmet + throttler configured.
+RISKS (verified):
+  - Dual enforcement plane: legacy anti-cheat.controller trusts a spoofable body
+    admin_id (audit-log forgery / unauthorized ban-unban) and bypasses retraction.
+  - Legacy shared x-internal-api-key still accepted (rotation window) — must be
+    enforced off.
+  - Live money paths bypass the authoritative ledger (deposit/referral/entry-fee/
+    withdrawal) — weaker idempotency/audit guarantees than the ledger.
+  - Weak provably-fair 32-bit seeds in ~10 games (brute-forceable boards).
+  - 0 automated security/regression tests.
+  - Divergent duplicate platform copy is a supply-chain/deploy hazard.
+
+================================================================================
+11. PERFORMANCE STATUS
+================================================================================
+  - Hot path (game submit) adds one verification re-derivation + a couple of
+    Redis-idempotent event publishes; acceptable, bounded.
+  - Wallet ops use FOR UPDATE row locks + short Redis locks — correct, low
+    contention per-user.
+  - Event drain is a 10s cron over Redis outboxes with backoff — fine at current
+    scale; could need partitioning at high volume.
+  - dailyReconciliation iterates wallets with per-wallet aggregates in the
+    canonical copy (N+1); the VAL-13 single-groupBy optimization lives in the
+    DIVERGENT copy, not the canonical one — canonical reconciliation is O(wallets)
+    queries (tech debt).
+  - Sync /user/auth/me coupling (AUTH-001) remains a throughput ceiling / SPOF for
+    game backends.
+
+================================================================================
+12. INFRASTRUCTURE STATUS
+================================================================================
+Present: docker/ (Dockerfile.game-backend, Dockerfile.game-frontend, nginx.conf),
+docker-compose.yml, infrastructure/terraform/, redis/, ngrok/, and CI at
+.github/workflows/ (admin-ci.yml, games-ci.yml, platform-ci.yml).
+Not verified / likely gaps: single shared Postgres (INFRA-001); no confirmed
+HA/replication, secret management, autoscaling, blue-green/canary, or DR. CI
+workflows exist but their depth (lint/test/scan gates) was not deep-audited;
+given 0 tests, any "test" stage is effectively a no-op. Confidence: MEDIUM-LOW
+(IaC present, production hardening unverified).
+
+================================================================================
+13. TESTING STATUS
+================================================================================
+Platform service: 0 automated tests. package.json has no "test" script and no
+test runner (no jest/@nestjs/testing in dependencies); the "lint" script
+references eslint which is not installed (orphaned). Quality assurance today is
+manual *_TEST_CHECKLIST.txt documents only. This is the single biggest gap and a
+hard blocker (TEST-001) for safely refactoring the money path (ARCH-001).
+Estimated coverage: ~0% automated. Confidence: HIGH.
+
+================================================================================
+14. PRODUCTION READINESS (with rationale)
+================================================================================
+Architecture        ~70%  Authoritative pipelines exist AND are reachable; but
+                          dual enforcement plane, ledger not on user money paths,
+                          and a divergent duplicate keep it sub-production.
+Backend (platform)  ~65%  Completion/verification/progression solid & live; money
+                          + enforcement split-brain; events 4/11; no repo layer.
+Backend (20 games)  ~50%* Localized hardening done; strategic seeds + per-game
+                          replay verifiers + anti-cheat capture incomplete.
+                          *Not re-traced this pass.
+Frontend            N/A   zubaco-web-lobby / zubaco-mobile not audited this pass.
+                          Do not trust any % — treat as UNASSESSED.
+Infrastructure      ~50%  IaC + CI + docker present; HA/secrets/DR/DB-split
+                          unverified; CI test gate effectively empty.
+Security            ~55%  Strong idempotency/signing/RBAC foundations undercut by
+                          spoofable legacy admin path, ledger-bypassing money,
+                          weak game seeds, 0 tests.
+Testing             ~5%   0 automated tests; manual checklists only.
+Operations/Obs.     ~40%  pino logs + health endpoint; no verified metrics/
+                          tracing/alerting; reconciliation logs to console.
+--------------------------------------------------------------------------------
+OVERALL             ~57%  Real, partially-live foundations; not yet trustworthy
+                          for unattended real-money production operation.
+
+================================================================================
+15. REMAINING ROADMAP (only work actually still required)
+================================================================================
+PHASE 1 — Make the money + enforcement paths single & live (highest risk)
+  - Extend the ledger (REFERRAL_CREDIT, ENTRY_FEE_DEBIT, REVERSE_PENDING) + a
+    claim-then-post deposit model, then route deposit/referral/entry-fee onto the
+    ledger WITHOUT changing transaction-type/reconciliation semantics.
+  - Collapse the enforcement plane: make anti-cheat.service auto-ban and
+    anti-cheat.controller ban/unban/review call EnforcementService.enforce (full
+    retraction) instead of writing is_banned directly; remove the spoofable body
+    admin_id by putting these endpoints behind ServiceIdentityGuard + RBAC.
+  - Add Transaction.reference_id UNIQUE migration (DB-level idempotency).
+
+PHASE 2 — Settlement + observability
+  - WALLET-001 settlement loop: approve -> RazorpayX disburse -> payout webhook
+    reconcile -> settlePending / PAYOUT_REVERSAL; un-strand PENDING withdrawals.
+  - Publish the remaining 7 event types; add a webhook event-subscriber adapter.
+  - Add metrics/tracing/alerting; move reconciliation off console; fix the
+    canonical N+1 reconciliation.
+
+PHASE 3 — Trust, tests, cut-over
+  - Enforce SERVICE_IDENTITY_ENFORCE=true; retire x-internal-api-key.
+  - Persist Admin.role; retire the admin-panel second control plane onto the
+    platform control plane; add MFA/session lifecycle.
+  - Establish the automated test suite (TEST-001) — unblocks ARCH-001.
+  - RESOLVE OR DELETE the divergent duplicate platform copy.
+
+PHASE 4 — Strategic / structural
+  - Repository/domain layer (ARCH-001); shared backend library (ARCH-002).
+  - DB-driven scoring config (SCORE-001); durable global-leaderboard SSOT
+    (SCORE-002); 32-bit seed widening across the affected games.
+  - Per-game deterministic replay verifiers + anti-cheat signal capture across
+    the 20 backends (GAME-002 / ACHEAT-002 full).
+  - Physical DB separation (INFRA-001).
+
+================================================================================
+16. RECOMMENDED NEXT PHASE
+================================================================================
+ROLLOUT-004 — "Single money + single enforcement plane." Two objectives, both
+high-value and both currently split-brain in the LIVE runtime:
+  (a) Route the live user money paths (deposit, referral, entry-fee) through the
+      WalletLedger via new, semantics-preserving ledger operations + a
+      reference_id UNIQUE migration; and
+  (b) Collapse the dual enforcement plane by making every is_banned write
+      (auto-ban + admin ban/unban/review) go through EnforcementService behind
+      ServiceIdentityGuard + RBAC, eliminating the spoofable legacy admin path.
+Pair it with deleting/reconciling the divergent duplicate platform copy. This is
+the smallest scope that removes the two most dangerous "parallel authoritative
+path" problems that remain in production.
+
+================================================================================
+17. FINAL CONCLUSION
+================================================================================
+The rollouts delivered genuine, verifiable progress: the authoritative control
+plane is now reachable (ROLLOUT-001), game completion is unified with live
+lifecycle + server-authoritative verification on every engine (ROLLOUT-002), and
+the prize-credit path is ledger-routed (ROLLOUT-003). These are real and were
+confirmed from current source — not assumed.
+
+But the platform is NOT production-complete and must not be claimed as such:
+  - Two LIVE control planes still exist for ENFORCEMENT (authoritative
+    EnforcementService vs. legacy direct is_banned writes), and the LIVE user
+    MONEY paths still bypass the authoritative ledger.
+  - The event contract is ~4/11 wired; there are 0 automated tests; observability
+    is thin; and a DIVERGENT DUPLICATE of the whole platform sits in-tree with a
+    direct progression+payout scheduler and a different anti-cheat engine.
+
+Honest overall readiness: ~57%. The foundations are sound and increasingly live;
+the remaining work is concentrated, well-understood, and sequenced above. The
+single most important next step is ROLLOUT-004 (collapse the money + enforcement
+split-brain and remove the duplicate), after which a real test suite and the
+settlement/observability work bring the platform toward genuine production
+readiness.
+
+NOTHING in this audit was marked COMPLETE unless the live runtime proves it.
+================================================================================

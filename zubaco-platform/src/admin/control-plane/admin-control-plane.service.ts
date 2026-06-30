@@ -1,6 +1,7 @@
 import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
 import { RedisService } from '../../common/redis/redis.service';
 import { TournamentOrchestrator } from '../../tournament/orchestration/tournament.orchestrator';
+import { RewardPayoutService } from '../../tournament/orchestration/reward-payout.service';
 import { WalletLedgerService } from '../../wallet/ledger/ledger.service';
 import { FinancialOperation } from '../../wallet/ledger/ledger.types';
 import { EnforcementService } from '../../anti-cheat/enforcement/enforcement.service';
@@ -30,6 +31,7 @@ export class AdminControlPlaneService {
   constructor(
     private readonly redis: RedisService,
     private readonly tournaments: TournamentOrchestrator,
+    private readonly rewardPayout: RewardPayoutService,
     private readonly ledger: WalletLedgerService,
     private readonly enforcement: EnforcementService,
     private readonly events: EventBusService,
@@ -61,6 +63,24 @@ export class AdminControlPlaneService {
     }
   }
 
+  /**
+   * Read-only view of the immutable audit trail (most-recent first). Pure
+   * projection of the append-only Redis zset — never mutates state.
+   */
+  async getAuditTrail(limit = 50): Promise<AdminAuditEntry[]> {
+    const safeLimit = Math.min(Math.max(1, Math.trunc(limit) || 0), 500);
+    const raw = await this.redis.zrevrange(this.AUDIT, 0, safeLimit - 1);
+    const entries: AdminAuditEntry[] = [];
+    for (const item of raw) {
+      try {
+        entries.push(JSON.parse(item) as AdminAuditEntry);
+      } catch {
+        this.logger.warn('Skipping malformed audit entry');
+      }
+    }
+    return entries;
+  }
+
   private async dispatch(ctx: AdminContext, cmd: AdminCommand): Promise<unknown> {
     const p = cmd.params ?? {};
     switch (cmd.action) {
@@ -68,6 +88,13 @@ export class AdminControlPlaneService {
         return this.tournaments.advanceStage(cmd.target);
       case AdminAction.RESOLVE_REWARDS:
         return this.tournaments.resolveRewardEligibility(cmd.target);
+      case AdminAction.DISTRIBUTE_REWARDS: {
+        // Manual retry of the prize payout (e.g. if the automatic post-completion
+        // run was interrupted). Reuses the authoritative eligibility resolution
+        // and the idempotent ledger payout, so it can never double-pay.
+        const winners = await this.tournaments.resolveRewardEligibility(cmd.target);
+        return this.rewardPayout.distributeRewards(cmd.target, winners);
+      }
       case AdminAction.CREDIT_WALLET: {
         const res = await this.ledger.post({
           userId: cmd.target,

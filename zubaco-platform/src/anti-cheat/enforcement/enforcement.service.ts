@@ -3,7 +3,9 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { LeaderboardService } from '../../leaderboard/leaderboard.service';
 import { WebhookService } from '../../webhook/webhook.service';
-import { EnforcementAction, EnforcementRequest, EnforcementResult } from './enforcement.types';
+import { EventBusService } from '../../events/event-bus.service';
+import { PlatformEventType } from '../../events/event.types';
+import { EnforcementAction, EnforcementRequest, EnforcementResult, ReversalRequest, ReversalResult } from './enforcement.types';
 
 /**
  * Single authoritative enforcement engine. All DB mutations execute inside one
@@ -21,6 +23,7 @@ export class EnforcementService {
     private readonly redis: RedisService,
     private readonly leaderboard: LeaderboardService,
     private readonly webhook: WebhookService,
+    private readonly events: EventBusService,
   ) {}
 
   async enforce(req: EnforcementRequest): Promise<EnforcementResult> {
@@ -99,11 +102,83 @@ export class EnforcementService {
         });
       }
 
+      // Post-commit authoritative event. Idempotent: the enforce Redis lock
+      // blocks re-entry and the deterministic event id dedupes at the bus.
+      const eventKey = req.sessionId ?? req.userId;
+      if (req.confirmed) {
+        await this.events.publish(
+          PlatformEventType.ANTI_CHEAT_ENFORCED,
+          { user_id: req.userId, session_id: req.sessionId ?? null, reason: req.reason, actions },
+          req.userId,
+          `anticheat.enforced:${eventKey}`,
+        );
+      } else {
+        await this.events.publish(
+          PlatformEventType.ACCOUNT_REVIEWED,
+          { user_id: req.userId, session_id: req.sessionId ?? null, reason: req.reason },
+          req.userId,
+          `account.reviewed:${eventKey}`,
+        );
+      }
+
       return { enforced: true, alreadyEnforced: false, actionsApplied: actions };
     } catch (err) {
       await this.redis.del(lockKey); // allow retry on failure (no partial state)
       this.logger.error(`Enforcement failed: ${(err as Error).message}`);
       throw err;
+    }
+  }
+
+  /**
+   * Authoritative enforcement reversal (un-ban) — the counterpart to enforce().
+   *
+   * The ban reversal is written inside one Prisma $transaction (all-or-nothing)
+   * and is the ONLY runtime that clears is_banned; no direct mutation remains.
+   * Idempotent: a Redis lock guards against concurrent/duplicate reversals and
+   * the state transition is naturally idempotent (clearing an already-clear ban
+   * is a no-op). A post-commit ACCOUNT_RESTORED event provides the durable audit
+   * trail, published only on a real banned -> not-banned transition and deduped
+   * at the bus by a deterministic id — mirroring enforce()'s event model.
+   */
+  async reverse(req: ReversalRequest): Promise<ReversalResult> {
+    const lockKey = `acheat:reverse:${req.userId}`;
+    const fresh = await this.redis.setnx(lockKey, '1');
+    if (!fresh) {
+      // A concurrent reversal for the same user is already in flight.
+      return { reversed: false, alreadyReversed: true, transitioned: false };
+    }
+    await this.redis.expire(lockKey, 300);
+
+    try {
+      const transitioned = await this.prisma.$transaction(async (tx) => {
+        const current = await tx.user.findUnique({
+          where: { id: req.userId },
+          select: { is_banned: true },
+        });
+        if (!current) throw new Error(`User ${req.userId} not found`);
+        await tx.user.update({
+          where: { id: req.userId },
+          data: { is_banned: false, ban_reason: null },
+        });
+        return current.is_banned;
+      });
+
+      // Post-commit authoritative audit event. Idempotent: the reverse lock
+      // blocks re-entry and the deterministic event id dedupes at the bus.
+      if (transitioned) {
+        await this.events.publish(
+          PlatformEventType.ACCOUNT_RESTORED,
+          { user_id: req.userId, reason: req.reason, reversed_by: req.reversedBy ?? null },
+          req.userId,
+          `account.restored:${req.userId}`,
+        );
+      }
+
+      return { reversed: true, alreadyReversed: false, transitioned };
+    } finally {
+      // Release the concurrency guard; the DB transition is naturally idempotent,
+      // so a later legitimate re-ban / un-ban cycle is never permanently blocked.
+      await this.redis.del(lockKey);
     }
   }
 }

@@ -1,0 +1,353 @@
+================================================================================
+ZUBACO ENTERPRISE IMPLEMENTATION
+PHASE: ROLLOUT-003  —  AUTHORITATIVE MONEY / PROGRESSION INTEGRATION
+================================================================================
+Repo in scope: c:\zubaco-games\zubaco-platform  (the canonical platform; the
+nested c:\zubaco-games\zubaco-games\zubaco-platform copy is a DIVERGENT duplicate
+and was deliberately NOT touched — see Section 19).
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Integrate the authoritative TournamentOrchestrator and WalletLedgerService into
+the LIVE production execution path, replacing remaining legacy runtime money and
+progression paths so that:
+  (1) Tournament progression flows only through TournamentOrchestrator.
+  (2) Money credits flow through WalletLedgerService (the authoritative money
+      engine); legacy WalletService remains only as a compatibility adapter.
+  (3) Reward eligibility flows through the authoritative tournament pipeline
+      (no duplicate rewards / payouts).
+  (4) Payout reversal paths use EnforcementService + WalletLedger.
+  (5) Idempotency holds across tournament progression and wallet operations.
+
+KEY FINDING THAT SHAPED THIS PHASE: in the canonical repo the live runtime is
+ALREADY routed through the authoritative services for every operator-driven
+money/progression action (this was the result of ROLLOUT-001's admin control
+plane and ROLLOUT-002's unified completion pipeline). There was NO remaining
+in-repo LIVE legacy *progression* path and NO live legacy *reward-credit* path
+to replace. What remained was one direct-mutation reward-credit method on
+WalletService (creditPrize) plus several user-facing money methods that cannot
+be moved to the current ledger without semantic/settlement regressions. This
+phase hardened the prize-credit path onto the ledger and verified the rest.
+
+--------------------------------------------------------------------------------
+2. FILES MODIFIED
+--------------------------------------------------------------------------------
+- src/wallet/wallet.service.ts
+    * Injected WalletLedgerService.
+    * creditPrize() rewritten as a thin compatibility adapter that delegates to
+      WalletLedgerService.post({ operation: TOURNAMENT_PAYOUT, bucket: 'cash',
+      idempotencyKey: `prize:<seasonId>:<userId>`, tournamentRef: seasonId }).
+      Preserves the legacy method signature, the 'PRIZE_WIN' transaction type
+      and the cash bucket (so the daily reconciliation invariant is unchanged),
+      while adding ledger idempotency + immutable audit trail.
+
+(No other source files required changes — see Sections 5–9 for why the
+remaining money/progression paths were verified rather than rewritten.)
+
+--------------------------------------------------------------------------------
+3. FILES CREATED
+--------------------------------------------------------------------------------
+- IMPLEMENTATION_SUMMARY_ROLLOUT_003.txt  (this report)
+No new source files were created. The authoritative services (Tournament
+Orchestrator, WalletLedgerService, EnforcementService) already existed.
+
+--------------------------------------------------------------------------------
+4. FILES REMOVED
+--------------------------------------------------------------------------------
+None. (No legacy file became fully dead as a result of this phase; the legacy
+WalletService is intentionally retained as a compatibility adapter.)
+
+--------------------------------------------------------------------------------
+5. RUNTIME FLOW BEFORE
+--------------------------------------------------------------------------------
+TOURNAMENT PROGRESSION (before):
+  - Stage advance / elimination: TournamentOrchestrator.advanceStage ->
+    EliminationService.runElimination (Redis-locked, idempotent), reachable only
+    via AdminControlPlaneService.execute (ADVANCE_STAGE). EliminationService.
+    runElimination had no other caller in the canonical repo.
+  - User tournament play (tournament.service.submitTournamentResult) only
+    accumulated stage-entry totals (total_score / total_time_ms / games_played)
+    and stamped completed_at; it did NOT trigger elimination/advance. => no
+    parallel/legacy progression path existed in the canonical runtime.
+
+REWARD ELIGIBILITY (before):
+  - TournamentOrchestrator.resolveRewardEligibility (final-stage, non-banned
+    survivors), reachable via AdminControlPlaneService.execute (RESOLVE_REWARDS).
+    Does not auto-pay (resolution and payout are separate operator actions).
+
+MONEY (before):
+  - Admin-driven credit:   AdminControlPlane CREDIT_WALLET  -> ledger.post(ADJUSTMENT)
+  - Admin-driven reversal:  AdminControlPlane REVERSE_PAYOUT -> ledger.post(PAYOUT_REVERSAL)
+  - Tournament prize credit: WalletService.creditPrize -> direct prisma row-lock
+    + balance mutation (DID NOT use the ledger). No live caller in this repo.
+  - Deposit (live):        PaymentGatewayService.creditDepositAtomically (claims
+    a pre-created PENDING DEPOSIT row -> COMPLETED). Does not use the ledger.
+  - Referral bonus (live): WalletService.creditReferralBonus -> direct bonus_balance
+    mutation (type REFERRAL_BONUS). Does not use the ledger.
+  - Entry fee (live):      WalletService.deductEntryFee -> direct debit (ENTRY_FEE).
+  - Withdrawal (live):     WalletService.requestWithdrawal / confirmWithdrawal ->
+    direct debit creating a PENDING WITHDRAWAL (+ TDS). Does not use the ledger.
+
+PAYOUT REVERSAL (before):
+  - Internal re-credit: AdminControlPlane REVERSE_PAYOUT -> ledger.post(PAYOUT_REVERSAL).
+  - Enforcement-driven: EnforcementService.enforce (confirmed +
+    PREVENT_WALLET_PAYOUT / REVERSE_PENDING_PAYOUT) -> webhook.emitEnforcementReversal
+    (external signal to Base Platform; does not touch the internal ledger).
+
+--------------------------------------------------------------------------------
+6. RUNTIME FLOW AFTER
+--------------------------------------------------------------------------------
+TOURNAMENT PROGRESSION (after): UNCHANGED — already authoritative. Progression is
+  reachable only through TournamentOrchestrator.advanceStage (via the admin
+  control plane). Verified there is no direct EliminationService.runElimination
+  caller and no @Cron that advances stages in the canonical repo.
+
+REWARD ELIGIBILITY (after): UNCHANGED — already authoritative via
+  resolveRewardEligibility. Intentionally NOT auto-wired to payout (would create
+  a duplicate-payout path; explicitly out of scope).
+
+MONEY (after):
+  - Tournament prize credit: WalletService.creditPrize NOW delegates to
+    WalletLedgerService.post(TOURNAMENT_PAYOUT) -> single idempotent, row-locked,
+    audited money pipeline. Type ('PRIZE_WIN') and bucket ('cash') preserved.
+  - Admin-driven credit / reversal: unchanged (already on the ledger).
+  - Deposit / referral / entry-fee / withdrawal: unchanged (see Sections 9 & 19
+    for the documented reasons each remains on WalletService for now).
+
+PAYOUT REVERSAL (after): UNCHANGED. Internal authoritative reversal remains
+  AdminControlPlane REVERSE_PAYOUT -> ledger.post(PAYOUT_REVERSAL); enforcement
+  drives the external reversal via the webhook. A direct ledger reversal inside
+  EnforcementService was deliberately NOT added (Section 9 / Section 19) to avoid
+  a double-reversal money bug.
+
+--------------------------------------------------------------------------------
+7. AUTHORITATIVE SERVICES NOW REACHABLE (LIVE)
+--------------------------------------------------------------------------------
+- WalletLedgerService.post : now the single money engine behind tournament prize
+  credit (WalletService.creditPrize), in addition to the admin control plane's
+  CREDIT_WALLET (ADJUSTMENT) and REVERSE_PAYOUT (PAYOUT_REVERSAL) which were
+  already live since ROLLOUT-001.
+- TournamentOrchestrator.advanceStage / resolveRewardEligibility / withdraw :
+  confirmed as the sole live progression + eligibility path (via admin control
+  plane); no parallel path exists in this repo.
+- EnforcementService.enforce : confirmed sole enforcement path (admin control
+  plane), idempotent via Redis lock.
+
+--------------------------------------------------------------------------------
+8. LEGACY PATHS REMOVED
+--------------------------------------------------------------------------------
+- WalletService.creditPrize's direct balance mutation (raw FOR UPDATE +
+  wallet.update + transaction.create) was removed and replaced by a delegation
+  to the authoritative ledger. The legacy method NAME/signature is retained as a
+  compatibility adapter (no API break), but the legacy money-mutation CODE PATH
+  is gone — prize crediting can no longer bypass the ledger.
+
+No progression code was removed because no legacy/parallel progression path
+existed in the canonical repo (it was already orchestrator-only).
+
+--------------------------------------------------------------------------------
+9. REMAINING LEGACY PATHS (STILL ON WalletService — WITH REASONS)
+--------------------------------------------------------------------------------
+These remain direct WalletService mutations BY DESIGN this phase, because moving
+them to the current ledger would cause a regression rather than an improvement:
+
+- creditReferralBonus (LIVE, social referral): credits the BONUS bucket with
+  transaction type REFERRAL_BONUS. The ledger's credit operations map to type
+  'PRIZE_WIN'; routing referral through it would relabel the row AND (because the
+  daily reconciliation aggregates 'PRIZE_WIN' against the CASH balance only)
+  would manufacture false reconciliation discrepancies. Blocked until the ledger
+  gains a referral/bonus-credit operation + txType mapping (architecture change,
+  out of scope).
+
+- deposit (LEGACY adapter; the LIVE deposit path is
+  PaymentGatewayService.creditDepositAtomically): the live deposit flow pre-
+  creates a PENDING DEPOSIT row and atomically claims it (PENDING -> COMPLETED).
+  ledger.post creates a fresh COMPLETED row instead, which would double-count.
+  Model mismatch — out of scope for a money-safe change this phase.
+
+- deductEntryFee (LIVE, tournament registration): an ENTRY_FEE debit. The ledger
+  has no entry-fee debit operation; the nearest (ADJUSTMENT negative) relabels
+  the row to 'WITHDRAWAL', corrupting reconciliation semantics. Blocked on a
+  ledger entry-fee operation (architecture change, out of scope).
+
+- requestWithdrawal / initiateWithdrawal / confirmWithdrawal (LIVE): create a
+  PENDING WITHDRAWAL that settles later. ledger.post forces status COMPLETED, so
+  routing withdrawal through it would mark funds settled before disbursement.
+  Belongs to the WALLET-001 settlement pipeline (PENDING_PAYOUT/PAYOUT_SETTLEMENT
+  + RazorpayX), a separate phase.
+
+- EnforcementService payout reversal currently emits the external webhook only;
+  it does not also call ledger.post(PAYOUT_REVERSAL). Wiring an internal reversal
+  here without first cancelling the original PENDING withdrawal row would
+  double-pay (re-credit + later settlement). Requires a ledger "reverse pending
+  withdrawal" operation (cancel PENDING + re-credit atomically) — WALLET-001.
+
+--------------------------------------------------------------------------------
+10. BLOCKERS FULLY RESOLVED
+--------------------------------------------------------------------------------
+- WALLET (prize credit bypasses authoritative engine): RESOLVED. Tournament
+  prize credit now flows through WalletLedgerService with idempotency
+  (per season+user) and an immutable audit trail.
+- TOURN (parallel progression control planes) — for THIS repo: CONFIRMED
+  RESOLVED. Progression is orchestrator-only and reachable solely via the admin
+  control plane; no parallel/legacy progression path exists here.
+
+--------------------------------------------------------------------------------
+11. BLOCKERS PARTIALLY RESOLVED
+--------------------------------------------------------------------------------
+- WALLET (WalletLedger as THE authoritative money path): PARTIAL. Authoritative
+  for prize credit + admin credit/reversal. Deposit, referral, entry-fee and
+  withdrawal remain on WalletService for the documented semantic/settlement
+  reasons in Section 9.
+- ENFORCEMENT/PAYOUT reversal: PARTIAL. Internal authoritative reversal exists
+  via the admin control plane; enforcement-driven reversal still uses the
+  external webhook only (internal ledger reversal deferred to avoid double-pay).
+
+--------------------------------------------------------------------------------
+12. BLOCKERS NOT TOUCHED
+--------------------------------------------------------------------------------
+- WALLET-001 withdrawal settlement pipeline (PENDING_PAYOUT / PAYOUT_SETTLEMENT
+  + external disbursement) — out of scope.
+- Cross-repo cutover: the admin-panel repo and the ~20 game backends that drive
+  money/progression from outside this service — out of scope.
+- Transaction.reference_id UNIQUE constraint migration (DB-level idempotency
+  hardening) — out of scope; the ledger enforces idempotency in application code
+  + Redis lock today.
+- The nested/divergent c:\zubaco-games\zubaco-games\zubaco-platform copy — not
+  the canonical runtime; not modified.
+
+--------------------------------------------------------------------------------
+13. SECURITY IMPACT
+--------------------------------------------------------------------------------
+- POSITIVE. Prize crediting now passes through the ledger's idempotency guard
+  (idempotencyKey + Redis lock + per-user/season dedup), removing a path that
+  could double-credit on retry/concurrency. No new external input is accepted;
+  there is no client-triggered path to creditPrize. No authn/authz changes. No
+  secrets touched. The change reduces the surface for duplicate-payout abuse.
+
+--------------------------------------------------------------------------------
+14. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+- Negligible. creditPrize now performs one Redis SETNX/EXPIRE + one row-locked
+  $transaction (same DB cost profile as before, plus a sub-millisecond Redis
+  round trip). creditPrize is not on a hot user path.
+
+--------------------------------------------------------------------------------
+15. DATABASE CHANGES
+--------------------------------------------------------------------------------
+- None. No schema/migration changes. The Prisma client was regenerated (no
+  drift). Stored prize transactions keep type 'PRIZE_WIN' and the cash bucket;
+  the only behavioural difference is reference_id is now
+  `prize:<seasonId>:<userId>` (idempotency key) plus a metadata._ledger audit
+  block on the transaction row.
+
+--------------------------------------------------------------------------------
+16. API CHANGES
+--------------------------------------------------------------------------------
+- None. WalletService.creditPrize keeps its exact signature
+  (userId, amount, seasonId) and return shape ({ new_balance }). No controller,
+  DTO, route or response contract changed.
+
+--------------------------------------------------------------------------------
+17. BUILD RESULTS
+--------------------------------------------------------------------------------
+- npx prisma generate : SUCCESS (Prisma Client v7.8.0 generated, exit 0).
+- npm run build (nest build) : SUCCESS (no TypeScript/compile errors, exit 0).
+- get_errors on src/wallet/wallet.service.ts : No errors found.
+- Build state: GREEN.
+
+--------------------------------------------------------------------------------
+18. TESTS EXECUTED
+--------------------------------------------------------------------------------
+- None. The repo has no test suite (no `test` script / 0 test files) and the
+  `lint` script references an uninstalled eslint binary (pre-existing, N/A).
+  Verification was via the TypeScript compiler (nest build) and error checks.
+
+--------------------------------------------------------------------------------
+19. KNOWN LIMITATIONS
+--------------------------------------------------------------------------------
+- creditPrize currently has NO live caller in this repo. Live prize payout is an
+  operator action via the admin control plane (CREDIT_WALLET -> ledger) and/or
+  the external Base Platform. The creditPrize change is therefore "authoritative-
+  by-construction": it guarantees that IF anything credits a prize through
+  WalletService, it goes through the ledger — it is hardening, not a live-path
+  switch. This is stated plainly so the result is not over-claimed.
+- A divergent duplicate exists at c:\zubaco-games\zubaco-games\zubaco-platform
+  (it has its own EliminationService.distributePrizes + tournament-scheduler.
+  service.ts that call runElimination/distributePrizes directly). That copy was
+  NOT modified; it is not the canonical runtime for this workstream. If it is in
+  fact deployed somewhere, its direct progression/prize paths are a SEPARATE,
+  un-addressed legacy surface and must be reconciled before any "complete" claim
+  at the program level.
+- Deposit/referral/entry-fee/withdrawal still bypass the ledger (Section 9).
+
+--------------------------------------------------------------------------------
+20. ROLLBACK RISK
+--------------------------------------------------------------------------------
+- LOW. Single-method change behind an unchanged signature, type- and bucket-
+  preserving, reconciliation-neutral, build green. Rollback = revert the
+  wallet.service.ts diff (restore the inline prisma mutation); no DB/state
+  migration to unwind. Idempotency keys written during the new path are inert if
+  rolled back (the legacy path simply stops checking them).
+
+--------------------------------------------------------------------------------
+21. REMAINING WORK
+--------------------------------------------------------------------------------
+- Add ledger operations for the remaining live money paths so WalletService can
+  become a pure adapter end-to-end:
+    * REFERRAL_CREDIT (bonus bucket, type REFERRAL_BONUS) for creditReferralBonus.
+    * ENTRY_FEE_DEBIT (cash/bonus split, type ENTRY_FEE) for deductEntryFee.
+    * PENDING_PAYOUT + PAYOUT_SETTLEMENT wiring for withdrawals (WALLET-001),
+      then route requestWithdrawal/confirmWithdrawal through the ledger.
+    * REVERSE_PENDING (cancel PENDING withdrawal + re-credit atomically) and wire
+      EnforcementService payout reversal to it (internal reversal), keeping the
+      external webhook for the disbursement layer.
+- Migrate the live deposit credit (PaymentGatewayService.creditDepositAtomically)
+  onto the ledger using a claim-then-post model that does not double-count.
+- Reconcile or retire the nested divergent platform copy (Section 19).
+- Drive the cross-repo (admin panel + game backends) money/progression callers
+  onto these authoritative services.
+
+--------------------------------------------------------------------------------
+22. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+ROLLOUT-004 — "Wallet ledger completeness": extend FinancialOperation +
+txType mapping with REFERRAL_CREDIT / ENTRY_FEE_DEBIT / REVERSE_PENDING, add the
+PENDING_PAYOUT settlement lifecycle, then convert deductEntryFee,
+creditReferralBonus, the withdrawal flow and the enforcement payout reversal into
+ledger adapters. Pair it with the Transaction.reference_id UNIQUE migration so
+idempotency is enforced at the database layer, and resolve the divergent
+duplicate platform copy.
+
+--------------------------------------------------------------------------------
+23. FINAL STATUS
+--------------------------------------------------------------------------------
+PARTIAL — and intentionally so.
+
+What is genuinely COMPLETE for this repo:
+  - Tournament progression is authoritative-only (orchestrator), with no
+    parallel/legacy progression path remaining. VERIFIED.
+  - Reward eligibility is authoritative-only (resolveRewardEligibility),
+    correctly NOT auto-paying (no duplicate-payout path introduced). VERIFIED.
+  - Tournament prize credit now flows through the authoritative WalletLedger
+    with idempotency + audit; the legacy prize money-mutation path is gone.
+  - Admin-driven credit + payout reversal remain on the ledger (ROLLOUT-001).
+  - Build GREEN; no API or DB breaking changes.
+
+What is explicitly NOT complete (no over-claiming):
+  - WalletLedger is NOT YET the authoritative path for the live deposit,
+    referral, entry-fee and withdrawal flows; these remain WalletService
+    mutations for the documented semantic/settlement reasons in Section 9.
+  - Enforcement-driven payout reversal still uses the external webhook only
+    (no internal ledger reversal yet) to avoid a double-pay bug.
+  - The prize-credit ledger path, while authoritative-by-construction, has no
+    live caller in this repo today (live prize payout is operator/Base-Platform
+    driven).
+  - A divergent duplicate platform copy with its own direct progression/prize
+    paths was not addressed.
+
+Per the program rule "never claim COMPLETE unless the authoritative
+implementation is the actual live runtime path and no parallel authoritative
+path remains for the scoped work," this phase is reported as PARTIAL.
+================================================================================

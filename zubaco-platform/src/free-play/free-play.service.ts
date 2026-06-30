@@ -2,10 +2,8 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EnergyService } from './energy.service';
-import { ScoringService } from '../scoring/scoring.service';
 import { PuzzleService } from '../rng/puzzle.service';
-import { WebhookService } from '../webhook/webhook.service';
-import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
+import { SessionCompletionService } from '../game-session/completion/session-completion.service';
 import { GameType } from '.prisma/client';
 
 @Injectable()
@@ -14,10 +12,8 @@ export class FreePlayService {
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
     private readonly energyService: EnergyService,
-    private readonly scoring: ScoringService,
     private readonly puzzle: PuzzleService,
-    private readonly webhook: WebhookService,
-    private readonly antiCheat: AntiCheatService,
+    private readonly completion: SessionCompletionService,
   ) {}
 
   // ─── GET PROGRESS FOR ALL GAMES ───────────────────────────────
@@ -161,65 +157,22 @@ export class FreePlayService {
       throw new NotFoundException('Game session not found or already completed');
     }
 
-    // ── Server-authoritative scoring (client score is never trusted) ──
-    const claimedScore = typeof score === 'number' ? score : null;
-
-    // Fold deterministic puzzle truth (shortest path, fingerprint) into metadata.
-    const storedPuzzle = (session.metadata as any)?._puzzle;
-    let boardTampered = false;
-    const scoringMeta = { ...(metadata || {}) };
-    if (storedPuzzle) {
-      if (storedPuzzle.meta?.shortest_path && Array.isArray(scoringMeta.rounds)) {
-        scoringMeta.rounds = scoringMeta.rounds.map((r: any) => ({
-          ...r,
-          shortestPath: r.shortestPath ?? storedPuzzle.meta.shortest_path,
-        }));
-      }
-      if (metadata?.board_fingerprint) {
-        boardTampered = metadata.board_fingerprint !== storedPuzzle.fingerprint;
-      }
-    }
-
-    const result = this.scoring.score(session.game_type, scoringMeta, session.config);
-    const authoritativeScore = boardTampered
-      ? 0
-      : result.validated
-      ? result.score
-      : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
-    score = authoritativeScore;
-
-    const discrepancy =
-      claimedScore !== null && result.validated ? Math.abs(claimedScore - result.score) : 0;
-    const flagged = boardTampered || !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
-
-    // Update session
-    await this.prisma.gameSession.update({
-      where: { id: sessionId },
-      data: {
-        score: authoritativeScore,
-        max_score: result.maxScore,
-        duration_ms: durationMs,
-        outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
-        completed_at: new Date(),
-        metadata: {
-          ...(metadata || {}),
-          ...(storedPuzzle ? { _puzzle: storedPuzzle } : {}),
-          _scoring: {
-            claimed_score: claimedScore,
-            server_score: result.score,
-            max_score: result.maxScore,
-            validated: result.validated,
-            breakdown: result.breakdown,
-            discrepancy,
-            board_tampered: boardTampered,
-            flagged,
-          },
-        },
-      },
+    // ── Single authoritative completion path (ROLLOUT-002) ──
+    // Lifecycle -> Verification (authoritative score) -> persist -> anti-cheat
+    // -> events -> Base-Platform webhook. Free-play layers its own progression
+    // (stars / level unlock / XP) on top of the authoritative result below.
+    const completion = await this.completion.complete(session, {
+      claimedScore: typeof score === 'number' ? score : null,
+      durationMs,
+      metadata,
     });
+    const authoritativeScore = completion.authoritativeScore;
 
     // Calculate stars (1-3 based on server-computed score vs. max)
-    const stars = this.calculateStars(score, { max_score: result.maxScore, ...(session.config as any) });
+    const stars = this.calculateStars(authoritativeScore, {
+      max_score: completion.maxScore,
+      ...(session.config as any),
+    });
 
     // Update progress
     const progress = await this.prisma.gameProgress.findUnique({
@@ -229,7 +182,7 @@ export class FreePlayService {
     if (progress) {
       const updates: any = {
         total_plays: { increment: 1 },
-        best_score: score > progress.best_score ? score : progress.best_score,
+        best_score: authoritativeScore > progress.best_score ? authoritativeScore : progress.best_score,
       };
 
       // Unlock next level if current level completed with at least 1 star
@@ -251,14 +204,14 @@ export class FreePlayService {
             progress_id: progress.id,
             level: session.level,
             stars,
-            best_score: score,
+            best_score: authoritativeScore,
             attempts: 1,
             completed: stars >= 1,
             first_completed: stars >= 1 ? new Date() : null,
           },
           update: {
             stars: { set: stars },
-            best_score: score,
+            best_score: authoritativeScore,
             attempts: { increment: 1 },
             ...(stars >= 1 && { completed: true }),
           },
@@ -270,39 +223,8 @@ export class FreePlayService {
     const xpEarned = this.calculateXp(stars, session.level || 1);
     await this.usersService.addXp(userId, xpEarned);
 
-    // Run anti-cheat analysis on the authoritative result (best-effort).
-    try {
-      await this.antiCheat.analyzeGameResult(
-        userId,
-        session.id,
-        authoritativeScore,
-        durationMs,
-        session.game_type,
-        { metadata, claimedScore, serverScore: result.score, boardTampered },
-      );
-    } catch {
-      // Never block result submission on anti-cheat analysis failures.
-    }
-
-    // Notify the Base Platform of the validated result (durable, signed, async).
-    await this.webhook.emitGameResult({
-      session_id: session.id,
-      user_id: userId,
-      game_type: session.game_type as any,
-      mode: 'FREE_PLAY',
-      score: authoritativeScore,
-      max_score: result.maxScore,
-      duration_ms: durationMs,
-      outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
-      stage_entry_id: null,
-      level: session.level,
-      flagged,
-      validated: result.validated,
-      completed_at: new Date().toISOString(),
-    });
-
     return {
-      score,
+      score: authoritativeScore,
       stars,
       xp_earned: xpEarned,
       level_completed: stars >= 1,

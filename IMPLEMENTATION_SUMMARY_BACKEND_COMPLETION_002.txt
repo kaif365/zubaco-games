@@ -1,0 +1,341 @@
+================================================================================
+IMPLEMENTATION SUMMARY — BACKEND_COMPLETION_002
+TOURNAMENT PRIZE CREDITING (resolves M2)
+ZUBACO PLATFORM
+================================================================================
+Mode ................ IMPLEMENTATION (code modified; additive + minimal wiring)
+Canonical root ...... c:\zubaco-games\zubaco-platform\src
+Build ............... GREEN (prisma generate OK; nest build BUILD_EXIT=0)
+Breaking changes .... NONE (no API/DB schema change; one additive return field)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Resolve backend implementation item M2: the tournament engine correctly computes
+reward eligibility but no live backend runtime credited the winners.
+WalletService.creditPrize() existed but was dormant (zero callers). Complete the
+authoritative prize payout runtime so eligible winners are credited exactly once,
+without redesigning the tournament or wallet architecture.
+
+
+--------------------------------------------------------------------------------
+2. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+A single authoritative prize payout runtime was added and wired to the existing
+pipelines:
+
+  Season COMPLETED (orchestrator.advanceStage)
+    -> resolveRewardEligibility(seasonId)          (authoritative winner list)
+    -> RewardPayoutService.distributeRewards(...)   (NEW)
+         per winner -> WalletService.creditPrize()  (now LIVE)
+                       -> WalletLedgerService.post(TOURNAMENT_PAYOUT)
+                          (idempotent: ledger_key = prize:<seasonId>:<userId>)
+         per credit  -> publish WALLET_CREDITED
+                       -> in-app notification (existing subscriber)
+                       -> outbound webhook (existing subscriber)
+
+Eligibility (banned/disqualified/incomplete excluded) is owned by the existing
+TournamentOrchestrator; the new RewardPayoutService only performs the payout and
+takes the pre-resolved winners as input, so it is a one-way dependency (no
+circular DI). A per-season Redis lock prevents concurrent double distribution,
+and the wallet ledger's per-season+user idempotency key guarantees no winner is
+ever paid twice. A manual retry path was added as an RBAC-gated, immutably
+audited admin action (DISTRIBUTE_REWARDS).
+
+Result: creditPrize() now has a LIVE caller; TOURNAMENT_PAYOUT is reachable;
+banned/disqualified players cannot be paid; duplicate payouts are impossible; the
+wallet ledger remains the only balance writer. M2 = RESOLVED (see §20).
+
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+  - src/wallet/wallet.service.ts
+      creditPrize() return extended (additive) to surface the ledger outcome:
+      { new_balance, applied, duplicate, transaction_id }. No signature change;
+      method had no prior callers. Wallet logic unchanged (still ledger.post).
+
+  - src/tournament/orchestration/tournament.orchestrator.ts
+      Injected RewardPayoutService (one-way). On season completion (right after
+      publishing TOURNAMENT_COMPLETED), resolves eligibility and best-effort
+      calls distributeRewards(). Failure is logged and does NOT fail the advance
+      (season is already COMPLETED + committed; admin retry exists).
+
+  - src/tournament/tournament.module.ts
+      Registered RewardPayoutService as a provider and export.
+
+  - src/admin/control-plane/admin.types.ts
+      Added AdminAction.DISTRIBUTE_REWARDS; granted it to FINANCE and SUPER_ADMIN
+      in ROLE_PERMISSIONS (least privilege; it moves money).
+
+  - src/admin/control-plane/admin-control-plane.service.ts
+      Injected RewardPayoutService; added DISTRIBUTE_REWARDS dispatch (resolve
+      eligibility via orchestrator, then distributeRewards) — RBAC-gated,
+      idempotent (requestId lock), immutably audited like every admin action.
+
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+  - src/tournament/orchestration/reward-payout.service.ts
+      RewardPayoutService — the authoritative prize payout runtime:
+        * distributeRewards(seasonId, winners[])
+        * per-season Redis lock (no concurrent double distribution)
+        * COMPLETED-season + prize_pool>0 gates
+        * computeAmounts(): season.rules.prize_distribution (percentages of
+          prize_pool by rank) with a default top-3 split fallback
+        * defense-in-depth banned re-check at payout time
+        * credits via WalletService.creditPrize (idempotent ledger), publishes
+          WALLET_CREDITED once per credited winner (deterministic event id)
+
+
+--------------------------------------------------------------------------------
+5. FILES REMOVED
+--------------------------------------------------------------------------------
+  None.
+
+
+--------------------------------------------------------------------------------
+6. REWARD FLOW — BEFORE
+--------------------------------------------------------------------------------
+  advanceStage (final stage) -> season status = COMPLETED
+        -> publish TOURNAMENT_COMPLETED
+           ** RUNTIME ENDS **
+  resolveRewardEligibility (admin RESOLVE_REWARDS only) -> returns winners +
+        publishes REWARD_ELIGIBLE   [no crediting]
+  creditPrize() / ledger TOURNAMENT_PAYOUT -> DORMANT (zero callers)
+  Net effect: winners resolved and notified as "eligible", but never paid.
+
+
+--------------------------------------------------------------------------------
+7. REWARD FLOW — AFTER
+--------------------------------------------------------------------------------
+  advanceStage (final stage) -> season status = COMPLETED
+        -> publish TOURNAMENT_COMPLETED
+        -> resolveRewardEligibility(seasonId)        (banned/DQ/incomplete excluded)
+        -> RewardPayoutService.distributeRewards(seasonId, winners)
+              [per-season Redis lock]
+              -> for each eligible winner with prize > 0 and not banned:
+                   WalletService.creditPrize(userId, amount, seasonId)
+                     -> WalletLedgerService.post(TOURNAMENT_PAYOUT)
+                        (ledger_key = prize:<seasonId>:<userId>, at-most-once)
+                   if newly applied -> publish WALLET_CREDITED
+                                         -> in-app notification + webhook
+
+  Manual retry (idempotent): admin DISTRIBUTE_REWARDS -> same resolve + distribute.
+
+
+--------------------------------------------------------------------------------
+8. RUNTIME TRIGGER ADDED
+--------------------------------------------------------------------------------
+  Primary (automatic): TournamentOrchestrator.advanceStage, on the season-
+      completion branch, immediately after TOURNAMENT_COMPLETED. This is the
+      authoritative completion point, so payout fires exactly when the tournament
+      ends. Best-effort (try/catch) so a payout error cannot roll back a
+      committed completion.
+  Secondary (manual retry): AdminAction.DISTRIBUTE_REWARDS through the existing
+      admin control plane — RBAC-gated (FINANCE / SUPER_ADMIN), idempotent
+      (requestId), and written to the immutable audit trail. Used if the
+      automatic run was interrupted; safe because payout is idempotent.
+  No new HTTP endpoint, cron, or queue was introduced (none required — the
+      existing admin control-plane endpoint carries the manual action).
+
+
+--------------------------------------------------------------------------------
+9. WALLET INTEGRATION
+--------------------------------------------------------------------------------
+  - Crediting goes exclusively through WalletService.creditPrize ->
+    WalletLedgerService.post({ operation: TOURNAMENT_PAYOUT, bucket: 'cash',
+    idempotencyKey: 'prize:<seasonId>:<userId>' }).
+  - creditPrize was NOT re-implemented; only its return was widened (additive) to
+    report the ledger's applied/duplicate outcome so the runtime can credit and
+    notify each winner exactly once.
+  - The payout service performs NO direct wallet/transaction writes.
+
+
+--------------------------------------------------------------------------------
+10. LEDGER VERIFICATION
+--------------------------------------------------------------------------------
+  - WalletLedgerService remains the SOLE balance writer. The new service only
+    calls creditPrize (which calls ledger.post) and never touches wallet rows.
+  - TOURNAMENT_PAYOUT maps to a PRIZE_WIN transaction in the cash bucket
+    (txType()), keeping the daily reconciliation invariant intact (PRIZE_WIN is
+    already counted as a credit in WalletCleanupService.dailyReconciliation).
+  - ledger.post enforces amount > 0 (zero/!positive prizes are skipped upstream).
+
+
+--------------------------------------------------------------------------------
+11. IDEMPOTENCY VERIFICATION
+--------------------------------------------------------------------------------
+  Layer 1 — Per-season lock: tourn:reward:payout:<seasonId> (setnx + 1h TTL,
+            released in finally) prevents two distributions (e.g. automatic +
+            admin retry) running concurrently for the same season.
+  Layer 2 — Ledger idempotency (authoritative money guarantee): creditPrize uses
+            ledger_key = prize:<seasonId>:<userId>, protected by BOTH a Redis
+            per-key lock AND a UNIQUE ledger_key index. A second attempt returns
+            applied=false / duplicate=true and moves no money.
+  Layer 3 — Apply-gated side effects: WALLET_CREDITED is published only when
+            res.applied is true, and with a deterministic event id
+            (wallet.credited:prize:<seasonId>:<seasonEntryId>) that the event bus
+            de-duplicates — so a winner is notified at most once even across
+            re-runs.
+  Result:   "Already-paid users are never paid twice" holds even under concurrent
+            triggers, retries, and re-resolution.
+
+
+--------------------------------------------------------------------------------
+12. EVENT FLOW
+--------------------------------------------------------------------------------
+  - REWARD_ELIGIBLE — published per winner by resolveRewardEligibility (now
+    reached automatically on completion, previously admin-only). Idempotent id.
+  - WALLET_CREDITED — now reachable for tournament prizes (source:
+    'tournament_prize'); published once per newly-credited winner. Consumed by
+    the existing in-app + webhook subscribers.
+  - TOURNAMENT_COMPLETED — unchanged; now also the trigger boundary for payout.
+  No new event types were added.
+
+
+--------------------------------------------------------------------------------
+13. NOTIFICATION FLOW
+--------------------------------------------------------------------------------
+  WALLET_CREDITED -> EventBus drain -> InAppEventSubscriber
+        -> NotificationService.sendNotification(userId, 'PRIZE_WON', 'Wallet
+           credited', ...) -> in-app row + FCM push (env-gated).
+  -> WebhookEventSubscriber -> WebhookService.emitPlatformEvent -> Base Platform.
+  No notification code was modified; the prize payout reuses the existing
+  WALLET_CREDITED -> PRIZE_WON mapping already present in the in-app subscriber.
+
+
+--------------------------------------------------------------------------------
+14. DATABASE CHANGES
+--------------------------------------------------------------------------------
+  None. No schema change, no migration. Prize amounts derive from the existing
+  Season.prize_pool and the optional Season.rules.prize_distribution JSON;
+  payouts are written as standard PRIZE_WIN ledger transactions by the existing
+  ledger. (DB is a dummy/unmigrated instance in this environment, consistent with
+  prior phases; prisma generate + nest build are green.)
+
+
+--------------------------------------------------------------------------------
+15. API CHANGES
+--------------------------------------------------------------------------------
+  - No new HTTP routes; no request/response shape changes to existing endpoints.
+  - One new admin control-plane ACTION value (DISTRIBUTE_REWARDS) accepted by the
+    existing POST /admin/control-plane/execute endpoint. This is additive and
+    backward-compatible (existing actions/clients unaffected).
+
+
+--------------------------------------------------------------------------------
+16. SECURITY IMPACT
+--------------------------------------------------------------------------------
+  - Manual payout is least-privilege: only FINANCE and SUPER_ADMIN may invoke
+    DISTRIBUTE_REWARDS; the endpoint remains behind ServiceIdentityGuard and the
+    control plane's RBAC + idempotency + immutable audit.
+  - Banned users are excluded twice (eligibility filter + payout-time re-check),
+    so an account banned mid-flow cannot be paid.
+  - No new external surface; payout amounts are server-derived from prize_pool
+    (never client-supplied). No secrets logged.
+
+
+--------------------------------------------------------------------------------
+17. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+  - Payout runs once per season completion (a rare event), bounded by the number
+    of final-stage survivors; each credit is one row-locked ledger transaction.
+  - The automatic trigger is off the player request path (it runs inside the
+    admin/operator-driven advanceStage). Negligible steady-state cost.
+
+
+--------------------------------------------------------------------------------
+18. BUILD RESULT
+--------------------------------------------------------------------------------
+  Command:
+    $env:NODE_EXTRA_CA_CERTS="C:\TEMP\cisco-umbrella-ca.crt";
+    npx prisma generate ; npm run build
+  Output:
+    - Prisma Client v7.8.0 generated successfully.
+    - nest build completed; BUILD_EXIT=0.
+  Static analysis: no TypeScript/lint errors in new or modified files.
+  STATUS: GREEN.
+
+
+--------------------------------------------------------------------------------
+19. TESTS EXECUTED
+--------------------------------------------------------------------------------
+  None executed (testing is out of scope for this phase, and the environment uses
+  a dummy/unmigrated DB so payouts cannot be exercised end-to-end here).
+  Verification performed by:
+    - full source tracing (completion -> eligibility -> credit -> ledger -> event
+      -> notification/webhook),
+    - DI/dependency-cycle review (RewardPayoutService is one-way; no circular
+      dependency introduced),
+    - static type/compile checks (no errors),
+    - green prisma generate + nest build.
+  Recommended runtime tests are listed in §22.
+
+
+--------------------------------------------------------------------------------
+20. M2 STATUS
+--------------------------------------------------------------------------------
+  M2 — TOURNAMENT PRIZE CREDITING: FULLY RESOLVED.
+
+  Acceptance checklist:
+    [x] creditPrize() has a LIVE runtime caller
+        (RewardPayoutService.distributeRewards, triggered automatically on season
+        completion and manually via admin DISTRIBUTE_REWARDS).
+    [x] Eligible winners are credited (prize derived from prize_pool +
+        distribution; routed through the ledger).
+    [x] Banned/disqualified players cannot be credited (eligibility excludes
+        banned + eliminated + incomplete; plus a payout-time banned re-check).
+    [x] Duplicate prize payouts are impossible (per-season lock + ledger
+        ledger_key idempotency + apply-gated, de-duplicated events).
+    [x] WalletLedger remains the only balance writer (payout service does no
+        direct wallet writes).
+    [x] TOURNAMENT_PAYOUT is now reachable (PRIZE_WIN ledger transaction).
+
+
+--------------------------------------------------------------------------------
+21. REMAINING BACKEND ITEMS
+--------------------------------------------------------------------------------
+  (From FINAL_BACKEND_IMPLEMENTATION_STATUS.txt — M1 and M2 now resolved.)
+  - M3 — Leaderboard real-time write (updateScore dormant; tournament/standard
+         scores never update a global leaderboard).  [OPEN]
+  - M4 — Authoritative un-enforce/unban path (unbanUser is a legacy direct
+         is_banned write).  [OPEN, minor]
+  - Hardening (optional): enforce ServiceIdentity (remove api-key fallback);
+         derive admin actor identity from verified identity, not request body;
+         deterministic RazorpayX payout idempotency key (M1 crash-window edge).
+
+
+--------------------------------------------------------------------------------
+22. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+  BACKEND_COMPLETION_003 — Leaderboard score write (M3): wire
+  LeaderboardService.updateScore() into the authoritative completion path (or
+  define the external ingestion contract) so tournament/standard sessions update
+  the global leaderboard, with the same idempotency discipline.
+  Suggested runtime tests for M2 once a real DB is available:
+    - happy path: season completes -> top-N credited per distribution; balances +
+      PRIZE_WIN rows + WALLET_CREDITED events correct;
+    - idempotency: re-run (automatic + admin) -> no double credit, no duplicate
+      notifications;
+    - banned exclusion: ban a winner before payout -> skipped, not credited;
+    - no prize pool / no winners -> no-op with correct status;
+    - custom rules.prize_distribution percentages -> amounts match.
+
+
+--------------------------------------------------------------------------------
+23. FINAL STATUS
+--------------------------------------------------------------------------------
+  M2 FULLY RESOLVED. Tournament prize crediting is now a single live, idempotent,
+  ledger-authoritative runtime: prizes are credited the moment a season completes
+  (with an RBAC-gated, audited admin retry), only to eligible non-banned winners,
+  exactly once. Build is GREEN. No API/DB/breaking changes (one additive return
+  field + one additive admin action). Remaining backend items: M3, M4
+  (+ optional hardening).
+
+================================================================================
+END OF REPORT — IMPLEMENTATION_SUMMARY_BACKEND_COMPLETION_002
+================================================================================

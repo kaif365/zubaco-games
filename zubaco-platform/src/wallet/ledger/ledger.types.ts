@@ -16,6 +16,9 @@ export enum FinancialOperation {
   PAYOUT_REVERSAL = 'PAYOUT_REVERSAL',
   REFUND = 'REFUND',
   ADJUSTMENT = 'ADJUSTMENT',
+  REFERRAL_CREDIT = 'REFERRAL_CREDIT',
+  ENTRY_FEE_DEBIT = 'ENTRY_FEE_DEBIT',
+  DEPOSIT_CREDIT = 'DEPOSIT_CREDIT',
 }
 
 /** Which money bucket the operation touches. */

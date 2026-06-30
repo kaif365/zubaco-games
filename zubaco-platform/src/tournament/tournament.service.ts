@@ -2,10 +2,8 @@ import { Injectable, BadRequestException, NotFoundException, ConflictException }
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AgeVerificationService } from '../compliance/age-verification.service';
-import { ScoringService } from '../scoring/scoring.service';
 import { PuzzleService } from '../rng/puzzle.service';
-import { WebhookService } from '../webhook/webhook.service';
-import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
+import { SessionCompletionService } from '../game-session/completion/session-completion.service';
 import { GameType } from '.prisma/client';
 import * as crypto from 'crypto';
 
@@ -15,10 +13,8 @@ export class TournamentService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly ageVerification: AgeVerificationService,
-    private readonly scoring: ScoringService,
     private readonly puzzle: PuzzleService,
-    private readonly webhook: WebhookService,
-    private readonly antiCheat: AntiCheatService,
+    private readonly completion: SessionCompletionService,
   ) {}
 
   // ─── LIST ACTIVE SEASONS ───────────────────────────────────────
@@ -220,75 +216,30 @@ export class TournamentService {
 
     if (!session) throw new NotFoundException('Tournament session not found or already completed');
 
-    // ── Deterministic puzzle validation ───────────────────────────
-    const storedPuzzle = (session.metadata as any)?._puzzle;
-    let boardTampered = false;
-    const scoringMeta = { ...(metadata || {}) };
-    if (storedPuzzle) {
-      if (storedPuzzle.meta?.shortest_path && Array.isArray(scoringMeta.rounds)) {
-        scoringMeta.rounds = scoringMeta.rounds.map((r: any) => ({
-          ...r,
-          shortestPath: r.shortestPath ?? storedPuzzle.meta.shortest_path,
-        }));
-      }
-      if (metadata?.board_fingerprint) {
-        boardTampered = metadata.board_fingerprint !== storedPuzzle.fingerprint;
-      }
-    }
-
-    // ── Server-authoritative scoring (the only score that counts toward
-    //    elimination). The client-claimed score is never trusted. ──
-    const claimedScore = typeof score === 'number' ? score : null;
-    const result = this.scoring.score(session.game_type, scoringMeta, session.config);
-    const authoritativeScore = boardTampered
-      ? 0
-      : result.validated
-      ? result.score
-      : Math.max(0, Math.min(claimedScore ?? 0, result.maxScore));
-    score = authoritativeScore;
-
-    const discrepancy =
-      claimedScore !== null && result.validated ? Math.abs(claimedScore - result.score) : 0;
-    const flagged = boardTampered || !result.validated || discrepancy > Math.max(10, result.maxScore * 0.1);
-
-    // Update session
-    await this.prisma.gameSession.update({
-      where: { id: sessionId },
-      data: {
-        score: authoritativeScore,
-        max_score: result.maxScore,
-        duration_ms: durationMs,
-        outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
-        completed_at: new Date(),
-        metadata: {
-          ...(metadata || {}),
-          ...(storedPuzzle ? { _puzzle: storedPuzzle } : {}),
-          _scoring: {
-            claimed_score: claimedScore,
-            server_score: result.score,
-            max_score: result.maxScore,
-            validated: result.validated,
-            breakdown: result.breakdown,
-            discrepancy,
-            board_tampered: boardTampered,
-            flagged,
-          },
-        },
-      },
+    // ── Single authoritative completion path (ROLLOUT-002) ──
+    // Lifecycle -> Verification (authoritative score) -> persist -> anti-cheat
+    // -> events -> Base-Platform webhook. Tournament progression (stage-entry
+    // totals) is applied on top of the authoritative result below.
+    const completion = await this.completion.complete(session, {
+      claimedScore: typeof score === 'number' ? score : null,
+      durationMs,
+      metadata,
     });
+    const authoritativeScore = completion.authoritativeScore;
+    const authoritativeDurationMs = completion.durationMs;
 
     // Update stage entry totals
     if (session.stage_entry) {
       await this.prisma.stageEntry.update({
         where: { id: session.stage_entry.id },
         data: {
-          total_score: { increment: score },
-          total_time_ms: { increment: durationMs },
+          total_score: { increment: authoritativeScore },
+          total_time_ms: { increment: authoritativeDurationMs },
           games_played: { increment: 1 },
         },
       });
 
-      // Check if all 4 games completed
+      // Check if all games in the stage are completed
       const stageEntry = await this.prisma.stageEntry.findUnique({
         where: { id: session.stage_entry.id },
         include: { season_stage: { include: { stage_games: true } } },
@@ -302,38 +253,10 @@ export class TournamentService {
       }
     }
 
-    // Run anti-cheat analysis on the authoritative result (best-effort).
-    try {
-      await this.antiCheat.analyzeGameResult(
-        userId,
-        session.id,
-        authoritativeScore,
-        durationMs,
-        session.game_type,
-        { metadata, claimedScore, serverScore: result.score, boardTampered },
-      );
-    } catch {
-      // Never block result submission on anti-cheat analysis failures.
-    }
-
-    // Notify the Base Platform of the validated result (durable, signed, async).
-    await this.webhook.emitGameResult({
-      session_id: session.id,
-      user_id: userId,
-      game_type: session.game_type as any,
-      mode: 'TOURNAMENT',
+    return {
       score: authoritativeScore,
-      max_score: result.maxScore,
-      duration_ms: durationMs,
-      outcome: boardTampered ? 'DISQUALIFIED' : 'COMPLETED',
-      stage_entry_id: session.stage_entry_id,
-      level: session.level,
-      flagged,
-      validated: result.validated,
-      completed_at: new Date().toISOString(),
-    });
-
-    return { score, total_score: (session.stage_entry?.total_score || 0) + score };
+      total_score: (session.stage_entry?.total_score || 0) + authoritativeScore,
+    };
   }
 
   /**

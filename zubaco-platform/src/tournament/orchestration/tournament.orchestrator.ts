@@ -1,7 +1,10 @@
 import { Injectable, Logger, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
+import { EventBusService } from '../../events/event-bus.service';
+import { PlatformEventType } from '../../events/event.types';
 import { EliminationService } from '../elimination.service';
+import { RewardPayoutService } from './reward-payout.service';
 import { assertStageTransition, assertEntryTransition } from './tournament-state';
 import { RewardEligibility, StageAdvanceResult } from './tournament.types';
 
@@ -24,6 +27,8 @@ export class TournamentOrchestrator {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly elimination: EliminationService,
+    private readonly events: EventBusService,
+    private readonly rewardPayout: RewardPayoutService,
   ) {}
 
   /**
@@ -66,6 +71,44 @@ export class TournamentOrchestrator {
         seasonCompleted = true;
       }
 
+      // Post-commit authoritative events. Published once (deterministic id);
+      // the stage-advance Redis lock already prevents re-advance/re-publish.
+      if (nextStageOpened) {
+        await this.events.publish(
+          PlatformEventType.TOURNAMENT_PROGRESSED,
+          {
+            season_id: stage.season_id,
+            season_stage_id: seasonStageId,
+            stage_number: stage.stage_number,
+            qualified: result.survived ?? 0,
+            eliminated: result.eliminated ?? 0,
+          },
+          undefined,
+          `tournament.progressed:${seasonStageId}`,
+        );
+      }
+      if (seasonCompleted) {
+        await this.events.publish(
+          PlatformEventType.TOURNAMENT_COMPLETED,
+          { season_id: stage.season_id, final_stage_number: stage.stage_number },
+          undefined,
+          `tournament.completed:${stage.season_id}`,
+        );
+
+        // Authoritative prize payout, triggered the moment the season completes.
+        // Best-effort + idempotent: the season is already COMPLETED and committed,
+        // so a payout hiccup must not fail the advance — the admin DISTRIBUTE_REWARDS
+        // action can safely re-run it (ledger idempotency prevents double payout).
+        try {
+          const winners = await this.resolveRewardEligibility(stage.season_id);
+          await this.rewardPayout.distributeRewards(stage.season_id, winners);
+        } catch (err) {
+          this.logger.error(
+            `Reward distribution after completion failed for season ${stage.season_id}: ${(err as Error).message}`,
+          );
+        }
+      }
+
       return {
         seasonStageId,
         alreadyAdvanced: false,
@@ -101,7 +144,7 @@ export class TournamentOrchestrator {
       include: { season_entry: { include: { user: { select: { id: true, is_banned: true } } } } },
     });
 
-    return entries
+    const eligible = entries
       .filter((e) => !e.season_entry.user.is_banned)
       .map((e, i) => ({
         seasonEntryId: e.season_entry_id,
@@ -110,6 +153,19 @@ export class TournamentOrchestrator {
         totalScore: e.total_score,
         totalTimeMs: e.total_time_ms,
       }));
+
+    // Publish reward eligibility per winner. Idempotent on a deterministic id so
+    // repeated resolution (a read-style call) never re-notifies the same winner.
+    for (const w of eligible) {
+      await this.events.publish(
+        PlatformEventType.REWARD_ELIGIBLE,
+        { season_id: seasonId, season_entry_id: w.seasonEntryId, rank: w.rank, total_score: w.totalScore },
+        w.userId,
+        `reward.eligible:${seasonId}:${w.seasonEntryId}`,
+      );
+    }
+
+    return eligible;
   }
 
   /** Mark a participant withdrawn through the entry state guard (idempotent). */
