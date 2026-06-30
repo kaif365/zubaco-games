@@ -1,0 +1,400 @@
+================================================================================
+FINAL BACKEND IMPLEMENTATION AUDIT
+POST M1 / M2 / M3 / M4 COMPLETION
+ZUBACO PLATFORM
+================================================================================
+Mode ................ AUDIT ONLY (read-only; no code modified)
+Canonical root ...... c:\zubaco-games\zubaco-platform\src
+Build root .......... c:\zubaco-games\zubaco-platform (the ONLY built tree)
+Excluded copies ..... c:\zubaco-games\zubaco-games\* and c:\zubaco-games\
+                      zubaco-games-repo\* (nested duplicate working copies — NOT
+                      the build root; not part of this audit's verdict)
+Method .............. Direct source trace of the CURRENT code only. Previous
+                      reports were NOT used as evidence.
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+The authoritative core of the backend is implemented and LIVE. Every authoritative
+engine has a live runtime caller, there is exactly ONE game-completion path, ONE
+balance writer, ONE ban writer, and ONE prize/leaderboard runtime. M1–M4 are all
+fully resolved in the current code.
+
+However, this audit is held to a strict standard ("if ONE implementation gap
+exists, answer NO"), and the current code still contains verifiable backend gaps —
+concentrated entirely in the DEPOSIT lifecycle and the EXTERNAL payout call:
+
+  - Deposit status rows are written DIRECTLY to the transaction table, outside the
+    authoritative ledger, without an idempotency key or audit/event (the deposit
+    CREDIT itself is ledger-routed, but the PENDING/FAILED/CANCELLED lifecycle is
+    not).
+  - The external RazorpayX payout uses a non-idempotent reference_id and sends no
+    idempotency header, leaving a crash-window in which a duplicate EXTERNAL payout
+    is possible (the internal ledger remains at-most-once).
+  - Minor: the Razorpay order create has no idempotency key; one ledger-routed
+    wallet method is dormant; the JWT guard does not re-check is_banned within an
+    already-issued access token's lifetime.
+
+Verdict (Section 17): NO — see Section 18 for the precise, verified list.
+
+
+--------------------------------------------------------------------------------
+2. BACKEND ARCHITECTURE OVERVIEW
+--------------------------------------------------------------------------------
+NestJS 11 monolith (src/app.module.ts), modules: Auth, Users, FreePlay,
+Tournament, Leaderboard, Wallet, Social, Notification, GameSession, AntiCheat,
+Compliance, Webhook, Events, Admin; global Prisma + Redis + Logger; Schedule
+(cron) enabled. HTTP only — NO WebSockets/gateways exist (main.ts: a plain
+NestFactory http listen; no app.useWebSocketAdapter, no @WebSocketGateway in src).
+Global prefix api/v1, helmet, body limits, ValidationPipe(whitelist), CORS.
+
+Authoritative planes (single-writer invariants):
+  - Money ............ WalletLedgerService.post/debitEntryFee/settleDeposit/
+                       createPendingWithdrawal/completeWithdrawal/failWithdrawal
+                       (the only code that mutates wallet balances).
+  - Bans ............. EnforcementService.enforce (set) / reverse (clear) — the
+                       only code that writes User.is_banned.
+  - Completion ....... SessionCompletionService.complete — the only path that
+                       finalizes a game session (score/outcome).
+  - Prizes ........... RewardPayoutService.distributeRewards -> creditPrize.
+  - Leaderboard ...... LeaderboardService.updateScore (write) / removeScore.
+  - Events ........... EventBusService.publish + @Cron drain + subscribers.
+  - Admin ............ AdminControlPlaneService (RBAC + idempotency + audit).
+
+
+--------------------------------------------------------------------------------
+3. LIVE RUNTIME PATHS (verified by trace)
+--------------------------------------------------------------------------------
+  [LIVE] Game completion: game-session.controller -> GameSessionService.submitResult
+         AND free-play.service.submitResult AND tournament.service.submitTournament
+         Result -> SessionCompletionService.complete (single path) -> lifecycle
+         guard -> VerificationPipeline (authoritative score) -> persist -> anti-
+         cheat -> events -> webhook -> leaderboard update (guarded).
+  [LIVE] Money: deposits (verifyPayment/webhook -> ledger.settleDeposit), entry
+         fees (tournament.service -> wallet.deductEntryFee -> ledger.debitEntryFee),
+         prizes (reward-payout -> wallet.creditPrize -> ledger.post TOURNAMENT_
+         PAYOUT), referrals (social.service -> wallet.creditReferralBonus),
+         withdrawals (wallet.requestWithdrawal -> ledger.createPendingWithdrawal
+         -> @Cron WithdrawalDisbursementService -> payment-gateway.processWithdrawal
+         -> ledger.completeWithdrawal/failWithdrawal), admin adjustments
+         (admin-control-plane -> ledger.post).
+  [LIVE] Tournament: orchestrator.advanceStage (admin ADVANCE_STAGE action) ->
+         elimination -> open next OR complete season -> on completion auto-runs
+         resolveRewardEligibility + rewardPayout.distributeRewards (best-effort,
+         idempotent); admin DISTRIBUTE_REWARDS for manual retry.
+  [LIVE] Leaderboard: updateScore (SessionCompletionService, guarded) + removeScore
+         (EnforcementService REMOVE_LEADERBOARD_SCORE) + read endpoints.
+  [LIVE] Enforcement: enforce (auto on >=3 critical flags + admin) / reverse
+         (unban endpoint). Sole is_banned writer.
+  [LIVE] EventBus: publish (idempotent setnx) + @Cron(10s) drain + in-app &
+         webhook subscribers (retry + DLQ at 8 attempts).
+  [LIVE] Admin: all 7 AdminAction values dispatched, RBAC-gated, requestId-
+         idempotent, immutable audit (Redis zset).
+  [LIVE] ServiceIdentity: ServiceIdentityGuard on Admin + AntiCheat controllers
+         (HMAC + timestamp window + nonce replay protection).
+  [LIVE] Auth: login/refresh; refresh re-checks is_banned and throws.
+
+
+--------------------------------------------------------------------------------
+4. DORMANT IMPLEMENTATIONS
+--------------------------------------------------------------------------------
+  [DORMANT, safe] WalletService.deposit(userId, amount, referenceId)
+        src/wallet/wallet.service.ts (~L46). Fully ledger-routed (DEPOSIT_CREDIT,
+        idempotent key deposit:manual:<ref>:<user>), but NO live caller found
+        (controllers/services/admin none invoke it). Dead-but-safe compatibility
+        adapter — wire it to an admin action or remove it.
+
+  No DORMANT authoritative engine exists — every core service is reachable.
+  (Read endpoints such as LeaderboardService.getEndlessLeaderboard are exposed via
+  the leaderboard controller, so they are reachable HTTP paths, not dormant.)
+
+
+--------------------------------------------------------------------------------
+5. LEGACY IMPLEMENTATIONS
+--------------------------------------------------------------------------------
+  The previously-noted legacy paths are GONE in the current code:
+    - Unban no longer mutates is_banned directly (now EnforcementService.reverse).
+    - Prize/entry-fee/referral/top-up all route through the ledger (no direct
+      balance writes remain).
+
+  Remaining NON-ledger money-lifecycle writes (deposit status only; NOT balance):
+    [LEGACY-ish] src/wallet/payment-gateway.service.ts ~L52: createDepositOrder
+        does prisma.transaction.create({type:'DEPOSIT', status:'PENDING',
+        balance_after: currentBalance + amountInr, reference_id: order.id}) — a
+        direct write with a locally-computed balance_after, no row lock, and no
+        ledger_key. (The actual credit is later applied by ledger.settleDeposit,
+        which IS idempotent per order id — so balances are safe; the PENDING row
+        is not.)
+    [LEGACY-ish] payment-gateway.service.ts ~L128: payment.failed webhook does
+        prisma.transaction.updateMany(... status:'FAILED') directly — no audit
+        metadata, no event.
+    [LEGACY-ish] src/wallet/wallet-cleanup.service.ts (@Cron 30m)
+        expireAbandonedDeposits: updateMany(... status:'CANCELLED') directly — no
+        per-deposit audit, no event/notification.
+  These bypass the ledger's audited path for the deposit LIFECYCLE (see Section 18,
+  item 1).
+
+
+--------------------------------------------------------------------------------
+6. DEAD CODE
+--------------------------------------------------------------------------------
+  No unreachable authoritative logic found. The only no-caller item is
+  WalletService.deposit() (Section 4) — dead-but-safe, not harmful.
+  Note: a fully separate nested duplicate tree exists under c:\zubaco-games\
+  zubaco-games and c:\zubaco-games\zubaco-games-repo; it is not built or imported
+  by the canonical app and is out of scope (housekeeping, not runtime).
+
+
+--------------------------------------------------------------------------------
+7. DUPLICATE RUNTIME PATHS
+--------------------------------------------------------------------------------
+  None within the canonical tree. Verified single-writer / single-path:
+    - ONE completion path (game-session + free-play + tournament all call
+      SessionCompletionService.complete; grep shows only that service writes
+      session outcome/score for normal completion; enforcement writes the
+      DISQUALIFIED outcome — a distinct, intended path).
+    - ONE balance writer (WalletLedgerService).
+    - ONE is_banned writer (EnforcementService).
+    - ONE leaderboard write path (LeaderboardService.updateScore via completion).
+    - ONE prize runtime (RewardPayoutService).
+  (The only multiplicity is the deposit lifecycle status writes in Section 5,
+  which are duplicative of what an audited ledger lifecycle would own.)
+
+
+--------------------------------------------------------------------------------
+8. FULLY IMPLEMENTED FEATURES
+--------------------------------------------------------------------------------
+  - Server-authoritative game completion + verification + lifecycle guard.
+  - Anti-cheat detection + transactional enforcement (enforce) + authoritative
+    reversal (reverse), single ban plane, idempotent, audited via events.
+  - Tournament orchestration (stage advance, elimination, season completion) with
+    automatic, idempotent prize payout + admin manual retry.
+  - Wallet ledger: deposits (credit), entry fees, prizes, referrals, withdrawals
+    (request -> cron disbursement -> settle/reverse), admin adjustments — all
+    idempotent (Redis lock + UNIQUE ledger_key) and row-locked.
+  - Authoritative leaderboard runtime (verified-only, exactly-once, banned/
+    disqualified excluded) + enforcement removal.
+  - Event bus with idempotent publish, cron drain, retry, DLQ; in-app + webhook
+    subscribers.
+  - Admin control plane: RBAC (least privilege), requestId idempotency, immutable
+    audit, orchestration-only (no direct money-table mutation).
+  - ServiceIdentity (HMAC + replay protection) on privileged controllers.
+
+
+--------------------------------------------------------------------------------
+9. REMAINING BACKEND IMPLEMENTATION (overview; full list in Section 18)
+--------------------------------------------------------------------------------
+  1. Deposit lifecycle (PENDING/FAILED/CANCELLED) is written outside the ledger
+     without idempotency/audit/event.
+  2. External RazorpayX payout is not idempotent (non-stable reference_id, no
+     idempotency header) -> crash-window duplicate-payout risk.
+  3. Razorpay ORDER creation has no idempotency key -> duplicate orders on retry.
+  4. JWT auth guard does not re-check is_banned within an access token's lifetime.
+  5. WalletService.deposit() is dormant (no caller).
+  (Notification email/SMS channels are absent; see Section 15 — scope-dependent.)
+
+
+--------------------------------------------------------------------------------
+10. BLOCKER STATUS TABLE
+--------------------------------------------------------------------------------
+  BLOCKER     AREA                              STATUS
+  ---------   -------------------------------   ----------------------------------
+  GAME-001    Session lifecycle guard           FULLY RESOLVED (assertTransition)
+  GAME-002    Authoritative verification        FULLY RESOLVED (VerificationPipeline)
+  AUTH-003    Ban check at auth                 PARTIALLY RESOLVED (refresh checks
+                                                is_banned; JWT access-token window
+                                                not re-checked — Section 18 #4)
+  ACHEAT-001  Transactional enforcement         FULLY RESOLVED (enforce + reverse)
+  TOURN-001   Stage orchestration               FULLY RESOLVED (advanceStage)
+  TOURN-002   Reward eligibility                FULLY RESOLVED (resolveReward
+                                                Eligibility; banned/eliminated/
+                                                incomplete excluded)
+  TOURN-003   Prize payout runtime (M2)         FULLY RESOLVED (RewardPayoutService)
+  WALLET-001  Authoritative ledger              FULLY RESOLVED (sole balance writer)
+  WALLET-002  Withdrawal disbursement (M1)      PARTIALLY RESOLVED (cron worker LIVE
+                                                & ledger-safe; EXTERNAL payout not
+                                                idempotent — Section 18 #2)
+  NOTIF-001   Unified event bus                 FULLY RESOLVED
+  NOTIF-002   In-app delivery                   FULLY RESOLVED (subset of events
+                                                mapped, by design)
+  NOTIF-003   Multi-channel delivery            PARTIALLY RESOLVED (in-app + push +
+                                                webhook; no email/SMS — Section 15)
+  ADMIN-001   Control plane + RBAC              FULLY RESOLVED
+  ADMIN-002   Idempotency (requestId)           FULLY RESOLVED
+  ADMIN-003   Immutable audit                   FULLY RESOLVED
+  ADMIN-004   Orchestration-only admin          FULLY RESOLVED
+  M1          Withdrawal disbursement           FULLY RESOLVED (runtime); external
+                                                payout idempotency outstanding (#2)
+  M2          Tournament prize crediting        FULLY RESOLVED
+  M3          Authoritative leaderboard         FULLY RESOLVED
+  M4          Authoritative unban               FULLY RESOLVED
+  DEPOSIT     Deposit lifecycle governance      PARTIALLY RESOLVED (credit ledger-
+                                                routed; lifecycle direct — #1)
+
+
+--------------------------------------------------------------------------------
+11. MONEY FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  Balance writer: WalletLedgerService ONLY. A full-tree trace found NO balance
+  mutation (wallet.update / balance increment / queryRaw) outside ledger.service.ts.
+  Idempotency: Redis lock wallet:ledger:<key> (24h) + UNIQUE ledger_key column +
+  FOR UPDATE row lock + P2002 duplicate-collapse. LedgerResult exposes
+  applied/duplicate so callers act exactly once.
+  Verified credit/debit keys: prize:<season>:<user>, entryfee:<season>:<user>,
+  referral:<ref>:<user>, deposit:<order>, withdrawal:<uuid>, deposit:manual:<ref>.
+  GAPS (money lifecycle, NOT balance): deposit PENDING/FAILED/CANCELLED rows are
+  written directly (Section 5 / Section 18 #1); external payout is not idempotent
+  (Section 18 #2). Balances themselves remain provably at-most-once.
+
+
+--------------------------------------------------------------------------------
+12. TOURNAMENT FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  advanceStage: Redis lock tourn:advance:<stage> (3600s), OPEN->CLOSED guard,
+  elimination, open next (LOCKED->OPEN) or season COMPLETED. On completion:
+  TOURNAMENT_COMPLETED + auto resolveRewardEligibility + distributeRewards
+  (best-effort, idempotent). Trigger: admin ADVANCE_STAGE (live); no auto-cron
+  (operator-driven by design — not a gap).
+  Eligibility excludes eliminated=true, completed_at=null, and is_banned=true.
+  RewardPayoutService: per-season lock, COMPLETED + prize_pool>0 + winners>0 gates,
+  per-rank amounts (rules.prize_distribution or default 50/30/20), per-winner
+  banned re-check, creditPrize (idempotent), WALLET_CREDITED on applied only.
+  No gap found in the tournament/prize runtime.
+
+
+--------------------------------------------------------------------------------
+13. LEADERBOARD VERIFICATION
+--------------------------------------------------------------------------------
+  updateScore is LIVE (SessionCompletionService.updateLeaderboard) and runs ONLY
+  when verdict.validated && outcome==='COMPLETED', behind an exactly-once Redis
+  marker (lb:session:<id>, 7d) and a payout-time is_banned re-check; higher-score-
+  wins ZADD; emits LEADERBOARD_UPDATED. removeScore is LIVE via enforcement.
+  Persistent projection (GameProgress.best_score) is maintained by free-play
+  progression (free-play.service ~L185). Note: tournament-mode completions update
+  the Redis global board but not GameProgress (by design — tournament ranking lives
+  in StageEntry). No gap found.
+
+
+--------------------------------------------------------------------------------
+14. ENFORCEMENT VERIFICATION
+--------------------------------------------------------------------------------
+  enforce(): Redis lock acheat:enforce:<session|user> (24h), one $transaction
+  (session invalidation, leaderboard-removal queue, stageEntry revoke, is_banned
+  set + refresh-token purge), post-commit external effects + events. reverse():
+  Redis lock acheat:reverse:<user>, $transaction clears is_banned/ban_reason,
+  post-commit ACCOUNT_RESTORED. Full-tree grep confirms the ONLY is_banned writes
+  are enforce (set) and reverse (clear) in EnforcementService; all other hits are
+  reads (auth, reward-payout, session-completion, tournament, leaderboard filters).
+  No gap found.
+
+
+--------------------------------------------------------------------------------
+15. EVENTBUS VERIFICATION
+--------------------------------------------------------------------------------
+  publish(type,data,userId?,id?): deterministic id + setnx dedup; @Cron(10s) drain;
+  in-app + webhook subscribers; retry + DLQ at 8 attempts.
+  Published event types (verified publishers exist): GAME_COMPLETED,
+  VERIFICATION_PASSED/FAILED, TOURNAMENT_PROGRESSED/COMPLETED, REWARD_ELIGIBLE,
+  WALLET_CREDITED, PAYOUT_SETTLED, PAYOUT_REVERSED, ANTI_CHEAT_ENFORCED,
+  ACCOUNT_REVIEWED, ACCOUNT_RESTORED, LEADERBOARD_UPDATED.
+  Subscriber coverage: webhook subscriber forwards ALL events (config-gated). In-app
+  subscriber maps only a SUBSET to notifications; ACCOUNT_RESTORED, VERIFICATION_*,
+  and LEADERBOARD_UPDATED are intentionally unmapped (no in-app notification). No
+  DEAD event type (every type has a publisher). NO email/SMS subscriber exists —
+  multi-channel delivery (NOTIF-003) is in-app + push + webhook only. Whether
+  email/SMS is required is a scope decision, not asserted here as a hard gap.
+
+
+--------------------------------------------------------------------------------
+16. WALLET VERIFICATION
+--------------------------------------------------------------------------------
+  WalletService public methods: getWallet (LIVE), getTransactions (LIVE),
+  deposit (DORMANT, ledger-routed), requestWithdrawal (LIVE),
+  deductEntryFee (LIVE), creditPrize (LIVE), creditReferralBonus (LIVE),
+  initiateWithdrawal/confirmWithdrawal (LIVE — two-step OTP).
+  Withdrawal: requestWithdrawal enforces daily caps (3/day, ₹50k) + TDS, then
+  ledger.createPendingWithdrawal; @Cron(EVERY_MINUTE) WithdrawalDisbursementService
+  picks PENDING (min age 5s) under per-tx Redis lock -> processWithdrawal ->
+  external payout -> ledger.completeWithdrawal (settle) or failWithdrawal (reverse).
+  GAP: createRazorpayXPayout reference_id = `wd_${userId}_${Date.now()}` and NO
+  idempotency header (Section 18 #2). Deposit lifecycle GAP per Section 18 #1.
+
+
+--------------------------------------------------------------------------------
+17. IS BACKEND IMPLEMENTATION COMPLETE?
+--------------------------------------------------------------------------------
+  NO.
+
+
+--------------------------------------------------------------------------------
+18. REMAINING BACKEND WORK (every item; verified against current code)
+--------------------------------------------------------------------------------
+  1. [HIGH] Deposit lifecycle is not governed by the authoritative ledger.
+     - src/wallet/payment-gateway.service.ts (~L52): createDepositOrder writes a
+       PENDING transaction row directly with a locally-computed balance_after, no
+       row lock, and no ledger_key -> a client retry of createDepositOrder creates
+       DUPLICATE PENDING rows for the same order.
+     - same file (~L128): payment.failed webhook updates status to FAILED directly,
+       with no audit metadata and no event.
+     - src/wallet/wallet-cleanup.service.ts (@Cron 30m): expireAbandonedDeposits
+       sets status CANCELLED directly, with no per-deposit audit and no event.
+     (The deposit CREDIT itself is ledger-idempotent via settleDeposit; only the
+     lifecycle/status records bypass the audited ledger path.)
+
+  2. [HIGH] External payout (RazorpayX) is not idempotent.
+     - src/wallet/payment-gateway.service.ts createRazorpayXPayout: reference_id =
+       `wd_${userId}_${Date.now()}` and NO Razorpay idempotency header. If the
+       process crashes after the payout succeeds but before ledger.completeWithdrawal
+       commits, the next cron tick re-calls the payout with a new reference_id ->
+       a DUPLICATE EXTERNAL payout is possible. (Internal ledger stays at-most-once;
+       the bank-side duplicate is the risk.) Fix: use a stable reference_id =
+       transactionId and send an idempotency key.
+
+  3. [MEDIUM] Razorpay ORDER creation has no idempotency key.
+     - createRazorpayOrder posts to /v1/orders with no idempotency header -> a
+       retried createDepositOrder can create duplicate orders.
+
+  4. [MEDIUM] JWT auth does not re-check is_banned within a live access token.
+     - The refresh path blocks banned users and enforce() purges refresh tokens,
+       but an already-issued access token remains valid until expiry, so a freshly
+       banned user can still call authenticated endpoints until it lapses. (Banned
+       results are excluded from the leaderboard, but the session is still processed
+       and persisted.) A JwtAuthGuard/middleware is_banned check closes the window.
+
+  5. [LOW] Dormant method: WalletService.deposit() is ledger-routed but has no live
+     caller — wire it to an admin action or remove it.
+
+  (Scope-dependent, not asserted as a hard gap: no email/SMS notification
+  subscriber exists; ACCOUNT_RESTORED / VERIFICATION_* / LEADERBOARD_UPDATED are
+  intentionally not mapped to in-app notifications — confirm against product
+  requirements before treating as work.)
+
+
+--------------------------------------------------------------------------------
+19. FINAL VERDICT
+--------------------------------------------------------------------------------
+  NO — the backend implementation is NOT 100% complete.
+
+  The authoritative CORE is complete and live: single completion path, single
+  balance writer, single ban writer, live prize + leaderboard + enforcement +
+  event + admin runtimes, and M1–M4 all resolved. There are no dormant
+  authoritative services, no legacy balance/ban bypasses, and no duplicate
+  execution paths in the canonical tree.
+
+  The platform is NOT marked COMPLETE because verifiable backend gaps remain,
+  all in the deposit lifecycle and the external payout integration (Section 18,
+  items 1–4, plus one dormant method). The decisive money-safety items are:
+  deposit lifecycle status writes that bypass the audited/idempotent ledger
+  (#1), and the non-idempotent external RazorpayX payout that permits a duplicate
+  bank-side payout in a crash window (#2).
+
+  Recommended next phase: BACKEND_COMPLETION_005 — bring the deposit lifecycle
+  under the ledger (idempotent PENDING/FAILED/CANCELLED + events) and make the
+  external payout/order calls idempotent (stable reference_id + idempotency key);
+  then add a JWT is_banned check.
+
+================================================================================
+END OF REPORT — FINAL_BACKEND_IMPLEMENTATION_AUDIT
+================================================================================

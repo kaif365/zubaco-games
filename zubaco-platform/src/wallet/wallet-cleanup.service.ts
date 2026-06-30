@@ -1,30 +1,62 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { WalletLedgerService } from './ledger/ledger.service';
+import { EventBusService } from '../events/event-bus.service';
+import { PlatformEventType } from '../events/event.types';
 
 @Injectable()
 export class WalletCleanupService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(WalletCleanupService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: WalletLedgerService,
+    private readonly events: EventBusService,
+  ) {}
 
   /**
-   * Every 30 minutes: expire abandoned PENDING deposit transactions
-   * older than 30 minutes. These represent abandoned checkout sessions.
+   * Every 30 minutes: expire abandoned PENDING deposit transactions older than
+   * 30 minutes (abandoned checkout sessions). Each cancellation is routed through
+   * the authoritative ledger (atomic PENDING -> CANCELLED claim, audited,
+   * idempotent — a cancel that races a late settlement loses cleanly) and emits
+   * a DEPOSIT_CANCELLED event.
    */
   @Cron(CronExpression.EVERY_30_MINUTES)
   async expireAbandonedDeposits() {
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
 
-    const result = await this.prisma.transaction.updateMany({
+    const abandoned = await this.prisma.transaction.findMany({
       where: {
         type: 'DEPOSIT',
         status: 'PENDING',
         created_at: { lt: thirtyMinutesAgo },
       },
-      data: { status: 'CANCELLED' },
+      select: { reference_id: true },
     });
 
-    if (result.count > 0) {
-      console.log(`[WalletCleanup] Expired ${result.count} abandoned deposit(s)`);
+    let cancelled = 0;
+    for (const row of abandoned) {
+      if (!row.reference_id) continue;
+      const result = await this.ledger.cancelDeposit(row.reference_id, 'Abandoned checkout (expired)');
+      if (result.applied) {
+        cancelled++;
+        await this.events.publish(
+          PlatformEventType.DEPOSIT_CANCELLED,
+          {
+            reference_id: row.reference_id,
+            amount: result.amount,
+            transaction_id: result.transactionId,
+            reason: 'abandoned',
+          },
+          result.userId,
+          `deposit.cancelled:${row.reference_id}`,
+        );
+      }
+    }
+
+    if (cancelled > 0) {
+      this.logger.log(`Expired ${cancelled} abandoned deposit(s)`);
     }
   }
 

@@ -242,6 +242,159 @@ export class WalletLedgerService {
   // ─── DEPOSIT LIFECYCLE ────────────────────────────────────────
 
   /**
+   * Register the authoritative PENDING deposit row for a Razorpay order. This is
+   * the single entry point of the deposit lifecycle (no direct transaction write
+   * remains in the gateway). The row carries a stable ledger_key
+   * (`deposit:pending:<referenceId>`) so a retried order registration collapses
+   * onto the same PENDING row — guarded by the Redis lock and the UNIQUE
+   * ledger_key index — instead of creating duplicates. No balance movement
+   * happens here; the credit is applied later by settleDeposit. An immutable
+   * _ledger audit block records the pending registration.
+   */
+  async createPendingDeposit(req: {
+    userId: string;
+    amount: number;
+    referenceId: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ transactionId: string; applied: boolean; duplicate: boolean }> {
+    if (req.amount <= 0) throw new BadRequestException('amount must be positive');
+    const ledgerKey = `deposit:pending:${req.referenceId}`;
+
+    const lockKey = `wallet:ledger:${ledgerKey}`;
+    const fresh = await this.redis.setnx(lockKey, '1');
+    if (!fresh) throw new ConflictException('Deposit registration already in progress');
+    await this.redis.expire(lockKey, 86400);
+
+    try {
+      // Idempotent on the order id across the WHOLE lifecycle: a row already
+      // exists (PENDING, COMPLETED, FAILED or CANCELLED) for this order → no new
+      // PENDING row is created (covers the post-settlement re-registration case,
+      // where settleDeposit has rewritten the ledger_key to `deposit:<ref>`).
+      const existing = await this.prisma.transaction.findFirst({
+        where: { reference_id: req.referenceId, type: 'DEPOSIT' },
+      });
+      if (existing) {
+        return { transactionId: existing.id, applied: false, duplicate: true };
+      }
+
+      const wallet = await this.prisma.wallet.findUnique({ where: { user_id: req.userId } });
+      const currentBalance = wallet ? Number(wallet.balance) : 0;
+
+      const created = await this.prisma.transaction.create({
+        data: {
+          user_id: req.userId,
+          type: 'DEPOSIT',
+          amount: new Prisma.Decimal(req.amount),
+          balance_after: new Prisma.Decimal(currentBalance),
+          status: 'PENDING',
+          reference_id: req.referenceId,
+          ledger_key: ledgerKey,
+          description: `Deposit ₹${req.amount}`,
+          metadata: {
+            ...(req.metadata ?? {}),
+            _ledger: {
+              operation: FinancialOperation.DEPOSIT_CREDIT,
+              source: 'razorpay:order',
+              destination: 'wallet:cash',
+              reason: 'Deposit registered (pending)',
+              bucket: 'cash',
+              reference_id: req.referenceId,
+              status: 'PENDING',
+              at: new Date().toISOString(),
+            },
+          },
+        },
+      });
+      return { transactionId: created.id, applied: true, duplicate: false };
+    } catch (err) {
+      if ((err as any)?.code === 'P2002') {
+        const dup = await this.prisma.transaction.findFirst({ where: { ledger_key: ledgerKey } });
+        if (dup) return { transactionId: dup.id, applied: false, duplicate: true };
+      }
+      await this.redis.del(lockKey);
+      this.logger.error(`Pending deposit registration failed: ${(err as Error).message}`);
+      throw err;
+    }
+  }
+
+  /**
+   * Authoritatively fail a PENDING deposit (gateway reported payment.failed). The
+   * PENDING -> FAILED claim is atomic and is the idempotency guard, so a repeated
+   * webhook is a no-op. No balance movement (the deposit was never credited). An
+   * immutable audit block is written; the caller publishes DEPOSIT_FAILED.
+   */
+  async failDeposit(
+    referenceId: string,
+    reason: string,
+  ): Promise<{ applied: boolean; transactionId?: string; userId?: string; amount?: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.transaction.updateMany({
+        where: { reference_id: referenceId, status: 'PENDING', type: 'DEPOSIT' },
+        data: { status: 'FAILED' },
+      });
+      if (claim.count === 0) return { applied: false };
+
+      const row = await tx.transaction.findFirst({ where: { reference_id: referenceId, type: 'DEPOSIT' } });
+      if (!row) return { applied: false };
+
+      await tx.transaction.update({
+        where: { id: row.id },
+        data: {
+          metadata: {
+            ...((row.metadata as any) ?? {}),
+            _ledger_failure: {
+              operation: FinancialOperation.DEPOSIT_CREDIT,
+              status: 'FAILED',
+              reason,
+              at: new Date().toISOString(),
+            },
+          },
+        },
+      });
+      return { applied: true, transactionId: row.id, userId: row.user_id, amount: Number(row.amount) };
+    });
+  }
+
+  /**
+   * Authoritatively cancel an abandoned PENDING deposit (checkout never
+   * completed). The PENDING -> CANCELLED claim is atomic and idempotent, so a
+   * cancel that races a late settlement loses cleanly (claim.count === 0). No
+   * balance movement. An immutable audit block is written; the caller publishes
+   * DEPOSIT_CANCELLED.
+   */
+  async cancelDeposit(
+    referenceId: string,
+    reason: string,
+  ): Promise<{ applied: boolean; transactionId?: string; userId?: string; amount?: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.transaction.updateMany({
+        where: { reference_id: referenceId, status: 'PENDING', type: 'DEPOSIT' },
+        data: { status: 'CANCELLED' },
+      });
+      if (claim.count === 0) return { applied: false };
+
+      const row = await tx.transaction.findFirst({ where: { reference_id: referenceId, type: 'DEPOSIT' } });
+      if (!row) return { applied: false };
+
+      await tx.transaction.update({
+        where: { id: row.id },
+        data: {
+          metadata: {
+            ...((row.metadata as any) ?? {}),
+            _ledger_cancellation: {
+              operation: FinancialOperation.DEPOSIT_CREDIT,
+              status: 'CANCELLED',
+              reason,
+              at: new Date().toISOString(),
+            },
+          },
+        },
+      });
+      return { applied: true, transactionId: row.id, userId: row.user_id, amount: Number(row.amount) };
+    });
+  }
+
+  /**
    * Settle a pre-created PENDING deposit row (Razorpay order). The row is
    * claimed atomically (PENDING -> COMPLETED, single writer) so a webhook and a
    * verify call cannot double-credit; the claim is the authoritative idempotency

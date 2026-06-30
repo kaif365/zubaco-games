@@ -57,8 +57,12 @@ export class WalletController {
   @Post('deposit/create-order')
   @UseGuards(JwtAuthGuard, GeoFencingGuard)
   @Throttle({ default: { ttl: 3600000, limit: 10 } }) // 10 per hour
-  async createDepositOrder(@CurrentUser() userId: string, @Body() dto: CreateDepositOrderDto) {
-    return this.paymentGateway.createDepositOrder(userId, dto.amount);
+  async createDepositOrder(
+    @CurrentUser() userId: string,
+    @Body() dto: CreateDepositOrderDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.paymentGateway.createDepositOrder(userId, dto.amount, idempotencyKey);
   }
 
   @Post('deposit/verify')

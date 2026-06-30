@@ -21,6 +21,8 @@ export enum PlatformEventType {
   ACCOUNT_REVIEWED = 'account.reviewed',
   ACCOUNT_RESTORED = 'account.restored',
   LEADERBOARD_UPDATED = 'leaderboard.updated',
+  DEPOSIT_FAILED = 'deposit.failed',
+  DEPOSIT_CANCELLED = 'deposit.cancelled',
 }
 
 /** Current schema version for every published event payload. */

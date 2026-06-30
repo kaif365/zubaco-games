@@ -90,6 +90,18 @@ export class EnforcementService {
 
       // Post-commit external effects (idempotent; safe to repeat).
       for (const r of removals) await this.leaderboard.removeScore(r.userId, r.gameType);
+
+      // M8 — proactively flip the authoritative auth ban cache so the ban takes
+      // effect on the NEXT authenticated request (no wait for refresh expiry).
+      // The DB `is_banned` column remains the source of truth; this only makes
+      // the JWT strategy's fast-path see the ban immediately. '1' == banned.
+      const banApplied =
+        req.confirmed &&
+        (actions.includes(EnforcementAction.MARK_FOR_REVIEW) ||
+          actions.includes(EnforcementAction.INVALIDATE_REWARDS));
+      if (banApplied) {
+        await this.redis.set(`auth:ban:${req.userId}`, '1', 60);
+      }
       if (
         req.confirmed &&
         (req.actions.includes(EnforcementAction.PREVENT_WALLET_PAYOUT) ||
@@ -173,6 +185,11 @@ export class EnforcementService {
           `account.restored:${req.userId}`,
         );
       }
+
+      // M8 — clear the authoritative auth ban cache so the un-ban is honoured
+      // on the next authenticated request. '0' == not banned (DB is source of
+      // truth; this only refreshes the JWT strategy's fast-path).
+      await this.redis.set(`auth:ban:${req.userId}`, '0', 60);
 
       return { reversed: true, alreadyReversed: false, transitioned };
     } finally {

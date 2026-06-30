@@ -38,24 +38,12 @@ export class WalletService {
   }
 
   /**
-   * Generic wallet top-up (not the Razorpay order flow). Routed through the
-   * authoritative ledger (DEPOSIT_CREDIT -> DEPOSIT type, cash bucket) so no
-   * direct balance mutation remains. Thin compatibility adapter: signature and
-   * return shape unchanged.
+   * NOTE (M9): the former generic `deposit()` top-up adapter was removed. It had
+   * no live caller — the authoritative deposit runtime is the Razorpay order flow
+   * (`PaymentGatewayService.createDepositOrder` -> `WalletLedgerService`
+   * createPendingDeposit -> settleDeposit), which is idempotent, fully audited and
+   * the single source of deposit credits. No dormant deposit runtime remains.
    */
-  async deposit(userId: string, amount: number, referenceId: string) {
-    if (amount <= 0) throw new BadRequestException('Invalid amount');
-    const result = await this.ledger.post({
-      userId,
-      operation: FinancialOperation.DEPOSIT_CREDIT,
-      amount,
-      idempotencyKey: `deposit:manual:${referenceId}:${userId}`,
-      reason: 'Wallet top-up',
-      bucket: 'cash',
-      source: 'manual:deposit',
-    });
-    return { balance: result.balanceAfter, amount };
-  }
 
   async requestWithdrawal(userId: string, amount: number) {
     if (amount < config.app.minWithdrawal) throw new BadRequestException(`Minimum withdrawal is ₹${config.app.minWithdrawal}`);

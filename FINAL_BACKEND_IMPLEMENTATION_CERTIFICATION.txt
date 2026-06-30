@@ -1,0 +1,398 @@
+================================================================================
+FINAL BACKEND IMPLEMENTATION CERTIFICATION
+ZUBACO PLATFORM
+POST M1 M2 M3 M4 M5 M6 M7 M8 M9
+================================================================================
+Mode ............ AUDIT ONLY (read-only; no code modified, nothing refactored)
+Canonical root .. c:\zubaco-games\zubaco-platform\src  (the ONLY built tree)
+Excluded ........ c:\zubaco-games\zubaco-games\*  and  c:\zubaco-games\
+                  zubaco-games-repo\*  (nested duplicate working copies — NOT
+                  built, NOT imported by the app; excluded from this verdict)
+Basis ........... Current repository source only. Verdict is derived from a
+                  runtime trace of the present code, not from prior reports.
+Build state ..... GREEN (npx prisma generate OK; nest build BUILD_EXIT=0)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+The authoritative backend is implemented, wired and LIVE end-to-end. Every
+authoritative engine has a live caller; there is exactly ONE game-completion
+path, ONE wallet-balance writer, ONE deposit/withdrawal lifecycle writer, ONE
+ban writer, ONE prize runtime and ONE leaderboard write path. No dormant
+authoritative service, no legacy bypass, no duplicate runtime writer and no dead
+authoritative code remain in the canonical tree. M1–M9 are all present in the
+current code.
+
+ONE residual backend item remains, at LOW severity and with NO money-safety
+impact: idempotent deposit-ORDER creation (M7) is implemented as an OPT-IN
+contract — it dedupes only when the client supplies an `Idempotency-Key` header.
+A header-less retry can still create an additional (benign, unpaid, auto-
+cancelled) Razorpay order. Because the strict certification rule is "if ONE
+backend implementation gap exists, the answer is NOT COMPLETE", and the literal
+M7 criterion ("never create duplicate payment orders") is not universally
+guaranteed for header-less requests, the certification verdict is:
+
+  BACKEND IMPLEMENTATION NOT COMPLETE  (one LOW item — Section 9 / Section 22).
+
+Everything else (all money safety, ban enforcement, tournament, leaderboard,
+enforcement, events, admin, auth, service identity) is FULLY RESOLVED.
+
+
+--------------------------------------------------------------------------------
+2. BACKEND ARCHITECTURE OVERVIEW
+--------------------------------------------------------------------------------
+NestJS 11 monolith (src/app.module.ts). Modules: Auth, Users, FreePlay,
+Tournament, Leaderboard, Wallet, Social, Notification, GameSession, AntiCheat,
+Compliance, Webhook, Events, Admin. Global infrastructure: PrismaModule
+(@Global), RedisModule (@Global), Logger, ScheduleModule (cron), ThrottlerModule,
+ConfigModule. Transport: HTTP only — NO WebSockets/gateways exist (no
+@WebSocketGateway, @SubscribeMessage, socket.io, or useWebSocketAdapter in src;
+main.ts is a plain http listen). Global prefix api/v1, helmet, 1 MB body limit,
+ValidationPipe(whitelist/forbidNonWhitelisted/transform), CORS.
+
+Single-writer authoritative planes:
+  Money ........ WalletLedgerService (post, debitEntryFee, settleDeposit,
+                 createPendingDeposit, failDeposit, cancelDeposit,
+                 createPendingWithdrawal, completeWithdrawal, failWithdrawal).
+  Bans ......... EnforcementService.enforce (set) / reverse (clear).
+  Completion ... SessionCompletionService.complete.
+  Prizes ....... RewardPayoutService.distributeRewards.
+  Leaderboard .. LeaderboardService.updateScore (write) / removeScore.
+  Tournament ... TournamentOrchestrator.advanceStage.
+  Events ....... EventBusService.publish + @Cron drain + subscribers.
+  Admin ........ AdminControlPlaneService (RBAC + idempotency + audit).
+  Identity ..... ServiceIdentityGuard (HMAC + replay protection).
+  Auth ......... JwtStrategy.validate (now with authoritative is_banned check).
+
+
+--------------------------------------------------------------------------------
+3. LIVE RUNTIME EXECUTION PATHS (traced)
+--------------------------------------------------------------------------------
+  [LIVE] Completion: game-session.controller / free-play.service /
+         tournament.service -> SessionCompletionService.complete (single path) ->
+         lifecycle guard -> VerificationPipeline -> persist -> anti-cheat ->
+         events (GAME_COMPLETED + VERIFICATION_*) -> webhook -> leaderboard update
+         (guarded, exactly-once, ban-rechecked).
+  [LIVE] Deposit: wallet.controller POST deposit/create-order ->
+         PaymentGatewayService.createDepositOrder -> ledger.createPendingDeposit
+         (PENDING) -> verify/webhook -> ledger.settleDeposit (COMPLETED + credit)
+         -> WALLET_CREDITED; webhook payment.failed -> ledger.failDeposit ->
+         DEPOSIT_FAILED; cron WalletCleanupService -> ledger.cancelDeposit ->
+         DEPOSIT_CANCELLED.
+  [LIVE] Withdrawal: wallet.service.requestWithdrawal/confirmWithdrawal ->
+         ledger.createPendingWithdrawal (debit + PENDING) -> @Cron
+         WithdrawalDisbursementService.disbursePendingWithdrawals ->
+         PaymentGatewayService.processWithdrawal -> createRazorpayXPayout
+         (stable reference_id + X-Payout-Idempotency) -> ledger.completeWithdrawal
+         (PAYOUT_SETTLED) | ledger.failWithdrawal (PAYOUT_REVERSED, refunded).
+  [LIVE] Tournament: orchestrator.advanceStage (admin ADVANCE_STAGE) ->
+         elimination -> open next OR complete season -> on completion auto
+         resolveRewardEligibility + RewardPayoutService.distributeRewards.
+  [LIVE] Prizes: RewardPayoutService.distributeRewards -> wallet.creditPrize ->
+         ledger.post (TOURNAMENT_PAYOUT, idempotent) -> WALLET_CREDITED.
+  [LIVE] Leaderboard: updateScore (completion) + removeScore (enforcement) + read
+         endpoints (controller).
+  [LIVE] Enforcement: AntiCheatService -> EnforcementService.enforce (auto on >=3
+         critical flags / admin) and reverse (unban endpoint). Sole is_banned
+         writer; pushes the auth ban cache.
+  [LIVE] EventBus: publish (idempotent setnx) + @Cron(10s) drain + in-app +
+         webhook subscribers (retry + DLQ).
+  [LIVE] Admin: AdminControlPlaneService — 7 actions dispatched, RBAC, requestId
+         idempotency, immutable audit.
+  [LIVE] Auth: login/refresh (refresh re-checks is_banned) + every JwtAuthGuard
+         request -> JwtStrategy.validate -> is_banned check -> allow | 403.
+  [LIVE] ServiceIdentity: ServiceIdentityGuard on Admin + AntiCheat controllers.
+
+
+--------------------------------------------------------------------------------
+4. DORMANT IMPLEMENTATIONS
+--------------------------------------------------------------------------------
+  NONE. The previously-dormant WalletService.deposit() was REMOVED in M9; the
+  build is GREEN, confirming no dangling references. Every authoritative service
+  and every public wallet method now has a live runtime caller. No dormant money,
+  leaderboard, tournament, enforcement, wallet or admin writer exists.
+
+
+--------------------------------------------------------------------------------
+5. LEGACY IMPLEMENTATIONS
+--------------------------------------------------------------------------------
+  NONE remain. Verified in current code:
+    - Deposit lifecycle: the former direct prisma.transaction writes in
+      payment-gateway.service.ts (PENDING create, FAILED updateMany) and
+      wallet-cleanup.service.ts (CANCELLED updateMany) are GONE; all four
+      transitions now route through WalletLedgerService (M5).
+    - Unban: the former direct prisma.user.update is GONE; reversal routes
+      through EnforcementService.reverse (M4).
+    - Prize / entry-fee / referral / top-up: all route through the ledger; no
+      direct balance mutation remains.
+
+
+--------------------------------------------------------------------------------
+6. DEAD CODE
+--------------------------------------------------------------------------------
+  No unreachable authoritative logic. M9 removed the only no-caller method
+  (WalletService.deposit()). NOTE (out of scope, housekeeping only): a fully
+  separate, non-built duplicate source tree exists under c:\zubaco-games\
+  zubaco-games and c:\zubaco-games\zubaco-games-repo; it is neither compiled nor
+  imported by the canonical app and has no effect on runtime.
+
+
+--------------------------------------------------------------------------------
+7. DUPLICATE RUNTIME PATHS
+--------------------------------------------------------------------------------
+  NONE within the canonical tree:
+    - ONE completion path (SessionCompletionService.complete).
+    - ONE balance writer (WalletLedgerService).
+    - ONE deposit/withdrawal lifecycle writer (WalletLedgerService).
+    - ONE is_banned writer (EnforcementService).
+    - ONE leaderboard write path (LeaderboardService.updateScore via completion).
+    - ONE prize runtime (RewardPayoutService).
+    - ONE tournament progression (TournamentOrchestrator.advanceStage).
+  No duplicate balance/payout/score writers; no duplicate tournament progression.
+
+
+--------------------------------------------------------------------------------
+8. FULLY IMPLEMENTED FEATURES
+--------------------------------------------------------------------------------
+  - Server-authoritative game completion + verification + lifecycle guard.
+  - Anti-cheat detection + transactional enforce + authoritative reverse.
+  - Tournament orchestration with automatic, idempotent prize payout + admin retry.
+  - Wallet ledger: deposits (full PENDING/COMPLETED/FAILED/CANCELLED lifecycle),
+    entry fees, prizes, referrals, withdrawals (request -> disburse -> settle/
+    reverse) — all idempotent, row-locked, audited.
+  - Idempotent external payout (stable reference + RazorpayX idempotency header).
+  - Authoritative leaderboard runtime (verified-only, exactly-once, ban-excluded)
+    + enforcement removal.
+  - Event bus (idempotent publish, cron drain, retry, DLQ) + in-app + webhook.
+  - Admin control plane (RBAC, idempotency, immutable audit, orchestration-only).
+  - Service identity (HMAC + replay protection) on privileged controllers.
+  - Authoritative per-request ban enforcement on JWT.
+
+
+--------------------------------------------------------------------------------
+9. REMAINING BACKEND IMPLEMENTATION ITEMS
+--------------------------------------------------------------------------------
+  1. [LOW] Deposit-ORDER idempotency is opt-in (M7 residual).
+     Current code: PaymentGatewayService.createDepositOrder dedupes via a Redis
+     map ONLY when the client sends an `Idempotency-Key` header; the header is
+     optional (wallet.controller.ts). A header-less retry calls createRazorpayOrder
+     again and creates an additional Razorpay ORDER. Impact is benign: each order
+     is a distinct unpaid intent with its own idempotent PENDING row; only the
+     order the user actually pays is credited (ledger.settleDeposit is per-order
+     idempotent), and unpaid duplicates are auto-cancelled by WalletCleanupService.
+     No double-charge and no double-credit are possible. Closing it fully is a
+     backend contract change: require `Idempotency-Key` on POST deposit/create-order
+     (or derive a server-side dedup key) so header-less retries cannot create a
+     second order.
+
+  No money-safety, ban-bypass, dormant, legacy, duplicate-writer or dead-code
+  items remain.
+
+
+--------------------------------------------------------------------------------
+10. BLOCKER STATUS TABLE
+--------------------------------------------------------------------------------
+  ✅ FULLY RESOLVED   🟡 PARTIALLY RESOLVED   ❌ NOT IMPLEMENTED   ⚪ OBSOLETE
+
+  BLOCKER     AREA / MEANING (inferred from code)        STATUS
+  ---------   ----------------------------------------   --------------------------
+  GAME-001    Session lifecycle guard                    ✅ FULLY RESOLVED
+  GAME-002    Authoritative verification pipeline        ✅ FULLY RESOLVED
+  AUTH-001    Authentication (login / JWT issuance)      ✅ FULLY RESOLVED
+  AUTH-002    Token refresh / rotation                   ✅ FULLY RESOLVED
+  AUTH-003    Ban enforcement at auth (per request)      ✅ FULLY RESOLVED (M8)
+  ACHEAT-001  Transactional enforcement (enforce)        ✅ FULLY RESOLVED
+  ACHEAT-002  Enforcement reversal (reverse / unban)     ✅ FULLY RESOLVED (M4)
+  TOURN-001   Stage orchestration                        ✅ FULLY RESOLVED
+  TOURN-002   Reward eligibility (ban/elim/incomplete)   ✅ FULLY RESOLVED
+  TOURN-003   Prize payout runtime                       ✅ FULLY RESOLVED (M2)
+  WALLET-001  Authoritative ledger (sole writer)         ✅ FULLY RESOLVED
+  WALLET-002  Withdrawal disbursement + idempotent payout✅ FULLY RESOLVED (M1/M6)
+  NOTIF-001   Unified event bus                          ✅ FULLY RESOLVED
+  NOTIF-002   In-app delivery                            ✅ FULLY RESOLVED
+  NOTIF-003   Multi-channel (in-app + push + webhook)    ✅ FULLY RESOLVED
+              (email/SMS intentionally out of scope)
+  ADMIN-001   Control plane + RBAC                        ✅ FULLY RESOLVED
+  ADMIN-002   Idempotency (requestId)                     ✅ FULLY RESOLVED
+  ADMIN-003   Immutable audit                             ✅ FULLY RESOLVED
+  ADMIN-004   Orchestration-only admin (no direct money) ✅ FULLY RESOLVED
+  SCORE-001   Authoritative score (verified-only)         ✅ FULLY RESOLVED (M3)
+  SCORE-002   Leaderboard exactly-once + ban exclusion    ✅ FULLY RESOLVED (M3)
+  ARCH-001    Single authoritative path per domain        ✅ FULLY RESOLVED
+  ARCH-002    No legacy / duplicate runtime writers       ✅ FULLY RESOLVED
+  TEST-001    Testing                                     ⚪ OBSOLETE (out of
+              (excluded from backend-impl scope)          backend-impl scope)
+  INFRA-001   Infrastructure                              ⚪ OBSOLETE (out of
+              (excluded from backend-impl scope)          backend-impl scope)
+  M1          Withdrawal disbursement runtime             ✅ FULLY RESOLVED
+  M2          Tournament prize crediting                  ✅ FULLY RESOLVED
+  M3          Authoritative leaderboard                   ✅ FULLY RESOLVED
+  M4          Authoritative unban                         ✅ FULLY RESOLVED
+  M5          Deposit lifecycle under ledger              ✅ FULLY RESOLVED
+  M6          Idempotent external payout                  ✅ FULLY RESOLVED
+  M7          Idempotent order creation                   🟡 PARTIALLY RESOLVED
+              (opt-in header; header-less residual)       (Section 9 item 1)
+  M8          Per-request ban enforcement                 ✅ FULLY RESOLVED
+  M9          Dormant deposit() removed                   ✅ FULLY RESOLVED
+
+  NOTE on inferred blockers (AUTH-001/002, ACHEAT-002, SCORE-001/002,
+  ARCH-001/002): no current-code definition file names these IDs; meanings are
+  inferred from the implemented runtime and marked from live code.
+
+
+--------------------------------------------------------------------------------
+11. MONEY FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  WalletLedgerService is the SOLE writer of wallet balances. Every credit/debit
+  passes through a Redis lock + UNIQUE ledger_key + FOR UPDATE row lock + P2002
+  collapse, with an immutable _ledger audit block. Verified keys: prize:<season>:
+  <user>, entryfee:<season>:<user>, referral:<ref>:<user>, deposit:<order>,
+  deposit:pending:<order>, withdrawal:<uuid>. No balance mutation exists outside
+  the ledger (deposit() removed in M9; deposit lifecycle moved into the ledger in
+  M5). Balance moves only on deposit settlement (credit) and withdrawal create/
+  fail (debit/refund); PENDING/FAILED/CANCELLED deposits move no balance.
+
+
+--------------------------------------------------------------------------------
+12. TOURNAMENT FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  advanceStage: Redis lock tourn:advance:<stage>, OPEN->CLOSED guard, elimination,
+  open next (LOCKED->OPEN) or season COMPLETED; on completion publishes
+  TOURNAMENT_COMPLETED and auto-runs resolveRewardEligibility +
+  distributeRewards (best-effort, idempotent). Trigger: admin ADVANCE_STAGE
+  (live). Eligibility excludes eliminated, incomplete and is_banned. No gap.
+
+
+--------------------------------------------------------------------------------
+13. LEADERBOARD FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  updateScore runs only when verdict.validated && outcome==='COMPLETED', behind a
+  per-session exactly-once Redis marker and a payout-time is_banned re-check;
+  emits LEADERBOARD_UPDATED. removeScore is live via enforcement. Single write
+  path; no duplicate score writer. No gap.
+
+
+--------------------------------------------------------------------------------
+14. DEPOSIT FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  PENDING  -> ledger.createPendingDeposit (idempotent per order id; audited).
+  COMPLETED-> ledger.settleDeposit (atomic PENDING->COMPLETED claim + credit;
+              verify/webhook race cannot double-credit) -> WALLET_CREDITED.
+  FAILED   -> ledger.failDeposit (atomic claim; repeated webhook no-op) ->
+              DEPOSIT_FAILED.
+  CANCELLED-> ledger.cancelDeposit (atomic claim; loses cleanly to late settle)
+              -> DEPOSIT_CANCELLED.
+  Order create: idempotent via Idempotency-Key (Redis map + setnx). RESIDUAL:
+  header-less retries can still create an extra benign order (Section 9 item 1).
+
+
+--------------------------------------------------------------------------------
+15. WITHDRAWAL FLOW VERIFICATION
+--------------------------------------------------------------------------------
+  requestWithdrawal -> ledger.createPendingWithdrawal (KYC + balance checked in
+  the row-locked tx; gross debited; net on the WITHDRAWAL row; TDS row). @Cron
+  worker (per-tx Redis lock, MIN_AGE 5s) -> processWithdrawal ->
+  createRazorpayXPayout(reference_id = transactionId, X-Payout-Idempotency =
+  transactionId) -> completeWithdrawal (settle) | failWithdrawal (refund).
+  Crash-retry re-sends the same idempotency key -> RazorpayX returns the existing
+  payout (no duplicate external transfer). Internal ledger at-most-once. No gap.
+
+
+--------------------------------------------------------------------------------
+16. ANTI-CHEAT VERIFICATION
+--------------------------------------------------------------------------------
+  enforce(): Redis lock (24h), one $transaction (session invalidation,
+  leaderboard-removal queue, stageEntry revoke, is_banned set + refresh-token
+  purge), post-commit external effects + ANTI_CHEAT_ENFORCED/ACCOUNT_REVIEWED +
+  M8 ban-cache push. reverse(): Redis lock, $transaction clears is_banned,
+  ACCOUNT_RESTORED + M8 ban-cache clear. The ONLY is_banned writers. No gap.
+
+
+--------------------------------------------------------------------------------
+17. EVENTBUS VERIFICATION
+--------------------------------------------------------------------------------
+  publish (deterministic id + setnx dedup) + @Cron(10s) drain + in-app + webhook
+  subscribers + retry + DLQ. Published types all have live publishers: GAME_
+  COMPLETED, VERIFICATION_PASSED/FAILED, TOURNAMENT_PROGRESSED/COMPLETED, REWARD_
+  ELIGIBLE, WALLET_CREDITED, PAYOUT_SETTLED/REVERSED, ANTI_CHEAT_ENFORCED,
+  ACCOUNT_REVIEWED/RESTORED, LEADERBOARD_UPDATED, DEPOSIT_FAILED, DEPOSIT_
+  CANCELLED. Webhook subscriber forwards all; in-app maps a subset (unmapped
+  types are safely ignored). No dead event type. No gap.
+
+
+--------------------------------------------------------------------------------
+18. ADMIN VERIFICATION
+--------------------------------------------------------------------------------
+  AdminControlPlaneService dispatches all 7 actions (ADVANCE_STAGE, RESOLVE_
+  REWARDS, DISTRIBUTE_REWARDS, CREDIT_WALLET, REVERSE_PAYOUT, ENFORCE_ANTI_CHEAT,
+  MARK_FOR_REVIEW) with RBAC (least privilege), requestId idempotency and an
+  immutable Redis-zset audit. Admin orchestrates authoritative services only — no
+  direct money-table mutation. Controller is ServiceIdentity-guarded. No gap.
+
+
+--------------------------------------------------------------------------------
+19. AUTHENTICATION VERIFICATION
+--------------------------------------------------------------------------------
+  Login + refresh live; refresh re-checks is_banned. M8: JwtStrategy.validate now
+  performs an authoritative per-request is_banned check — Redis fast-path
+  (auth:ban:<userId>) backed by the User.is_banned column with back-fill (60s
+  TTL); a banned user's still-valid access token is rejected with 403 on the next
+  request. EnforcementService pushes '1' on ban and '0' on un-ban for immediate
+  effect. DB remains source of truth (Redis-flush safe). No bypass. No gap.
+
+
+--------------------------------------------------------------------------------
+20. SERVICE IDENTITY VERIFICATION
+--------------------------------------------------------------------------------
+  ServiceIdentityGuard (HMAC signature + timestamp window + nonce replay
+  protection) is applied to the Admin and AntiCheat controllers, gating all
+  privileged service-to-service actions. Legacy x-internal-api-key fallback is
+  config-gated (SERVICE_IDENTITY_ENFORCE). No gap in the enforced path.
+
+
+--------------------------------------------------------------------------------
+21. FINAL BACKEND CERTIFICATION
+--------------------------------------------------------------------------------
+  BACKEND IMPLEMENTATION NOT COMPLETE
+
+  Rationale: the core backend is fully implemented, single-authoritative and live
+  with no dormant/legacy/duplicate/dead paths. Under the strict certification rule
+  ("if ONE backend implementation gap exists -> NOT COMPLETE"), the single LOW
+  residual — opt-in deposit-order idempotency, where a header-less retry can still
+  create a benign duplicate Razorpay order (Section 9 item 1) — prevents an
+  unconditional COMPLETE. There is NO money-safety, ban-bypass, dormant, legacy,
+  duplicate-writer or dead-code gap.
+
+
+--------------------------------------------------------------------------------
+22. REMAINING WORK (backend implementation only)
+--------------------------------------------------------------------------------
+  1. [LOW] Make deposit-order idempotency mandatory: require an `Idempotency-Key`
+     on POST /api/v1/wallet/deposit/create-order (reject when absent) OR derive a
+     deterministic server-side dedup key, so a header-less client retry cannot
+     create a second Razorpay order. No money-safety impact; closes the literal
+     M7 "never create duplicate payment orders" criterion for all clients.
+
+  (Excluded by instruction, not listed as work: Testing, Infrastructure, Frontend,
+  CI/CD, Monitoring, Deployment, Documentation, Production Operations. Also out of
+  scope: email/SMS notification channels.)
+
+
+--------------------------------------------------------------------------------
+23. FINAL VERDICT
+--------------------------------------------------------------------------------
+  BACKEND IMPLEMENTATION NOT COMPLETE — by one LOW, non-money-safety residual.
+
+  The platform's authoritative core is complete: single completion path, single
+  balance writer, full ledger-governed deposit AND withdrawal lifecycles,
+  idempotent external payout, single ban writer with per-request enforcement,
+  live tournament + leaderboard + prize + event + admin runtimes, and no dormant,
+  legacy, duplicate or dead authoritative code. The sole remaining backend item
+  is mandating the deposit-order idempotency key (Section 22). Once that contract
+  is enforced, the backend is certifiably COMPLETE.
+
+================================================================================
+END OF REPORT — FINAL_BACKEND_IMPLEMENTATION_CERTIFICATION
+================================================================================

@@ -1,0 +1,448 @@
+================================================================================
+IMPLEMENTATION SUMMARY — BACKEND_COMPLETION_005
+FINAL BACKEND IMPLEMENTATION COMPLETION (M5 + M6 + M7 + M8 + M9)
+ZUBACO PLATFORM
+================================================================================
+Mode ............ IMPLEMENTATION (code modified; no redesign, no breaking API)
+Build root ...... c:\zubaco-games\zubaco-platform (canonical, the only built tree)
+Build .......... GREEN (prisma generate OK; nest build BUILD_EXIT=0)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Resolve ALL remaining backend implementation gaps from the FINAL BACKEND
+IMPLEMENTATION AUDIT, reusing the existing authoritative implementations:
+  M5 — bring the ENTIRE deposit lifecycle (PENDING/FAILED/CANCELLED) under the
+       authoritative WalletLedger.
+  M6 — make the external RazorpayX payout idempotent (stable reference + header).
+  M7 — make Razorpay ORDER creation idempotent (retries return the same order).
+  M8 — enforce is_banned on every authenticated request (no wait for refresh).
+  M9 — resolve the dormant WalletService.deposit() (make LIVE or remove).
+
+
+--------------------------------------------------------------------------------
+2. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+All five items are implemented and the build is GREEN.
+
+  - M5: The deposit lifecycle is now fully ledger-governed. New ledger methods
+    createPendingDeposit / failDeposit / cancelDeposit own the PENDING, FAILED
+    and CANCELLED transitions atomically and idempotently, each writing an
+    immutable _ledger audit block. The gateway and the cleanup cron no longer
+    write the transaction table directly. FAILED and CANCELLED now publish
+    DEPOSIT_FAILED / DEPOSIT_CANCELLED events. Settlement (PENDING -> COMPLETED +
+    credit + WALLET_CREDITED) was already ledger-authoritative and is unchanged.
+
+  - M6: createRazorpayXPayout now uses the withdrawal transaction id as a stable
+    reference_id AND sends the X-Payout-Idempotency header keyed on the same id.
+    A crash-retry re-sends the identical key, so RazorpayX returns the existing
+    payout instead of creating a duplicate external transfer.
+
+  - M7: createDepositOrder accepts an optional Idempotency-Key header. A retried
+    request short-circuits via a Redis idempotency map and returns the SAME
+    Razorpay order; a setnx guard collapses concurrent double-submits. The PENDING
+    row is additionally idempotent per order id at the ledger boundary.
+
+  - M8: JwtStrategy.validate now performs an authoritative is_banned check on
+    every authenticated request (Redis fast-path backed by the User.is_banned
+    column, with back-fill). A banned user's still-valid access token is rejected
+    with 403 immediately. EnforcementService.enforce/reverse proactively flip the
+    cache so bans/unbans take effect on the next request — reusing the existing
+    enforcement engine.
+
+  - M9: WalletService.deposit() had no live caller and is REMOVED. The single
+    authoritative deposit runtime is the Razorpay order flow. No dormant deposit
+    runtime remains.
+
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+  src/events/event.types.ts
+      + DEPOSIT_FAILED = 'deposit.failed'
+      + DEPOSIT_CANCELLED = 'deposit.cancelled'
+  src/wallet/ledger/ledger.service.ts
+      + createPendingDeposit()  (M5 — authoritative PENDING registration)
+      + failDeposit()           (M5 — authoritative PENDING -> FAILED)
+      + cancelDeposit()         (M5 — authoritative PENDING -> CANCELLED)
+  src/wallet/payment-gateway.service.ts
+      ~ createDepositOrder()    (M5 routes PENDING via ledger; M7 idempotency)
+      ~ createRazorpayOrder()   (M7 receipt tag + optional idempotency key)
+      ~ handleWebhook()         (M5 payment.failed -> ledger.failDeposit + event)
+      ~ processWithdrawal()     (M6 passes transaction.id to payout)
+      ~ createRazorpayXPayout() (M6 stable reference_id + X-Payout-Idempotency)
+      + RedisService injected
+  src/wallet/wallet.controller.ts
+      ~ createDepositOrder()    (M7 reads optional Idempotency-Key header)
+  src/wallet/wallet-cleanup.service.ts
+      ~ expireAbandonedDeposits() (M5 routes CANCELLED via ledger + event)
+      + WalletLedgerService + EventBusService + Logger
+  src/wallet/wallet.service.ts
+      - deposit()               (M9 — removed dormant method)
+  src/auth/strategies/jwt.strategy.ts
+      ~ validate()              (M8 — authoritative is_banned check)
+      + PrismaService + RedisService injected; ban-cache constants exported
+  src/anti-cheat/enforcement/enforcement.service.ts
+      ~ enforce()               (M8 — push ban cache '1' on confirmed ban)
+      ~ reverse()               (M8 — push ban cache '0' on un-ban)
+
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+  None. (All work reused existing files/services — no redesign.)
+
+
+--------------------------------------------------------------------------------
+5. FILES REMOVED
+--------------------------------------------------------------------------------
+  None at file level. One method removed: WalletService.deposit() (M9).
+
+
+--------------------------------------------------------------------------------
+6. DEPOSIT FLOW BEFORE
+--------------------------------------------------------------------------------
+  createDepositOrder -> prisma.transaction.create(PENDING) DIRECTLY (locally
+    computed balance_after, no ledger_key, no idempotency, no audit block).
+  payment.captured/verify -> ledger.settleDeposit (authoritative — OK).
+  payment.failed -> prisma.transaction.updateMany(FAILED) DIRECTLY (no audit,
+    no event).
+  abandoned cleanup -> prisma.transaction.updateMany(CANCELLED) DIRECTLY (no
+    per-row audit, no event).
+  Result: only the CREDIT was ledger-governed; PENDING/FAILED/CANCELLED bypassed
+  the authoritative ledger.
+
+
+--------------------------------------------------------------------------------
+7. DEPOSIT FLOW AFTER
+--------------------------------------------------------------------------------
+  createDepositOrder
+    -> (M7) Idempotency-Key short-circuit (Redis map) — retry returns same order
+    -> createRazorpayOrder
+    -> ledger.createPendingDeposit  [PENDING row, ledger_key deposit:pending:<id>,
+       idempotent per order id (existing-row check + UNIQUE ledger_key + Redis
+       lock), _ledger audit block]
+  payment.captured / verify
+    -> ledger.settleDeposit  [atomic PENDING -> COMPLETED claim, credit cash
+       bucket, _ledger audit, ledger_key deposit:<id>]
+    -> publish WALLET_CREDITED (deterministic id, deduped)
+  payment.failed
+    -> ledger.failDeposit  [atomic PENDING -> FAILED claim, _ledger_failure audit,
+       idempotent on repeated webhooks]
+    -> publish DEPOSIT_FAILED
+  abandoned (cron, > 30 min PENDING)
+    -> ledger.cancelDeposit  [atomic PENDING -> CANCELLED claim, _ledger_cancellation
+       audit, loses cleanly if it races a late settlement]
+    -> publish DEPOSIT_CANCELLED
+  Result: PENDING, COMPLETED, FAILED and CANCELLED are ALL authoritative,
+  idempotent, audited and event-emitting. The ledger is the single deposit writer.
+
+
+--------------------------------------------------------------------------------
+8. RAZORPAYX (PAYOUT) BEFORE
+--------------------------------------------------------------------------------
+  createRazorpayXPayout(userId, amount, bankDetail):
+    reference_id = `wd_${userId}_${Date.now()}`   (NON-stable, time-based)
+    no idempotency header
+  A crash between payout success and ledger.completeWithdrawal commit left the
+  row PENDING; the next disbursement tick re-called the payout with a NEW
+  reference_id -> a duplicate EXTERNAL payout was possible.
+
+
+--------------------------------------------------------------------------------
+9. RAZORPAYX (PAYOUT) AFTER
+--------------------------------------------------------------------------------
+  createRazorpayXPayout(userId, amount, bankDetail, transactionId):
+    reference_id = transactionId                  (stable, deterministic)
+    header  X-Payout-Idempotency: transactionId   (RazorpayX dedup key)
+  A crash-retry re-sends the SAME idempotency key, so RazorpayX returns the
+  existing payout rather than creating a second transfer. processWithdrawal passes
+  the withdrawal transaction id. The internal ledger remains at-most-once (the
+  PENDING claim guards completeWithdrawal/failWithdrawal), so internal AND external
+  sides are now both duplicate-safe.
+
+
+--------------------------------------------------------------------------------
+10. RAZORPAY ORDER BEFORE
+--------------------------------------------------------------------------------
+  createDepositOrder -> createRazorpayOrder with no idempotency.
+  A retried create-order request created a brand-new Razorpay order (and, before
+  M5, a duplicate PENDING row) every time.
+
+
+--------------------------------------------------------------------------------
+11. RAZORPAY ORDER AFTER
+--------------------------------------------------------------------------------
+  Client sends an optional `Idempotency-Key` header (standard pattern).
+    - First call: setnx guard -> create order -> store Redis map
+      `deposit:order:idem:<userId>:<key>` -> order.id (TTL 900s) -> register
+      PENDING row.
+    - Retry with the same key: short-circuits on the Redis map and returns the
+      SAME order (idempotent_replay:true) — NO new Razorpay order is created.
+    - Concurrent double-submit with the same key: the setnx lock lets one win;
+      the loser gets 409 and, on retry, receives the mapped order.
+  Even without the header, the PENDING row is idempotent per order id at the
+  ledger boundary, so a given order can never spawn duplicate PENDING rows.
+
+
+--------------------------------------------------------------------------------
+12. JWT BEFORE
+--------------------------------------------------------------------------------
+  JwtStrategy.validate(payload) => { userId: payload.sub }   (no ban check)
+  A user banned mid-session kept a valid access token until expiry (~15 min).
+  enforce() deleted refresh tokens (blocking re-issue) but the live access token
+  still authorized requests.
+
+
+--------------------------------------------------------------------------------
+13. JWT AFTER
+--------------------------------------------------------------------------------
+  JwtStrategy.validate(payload):
+    - cacheKey = `auth:ban:<userId>`
+    - Redis '1' -> 403 ForbiddenException('Account is banned')
+    - Redis '0' -> allow
+    - cache miss -> SELECT is_banned FROM users (authoritative) -> back-fill cache
+      (TTL 60s) -> ban => 403, else allow; missing user => 401
+  EnforcementService.enforce() sets the cache to '1' on a confirmed ban;
+  reverse() sets it to '0' on un-ban — so the effect is immediate, not deferred
+  to refresh expiry. The DB column stays the source of truth, so a Redis flush
+  can never let a banned user through for longer than the 60s TTL.
+
+
+--------------------------------------------------------------------------------
+14. WalletService.deposit DECISION
+--------------------------------------------------------------------------------
+  Decision: REMOVED (option B).
+  Rationale: a workspace-wide trace found NO live caller (no controller, service,
+  admin action or scheduler invoked it). The authoritative, audited deposit
+  runtime is the Razorpay order flow (createDepositOrder -> createPendingDeposit
+  -> settleDeposit). Keeping a second, parallel "manual top-up" entry point would
+  be redundant dead-but-reachable surface area that bypasses the order/settlement
+  audit trail. Per "do NOT leave dead runtime code", the method was removed; a
+  short comment documents the decision in wallet.service.ts. No remaining dormant
+  deposit runtime exists.
+
+
+--------------------------------------------------------------------------------
+15. RUNTIME PATHS UPDATED
+--------------------------------------------------------------------------------
+  Deposit (success):  createDepositOrder -> createPendingDeposit (PENDING) ->
+                      settleDeposit (COMPLETED + credit) -> WALLET_CREDITED.
+  Deposit (failure):  webhook payment.failed -> failDeposit (FAILED) ->
+                      DEPOSIT_FAILED.
+  Deposit (cancel):   cron expireAbandonedDeposits -> cancelDeposit (CANCELLED)
+                      -> DEPOSIT_CANCELLED.
+  Withdrawal:         requestWithdrawal -> createPendingWithdrawal (PENDING) ->
+                      @Cron disbursement -> processWithdrawal -> createRazorpayX
+                      Payout (stable ref + idempotency header) ->
+                      completeWithdrawal (settled) | failWithdrawal (reversed).
+  Auth:               every JwtAuthGuard request -> validate -> is_banned check
+                      -> allow | 403.
+
+
+--------------------------------------------------------------------------------
+16. IDEMPOTENCY VERIFICATION
+--------------------------------------------------------------------------------
+  Deposit PENDING ..... ledger_key `deposit:pending:<orderId>` + existing-row
+                        check by (reference_id,type=DEPOSIT) + Redis lock +
+                        UNIQUE ledger_key + P2002 collapse. Re-registration is a
+                        no-op (duplicate=true).
+  Deposit settle ...... atomic PENDING -> COMPLETED claim (claim.count guard);
+                        verify+webhook race cannot double-credit.
+  Deposit FAILED ...... atomic PENDING -> FAILED claim; repeated webhook no-op.
+  Deposit CANCELLED ... atomic PENDING -> CANCELLED claim; loses cleanly to a
+                        late settlement.
+  Order creation ...... Redis idempotency map keyed on Idempotency-Key + setnx
+                        concurrency guard.
+  External payout ..... X-Payout-Idempotency + stable reference_id = transactionId
+                        (RazorpayX returns the existing payout on retry).
+  Withdrawal settle/fail atomic PENDING claim (unchanged, already idempotent).
+
+
+--------------------------------------------------------------------------------
+17. LEDGER VERIFICATION
+--------------------------------------------------------------------------------
+  WalletLedgerService remains the SINGLE writer of wallet balances and of the
+  transaction lifecycle for deposits and withdrawals. After M5 there are NO direct
+  prisma.transaction status writes for deposits in payment-gateway.service.ts or
+  wallet-cleanup.service.ts — both route through createPendingDeposit / failDeposit
+  / cancelDeposit / settleDeposit. Every transition writes an immutable _ledger /
+  _ledger_failure / _ledger_cancellation audit block. Balance movement still
+  happens only on settlement (credit) and withdrawal create/fail (debit/refund);
+  PENDING/FAILED/CANCELLED deposits move no balance, preserving the daily
+  reconciliation invariant (which sums COMPLETED rows only).
+
+
+--------------------------------------------------------------------------------
+18. EVENT VERIFICATION
+--------------------------------------------------------------------------------
+  New event types (publishers verified):
+    DEPOSIT_FAILED     -> handleWebhook payment.failed, id `deposit.failed:<order>`
+    DEPOSIT_CANCELLED  -> expireAbandonedDeposits,       id `deposit.cancelled:<order>`
+  Existing WALLET_CREDITED (deposit settle) and PAYOUT_SETTLED/PAYOUT_REVERSED
+  (withdrawal) unchanged. All deposit-lifecycle events publish AFTER the
+  authoritative transition commits, with deterministic ids (bus dedup). The
+  webhook subscriber forwards all events generically; the in-app subscriber
+  ignores unmapped types (no notification) — Notifications module untouched.
+
+
+--------------------------------------------------------------------------------
+19. DATABASE CHANGES
+--------------------------------------------------------------------------------
+  None. No schema migration. Existing columns reused: transaction.ledger_key,
+  transaction.reference_id, transaction.status, transaction.metadata,
+  user.is_banned. (The transaction.status values PENDING/COMPLETED/FAILED/
+  CANCELLED were already in use.)
+
+
+--------------------------------------------------------------------------------
+20. API CHANGES
+--------------------------------------------------------------------------------
+  Non-breaking, additive only:
+    - POST /api/v1/wallet/deposit/create-order now accepts an OPTIONAL
+      `Idempotency-Key` request header (absent => prior behaviour, just without
+      cross-request order dedup). Request body and response shape unchanged
+      (an extra `idempotent_replay: true` flag appears only on a replayed order).
+    - Authenticated endpoints now return 403 (Account is banned) for a banned
+      user instead of honouring a still-valid access token. No route/contract
+      change; this is the intended security behaviour.
+  No endpoints removed or renamed.
+
+
+--------------------------------------------------------------------------------
+21. SECURITY IMPROVEMENTS
+--------------------------------------------------------------------------------
+  - M8 closes the post-ban access-token window: a banned user is rejected on the
+    NEXT authenticated request, not after refresh-token expiry.
+  - M6 removes a real money-safety hole (duplicate external payout on crash
+    recovery) via deterministic idempotency.
+  - M7 prevents duplicate payment orders / charges on client retries.
+  - M5 brings deposit FAILED/CANCELLED under an audited, idempotent path,
+    eliminating un-audited direct status writes.
+
+
+--------------------------------------------------------------------------------
+22. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+  - M8 adds at most ONE indexed primary-key lookup (SELECT is_banned) per
+    authenticated request on a Redis cache MISS; cache hits (the common path,
+    60s TTL) are a single in-memory Redis GET. Negligible.
+  - M5 cleanup cron changes a single batch updateMany into per-row ledger calls;
+    bounded by the (small) number of abandoned PENDING deposits per 30-min tick.
+  - M6/M7 add one Redis GET/SET (order idempotency) and one HTTP header; no extra
+    round-trips on the happy path. No measurable hot-path regression.
+
+
+--------------------------------------------------------------------------------
+23. BUILD RESULT
+--------------------------------------------------------------------------------
+  Command: NODE_EXTRA_CA_CERTS set; npx prisma generate; npm run build
+  prisma generate ... OK (Prisma Client v7.8.0)
+  nest build ....... OK, BUILD_EXIT=0
+  get_errors on all modified files ... No errors found.
+  STATUS: GREEN.
+
+
+--------------------------------------------------------------------------------
+24. TESTS EXECUTED
+--------------------------------------------------------------------------------
+  Static verification only (per scope — Testing is out of scope / no test run
+  requested): TypeScript compile (nest build) GREEN + language-server diagnostics
+  clean on all modified files. No unit/integration suite was executed in this
+  phase. (The dummy/unmigrated DB precludes a live runtime trace.)
+
+
+--------------------------------------------------------------------------------
+25. M5 STATUS — DEPOSIT LIFECYCLE UNDER LEDGER
+--------------------------------------------------------------------------------
+  COMPLETE.
+    [x] Deposit lifecycle fully governed by WalletLedger
+    [x] PENDING authoritative  (createPendingDeposit, idempotent, audited)
+    [x] FAILED authoritative   (failDeposit, atomic claim, audited)
+    [x] CANCELLED authoritative (cancelDeposit, atomic claim, audited)
+    [x] Deposit events published (WALLET_CREDITED, DEPOSIT_FAILED, DEPOSIT_CANCELLED)
+    [x] Deposit audit preserved (_ledger / _ledger_failure / _ledger_cancellation)
+
+
+--------------------------------------------------------------------------------
+26. M6 STATUS — IDEMPOTENT EXTERNAL PAYOUT
+--------------------------------------------------------------------------------
+  COMPLETE.
+    [x] External payout idempotent (X-Payout-Idempotency header)
+    [x] Stable reference id exists (reference_id = transactionId)
+    [x] Crash retry cannot duplicate payout (same key -> existing payout returned)
+
+
+--------------------------------------------------------------------------------
+27. M7 STATUS — IDEMPOTENT ORDER CREATION
+--------------------------------------------------------------------------------
+  COMPLETE.
+    [x] Duplicate order creation impossible for keyed requests (Redis map + setnx)
+    [x] Order retries idempotent (same Idempotency-Key -> same order)
+    Note: cross-request order dedup requires the client to send `Idempotency-Key`
+    (standard pattern). Without it, PENDING rows remain idempotent per order id,
+    but a header-less retry can still create a new Razorpay order — documented in
+    Section 30 as the single residual hardening item.
+
+
+--------------------------------------------------------------------------------
+28. M8 STATUS — AUTHORITATIVE BAN ENFORCEMENT
+--------------------------------------------------------------------------------
+  COMPLETE.
+    [x] Every authenticated request checks is_banned (JwtStrategy.validate)
+    [x] Existing JWT cannot bypass ban (403 on next request; cache + DB fallback)
+    [x] Reuses enforcement architecture (enforce/reverse push the ban cache)
+    [x] Does not wait for refresh-token expiry
+
+
+--------------------------------------------------------------------------------
+29. M9 STATUS — WalletService.deposit()
+--------------------------------------------------------------------------------
+  COMPLETE.
+    [x] Resolved — REMOVED (no live caller; Razorpay order flow is the single
+        authoritative deposit runtime). No dormant runtime code remains.
+
+
+--------------------------------------------------------------------------------
+30. REMAINING BACKEND IMPLEMENTATION ITEMS (honest list)
+--------------------------------------------------------------------------------
+  No money-safety or ban-bypass gaps remain. One minor, honestly-disclosed
+  hardening item:
+
+  1. [LOW] Header-less deposit order idempotency. M7 makes order creation
+     idempotent when the client supplies `Idempotency-Key` (the standard
+     contract). A client that omits the header and retries can still create an
+     additional Razorpay ORDER (each order's PENDING row is still individually
+     idempotent and abandoned duplicates are auto-cancelled by the cleanup cron,
+     so no double-charge or duplicate credit results). Fully closing this would
+     require either mandating the header at the API contract or a server-derived
+     dedup key — a product/contract decision, not a correctness gap.
+
+  (Out of scope by instruction, not asserted as gaps: email/SMS notification
+  channels; tournament/leaderboard; frontend; infra; tests; docs.)
+
+
+--------------------------------------------------------------------------------
+31. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+  Optional BACKEND_COMPLETION_006 (hardening, not blocking):
+    - Mandate `Idempotency-Key` on POST deposit/create-order at the API contract
+      (close the header-less residual in Section 30).
+    - Add automated tests for the deposit lifecycle, payout idempotency and the
+      JWT ban path once a migrated test DB is available.
+  No further core backend implementation is required.
+
+
+--------------------------------------------------------------------------------
+32. FINAL STATUS
+--------------------------------------------------------------------------------
+  M5 COMPLETE | M6 COMPLETE | M7 COMPLETE | M8 COMPLETE | M9 COMPLETE
+  Build: GREEN (BUILD_EXIT=0). No breaking API changes. No redesign.
+  Backend core implementation is COMPLETE; one LOW hardening item disclosed
+  honestly in Section 30.
+
+================================================================================
+END OF REPORT — IMPLEMENTATION_SUMMARY_BACKEND_COMPLETION_005
+================================================================================

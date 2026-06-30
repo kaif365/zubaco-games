@@ -1,0 +1,294 @@
+================================================================================
+BACKEND IMPLEMENTATION BLOCKER MATRIX
+ZUBACO PLATFORM — CURRENT REPOSITORY (post M1–M9)
+================================================================================
+Mode .......... AUDIT ONLY (read-only). Derived from current canonical code at
+                c:\zubaco-games\zubaco-platform\src.
+Status legend . ✅ FULLY RESOLVED   🟡 PARTIALLY RESOLVED
+                ❌ NOT IMPLEMENTED   ⚪ OBSOLETE / OUT-OF-SCOPE
+Scope ......... Backend implementation only. Excluded by instruction: Testing,
+                Infrastructure, Frontend, CI/CD, Monitoring, Deployment,
+                Documentation, Production Operations.
+Note .......... AUTH-001/002, ACHEAT-002, SCORE-001/002, ARCH-001/002 have no
+                current-code definition file under those IDs; their meaning is
+                inferred from the implemented runtime and scored from live code.
+================================================================================
+
+
+--------------------------------------------------------------------------------
+GAME / SESSION
+--------------------------------------------------------------------------------
+Blocker      : GAME-001  (session lifecycle guard)
+Status       : ✅ FULLY RESOLVED
+Evidence     : SessionCompletionService.complete enforces single-completion
+               lifecycle guard (Redis marker + DB state) before persistence.
+Live Runtime : YES — game-session / free-play / tournament completion.
+Dormant      : none
+Resolved In  : pre-M1 (authoritative baseline)
+
+Blocker      : GAME-002  (authoritative verification pipeline)
+Status       : ✅ FULLY RESOLVED
+Evidence     : VerificationPipeline runs inside complete(); outcome/score are
+               server-derived; client cannot self-report a win.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1
+
+
+--------------------------------------------------------------------------------
+AUTHENTICATION
+--------------------------------------------------------------------------------
+Blocker      : AUTH-001  (authentication / JWT issuance)
+Status       : ✅ FULLY RESOLVED
+Evidence     : AuthService login issues access+refresh JWT; JwtAuthGuard +
+               JwtStrategy validate tokens.
+Live Runtime : YES — every protected route.
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : AUTH-002  (token refresh / rotation)
+Status       : ✅ FULLY RESOLVED
+Evidence     : Refresh endpoint rotates tokens and re-checks is_banned before
+               re-issuing.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : AUTH-003  (per-request ban enforcement at auth)
+Status       : ✅ FULLY RESOLVED
+Evidence     : jwt.strategy.ts validate() checks auth:ban:<userId> (Redis,
+               60s TTL) backed by User.is_banned; banned -> 403; constants
+               AUTH_BAN_CACHE_PREFIX / AUTH_BAN_CACHE_TTL_SECONDS exported.
+Live Runtime : YES — every JwtAuthGuard request.
+Dormant      : none
+Resolved In  : M8
+
+
+--------------------------------------------------------------------------------
+ANTI-CHEAT
+--------------------------------------------------------------------------------
+Blocker      : ACHEAT-001  (transactional enforcement)
+Status       : ✅ FULLY RESOLVED
+Evidence     : EnforcementService.enforce — one $transaction (invalidate
+               sessions, queue leaderboard removal, revoke stage entry, set
+               is_banned, purge refresh tokens) + post-commit events.
+Live Runtime : YES — auto (>=3 critical flags) + admin ENFORCE_ANTI_CHEAT.
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : ACHEAT-002  (enforcement reversal / authoritative unban)
+Status       : ✅ FULLY RESOLVED
+Evidence     : EnforcementService.reverse — $transaction clears is_banned +
+               ACCOUNT_RESTORED; former direct prisma.user.update removed.
+Live Runtime : YES — unban endpoint.
+Dormant      : none
+Resolved In  : M4
+
+
+--------------------------------------------------------------------------------
+TOURNAMENT
+--------------------------------------------------------------------------------
+Blocker      : TOURN-001  (stage orchestration)
+Status       : ✅ FULLY RESOLVED
+Evidence     : TournamentOrchestrator.advanceStage — lock, OPEN->CLOSED guard,
+               elimination, open next or complete season.
+Live Runtime : YES — admin ADVANCE_STAGE.
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : TOURN-002  (reward eligibility)
+Status       : ✅ FULLY RESOLVED
+Evidence     : resolveRewardEligibility excludes eliminated, incomplete and
+               is_banned participants.
+Live Runtime : YES — auto on season completion + admin RESOLVE_REWARDS.
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : TOURN-003  (prize payout runtime)
+Status       : ✅ FULLY RESOLVED
+Evidence     : RewardPayoutService.distributeRewards -> wallet.creditPrize ->
+               ledger.post(TOURNAMENT_PAYOUT) idempotent; auto-runs on
+               TOURNAMENT_COMPLETED.
+Live Runtime : YES — auto + admin DISTRIBUTE_REWARDS.
+Dormant      : none
+Resolved In  : M2
+
+
+--------------------------------------------------------------------------------
+WALLET
+--------------------------------------------------------------------------------
+Blocker      : WALLET-001  (authoritative ledger — sole balance writer)
+Status       : ✅ FULLY RESOLVED
+Evidence     : WalletLedgerService is the only balance writer (Redis lock +
+               UNIQUE ledger_key + FOR UPDATE + P2002 + _ledger audit). Deposit
+               lifecycle (PENDING/COMPLETED/FAILED/CANCELLED) moved into the
+               ledger (M5); WalletService.deposit() removed (M9).
+Live Runtime : YES — deposits, entry fees, prizes, referrals, withdrawals.
+Dormant      : none
+Resolved In  : pre-M1 baseline; deposit lifecycle M5; cleanup M9
+
+Blocker      : WALLET-002  (withdrawal disbursement + idempotent payout)
+Status       : ✅ FULLY RESOLVED
+Evidence     : @Cron WithdrawalDisbursementService -> processWithdrawal ->
+               createRazorpayXPayout(reference_id=transactionId,
+               X-Payout-Idempotency=transactionId) -> completeWithdrawal /
+               failWithdrawal (refund).
+Live Runtime : YES — per-minute worker.
+Dormant      : none
+Resolved In  : M1 (worker) + M6 (idempotent external payout)
+
+
+--------------------------------------------------------------------------------
+NOTIFICATION / EVENTS
+--------------------------------------------------------------------------------
+Blocker      : NOTIF-001  (unified event bus)
+Status       : ✅ FULLY RESOLVED
+Evidence     : EventBusService.publish (deterministic id + setnx dedup) +
+               @Cron(10s) drain.
+Live Runtime : YES — all authoritative domains publish.
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : NOTIF-002  (in-app delivery)
+Status       : ✅ FULLY RESOLVED
+Evidence     : In-app subscriber maps a defined subset of event types to user
+               notifications; unmapped types safely ignored.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : NOTIF-003  (multi-channel delivery)
+Status       : ✅ FULLY RESOLVED (in-app + push + webhook)
+Evidence     : Webhook subscriber forwards all events (retry + DLQ); in-app +
+               push channels live. Email/SMS intentionally out of scope.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1
+
+
+--------------------------------------------------------------------------------
+ADMIN
+--------------------------------------------------------------------------------
+Blocker      : ADMIN-001  (control plane + RBAC)
+Status       : ✅ FULLY RESOLVED
+Evidence     : AdminControlPlaneService dispatches 7 actions behind least-
+               privilege RBAC; ServiceIdentityGuard on the controller.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : ADMIN-002  (idempotency)
+Status       : ✅ FULLY RESOLVED
+Evidence     : requestId-keyed idempotency on every admin action.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : ADMIN-003  (immutable audit)
+Status       : ✅ FULLY RESOLVED
+Evidence     : Append-only Redis-zset audit per admin action.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1
+
+Blocker      : ADMIN-004  (orchestration-only; no direct money mutation)
+Status       : ✅ FULLY RESOLVED
+Evidence     : Admin invokes authoritative services only (ledger/enforcement/
+               orchestrator/payout); no direct balance or is_banned write.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1
+
+
+--------------------------------------------------------------------------------
+SCORE / LEADERBOARD
+--------------------------------------------------------------------------------
+Blocker      : SCORE-001  (authoritative score — verified only)
+Status       : ✅ FULLY RESOLVED
+Evidence     : LeaderboardService.updateScore runs only when
+               verdict.validated && outcome==='COMPLETED'.
+Live Runtime : YES — via completion path.
+Dormant      : none
+Resolved In  : M3
+
+Blocker      : SCORE-002  (exactly-once + ban exclusion)
+Status       : ✅ FULLY RESOLVED
+Evidence     : Per-session exactly-once Redis marker + payout-time is_banned
+               re-check; removeScore on enforcement.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : M3
+
+
+--------------------------------------------------------------------------------
+ARCHITECTURE
+--------------------------------------------------------------------------------
+Blocker      : ARCH-001  (single authoritative path per domain)
+Status       : ✅ FULLY RESOLVED
+Evidence     : One completion / one balance writer / one lifecycle writer / one
+               ban writer / one leaderboard write / one prize runtime / one
+               tournament progression.
+Live Runtime : YES
+Dormant      : none
+Resolved In  : pre-M1 .. M9 (consolidation)
+
+Blocker      : ARCH-002  (no legacy / duplicate runtime writers)
+Status       : ✅ FULLY RESOLVED
+Evidence     : Direct deposit-transaction writes removed (M5); direct unban
+               removed (M4); dormant deposit() removed (M9); no duplicate
+               balance/payout/score writers in the canonical tree.
+Live Runtime : N/A (absence verified)
+Dormant      : none
+Resolved In  : M4, M5, M9
+
+
+--------------------------------------------------------------------------------
+DEPOSIT-ORDER IDEMPOTENCY (M7 residual — the single open item)
+--------------------------------------------------------------------------------
+Blocker      : WALLET-ORDER-IDEM (M7)  (never create duplicate payment orders)
+Status       : 🟡 PARTIALLY RESOLVED
+Evidence     : PaymentGatewayService.createDepositOrder dedupes via Redis map +
+               setnx ONLY when the client sends `Idempotency-Key`
+               (wallet.controller.ts header is optional). A header-less retry
+               creates an additional benign, unpaid, auto-cancelled Razorpay
+               order. PENDING rows are per-order idempotent and settleDeposit is
+               per-order idempotent => NO double-charge, NO double-credit.
+Live Runtime : YES — opt-in dedup path live.
+Dormant      : none
+Resolved In  : M7 (opt-in). Full closure pending: mandate the header / derive a
+               server-side dedup key (backend contract change).
+
+
+--------------------------------------------------------------------------------
+OUT-OF-SCOPE BLOCKERS (not backend-implementation items)
+--------------------------------------------------------------------------------
+Blocker      : TEST-001  (testing)
+Status       : ⚪ OBSOLETE / OUT-OF-SCOPE
+Evidence     : Testing is explicitly excluded from backend-implementation scope.
+Live Runtime : N/A
+Dormant      : N/A
+Resolved In  : n/a (excluded)
+
+Blocker      : INFRA-001  (infrastructure)
+Status       : ⚪ OBSOLETE / OUT-OF-SCOPE
+Evidence     : Infrastructure is explicitly excluded from backend-implementation
+               scope.
+Live Runtime : N/A
+Dormant      : N/A
+Resolved In  : n/a (excluded)
+
+
+--------------------------------------------------------------------------------
+ROLL-UP
+--------------------------------------------------------------------------------
+  ✅ FULLY RESOLVED .......... 23 backend blockers (incl. M1–M6, M8, M9)
+  🟡 PARTIALLY RESOLVED ...... 1  (M7 deposit-order idempotency — header-less)
+  ❌ NOT IMPLEMENTED ......... 0
+  ⚪ OBSOLETE / OUT-OF-SCOPE . 2  (TEST-001, INFRA-001)
+
+  In-scope backend implementation gaps remaining .... 1 (LOW, no money-safety
+  impact). Therefore: BACKEND IMPLEMENTATION NOT COMPLETE.
+
+================================================================================
+END OF MATRIX — BACKEND_IMPLEMENTATION_BLOCKER_MATRIX
+================================================================================
