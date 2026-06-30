@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
 import { DeviceDetectionService } from '../anti-cheat/device-detection.service';
@@ -6,7 +6,11 @@ import { LeaderboardService } from '../leaderboard/leaderboard.service';
 import { ScoreValidatorService } from './score-validator.service';
 import { generateServerSeed, hashServerSeed, computeFinalSeed } from './seed-rng';
 import { InputSignature } from './utils/input-analyzer';
+import { MIN_SESSION_DURATION_MS, MAX_SESSION_DURATION_MS } from './constants';
+import { GameType } from '.prisma/client';
 import * as crypto from 'crypto';
+
+const VALID_GAME_TYPES = new Set<string>(Object.values(GameType));
 
 @Injectable()
 export class GameSessionService {
@@ -26,7 +30,13 @@ export class GameSessionService {
     ipAddress?: string;
     deviceFingerprint?: string;
     deviceComponents?: any;
+    clientSeed?: string;
   }) {
+    // ─── Validate game type (reject unknown types cleanly, not at DB layer) ──
+    if (!VALID_GAME_TYPES.has(gameType)) {
+      throw new BadRequestException(`Unknown game type: ${gameType}`);
+    }
+
     // ─── ANTI-CHEAT: Check if user is allowed to play ────────────
     const sessionCheck = await this.antiCheat.checkSessionAllowed(userId);
     if (!sessionCheck.allowed) {
@@ -34,28 +44,23 @@ export class GameSessionService {
     }
 
     // ─── ANTI-CHEAT: Concurrent session prevention ───────────────
-    const previousSession = await this.antiCheat.registerActiveSession(userId, 'pending');
-    if (previousSession && previousSession !== 'pending') {
-      // Abandon the old session
-      await this.prisma.gameSession.updateMany({
-        where: { id: previousSession, outcome: null },
-        data: { outcome: 'ABANDONED', completed_at: new Date() },
-      });
-    }
+    await this.abandonPreviousSession(userId);
 
     // Track session start for rate limiting
     await this.antiCheat.trackSessionStart(userId);
 
     const serverSeed = generateServerSeed();
     const serverSeedHash = hashServerSeed(serverSeed);
-    const numericSeed = computeFinalSeed(serverSeed);
+    const clientSeed = options?.clientSeed || '';
+    const numericSeed = computeFinalSeed(serverSeed, clientSeed, 0);
 
     const session = await this.prisma.gameSession.create({
       data: {
         user_id: userId,
-        game_type: gameType as any,
+        game_type: gameType as GameType,
         mode: 'FREE_PLAY',
         server_seed: serverSeed,
+        client_seed: clientSeed || null,
         config: config || {},
         ip_address: options?.ipAddress || null,
         device_fingerprint: options?.deviceFingerprint || null,
@@ -86,12 +91,33 @@ export class GameSessionService {
   }
 
   /**
+   * Register a freshly created active session and abandon any prior open
+   * session for the same user (single-active-session invariant shared by all
+   * start paths). Returns nothing; safe to call before/after session creation.
+   */
+  private async abandonPreviousSession(userId: string): Promise<void> {
+    const previousSession = await this.antiCheat.registerActiveSession(userId, 'pending');
+    if (previousSession && previousSession !== 'pending') {
+      await this.prisma.gameSession.updateMany({
+        where: { id: previousSession, outcome: null },
+        data: { outcome: 'ABANDONED', completed_at: new Date() },
+      });
+    }
+  }
+
+  /**
    * Start a tournament game session.
    * Config is ALWAYS loaded from the server-side StageGame level_config.
    * This ensures all players in the same tournament stage get identical game parameters.
    * Client-supplied config is IGNORED for fairness.
    */
   async startTournamentGame(userId: string, stageGameId: string, stageEntryId: string) {
+    // ─── ANTI-CHEAT: Check if user is allowed to play ────────────
+    const sessionCheck = await this.antiCheat.checkSessionAllowed(userId);
+    if (!sessionCheck.allowed) {
+      throw new ForbiddenException(sessionCheck.reason);
+    }
+
     // Load the stage game to get the server-defined config
     const stageGame = await this.prisma.stageGame.findUnique({
       where: { id: stageGameId },
@@ -129,6 +155,10 @@ export class GameSessionService {
       throw new ForbiddenException('You have already played this game in this stage');
     }
 
+    // ─── ANTI-CHEAT: Concurrent session prevention ───────────────
+    await this.abandonPreviousSession(userId);
+    await this.antiCheat.trackSessionStart(userId);
+
     const serverSeed = generateServerSeed();
     const serverSeedHash = hashServerSeed(serverSeed);
     const numericSeed = computeFinalSeed(serverSeed);
@@ -147,6 +177,9 @@ export class GameSessionService {
         config: gameConfig, // Server-side config only
       },
     });
+
+    // Register the active session so concurrency/heartbeat tracking applies
+    await this.antiCheat.registerActiveSession(userId, session.id);
 
     return {
       gameSessionId: session.id,
@@ -199,11 +232,15 @@ export class GameSessionService {
   }) {
     // Hard reject obviously invalid values
     if (score < 0) throw new ForbiddenException('Invalid score');
-    if (durationMs < 1000) throw new ForbiddenException('Invalid duration');
-    if (durationMs > 1800000) throw new ForbiddenException('Session timeout exceeded'); // 30 min max
+    if (durationMs < MIN_SESSION_DURATION_MS) throw new ForbiddenException('Invalid duration');
+    if (durationMs > MAX_SESSION_DURATION_MS) throw new ForbiddenException('Session timeout exceeded');
 
+    // This path finalizes ONLY generic free-play sessions (mode FREE_PLAY with no
+    // level). Tournament sessions are finalized exclusively by the tournament
+    // engine and level-based sessions by the free-play engine — preventing
+    // cross-engine finalization with divergent side effects.
     const session = await this.prisma.gameSession.findFirst({
-      where: { id: sessionId, user_id: userId, outcome: null },
+      where: { id: sessionId, user_id: userId, outcome: null, mode: 'FREE_PLAY', level: null },
     });
 
     if (!session) throw new NotFoundException('Active session not found');
@@ -226,8 +263,10 @@ export class GameSessionService {
       throw new ForbiddenException(`Score rejected: ${validationResult.reason}`);
     }
 
-    const updated = await this.prisma.gameSession.update({
-      where: { id: sessionId },
+    // Atomically claim the session (double-submit guard). Two concurrent submits
+    // can no longer both pass the read above and double-process.
+    const claimed = await this.prisma.gameSession.updateMany({
+      where: { id: sessionId, user_id: userId, outcome: null, mode: 'FREE_PLAY', level: null },
       data: {
         score,
         duration_ms: durationMs,
@@ -238,6 +277,10 @@ export class GameSessionService {
         input_signature: antiCheatData?.inputSignature ? (antiCheatData.inputSignature as any) : null,
       },
     });
+
+    if (claimed.count === 0) {
+      throw new ConflictException('Session already completed');
+    }
 
     // Clear active session lock
     await this.antiCheat.clearActiveSession(userId);
@@ -276,19 +319,35 @@ export class GameSessionService {
         ipAddress: session.ip_address || undefined,
         deviceFingerprint: session.device_fingerprint || undefined,
         mode: session.mode,
+        maxPossibleScore: validationResult.theoretical_max,
       });
       flagsRaised += cheatResult.flags_raised;
     } catch {
       // Anti-cheat failure should not block game completion
     }
 
-    // Update leaderboard
+    // Persist the best score to the durable per-game progress record so the
+    // global leaderboard's DB source of truth stays complete for generic
+    // free-play sessions too, then refresh the Redis ranking cache. Without the
+    // DB write the Redis board and the DB fallback would diverge (LB-VAL-05).
     try {
+      const existing = await this.prisma.gameProgress.findUnique({
+        where: { user_id_game_type: { user_id: userId, game_type: session.game_type } },
+        select: { best_score: true },
+      });
+      await this.prisma.gameProgress.upsert({
+        where: { user_id_game_type: { user_id: userId, game_type: session.game_type } },
+        create: { user_id: userId, game_type: session.game_type, best_score: score, total_plays: 1 },
+        update: {
+          total_plays: { increment: 1 },
+          best_score: existing ? Math.max(existing.best_score, score) : score,
+        },
+      });
       await this.leaderboard.updateScore(userId, session.game_type, score);
     } catch {
-      // Leaderboard failure should not block game completion
+      // Leaderboard/progress failure should not block game completion
     }
 
-    return { success: true, score: updated.score, flags_raised: flagsRaised };
+    return { success: true, score, flags_raised: flagsRaised };
   }
 }

@@ -9,6 +9,7 @@ import { config } from '@config';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma';
 import { TerminalError } from '@restatedev/restate-sdk';
+import { randomInt } from 'crypto';
 
 import { SnsService } from '../aws/sns.service';
 
@@ -339,7 +340,7 @@ export class GameService {
             throw new TerminalError('NO_BOARDS_AVAILABLE_FOR_LEVEL', { errorCode: 404 });
         }
 
-        const offset = Math.floor(Math.random() * total);
+        const offset = total > 0 ? randomInt(total) : 0;
 
         const rows = await this.prisma.$queryRaw<RawRow[]>(Prisma.sql`
             SELECT

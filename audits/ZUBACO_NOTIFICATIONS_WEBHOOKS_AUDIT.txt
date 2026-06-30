@@ -1,0 +1,305 @@
+================================================================================
+ZUBACO — NOTIFICATIONS & WEBHOOKS ENGINE — ENTERPRISE AUDIT
+================================================================================
+Scope        : Notifications (in-app / push / SMS / email) + Webhooks (inbound
+               + outbound) + domain event lifecycle.
+Mode         : AUDIT ONLY. No code modified. Every conclusion traced from source.
+Platform root: C:\zubaco-games\zubaco-games\zubaco-platform
+Date         : 2026-06-26
+Verdict      : NOT PRODUCTION-READY. The "communication backbone" is largely
+               absent: there is no outbound webhook subsystem, no email channel,
+               no delivery queue/retry/DLQ, domain events are emitted into a void
+               (no subscribers), and EVERY tournament/financial notification is
+               either never generated or silently dropped at the DB.
+
+================================================================================
+0. CODE INVENTORY (what actually exists)
+================================================================================
+Notification subsystem
+  src/notification/notification.service.ts
+    - getNotifications / markAsRead / markAllRead          (in-app read model)
+    - sendNotification(userId,type,title,body,data)        (single)
+    - sendBulkNotification(userIds,type,...)               (createMany + push)
+    - sendPushNotification(userId,...)  [private]          (FCM)
+    - registerPushToken(...)                               (device upsert)
+  src/notification/notification.controller.ts
+    - GET  /notifications        (JwtAuthGuard)
+    - POST /notifications/:id/read
+    - POST /notifications/read-all
+    - POST /notifications/push-token
+  src/notification/notification.module.ts  (provides+exports NotificationService)
+
+SMS
+  src/auth/sms.service.ts  — MSG91 / Twilio. CALLED ONLY by otp.service (OTP).
+
+Domain events
+  src/tournament/tournament-events.service.ts — in-process Node EventEmitter.
+
+Inbound webhook (Razorpay)
+  src/wallet/payment-gateway.service.ts :: handleWebhook(rawBody, signature)
+  src/wallet/guards/razorpay-webhook.guard.ts — source-IP allowlist.
+  src/wallet/wallet.controller.ts :: POST /wallet/webhook/razorpay
+
+Channels present : in-app (DB) + push (FCM) + SMS (OTP only).
+Channels ABSENT  : email (none whatsoever), outbound webhooks (none whatsoever).
+
+Actual callers of NotificationService (whole codebase):
+  - src/social/challenge.service.ts        (type 'CHALLENGE'  — VALID enum)
+  - src/tournament/elimination.service.ts  (type 'TOURNAMENT' — INVALID enum)
+  NO caller in: auth, wallet, deposit/withdrawal, leaderboard, scoring,
+  anti-cheat, admin, registration.
+
+================================================================================
+PHASE 1 — EVENT LIFECYCLE
+================================================================================
+Traced transition by transition:
+
+Business Event -> Event Creation:
+  TournamentEventsService.emit() is called from:
+    tournament.service.ts             -> 'tournament.registered'
+    tournament-scheduler.service.ts   -> 'tournament.stage.opened'
+                                         'tournament.stage.closed'
+                                         'tournament.season.completed'
+                                         'tournament.season.cancelled'
+    elimination.service.ts            -> 'tournament.elimination.completed'
+                                         'tournament.prize.distributed'
+
+Event Creation -> Notification/Webhook Generation:  ** BROKEN **
+  emit() writes ONE structured log line and calls
+  emitter.emit(type) + emitter.emit('tournament.*').
+  GREP of the entire src tree for external `.on(` subscribers: NONE.
+  The only `.on()` is the internal definition in tournament-events.service.ts.
+  => Every tournament domain event is emitted into a void. No subscriber, no
+     notification, no webhook, no persistence. The service doc-comment promises
+     an "outbound webhook relay" — it does not exist.
+
+Queue:            NONE. No Bull/BullMQ/Kafka/AMQP/SQS anywhere (grep: 0 hits).
+Delivery Attempt: Notifications are created INLINE & SYNCHRONOUSLY by the two
+                  caller services; push is fired on the same call stack.
+Retry:            NONE for notifications/push (push errors are swallowed).
+Success/Failure:  Not tracked beyond a boolean `sent_push` and log lines.
+Logging:          console/Logger only.
+Persistence:      `notifications` table stores in-app rows (when the insert
+                  succeeds). No event store, no delivery/outbox table, no
+                  webhook-delivery log.
+
+Verdict: The lifecycle terminates at "log line". Generation, queue, retry, and
+delivery stages are absent for events; broken/partial for notifications.
+
+================================================================================
+PHASE 2 — NOTIFICATIONS (verified per channel/type)
+================================================================================
+Tournament notifications ...... GENERATED-THEN-DROPPED.
+  elimination.service.ts calls sendNotification / sendBulkNotification with
+  `'TOURNAMENT' as any`. The Prisma `NotificationType` enum is:
+      STAGE_OPEN, STAGE_CLOSING, ELIMINATION, PRIZE_WON, FRIEND_REQUEST,
+      CHALLENGE, SYSTEM, PROMOTION
+  'TOURNAMENT' is NOT a member. Postgres rejects the insert
+  ("invalid input value for enum"). create()/createMany() throw; the callers
+  wrap them in try/catch and only log a warning. RESULT: stage-open,
+  stage-closing, elimination, and prize notifications are NEVER persisted and
+  NEVER pushed. The correct enum values (STAGE_OPEN/STAGE_CLOSING/ELIMINATION/
+  PRIZE_WON) exist but are unused anywhere in code. [NOTIF-VAL-01]
+Prize notifications ........... NONE delivered (same invalid-enum failure).
+Deposit notifications ......... DO NOT EXIST. payment-gateway/wallet never call
+                                NotificationService on capture/credit.
+Withdrawal notifications ...... DO NOT EXIST (request/approve/payout/failure all
+                                silent to the user).
+Leaderboard updates ........... DO NOT EXIST.
+Registration confirmations .... DO NOT EXIST (auth never notifies).
+Account notifications ......... DO NOT EXIST (password/KYC/bank/security: none).
+Admin notifications ........... DO NOT EXIST (no admin-facing notification path).
+Push notifications ............ Implemented but uses Google's DECOMMISSIONED
+                                legacy FCM endpoint https://fcm.googleapis.com/
+                                fcm/send with `Authorization: key=<server_key>`
+                                (legacy HTTP API shut down by Google in 2024).
+                                Comment claims "HTTP v1 API"; code is legacy.
+                                All push calls fail; errors swallowed. Also
+                                forwards `data: any` to FCM, which requires all
+                                data values to be strings. [NOTIF-VAL-02/06]
+Email notifications ........... CHANNEL DOES NOT EXIST (no nodemailer/SES/SMTP).
+SMS notifications ............. Exists (MSG91/Twilio) but wired ONLY to OTP in
+                                otp.service. No transactional/event SMS.
+Challenge notifications ....... WORK (type 'CHALLENGE' is valid): in-app row
+                                created; push best-effort (currently failing per
+                                NOTIF-VAL-02).
+
+================================================================================
+PHASE 3 — WEBHOOKS
+================================================================================
+OUTBOUND webhooks ............. DO NOT EXIST. No webhook registration/endpoint
+  table, no payload builder, no HMAC signature GENERATION, no delivery client,
+  no retry, no duplicate-suppression, no failure store. External integrators
+  cannot receive any platform event.
+
+INBOUND webhook (Razorpay) — payment-gateway.handleWebhook:
+  Webhook creation .............. N/A (consumer side).
+  Payload validation ............ Minimal: requires non-empty body; reads
+                                  body.event + payload.payment.entity.
+                                  JSON.parse(rawBody) is NOT wrapped — a signed
+                                  but malformed body throws 500. [NOTIF-VAL-04]
+  Signature generation .......... N/A.
+  Signature verification ........ HMAC-SHA256 over the RAW request bytes with
+                                  RAZORPAY_WEBHOOK_SECRET, compared via a
+                                  constant-time helper (safeSignatureEqual).
+                                  Raw body preserved (main.ts rawBody:true). OK.
+  Authentication ................ RazorpayWebhookGuard IP allowlist — enforced
+                                  ONLY when NODE_ENV==='production'; all IPs are
+                                  accepted otherwise. Signature is the real gate.
+  Delivery ...................... payment.captured -> creditDepositAtomically;
+                                  payment.failed -> mark PENDING DEPOSIT FAILED.
+  Retry ......................... Relies on Razorpay's own retry; server is
+                                  idempotent so retries are safe.
+  Duplicate-delivery prevention . Idempotent PENDING-claim (updateMany WHERE
+                                  status='PENDING' AND type='DEPOSIT'); only the
+                                  single writer that flips PENDING->COMPLETED
+                                  proceeds. No event-id/dedup ledger though, so
+                                  there is no audit trail of received events and
+                                  no generic replay window. [NOTIF-VAL-05]
+  Failed delivery handling ...... payment.failed handled; other event types are
+                                  silently ignored (no payout/refund webhooks).
+
+================================================================================
+PHASE 4 — RELIABILITY
+================================================================================
+Retry logic ............. NONE for notifications/push/events. (Prize CREDIT has
+                          a 3x retry in elimination, but the NOTIFICATION around
+                          it does not.)
+Exponential backoff ..... NONE.
+Dead-letter queue ....... NONE.
+Delivery guarantees ..... NONE. Best-effort, fire-and-forget; failures logged
+                          and dropped. No at-least-once / exactly-once anywhere.
+Lost events ............. GUARANTEED for tournament events (no subscriber) and
+                          for all tournament notifications (invalid enum). Any
+                          push/insert failure loses the notification permanently.
+Duplicate events ........ Notifications have no idempotency key; a re-run of a
+                          caller path can create duplicate in-app rows.
+Event ordering .......... No ordering guarantee (no queue/sequence).
+
+================================================================================
+PHASE 5 — SECURITY
+================================================================================
+Inbound webhook authentication . HMAC-SHA256 signature over raw body (strong) +
+                                 prod-only IP allowlist. Secret from env.
+Signature validation ........... Constant-time compare. Correct.
+Replay protection .............. No nonce/timestamp/event-id store; protection is
+                                 only the idempotent state-claim. A replayed,
+                                 validly-signed captured/failed event is a no-op
+                                 (scoped to PENDING), so financially safe, but
+                                 there is no explicit replay defense or log.
+Payload tampering .............. Defeated by signature check (good).
+Unauthorized endpoints ......... Notification controller behind JwtAuthGuard;
+                                 push-token registration authenticated.
+Secret handling ................ RAZORPAY_WEBHOOK_SECRET / FCM_SERVER_KEY / SMS
+                                 keys from env/config. No outbound signing secret
+                                 (no outbound webhooks). FCM key is a legacy
+                                 server key (also defunct).
+
+================================================================================
+PHASE 6 — PERFORMANCE
+================================================================================
+High event volume ... No queue: notifications run inline on the request/cron
+                      thread. Tournament fan-out (notifyInBatches) chunks DB
+                      inserts (NOTIFY_CHUNK_SIZE) but then does a per-user device
+                      lookup + per-user FCM HTTP call inside Promise.allSettled.
+Burst traffic ....... Not absorbed (no queue/backpressure). A large stage close
+                      blocks the scheduler tick on N synchronous push calls.
+Queue performance ... N/A (no queue).
+Concurrent delivery . Bounded only by Promise.allSettled fan-out per batch; no
+                      global concurrency limit or rate limiting to FCM/SMS.
+Memory usage ........ sendBulkNotification materializes the full userIds array
+                      and a parallel notifications array in memory per batch.
+
+================================================================================
+PHASE 7 — INTEGRATION (verified against each module)
+================================================================================
+Authentication .. SMS OTP only (otp.service). No registration/login/security
+                  notifications. No NotificationService usage.
+Tournament Engine Events emitted to a void (no subscriber). Elimination's own
+                  notifications fail (invalid enum). Net: zero user-visible
+                  tournament communication.
+Gaming Engine ... No notification/event integration.
+Scoring Engine .. No notification/event integration.
+Anti-Cheat ...... No notification (no ban/flag alerts to user or admin).
+Leaderboards .... No notification (no rank-change alerts).
+Wallet .......... INBOUND Razorpay webhook only. No outbound, no deposit/
+                  withdrawal/prize user notifications.
+Admin Panel ..... No admin notifications; no event feed.
+
+================================================================================
+PHASE 8 — FAILURE RECOVERY
+================================================================================
+Network failures .. Push fetch errors caught and swallowed (console.error).
+                    SMS returns false on failure (OTP caller does not retry).
+Timeout handling .. No explicit timeouts on FCM/SMS/HTTP fetch calls.
+Partial failures .. Bulk push uses allSettled (per-user isolation) but failures
+                    are not recorded or retried; sent_push is set globally on
+                    success (see NOTIF-VAL-03).
+Retry exhaustion .. N/A (no retry concept for notifications/events).
+Recovery .......... No outbox/replay; a process crash mid-fan-out loses the
+                    un-sent remainder with no record of intent.
+
+================================================================================
+PHASE 9 — EDGE CASES
+================================================================================
+Duplicate notifications . Possible (no idempotency key on Notification).
+Missing notifications ... Systemic: all tournament/financial/account notifs are
+                          missing (invalid enum or no caller).
+Late notifications ...... All are synchronous; none scheduled/queued.
+Duplicate webhooks ...... Handled by idempotent PENDING-claim (deposit path).
+Invalid payloads ........ Inbound: unhandled JSON.parse throw (post-signature).
+Expired signatures ...... No timestamp/expiry check on inbound webhook.
+
+================================================================================
+PHASE 10 — COMPLETENESS / PRODUCTION READINESS
+================================================================================
+Millions of events ......... NO. No queue, no backpressure, synchronous fan-out
+                             on request/cron threads, per-user HTTP push.
+Financial notifications .... NO. Deposit/withdrawal/prize notifications are not
+                             generated at all; prize notifications additionally
+                             fail on the invalid enum.
+Tournament events .......... NO. Emitted to a void; user notifications dropped.
+External integrations ...... NO. There is no outbound webhook subsystem of any
+                             kind (no registration/signing/delivery/retry).
+
+CONCLUSION: The Notifications & Webhooks layer is NOT production-ready. It is a
+read-model + a single inbound payment webhook + a working friend-challenge
+notification path, surrounded by stubs and dead paths. It cannot serve as a
+reliable communication backbone without the strategic work captured below.
+
+================================================================================
+LOCALIZED DEFECTS — eligible for a future NOTIFICATIONS & WEBHOOKS FIX
+(NOT redesign; do not fix during this audit)
+================================================================================
+NOTIF-VAL-01  elimination.service.ts passes `'TOURNAMENT' as any` to
+              sendNotification/sendBulkNotification — not a NotificationType enum
+              member. Every tournament stage/elimination/prize notification
+              insert throws and is swallowed. Map to the existing valid enum
+              values (STAGE_OPEN / STAGE_CLOSING / ELIMINATION / PRIZE_WON).
+NOTIF-VAL-02  notification.service.sendPushNotification targets the decommissioned
+              legacy FCM endpoint (fcm.googleapis.com/fcm/send, `Authorization:
+              key=`). Move to FCM HTTP v1 + OAuth bearer (or current provider).
+NOTIF-VAL-03  On a successful push, `sent_push` is set for ALL of the user's
+              unsent notifications (updateMany WHERE sent_push=false), not just
+              the ones in the delivered batch — mismarks unrelated notifications.
+NOTIF-VAL-04  handleWebhook does JSON.parse(rawBody) without try/catch; a signed
+              but malformed body yields a 500 instead of a 400.
+NOTIF-VAL-05  Inbound Razorpay webhook keeps no event-id/received-event ledger;
+              dedup/replay-safety relies solely on the idempotent PENDING-claim.
+              No audit trail of received webhook events.
+NOTIF-VAL-06  Push `data` is forwarded as arbitrary `any`; FCM requires all data
+              values to be strings — non-string payloads are rejected.
+
+================================================================================
+STRATEGIC BLOCKERS (added to BLOCKERS.md — require redesign, not localized fixes)
+================================================================================
+NOTIF-001  No outbound webhook / external event-delivery subsystem.
+NOTIF-002  No reliable notification delivery pipeline (queue/retry/backoff/DLQ/
+           idempotency) and no event->notification fan-out; most lifecycle and
+           ALL financial notifications are never generated.
+NOTIF-003  No transactional email channel and no multi-channel routing / user
+           notification preferences.
+
+================================================================================
+END OF NOTIFICATIONS & WEBHOOKS AUDIT
+================================================================================

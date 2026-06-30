@@ -106,7 +106,8 @@ function assertActive(session: InFlightSession, nowMs: number, allowGrace = fals
 
 function calcBoardScore(board: InFlightBoard, now: Date): number {
     const durationSec = Math.floor((now.getTime() - new Date(board.startedAt).getTime()) / 1000);
-    return 10 + Math.max(0, board.timeLimit - durationSec);
+    const timeLimit = Math.min(Math.max(0, board.timeLimit), GAME_CONFIGS.MAX_BOARD_TIME_LIMIT_SEC);
+    return 10 + Math.max(0, timeLimit - durationSec);
 }
 
 function buildBoardResponse(board: InFlightBoard) {
@@ -458,6 +459,34 @@ export function createGameSessionObject(gameService: GameService) {
 
                 if (req.boardId && req.boardId !== originalBoardId) {
                     throw terminalError('BOARD_ALREADY_SOLVED', 409);
+                }
+
+                // Reject oversized or empty batches before doing any work (DoS guard).
+                if (
+                    !Array.isArray(req.moves) ||
+                    req.moves.length === 0 ||
+                    req.moves.length > GAME_CONFIGS.ROTATE_BATCH_MAX_MOVES
+                ) {
+                    throw terminalError('INVALID_MOVES_BATCH', 400);
+                }
+
+                // Validate every move against the current board bounds BEFORE any
+                // grid is mutated, so a malformed move cannot index out of range.
+                const startBoard = boards[originalBoardIdx];
+                if (!startBoard) {
+                    throw terminalError('NO_ACTIVE_BOARD', 404);
+                }
+                for (const move of req.moves) {
+                    if (
+                        !Number.isInteger(move.r) ||
+                        !Number.isInteger(move.c) ||
+                        move.r < 0 ||
+                        move.r >= startBoard.gridY ||
+                        move.c < 0 ||
+                        move.c >= startBoard.gridX
+                    ) {
+                        throw terminalError('INVALID_MOVE_COORDS', 400);
+                    }
                 }
 
                 // Anti-cheat: check timing across batch moves before applying them

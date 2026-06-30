@@ -1,4 +1,4 @@
-import { TOKEN_TYPES, USER_TYPES, GAME_STAGES, GAME_SESSION_STATUS } from '@common/constants';
+import { TOKEN_TYPES, USER_TYPES, GAME_STAGES, GAME_SESSION_STATUS, GAME_CONFIGS } from '@common/constants';
 import { Transactional } from '@common/decorators/transactional.decorator';
 import { WsExceptionFilter } from '@common/filters/ws-exception.filter';
 import { UserHttpService } from '@common/http/user-http.service';
@@ -513,6 +513,13 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
             const data = socket.data as SocketData;
 
             if (!payload || !Array.isArray(payload.moves)) {
+                return wsError('INVALID_MOVES_BATCH');
+            }
+
+            if (
+                payload.moves.length === 0 ||
+                payload.moves.length > GAME_CONFIGS.ROTATE_BATCH_MAX_MOVES
+            ) {
                 return wsError('INVALID_MOVES_BATCH');
             }
 

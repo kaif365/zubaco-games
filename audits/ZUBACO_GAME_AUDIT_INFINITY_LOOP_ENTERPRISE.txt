@@ -1,0 +1,73 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — INFINITY LOOP  (module: Infinity-loop)
+Backend: C:\zubaco-games\zubaco-games\Infinity-loop\Infinity-Loop-backend
+Scope: AUDIT ONLY — no code modified. Real-money pipe-rotation puzzle.
+Date: 2026-06-29
+================================================================================
+
+--------------------------------------------------------------------------------
+1. FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT production-ready (localized defects), but the money-bearing core is sound.
+Gameplay is genuinely server-authoritative: rotations are applied and the win
+condition is recomputed server-side via PuzzleEngine.validateSolution (edge
+matching + boundary rejection + flood-fill loop verification), scoring is
+computed in the Restate object, finalize is idempotent and ownership-scoped, and
+WS auth is solid (verifyToken with no dev-secret fallback, USER-type + LOGIN/
+GAME_SESSION token gating, forced single connection, per-user/per-stage rooms).
+Four localized defects (INFINITYLOOP-VAL-01..04) must be fixed in a future
+Infinity Loop Fix. Real-money fairness remains governed by deferred GAME-001/002,
+AUTH-003, ACHEAT-001.
+
+--------------------------------------------------------------------------------
+2. STRATEGIC BLOCKERS (additions only — full backlog lives in BLOCKERS.md)
+--------------------------------------------------------------------------------
+No NEW strategic blockers. Re-confirmed governing:
+- GAME-001  multiple session engines / client-selected finalization (redesign)
+- GAME-002  no server-authoritative re-sim / CSPRNG fairness contract (redesign)
+- AUTH-003  shared static INTERNAL_API_KEY score-injection trust anchor (redesign)
+- ACHEAT-001 detection-only anti-cheat, no score/leaderboard/prize retraction
+New module-tracking row: INFINITYLOOP-001 (localized defects → future fix).
+
+--------------------------------------------------------------------------------
+3. LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+INFINITYLOOP-VAL-01 [High] — game:rotate:batch unbounded + unvalidated moves[]
+  game.gateway.ts:503-516 validates only Array.isArray(payload.moves) — no max
+  length, no per-move coordinate bound check. game-session.object.ts rotateTileBatch
+  (~line 489) indexes board.currentGrid[move.r][move.c] directly. A huge moves[]
+  is a DoS (synchronous loop + per-move validateSolution); out-of-range r/c writes
+  NaN/undefined into the grid (corruption / throw). Single game:rotate validates
+  coords; batch does not. Fix: cap moves[] (e.g. 200), bound r in 0..gridY-1 and
+  c in 0..gridX-1 before applying.
+
+INFINITYLOOP-VAL-02 [Medium] — Math.random() board ordering
+  game.service.ts:74 shuffleBoardIds uses Math.random(); puzzle.service.ts:34
+  preview seed also Math.random. Non-CSPRNG board sequence is predictable in a
+  real-money game. Fix: crypto.randomInt for shuffleBoardIds.
+
+INFINITYLOOP-VAL-03 [Medium] — dev-auth/test-auth admin-token mint guard
+  /game/join + /test-auth/token mint LOGIN tokens and test-auth accepts userType
+  (1 USER / 2 ADMIN), gated by config.security.enableDevAuth (ENABLE_DEV_AUTH===
+  'true', default false; controllers conditionally registered in game.module.ts).
+  Fail-safe today, but a single env misconfig → anonymous ADMIN token minting.
+  Fix: never compile TestAuthController into prod; assert ENABLE_DEV_AUTH false in
+  prod fail-fast.
+
+INFINITYLOOP-VAL-04 [Low] — calcBoardScore unbounded time bonus
+  game-session.object.ts:107 score = 10 + max(0, timeLimit - durationSec). Bonus
+  is bounded by timeLimit (admin) but board.timeLimit is unvalidated upstream;
+  document/clamp to a hard ceiling for money-path determinism.
+
+--------------------------------------------------------------------------------
+4. PRODUCTION READINESS — VERIFIED OK
+--------------------------------------------------------------------------------
+- Server-authoritative win: validateSolution full edge/boundary/flood-fill loop.
+- Rotation applied server-side (Restate object); score computed server-side.
+- finalize/finalizeAndCommit idempotent (alreadyFinalized guard) + ownership.
+- WS auth: verifyToken, USER type, LOGIN/GAME_SESSION token, single connection.
+- DTO bounds: stage MIN/MAX, level 1-10.
+- Anti-cheat detection present (rotate-too-fast, impossible-solve, uniform-timing)
+  — detection-only (gov ACHEAT-001).
+Backend builds clean. Fix in future Infinity Loop Fix; INFINITYLOOP-001 tracks it.
+================================================================================

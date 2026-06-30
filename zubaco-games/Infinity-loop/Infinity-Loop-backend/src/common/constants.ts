@@ -76,6 +76,10 @@ export const GAME_CONFIGS = {
     MOVE_MIN_INTERVAL_MS: 50,
     EXPIRY_GRACE_SECONDS: 120,
     SQS_POLL_ERROR_RETRY_MS: 5_000,
+    // Max moves accepted in a single game:rotate:batch payload (DoS guard).
+    ROTATE_BATCH_MAX_MOVES: 200,
+    // Hard ceiling for a board time limit used in score bonus (anti-overflow).
+    MAX_BOARD_TIME_LIMIT_SEC: 3_600,
 } as const;
 
 export const DEFAULT_STAGE_CONFIG = {

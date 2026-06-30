@@ -25,7 +25,7 @@ export class GameService {
 
     const serverSeed = crypto.randomBytes(16).toString('hex');
     const clientSeed = crypto.randomBytes(8).toString('hex');
-    const nonce = Math.floor(Math.random() * 100000);
+    const nonce = crypto.randomInt(100000);
     const session = await this.prisma.gameSession.create({ data: { playerId, stageId, serverSeed, clientSeed, nonce, status: 'active' } });
     const seed = computeFinalSeed(serverSeed, clientSeed, nonce);
 
@@ -60,9 +60,11 @@ export class GameService {
     const connectedNodesList = nodes.filter((n) => connectedNodes.has(n.id));
     const optimal = calculateOptimalPath(connectedNodesList);
     const actual = calculateActualPath(nodes, edges);
-    const pathEfficiency = actual > 0 ? (optimal / actual) * 100 : 100;
+    const pathEfficiency = actual > 0 ? Math.min(100, (optimal / actual) * 100) : 100;
     const nodesConnected = connectedNodes.size;
-    const serverScore = Math.round(pathEfficiency) + nodesConnected * 10;
+    // Score = efficiency (0..100) + nodesConnected*10; bound to the board's node count.
+    const maxServerScore = 100 + nodes.length * 10;
+    const serverScore = Math.min(maxServerScore, Math.round(pathEfficiency) + nodesConnected * 10);
 
     if (Math.abs(clientScore - serverScore) > 10) {
       cheatReasons.push(`Score divergence: client=${clientScore}, server=${serverScore}`);

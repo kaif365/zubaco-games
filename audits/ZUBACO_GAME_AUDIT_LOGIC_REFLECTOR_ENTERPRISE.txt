@@ -1,0 +1,51 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — LOGIC REFLECTOR (module: logic-reflector)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+The core gameplay loop is genuinely server-authoritative and strong: every move
+batch is replayed against server-held state, the laser/mirror solve is verified
+on the backend (verifyRound + simulateLaser, MAX_BOUNCES=48 prevents infinite
+reflection loops), scoring is deterministic (solved=1000, time bonus capped),
+move timestamps are skew-checked, and stale/duplicate moves are discarded. This
+is the cleanest game audited so far. However, two real-money-affecting issues
+block release: predictable board RNG and an inherited insecure WebSocket
+gateway. A DoS-class missing batch cap on submit-moves is also present.
+
+2) NEW STRATEGIC BLOCKERS (unique — not previously logged)
+--------------------------------------------------------------------------------
+LOGICREFLECTOR-001: Board selection uses Math.random for offset
+  (game.service.ts ~L381: offset = Math.floor(Math.random() * total)). Non-CSPRNG
+  selection of which board a player receives is predictable and unfair for a
+  real-money title. Use crypto.randomInt. (Module-level; carried into BLOCKERS.md)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+LOGICREFLECTOR-VAL-01: submit-moves moves[] has min(1) but NO max cap
+  (dto/submit-moves.dto.ts). No batch-size guard before dedup/replay in
+  game-session.restate.ts submitMoves. Unbounded array -> replay/verify DoS.
+
+LOGICREFLECTOR-WS-01: WS gateway accepts JWT_SECRET || 'dev-secret' fallback
+  (ws/game.gateway.ts handleConnection). Forgeable tokens if env unset in prod.
+
+LOGICREFLECTOR-WS-02: join-session has no ownership check
+  (ws/game.gateway.ts handleJoinSession) — any client may join any
+  session:<sessionId> room and receive another player's emissions.
+
+LOGICREFLECTOR-RNG-01: Math.random board offset (see LOGICREFLECTOR-001).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Server replay of moves; backend verifyRound solve check (not client-trusted).
+  - MAX_BOUNCES=48 prevents infinite laser reflection loop.
+  - Deterministic scoring; time bonus floored; future-timestamp skew rejected.
+  - Per-batch dedup + stale move discard; SessionGuard on all HTTP handlers.
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core engine: PASS. WS auth + RNG fairness + submit cap: FAIL.
+Status: HOLD until LOGICREFLECTOR-VAL-01, WS-01, WS-02, RNG-01 resolved.
+================================================================================

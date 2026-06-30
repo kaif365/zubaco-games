@@ -34,8 +34,13 @@ export class LeaderboardController {
   }
 
   @Get('game/:gameType/friends')
-  async getFriendsLeaderboard(@CurrentUser() userId: string, @Param('gameType') gameType: GameType) {
-    return this.leaderboardService.getFriendsLeaderboard(userId, gameType);
+  async getFriendsLeaderboard(
+    @CurrentUser() userId: string,
+    @Param('gameType') gameType: GameType,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.leaderboardService.getFriendsLeaderboard(userId, gameType, page || 1, limit || 50);
   }
 
   @Get('stage/:stageId')

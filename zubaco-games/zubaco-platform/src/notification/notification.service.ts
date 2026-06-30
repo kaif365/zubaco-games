@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { GoogleAuth } from 'google-auth-library';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { NotificationType } from '.prisma/client';
 
 @Injectable()
 export class NotificationService {
+  private fcmAuth: GoogleAuth | null = null;
+
   constructor(private readonly prisma: PrismaService) {}
 
   async getNotifications(userId: string, page = 1, limit = 20) {
@@ -51,8 +54,8 @@ export class NotificationService {
       data: { user_id: userId, type, title, body, data },
     });
 
-    // Push notification via device tokens
-    await this.sendPushNotification(userId, title, body, data);
+    // Push notification via device tokens — scope the push-sent flag to this row.
+    await this.sendPushNotification(userId, title, body, data, [notification.id]);
 
     return notification;
   }
@@ -64,6 +67,8 @@ export class NotificationService {
     body: string,
     data?: any,
   ) {
+    if (userIds.length === 0) return;
+
     const notifications = userIds.map((userId) => ({
       user_id: userId,
       type,
@@ -72,15 +77,43 @@ export class NotificationService {
       data,
     }));
 
-    await this.prisma.notification.createMany({ data: notifications });
+    // Persist and capture each row's id so the push-sent flag is scoped to the
+    // exact notification it was delivered for (not every unsent row of the user).
+    const created = await this.prisma.notification.createManyAndReturn({
+      data: notifications,
+      select: { id: true, user_id: true },
+    });
 
-    // Send push to all
+    // Send push per created notification
     await Promise.allSettled(
-      userIds.map((userId) => this.sendPushNotification(userId, title, body, data)),
+      created.map((row) => this.sendPushNotification(row.user_id, title, body, data, [row.id])),
     );
   }
 
-  private async sendPushNotification(userId: string, title: string, body: string, data?: any) {
+  /**
+   * Lazily build the FCM HTTP v1 OAuth2 credential from the service-account env
+   * vars. Returns null when push is not configured (push is non-critical).
+   */
+  private getFcmAuth(): GoogleAuth | null {
+    const clientEmail = process.env.FCM_CLIENT_EMAIL;
+    const privateKey = process.env.FCM_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    if (!clientEmail || !privateKey) return null;
+    if (!this.fcmAuth) {
+      this.fcmAuth = new GoogleAuth({
+        credentials: { client_email: clientEmail, private_key: privateKey },
+        scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
+      });
+    }
+    return this.fcmAuth;
+  }
+
+  private async sendPushNotification(
+    userId: string,
+    title: string,
+    body: string,
+    data?: any,
+    notificationIds: string[] = [],
+  ) {
     // Get user's device tokens
     const devices = await this.prisma.userDevice.findMany({
       where: { user_id: userId, push_token: { not: null } },
@@ -92,61 +125,101 @@ export class NotificationService {
     if (tokens.length === 0) return;
 
     // Send via Firebase Cloud Messaging (HTTP v1 API)
-    const fcmApiKey = process.env.FCM_SERVER_KEY;
-    if (!fcmApiKey) {
+    const auth = this.getFcmAuth();
+    const projectId = process.env.FCM_PROJECT_ID;
+    if (!auth || !projectId) {
       if (process.env.NODE_ENV === 'development') {
-        console.log(`[PUSH] -> ${userId}: ${title} (no FCM key configured)`);
+        console.log(`[PUSH] -> ${userId}: ${title} (FCM not configured)`);
       }
       return;
     }
 
+    // FCM v1 requires every data value to be a string.
+    const stringData: Record<string, string> = {};
+    if (data && typeof data === 'object') {
+      for (const [key, value] of Object.entries(data)) {
+        stringData[key] =
+          value == null
+            ? ''
+            : typeof value === 'string'
+              ? value
+              : typeof value === 'object'
+                ? JSON.stringify(value)
+                : String(value);
+      }
+    }
+
+    let accessToken: string | null | undefined;
     try {
-      const payload = {
-        registration_ids: tokens,
-        notification: { title, body },
-        data: data || {},
-        priority: 'high',
-      };
+      accessToken = await auth.getAccessToken();
+    } catch (error) {
+      console.error(`[PUSH] Failed to obtain FCM access token for ${userId}:`, error);
+      return;
+    }
+    if (!accessToken) return;
 
-      const response = await fetch('https://fcm.googleapis.com/fcm/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `key=${fcmApiKey}`,
-        },
-        body: JSON.stringify(payload),
-      });
+    const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+    const invalidTokens: string[] = [];
+    let anyDelivered = false;
 
-      if (response.ok) {
-        const result = await response.json() as any;
-
-        // Mark notifications as push-sent
-        await this.prisma.notification.updateMany({
-          where: { user_id: userId, sent_push: false },
-          data: { sent_push: true },
-        });
-
-        // Clean up invalid tokens
-        if (result.results) {
-          const invalidIndices: number[] = [];
-          (result.results as any[]).forEach((r: any, i: number) => {
-            if (r.error === 'NotRegistered' || r.error === 'InvalidRegistration') {
-              invalidIndices.push(i);
-            }
+    // v1 delivers one message per token (the legacy multicast endpoint is gone).
+    await Promise.allSettled(
+      tokens.map(async (token) => {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              message: {
+                token,
+                notification: { title, body },
+                data: stringData,
+                android: { priority: 'high' },
+              },
+            }),
           });
 
-          if (invalidIndices.length > 0) {
-            const tokensToRemove = invalidIndices.map((i) => tokens[i]);
-            await this.prisma.userDevice.updateMany({
-              where: { push_token: { in: tokensToRemove } },
-              data: { push_token: null },
-            });
+          if (response.ok) {
+            anyDelivered = true;
+            return;
           }
+
+          // Identify unregistered/invalid tokens for cleanup.
+          const err = (await response.json().catch(() => null)) as any;
+          const status = err?.error?.status;
+          const code = err?.error?.details?.[0]?.errorCode;
+          if (
+            response.status === 404 ||
+            status === 'NOT_FOUND' ||
+            status === 'UNREGISTERED' ||
+            code === 'UNREGISTERED' ||
+            code === 'INVALID_ARGUMENT'
+          ) {
+            invalidTokens.push(token);
+          }
+        } catch (error) {
+          console.error(`[PUSH] Send failed for ${userId}:`, error);
         }
-      }
-    } catch (error) {
-      // Silently fail push notifications (non-critical)
-      console.error(`[PUSH] Failed for ${userId}:`, error);
+      }),
+    );
+
+    // Mark only the notifications this push was for as push-sent.
+    if (anyDelivered && notificationIds.length > 0) {
+      await this.prisma.notification.updateMany({
+        where: { id: { in: notificationIds }, sent_push: false },
+        data: { sent_push: true },
+      });
+    }
+
+    // Clean up invalid tokens
+    if (invalidTokens.length > 0) {
+      await this.prisma.userDevice.updateMany({
+        where: { push_token: { in: invalidTokens } },
+        data: { push_token: null },
+      });
     }
   }
 

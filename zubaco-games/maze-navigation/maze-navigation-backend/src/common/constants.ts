@@ -65,6 +65,7 @@ export const GAME_CONFIGS = {
   MOVE_TIMESTAMP_FUTURE_SKEW_MS: 5_000,
   TIME_BONUS_PER_SECOND: 10,
   NEAR_END_PREFETCH_DISTANCE: 5, // Manhattan distance threshold to pre-generate next maze
+  SUBMIT_MOVES_MAX_BATCH: 200, // hard cap on moves accepted per submit-moves request
 } as const;
 
 export const TRANSACTION_CONFIGS = {

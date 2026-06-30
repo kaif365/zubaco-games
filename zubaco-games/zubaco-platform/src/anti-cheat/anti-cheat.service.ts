@@ -64,9 +64,15 @@ export class AntiCheatService {
   async addRiskPoints(userId: string, severity: CheatSeverity): Promise<number> {
     const points = RISK_POINTS[severity];
     const key = `risk:${userId}`;
-    const current = await this.redis.get(key);
-    const newScore = (current ? parseInt(current, 10) : 0) + points;
-    await this.redis.set(key, String(newScore), 86400); // 24h TTL
+    // Atomic accumulation avoids the non-atomic read-modify-write race
+    // (ACHEAT-VAL-02).
+    const newScore = await this.redis.incrby(key, points);
+    // Anchor the 24h decay window to the FIRST accrual only. A fresh key has no
+    // expiry (ttl === -1); re-extending the TTL on every flag would let
+    // persistent offenders never decay (ACHEAT-VAL-08).
+    if ((await this.redis.ttl(key)) < 0) {
+      await this.redis.expire(key, 86400);
+    }
     return newScore;
   }
 
@@ -155,6 +161,53 @@ export class AntiCheatService {
     return 0;
   }
 
+  /**
+   * Public accessor for the penalty-tier mapping so external callers (e.g. the
+   * admin risk-score endpoint) stay consistent with PENALTY_THRESHOLDS instead
+   * of re-deriving the tier with a different formula (ACHEAT-VAL-05).
+   */
+  getPenaltyTier(riskScore: number): number {
+    return this.calculatePenaltyTier(riskScore);
+  }
+
+  /**
+   * Auto-reverse expired temporary bans (ACHEAT-VAL-01). A tier-4 temp ban sets
+   * `is_banned=true` plus a 24h `tempban:<id>` Redis key; once that key expires
+   * nothing else flips the user back. This sweeps tier-4 users whose temp-ban
+   * window has elapsed and restores access. Permanent bans (tier 5) are never
+   * touched. Returns the number of users restored.
+   */
+  async reapExpiredTempBans(): Promise<number> {
+    const tempBanned = await this.prisma.user.findMany({
+      where: { is_banned: true, penalty_tier: 4 },
+      select: { id: true },
+    });
+
+    let restored = 0;
+    for (const user of tempBanned) {
+      // Still within the 24h window — leave the ban in place.
+      if (await this.redis.get(`tempban:${user.id}`)) continue;
+
+      const riskScore = await this.getRiskScore(user.id);
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          is_banned: false,
+          ban_reason: null,
+          penalty_tier: this.calculatePenaltyTier(riskScore),
+        },
+      });
+      await this.redis.del(`cooldown:${user.id}`);
+      await this.syncBanCache(user.id, false);
+      restored++;
+    }
+
+    if (restored > 0) {
+      this.logger.log(`Auto-restored ${restored} expired temporary ban(s)`);
+    }
+    return restored;
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // CONCURRENT SESSION DETECTION
   // ═══════════════════════════════════════════════════════════════
@@ -188,8 +241,9 @@ export class AntiCheatService {
     ipAddress?: string;
     deviceFingerprint?: string;
     mode?: string;
+    maxPossibleScore?: number;
   }) {
-    const { userId, sessionId, score, durationMs, gameType, movesHash, inputSignature, ipAddress, deviceFingerprint, mode } = params;
+    const { userId, sessionId, score, durationMs, gameType, movesHash, inputSignature, ipAddress, deviceFingerprint, mode, maxPossibleScore } = params;
     const flags: { type: CheatFlagType; severity: CheatSeverity; details: any }[] = [];
 
     // Load configurable thresholds
@@ -198,7 +252,16 @@ export class AntiCheatService {
     const scoreAnomalyStdDevs = await this.getSetting('score_anomaly_std_devs', 3);
 
     // ─── 1. IMPOSSIBLE SCORE ─────────────────────────────────────
-    const maxPossible = this.getMaxPossibleScore(gameType);
+    // Single source of truth for "impossible": when the caller provides the
+    // config-driven theoretical max (from ScoreValidatorService.validateScore),
+    // use it with the same 10% margin the validator applies, so the anti-cheat
+    // gate can never disagree with the submit-time gate (SCORE-VAL-01). Only when
+    // no authoritative max is supplied (e.g. legacy callers) do we fall back to
+    // the static per-game table.
+    const maxPossible =
+      maxPossibleScore != null && Number.isFinite(maxPossibleScore)
+        ? Math.ceil(maxPossibleScore * 1.1)
+        : this.getMaxPossibleScore(gameType);
     if (score > maxPossible) {
       flags.push({
         type: 'IMPOSSIBLE_SCORE',
@@ -219,7 +282,7 @@ export class AntiCheatService {
 
     // ─── 3. SCORE ANOMALY (Statistical) ──────────────────────────
     const recentScores = await this.prisma.gameSession.findMany({
-      where: { user_id: userId, game_type: gameType, outcome: 'COMPLETED' },
+      where: { user_id: userId, game_type: gameType, outcome: 'COMPLETED', id: { not: sessionId } },
       orderBy: { completed_at: 'desc' },
       take: 10,
       select: { score: true },
@@ -381,8 +444,24 @@ export class AntiCheatService {
    * Record a session heartbeat. Game backends call this every 10s.
    */
   async recordHeartbeat(sessionId: string, sequence: number, clientTs: Date): Promise<void> {
-    await this.prisma.sessionHeartbeat.create({
-      data: { session_id: sessionId, sequence, client_ts: clientTs },
+    // Reject malformed sequence numbers (clients number heartbeats from 1).
+    if (!Number.isInteger(sequence) || sequence < 0) return;
+
+    // Only accept heartbeats for a session that is still open; prevents
+    // heartbeats being recorded against unknown or already-finished sessions.
+    const session = await this.prisma.gameSession.findFirst({
+      where: { id: sessionId, outcome: null },
+      select: { id: true },
+    });
+    if (!session) return;
+
+    // Idempotent on the @@unique([session_id, sequence]) constraint: a retried
+    // or duplicated heartbeat updates the existing row instead of throwing a
+    // P2002 unique violation that would surface as a 500 (ACHEAT-VAL-03).
+    await this.prisma.sessionHeartbeat.upsert({
+      where: { session_id_sequence: { session_id: sessionId, sequence } },
+      create: { session_id: sessionId, sequence, client_ts: clientTs },
+      update: { client_ts: clientTs },
     });
     await this.redis.set(`heartbeat:${sessionId}`, String(sequence), 1800);
   }

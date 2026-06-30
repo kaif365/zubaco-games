@@ -5,7 +5,7 @@ import { computeFinalSeed } from './engine/random';
 import { generatePuzzle, executeMove, isValidMove, isPuzzleSolved } from './engine/puzzleGenerator';
 import { calculateScore } from './engine/scorer';
 import { getLevelConfig } from './engine/levelConfig';
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID, randomBytes, randomInt } from 'crypto';
 
 interface MoveInput {
   fromTube: number;
@@ -41,7 +41,7 @@ export class GameService {
 
     const serverSeed = randomBytes(16).toString('hex');
     const clientSeed = randomUUID();
-    const nonce = Math.floor(Math.random() * 1_000_000);
+    const nonce = randomInt(1_000_000_000);
     const finalSeed = computeFinalSeed(serverSeed, clientSeed, nonce);
 
     const endTime = new Date(Date.now() + timeLimitMs + 2000); // +2s grace
@@ -54,6 +54,7 @@ export class GameService {
         clientSeed,
         nonce,
         finalSeed,
+        level: levelParams?.level ?? null,
         endTime,
       },
     });
@@ -90,11 +91,18 @@ export class GameService {
     const config = await this.prisma.configuration.findUnique({ where: { stageId: session.stageId } });
     if (!config) throw new NotFoundException('Configuration missing');
 
+    // Replay must use the SAME scaled parameters the session was started with.
+    const levelParams = session.level ? getLevelConfig(session.level) : null;
+    const colorCount = levelParams?.colorCount ?? config.colorCount;
+    const ballsPerTube = levelParams?.ballsPerTube ?? config.ballsPerTube;
+    const emptyTubes = levelParams?.emptyTubes ?? config.emptyTubes;
+    const timeLimitMs = levelParams?.timeLimitMs ?? config.timeLimitMs;
+
     // Replay moves server-side
     let tubes = generatePuzzle(session.finalSeed, {
-      colorCount: config.colorCount,
-      ballsPerTube: config.ballsPerTube,
-      emptyTubes: config.emptyTubes,
+      colorCount,
+      ballsPerTube,
+      emptyTubes,
     });
 
     const cheatFlags: { reason: string; severity: string }[] = [];
@@ -121,11 +129,11 @@ export class GameService {
 
     // Calculate server score
     const elapsed = new Date().getTime() - session.startedAt.getTime();
-    const remainingMs = Math.max(0, config.timeLimitMs - elapsed);
+    const remainingMs = Math.max(0, timeLimitMs - elapsed);
     const serverResult = calculateScore(tubes, moves.length, {
-      colorCount: config.colorCount,
-      ballsPerTube: config.ballsPerTube,
-      timeLimitMs: config.timeLimitMs,
+      colorCount,
+      ballsPerTube,
+      timeLimitMs,
       pointsPerSortedTube: config.pointsPerSortedTube,
       timeBonusMultiplier: config.timeBonusMultiplier,
     }, remainingMs);

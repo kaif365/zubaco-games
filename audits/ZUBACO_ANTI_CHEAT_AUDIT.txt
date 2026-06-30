@@ -1,0 +1,408 @@
+================================================================================
+ZUBACO — ENTERPRISE ANTI-CHEAT AUDIT
+================================================================================
+Audit type      : Audit ONLY (no code modified)
+Date            : 2026-06-26
+Scope           : The platform "Anti-Cheat" / fraud-prevention system — every
+                  reachable code path that monitors sessions, collects heartbeats,
+                  detects replay/timing/score/device/bot anomalies, scores risk,
+                  and enforces penalties protecting real-money tournaments,
+                  leaderboards, and prize distribution.
+Verdict         : NOT PRODUCTION-READY as a financial-grade fraud-prevention
+                  system. The detectors that exist are mostly sound in isolation,
+                  but (a) the system is DETECTION-ONLY — no flag, ban, or
+                  disqualification ever retracts a persisted score, removes a
+                  leaderboard entry, reverses a StageEntry total, eliminates the
+                  user, or excludes them from prize payout; and (b) the strongest
+                  signals (device fingerprint, IP correlation, replay hash, bot
+                  input pattern) are STRUCTURALLY INERT on the real-money
+                  tournament path and the free-play-level path because those paths
+                  never capture or persist the required inputs.
+
+Primary files examined (verified from source, not assumed):
+  src/anti-cheat/anti-cheat.service.ts          (risk, sessions, analyzeGameResult,
+       7 detectors, heartbeats, flagRealtime, applyPenalties, admin, helper tables)
+  src/anti-cheat/device-detection.service.ts    (detectDuplicateDevice,
+       detectIPCorrelation, upsertFingerprint)
+  src/anti-cheat/anti-cheat.controller.ts        (admin endpoints, InternalApiGuard)
+  src/anti-cheat/anti-cheat.module.ts            (providers/exports)
+  src/game-session/utils/input-analyzer.ts       (detectBotPattern, detectPatternShift)
+  src/game-session/utils/move-hasher.ts          (generateMoveHash, isValidMoveHash)
+  src/game-session/game-session.controller.ts    (internal heartbeat / flag-realtime / start / complete)
+  src/game-session/game-session.service.ts       (startGame, submitResult integration)
+  src/free-play/free-play.service.ts             (startLevel, submitResult integration)
+  src/tournament/tournament.service.ts           (startTournamentGame, submitTournamentResult integration)
+  src/tournament/elimination.service.ts          (runElimination, distributePrizes)
+  src/auth/guards/jwt-auth.guard.ts              (ban_check cache enforcement)
+  src/auth/guards/internal-api.guard.ts          (shared-key guard on admin actions)
+  prisma/schema.prisma                           (CheatFlag, DeviceFingerprint,
+       SessionHeartbeat, GameSession device/ip/moves_hash/input_signature, User
+       is_banned/ban_reason/penalty_tier)
+
+Verified integration call-site map (grep):
+  - checkSessionAllowed():   free-play.startLevel, game-session.startGame,
+                             tournament.startTournamentGame.
+  - trackSessionStart():     all three start paths.
+  - registerActiveSession(): all three start paths (+ abandon-previous helper).
+  - upsertFingerprint():     game-session.startGame ONLY (line 76).
+  - verifyHeartbeats():      all three submit paths (durationMs > 15000).
+  - analyzeGameResult():     free-play.submitResult, game-session.submitResult,
+                             tournament.submitTournamentResult.
+  - recordHeartbeat()/flagRealtime(): internal game-session.controller, shared-key.
+  - movesHash + inputSignature forwarded to analyzeGameResult: game-session.submitResult ONLY.
+
+================================================================================
+PHASE 1 — DETECTION PIPELINE (END-TO-END TRACE)
+================================================================================
+Idealized chain: Game Start -> Session Monitoring -> Heartbeats -> Gameplay Data
+-> Replay -> Timing -> Move -> Device -> Risk -> Penalty Decision -> Enforcement.
+
+ACTUAL pipeline (verified):
+  START (checkSessionAllowed -> abandonPrevious -> trackSessionStart ->
+  create session -> registerActiveSession [-> upsertFingerprint, generic path only])
+  -> (during play) heartbeats via internal /game/heartbeat (count-only)
+  -> SUBMIT: hard bounds -> validateScore -> ATOMIC claim (outcome COMPLETED) ->
+  PERSIST score -> leaderboard/StageEntry updated -> THEN (non-blocking, in a
+  try/catch that swallows errors) verifyHeartbeats + analyzeGameResult ->
+  flags persisted -> addRiskPoints -> applyPenalties (tier -> cooldown/ban).
+
+CRITICAL pipeline observations:
+  - Anti-cheat runs strictly AFTER the score is persisted AND after the leaderboard
+    / StageEntry totals are updated. Every detector is therefore advisory: a raised
+    flag (even CRITICAL) does not undo the score, the leaderboard write, or the
+    tournament total. Detection is decoupled from enforcement of the result
+    (ACHEAT-001).
+  - The whole analyzeGameResult + verifyHeartbeats block is wrapped in
+    `try { ... } catch { /* non-blocking */ }` on all three submit paths, so any
+    detector exception silently disables anti-cheat for that submission while the
+    score still stands.
+  - "Move validation" and "Seed validation" stages do NOT exist as a re-computation:
+    the server never re-hashes moves from authoritative inputs nor re-simulates from
+    server_seed (GAME-002); replay is string-equality on a client-supplied hash.
+
+================================================================================
+PHASE 2 — SESSION MONITORING
+================================================================================
+- Session tracking: gameSession rows per play; active session mirrored in Redis
+  `active_session:<userId>` (30-min TTL) via registerActiveSession.
+- Active sessions / concurrency: registerActiveSession returns the previous active
+  session id; all start paths abandon the prior open session (updateMany
+  outcome:null -> ABANDONED). Single-active-session invariant is enforced on START.
+  HOWEVER this is best-effort: the Redis key has a 30-min TTL, and there is no
+  server-side guarantee a second concurrent device cannot start after the first
+  key expires mid-game.
+- Session ownership: submit paths scope findFirst by {id, user_id, outcome:null,
+  mode/level}. GOOD. BUT the internal heartbeat + flagRealtime endpoints
+  (recordHeartbeat / flagRealtime) accept a sessionId with NO ownership/existence
+  check — recordHeartbeat blindly inserts; flagRealtime blindly updates the session
+  by id (trusted because behind the shared internal key — ties to AUTH-003).
+- Heartbeats: recorded via internal endpoint every ~10s; stored in SessionHeartbeat
+  (@@unique[session_id,sequence]). recordHeartbeat uses `create` (NOT upsert), so a
+  duplicate/replayed sequence raises a unique-constraint error (500) rather than
+  being ignored; sequence monotonicity and client_ts spacing are NOT validated
+  (ACHEAT-VAL-03).
+- Missing heartbeats: verifyHeartbeats compares expected (floor(durationMs/10000)-1)
+  vs a COUNT of rows; >30s missing -> SESSION_TAMPERING (HIGH). Because it is
+  count-only, a backend can batch-insert N heartbeat rows at submit time to satisfy
+  the count — temporal authenticity is not checked (ACHEAT-VAL-03).
+- Session abandonment: handled at START (previous session abandoned). A session
+  that is started and never submitted is reaped to TIMED_OUT by
+  SessionReaperService @Cron('*/5 * * * *'); anti-cheat does not act on reaped
+  sessions (no flag, no risk).
+- Timeouts: duration hard-bounded MIN/MAX (constants) + elapsed plausibility on
+  submit. Active-session Redis key TTL 30 min.
+
+================================================================================
+PHASE 3 — DEVICE FINGERPRINTING
+================================================================================
+- Device registration: DeviceFingerprint upsert (per user+hash; session_count
+  increment, last_seen). Called from game-session.startGame ONLY.
+- Fingerprint uniqueness: @@unique([user_id, fingerprint_hash]); @@index on
+  fingerprint_hash for cross-user lookup.
+- Device duplication: detectDuplicateDevice finds OTHER users sharing the hash;
+  2 sharing -> CRITICAL (code: sharedDevices.length >= 2 -> CRITICAL, else HIGH;
+  note the doc-comment says "2 users = HIGH, 3+ = CRITICAL" but the code escalates
+  to CRITICAL at length>=2, i.e. 3 total accounts — minor comment/logic mismatch).
+- Emulator detection: NONE. There is no emulator/rooted-device/headless signal;
+  components are stored opaquely and never analysed.
+- Fingerprint spoofing: the fingerprint hash is computed CLIENT-SIDE and submitted;
+  the server stores and compares it verbatim. A spoofed/rotated fingerprint defeats
+  duplicate detection entirely (client-trust; structural, GAME-002 family).
+- Multiple accounts: only detectable when the SAME hash recurs across accounts on
+  the generic game-session path.
+- CRITICAL COVERAGE GAP: free-play.startLevel and tournament.startTournamentGame
+  create sessions with device_fingerprint = null and never call upsertFingerprint.
+  analyzeGameResult passes deviceFingerprint = session.device_fingerprint, which is
+  null on those paths, so detectDuplicateDevice is SKIPPED for all tournament and
+  free-play-level play. Device farming on the real-money path is undetected
+  (ACHEAT-VAL-07 / ACHEAT-002).
+
+================================================================================
+PHASE 4 — SCORE ANALYSIS
+================================================================================
+- Impossible scores: analyzeGameResult flags IMPOSSIBLE_SCORE (CRITICAL) when
+  score > maxPossible. Post Scoring-Engine Fix the caller passes the validator's
+  config-driven theoretical max (with the same 1.1 margin) as the single authority,
+  falling back to the static getMaxPossibleScore table only when absent. Because
+  validateScore already HARD-REJECTS score > theoreticalMax*1.1 at submit, on the
+  three validated paths this flag is effectively unreachable (the impossible score
+  never persists). The flag remains meaningful only if a path bypasses validateScore.
+- Statistical analysis: SCORE_ANOMALY (MEDIUM) when score > avg + k*stdDev over the
+  last >=5 COMPLETED sessions of that game (k from systemSetting, default 3).
+- Historical analysis / outliers: same detector. WEAKNESS: the query runs AFTER the
+  current session is persisted as COMPLETED, so the just-submitted (potentially
+  cheated) score is INCLUDED in its own baseline (take:10, completed_at desc),
+  inflating avg/stdDev and diluting detection (ACHEAT-VAL-04).
+- Consistency: maxPossible authority is now consolidated with the scoring engine.
+- False positives: 10% margin on theoretical max; statistical detector needs >=5
+  samples and stdDev>0. New/low-history users are not statistically analysed.
+
+================================================================================
+PHASE 5 — TIMING ANALYSIS
+================================================================================
+- Impossible timings: TIMING_ANOMALY (HIGH) when durationMs < getMinReasonableTime
+  (per-game flat table) AND score > 0.
+- Human reaction limits: input-analyzer detectBotPattern uses per-game
+  MIN_AVG_INTERVAL and firstInputAt<200ms (zero-reaction) heuristics.
+- Speed hacks / time manipulation: durationMs is client-asserted; bounded by
+  MIN/MAX constants + elapsed (server now() - started_at) + 5s. The elapsed check
+  is the only server-anchored timing guard; sub-second wall-clock manipulation
+  inside the bounds is not otherwise validated.
+- Automation: covered by detectBotPattern (constant interval, superhuman avg,
+  metronomic CV, input burst) and detectPatternShift (human->bot transition).
+- COVERAGE GAP: detectBotPattern/detectPatternShift only run when inputSignature is
+  supplied, which is ONLY on the generic game-session submit. Tournament and
+  free-play-level submits pass no inputSignature, so timing/bot automation analysis
+  there is limited to the coarse getMinReasonableTime check (ACHEAT-002).
+
+================================================================================
+PHASE 6 — REPLAY & MOVE VALIDATION
+================================================================================
+- Move hashes: generateMoveHash(moves, serverSeed, nonce) exists as a util but is
+  NOT invoked in any persist/verify path; the server stores the client-supplied
+  moves_hash verbatim. isValidMoveHash only checks the 64-hex format.
+- Replay detection: SESSION_TAMPERING when an identical moves_hash already exists on
+  another COMPLETED session (same user -> HIGH, cross-user -> CRITICAL).
+- Duplicate gameplay: string-equality only; any change to inputs (or a re-hash with
+  a new nonce) defeats it. No server-side re-derivation (GAME-002).
+- Server validation / seed validation / move integrity: NONE. The server never
+  re-simulates gameplay from server_seed nor recomputes the hash from authoritative
+  inputs (GAME-002). Commit/reveal proves only that server content was fixed
+  pre-play, not that the client's score/moves are self-consistent.
+- COVERAGE GAP: moves_hash is forwarded to analyzeGameResult and persisted ONLY on
+  the generic game-session submit; tournament and free-play-level submits never
+  supply it, so replay detection is DEAD on the real-money path (ACHEAT-002).
+
+================================================================================
+PHASE 7 — RISK ENGINE
+================================================================================
+- Risk scoring: Redis `risk:<userId>` integer; addRiskPoints adds per-severity
+  points (CRITICAL 50 / HIGH 20 / MEDIUM 10 / LOW 5) with a 24h TTL.
+- Atomicity: addRiskPoints does get -> compute -> set (NON-atomic). Concurrent
+  flags for the same user can interleave and lose increments; should be INCRBY
+  (ACHEAT-VAL-02).
+- Penalty escalation: calculatePenaltyTier over thresholds [0,25,50,75,100,150]
+  (tier 0..5). applyPenalties writes user.penalty_tier, sets cooldown at >=3, temp
+  ban at >=4, perma at >=5 or criticalCount>=autoBanThreshold.
+- Cooldowns: tier>=3 sets `cooldown:<id>` (6h). checkSessionAllowed blocks start
+  while the key exists.
+- Temporary bans: tier>=4 sets user.is_banned=true + `tempban:<id>` (24h Redis).
+  DEFECT: NOTHING consumes the tempban key — no cron/job flips is_banned back when
+  it expires. The 24h "temporary" ban is permanent in practice until a manual admin
+  unban (ACHEAT-VAL-01).
+- Permanent bans: criticalCount>=threshold or tier>=5 -> is_banned + penalty_tier 5.
+- Risk decay: the code comment says "decays over time", but risk is a 24h TTL cliff
+  that is RE-EXTENDED to a fresh 24h on every addRiskPoints `set`. There is no
+  gradual decay, and a user who keeps triggering flags never has risk expire
+  (ACHEAT-VAL-08).
+
+================================================================================
+PHASE 8 — ENFORCEMENT
+================================================================================
+- Ban enforcement: JwtAuthGuard checks `ban_check:<id>` (60s Redis cache) then DB
+  is_banned; syncBanCache flips the cache immediately on ban/unban so access is
+  blocked within ~0-60s. Banned users cannot start new sessions
+  (checkSessionAllowed reads risk/cooldown; the guard blocks the JWT outright).
+- Session termination: flagRealtime sets the session DISQUALIFIED + CRITICAL flag +
+  risk + clears active session. It does NOT remove any already-counted score
+  (a realtime flag mid-session is fine; but a flag after submit cannot undo).
+- Tournament disqualification: NONE wired to anti-cheat. A ban/flag does not set the
+  user's SeasonEntry to ELIMINATED, does not mark StageEntry eliminated, and does
+  not decrement StageEntry.total_score. A banned user remains ranked.
+- Leaderboard removal: NONE. Neither banUser, applyPenalties, flagRealtime, nor
+  reviewFlag(ban) removes the user from the global Redis zset
+  (`lb:game:<type>:all-time`) or the stage zset (`lb:stage:<id>`). A cheater's score
+  stays on the leaderboard after the ban (ACHEAT-001).
+- Reward prevention: elimination.distributePrizes selects winners by
+  {eliminated:false, completed_at!=null} ordered by score — with NO is_banned /
+  flag filter. A banned-but-not-eliminated user can still be paid a prize
+  (ACHEAT-001).
+- NET: enforcement reaches FUTURE access (cannot start/login) but never the PAST
+  result (score, leaderboard, qualification, prize). Detection != retraction.
+
+================================================================================
+PHASE 9 — INTEGRATION
+================================================================================
+- Gaming Engine: anti-cheat gates are invoked from all three start paths and all
+  three submit paths (checkSessionAllowed / trackSessionStart /
+  registerActiveSession / verifyHeartbeats / analyzeGameResult). Depth differs by
+  path (see ACHEAT-002): only the generic game-session path supplies device hash,
+  moves_hash and inputSignature.
+- Scoring Engine: IMPOSSIBLE_SCORE now consumes the validator's theoretical max
+  (single authority post Scoring Fix). Anti-cheat runs after persistence, so it
+  flags but cannot reject (SCORE-AC-01 / ACHEAT-001).
+- Tournament Engine: submitTournamentResult calls verifyHeartbeats +
+  analyzeGameResult, but device/ip/moves/input signals are null/absent there;
+  elimination & prize logic ignore ban/flag state (ACHEAT-001/002).
+- Authentication: JwtAuthGuard ban gate + syncBanCache integration is correct and
+  prompt. Admin anti-cheat actions (ban/unban/review/reset-risk) are gated ONLY by
+  InternalApiGuard (shared INTERNAL_API_KEY); reviewFlag stamps reviewed_by from a
+  body-supplied admin_id (spoofable) — AUTH-002 / AUTH-003.
+- Sessions: active-session Redis registration + abandon-previous is consistent
+  across engines.
+- Leaderboards: anti-cheat has no write path to add/remove leaderboard entries
+  (ACHEAT-001).
+
+================================================================================
+PHASE 10 — EDGE CASES
+================================================================================
+- Offline play: gameplay is server-submitted only; an offline client simply submits
+  later. No offline-specific validation.
+- Network failures: anti-cheat block is try/catch-swallowed and non-blocking, so a
+  transient DB/Redis failure silently skips detection while the score persists.
+- Missing heartbeats: >30s gap -> SESSION_TAMPERING (HIGH); count-only check is
+  spoofable by batch insert (ACHEAT-VAL-03). Games <=~20s skip the check
+  (expectedBeats<=1 / durationMs<=15000).
+- Duplicate devices: detected on the generic path only; inert for tournament/
+  free-play-level (ACHEAT-VAL-07).
+- Shared devices: legitimate shared-household devices on the generic path trip
+  DEVICE_DUPLICATE (CRITICAL at >=3 accounts) — false-positive risk with no
+  allowlist/appeal beyond admin dismiss (reviewFlag dismiss reduces risk).
+- False positives: admin dismiss reduces risk; statistical detector guarded by
+  sample size; 10% score margin. No automatic reversal of a wrongful ban beyond
+  manual unban.
+- False negatives: large — any cheat that avoids the generic game-session path, or
+  spoofs the client-side fingerprint/hash/signature, evades the strong detectors.
+
+================================================================================
+PHASE 11 — PERFORMANCE
+================================================================================
+- Per-submit cost: several sequential Prisma queries (recentScores, count
+  lastHour, replay findFirst, historical signatures findMany, device/IP lookups)
+  + heartbeat count, all synchronous on the request thread, multiplied across three
+  engines. No queue/batching; runs inline after the money write.
+- Database impact: each submit issues 4-7 reads + cheatFlag.createMany; high-
+  concurrency tournament bursts hit Postgres directly with no backpressure.
+- Redis impact: risk get/set, active_session, cooldown/tempban, ban_check, heartbeat
+  set — O(1) ops; risk get+set is non-atomic (ACHEAT-VAL-02).
+- Memory: settingsCache (5-min map) is small; no unbounded growth observed.
+- CPU: detectBotPattern is O(inputs^2) in the burst-window scan (nested loop over
+  intervals); large signatures (capped only by client) could be costly, though
+  totalInputs is client-bounded.
+- Scalability: detection is unqueued and inline; thousands of concurrent submits
+  compound the per-call DB fan-out (capacity concern, not a correctness bug).
+
+================================================================================
+PHASE 12 — SECURITY
+================================================================================
+- Bypass possibilities: choose a submit path that omits inputSignature/moves_hash
+  (tournament / free-play level) to avoid bot/replay detection; never send a device
+  fingerprint to avoid duplicate detection; both are honoured because the signals
+  are optional and unenforced (ACHEAT-002).
+- Replay attacks: defeated by re-hash with a new nonce or any input perturbation
+  (string-equality only; no server re-derivation — GAME-002).
+- Client manipulation: score, duration, moves_hash, input_signature, and the device
+  fingerprint hash are all client/back-end asserted and trusted after bound checks
+  (GAME-002 family).
+- Device spoofing: client-computed fingerprint stored verbatim; rotation/spoofing
+  defeats duplicate detection.
+- Payload tampering: heartbeat/flag-realtime/complete internal endpoints trust the
+  shared INTERNAL_API_KEY and do not verify session ownership before mutating
+  (AUTH-003). metadata/input_signature are unvalidated `any`.
+- Ban bypass: future access is well-gated (guard + cache). BUT the temp ban never
+  auto-expires (ACHEAT-VAL-01 — stricter than intended), and a banned user's past
+  score/leaderboard/prize standing is never retracted (ACHEAT-001 — weaker than
+  intended). Admin ban/unban is reachable by any holder of the shared key
+  (AUTH-002/003).
+
+================================================================================
+PHASE 13 — COMPLETENESS / PRODUCTION-READINESS
+================================================================================
+Is the Anti-Cheat system production-ready for financial-grade fraud prevention? NO.
+
+Blocking realities (verified):
+  1. Detection-only: no flag/ban/disqualification retracts a persisted score, a
+     leaderboard entry, or a StageEntry total, eliminates the user, or excludes a
+     banned user from prize payout (distributePrizes has no is_banned filter)
+     (ACHEAT-001).
+  2. The strongest signals (device fingerprint, IP correlation, replay hash, bot
+     input pattern) are inert on the real-money tournament path and the free-play
+     level path because those paths never capture/persist device/ip/moves_hash/
+     input_signature (ACHEAT-002; depends on GAME-002).
+  3. No server-authoritative move/replay/seed re-validation; all gameplay signals
+     are client-asserted and trusted after bound checks (GAME-002).
+  4. Privileged anti-cheat actions (ban/unban/review/reset-risk) are gated only by
+     the shared INTERNAL_API_KEY with a spoofable body admin_id (AUTH-002/003).
+
+Can it safely protect real-money tournaments, leaderboards, prize distribution, and
+thousands of concurrent players?  NO — the path that carries money has the weakest
+detection coverage, detections do not reverse money-bearing outcomes, "temporary"
+bans do not auto-expire, and bans do not exclude winners from payout.
+
+================================================================================
+STRATEGIC BLOCKERS (require redesign — recorded in BLOCKERS.md)
+================================================================================
+  NEWLY RECORDED:
+    ACHEAT-001  Detection-only — no enforcement/retraction pipeline. Flags, risk-tier
+                bans, flagRealtime disqualification, and admin bans never remove the
+                persisted score, the global/stage leaderboard entry, or the
+                StageEntry total, never eliminate the user, and prize distribution
+                has no is_banned filter (banned cheaters can still win). Needs a
+                redesigned enforcement/retraction layer.
+    ACHEAT-002  Device fingerprinting, IP correlation, replay (moves_hash) and bot
+                input-pattern detection are structurally inert on the real-money
+                tournament path and the free-play-level path because those start/
+                submit paths never capture or persist device/ip/moves_hash/
+                input_signature. Effective tournament anti-cheat needs end-to-end
+                signal capture + server-side validation across the 20 game backends
+                (depends on GAME-002). Redesign.
+
+  RE-CONFIRMED (not re-added):
+    GAME-002    No server-authoritative gameplay/move/replay validation; the server
+                never re-hashes moves or re-simulates from server_seed.
+    AUTH-002    No platform-side admin identity/authorization; anti-cheat admin
+                actions gated only by the shared key; reviewed_by from body admin_id.
+    AUTH-003    Single shared static INTERNAL_API_KEY is the only trust anchor for
+                internal heartbeat/flag/complete and admin anti-cheat actions.
+
+NON-BLOCKER LOCALIZED DEFECTS (for a future Anti-Cheat Fix; cited above):
+  ACHEAT-VAL-01  Temp ban (tier 4) sets user.is_banned=true plus a 24h `tempban:<id>`
+                 Redis key, but NOTHING consumes the key — no job flips is_banned back
+                 on expiry, so the "24h temporary" ban is permanent until manual unban.
+  ACHEAT-VAL-02  addRiskPoints does a non-atomic get->compute->set on `risk:<id>`;
+                 concurrent flags can lose increments. Should use Redis INCRBY.
+  ACHEAT-VAL-03  recordHeartbeat uses `create` (duplicate sequence -> unique-constraint
+                 500), validates neither session existence/ownership nor sequence
+                 monotonicity/client_ts spacing; verifyHeartbeats is count-only, so
+                 heartbeats can be batch-inserted at submit time to pass the check.
+  ACHEAT-VAL-04  SCORE_ANOMALY baseline (recentScores take:10 COMPLETED) includes the
+                 just-persisted current session (anti-cheat runs after persist),
+                 inflating avg/stdDev and diluting the anomaly detector.
+  ACHEAT-VAL-05  anti-cheat.controller getUserRiskScore computes penalty tier as
+                 Math.min(5, floor(risk/25)), inconsistent with calculatePenaltyTier
+                 thresholds [0,25,50,75,100,150] above risk 100 (display mismatch).
+  ACHEAT-VAL-06  detectIPCorrelation runs only for mode==='TOURNAMENT', but tournament
+                 sessions are created with ip_address=null and no path sets it, so IP
+                 correlation never executes with real data (dead).
+  ACHEAT-VAL-07  free-play.startLevel and tournament.startTournamentGame never set
+                 session.device_fingerprint/ip_address nor call upsertFingerprint, so
+                 DEVICE_DUPLICATE is inert on those paths.
+  ACHEAT-VAL-08  Risk "decay" is a 24h TTL cliff re-extended on every addRiskPoints
+                 set (not a gradual decay); persistent flaggers never have risk expire.
+  ACHEAT-VAL-09  detectDuplicateDevice escalates to CRITICAL at sharedDevices.length>=2
+                 (3 total accounts) while its doc-comment says "2 users = HIGH, 3+ =
+                 CRITICAL" — comment/logic mismatch.
+
+================================================================================
+END OF ANTI-CHEAT AUDIT — NO CODE WAS MODIFIED.
+================================================================================

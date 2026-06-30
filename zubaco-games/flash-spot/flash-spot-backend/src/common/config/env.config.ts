@@ -11,7 +11,7 @@ export const config = {
     port: Number(process.env.PORT) || 3001,
   },
   security: {
-    jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    jwtSecret: process.env.JWT_SECRET ?? '',
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',

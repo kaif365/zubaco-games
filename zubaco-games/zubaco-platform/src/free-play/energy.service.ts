@@ -74,6 +74,27 @@ export class EnergyService {
     return true;
   }
 
+  /**
+   * Refund a single life previously consumed by consumeLife. Used when a game
+   * could not actually be started after the life was charged, so the player is
+   * not penalised for a server-side failure. Never exceeds max_lives.
+   */
+  async refundLife(userId: string): Promise<void> {
+    const energy = await this.prisma.userEnergy.findUnique({ where: { user_id: userId } });
+    if (!energy) return;
+    if (energy.current_lives < energy.max_lives) {
+      await this.prisma.userEnergy.update({
+        where: { user_id: userId },
+        data: { current_lives: { increment: 1 } },
+      });
+    } else {
+      await this.prisma.userEnergy.update({
+        where: { user_id: userId },
+        data: { bonus_lives: { increment: 1 } },
+      });
+    }
+  }
+
   async addBonusLives(userId: string, amount: number) {
     await this.prisma.userEnergy.upsert({
       where: { user_id: userId },

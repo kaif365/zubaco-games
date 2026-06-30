@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 import {
     ANTI_CHEAT_CONFIGS,
@@ -2808,60 +2808,15 @@ export class GameService {
             throw new BadRequestException(`Unknown booster type: ${boosterType}`);
         }
 
-        let newEndTime: string | undefined;
-
-        switch (boosterType) {
-            case BoosterType.TIME_FREEZE: {
-                // Extend the session end time by the booster's duration (5s)
-                const currentEnd = session.gameEndedAt ?? new Date(Date.now() + 60000);
-                const extended = new Date(currentEnd.getTime() + (def.durationMs ?? 5000));
-                await this.prisma.gameSession.update({
-                    where: { id: sessionId },
-                    data: { gameEndedAt: extended },
-                });
-                newEndTime = extended.toISOString();
-                break;
-            }
-
-            case BoosterType.DOUBLE_POINTS: {
-                // Award a flat bonus of 50 points immediately (simulates 2x for the current board)
-                const bonus = 50;
-                await this.prisma.gameSession.update({
-                    where: { id: sessionId },
-                    data: { score: (session.score ?? 0) + bonus },
-                });
-                break;
-            }
-
-            case BoosterType.SKIP: {
-                // Mark the current (incomplete) board as completed with 0 score and advance
-                const currentBoard = await this.prisma.gameSessionBoard.findFirst({
-                    where: { sessionId, completed: false, deletedAt: null },
-                    orderBy: { roundNumber: 'asc' },
-                    select: { id: true, roundNumber: true },
-                });
-                if (currentBoard) {
-                    await this.prisma.gameSessionBoard.update({
-                        where: { id: currentBoard.id },
-                        data: { completed: true, completedAt: new Date(), score: 0 },
-                    });
-                }
-                break;
-            }
-
-            case BoosterType.HINT:
-            case BoosterType.UNDO: {
-                // HINT and UNDO are handled client-side.
-                // Server acknowledges the activation so inventory is decremented.
-                break;
-            }
-        }
-
+        // Boosters are advisory/cosmetic only. The server NEVER mutates authoritative
+        // state (score, timer, board completion) here: doing so allowed unmetered
+        // self-inflation (TIME_FREEZE/DOUBLE_POINTS/SKIP could be called unbounded).
+        // Effects are applied client-side and reconciled by server-authoritative
+        // scoring/validation on board completion. We simply acknowledge activation.
         return {
             success: true,
             boosterType,
             effect: { label: def.label, description: def.description, durationMs: def.durationMs },
-            newEndTime,
         };
     }
 }
@@ -2869,7 +2824,7 @@ export class GameService {
 function shuffle<T>(items: T[]): T[] {
     const copy = [...items];
     for (let index = copy.length - 1; index > 0; index -= 1) {
-        const swapIndex = Math.floor(Math.random() * (index + 1));
+        const swapIndex = randomInt(index + 1);
         [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
     }
 

@@ -24,7 +24,7 @@ export class GameService {
     }
     const serverSeed = crypto.randomBytes(16).toString('hex');
     const clientSeed = crypto.randomBytes(8).toString('hex');
-    const nonce = Math.floor(Math.random() * 100000);
+    const nonce = crypto.randomInt(0, 100000);
     const session = await this.prisma.gameSession.create({ data: { playerId, stageId, serverSeed, clientSeed, nonce, status: 'active' } });
     const seed = computeFinalSeed(serverSeed, clientSeed, nonce);
     return { gameSessionId: session.id, seed, config, serverTime: new Date().toISOString(), endTime: new Date(Date.now() + config.timeLimitMs + 2000).toISOString(), level: levelParams?.level ?? 1, scoreMultiplier: levelParams?.scoreMultiplier ?? 1.0 };
@@ -37,14 +37,17 @@ export class GameService {
     if (session.status !== 'active') throw new BadRequestException('Already completed');
 
     // Enforce max taps to prevent DoS
-    if (taps.length > 2000) throw new BadRequestException('Too many taps submitted');
+    if (taps.length > 1000) throw new BadRequestException('Too many taps submitted');
 
     const cheatReasons: string[] = [];
+
+    const dbConfig = await this.prisma.configuration.findUnique({ where: { stageId: session.stageId } });
+    const config: GameConfig = dbConfig ? { timeLimitMs: dbConfig.timeLimitMs, initialSpawnIntervalMs: dbConfig.initialSpawnIntervalMs, speedIncreaseEveryMs: dbConfig.speedIncreaseEveryMs, speedMultiplier: dbConfig.speedMultiplier, maxWrongTaps: dbConfig.maxWrongTaps } : DEFAULT_CONFIG;
 
     // SERVER-SIDE VALIDATION: Regenerate circle sequence and verify each tap
     const seed = computeFinalSeed(session.serverSeed, session.clientSeed, session.nonce);
     // Estimate max circles: 5min / initial interval with speed increases
-    const maxCircles = Math.ceil(DEFAULT_CONFIG.timeLimitMs / (DEFAULT_CONFIG.initialSpawnIntervalMs * 0.5));
+    const maxCircles = Math.ceil(config.timeLimitMs / (config.initialSpawnIntervalMs * 0.5));
     const { correctTaps, wrongTaps } = validateTaps(seed, taps, maxCircles);
 
     // Server score = correct taps (simple 1pt each)
@@ -53,12 +56,12 @@ export class GameService {
     if (Math.abs(clientScore - serverScore) > 3) {
       cheatReasons.push(`Score divergence: client=${clientScore}, server=${serverScore}`);
     }
-    if (wrongTaps > DEFAULT_CONFIG.maxWrongTaps) {
+    if (wrongTaps > config.maxWrongTaps) {
       cheatReasons.push(`Too many wrong taps: ${wrongTaps}`);
     }
 
     const elapsed = Date.now() - session.startedAt.getTime();
-    if (elapsed > DEFAULT_CONFIG.timeLimitMs + 5000) {
+    if (elapsed > config.timeLimitMs + 5000) {
       throw new BadRequestException('Game session has expired');
     }
 

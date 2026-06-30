@@ -1,0 +1,60 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — OBJECT PLACEMENT MEMORY (module: object-placement-memory)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+This is the "heavy" backend variant (Restate, redis-io adapter, hmac/api-key
+guards, env validation). Scoring is server-authoritative: submitResult regenerates
+the board from the stored seed, recomputes the correct objectId->cell map, ignores
+the client's isCorrect/correctCellIndex, stores serverScore, enforces ownership
+(userId in where), expiry, a single-write updateMany double-submit guard, and
+flags score discrepancy. But placements are not deduped (accuracy can exceed 1 ->
+score inflation), the WS gateway uses a hardcoded dev-secret fallback AND reads a
+different JWT claim than the HTTP guard, WS session rooms have no ownership, and
+the seed is a weak 32-bit hash with constant nonce + non-random clientSeed.
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+OBJECTPLACEMENT-001: Weak/predictable provably-fair seed. computeSeed folds
+  serverSeed:userId:0 into a 32-bit (<<5)-hash; nonce is constant 0 and clientSeed
+  is the userId (not random/crypto). 32-bit space + fixed nonce + known userId make
+  the board layout predictable/brute-forceable. Use crypto nonce + full-width hash.
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+OBJECTPLACEMENT-VAL-01: placements[] not deduplicated in submitResult. correctCount
+  increments per placement matching correctPlacements map; submitting the same
+  correct objectId repeatedly counts each -> correctCount > totalObjects ->
+  accuracy>1 -> baseScore>100 -> score inflation. Dedupe by objectId; cap
+  correctCount at totalObjects.
+
+OBJECTPLACEMENT-AUTH-01: WS gateway (ws/game.gateway.ts handleConnection) verifies
+  with JWT_SECRET || 'dev-secret' and reads decoded.sub, while HTTP SessionGuard
+  uses config.security.jwtSecret and decoded.userId. Forgeable WS tokens AND claim
+  mismatch -> WS userId may be undefined. Use shared secret + same claim.
+
+OBJECTPLACEMENT-WS-02: join-session has no ownership check (room session:<sessionId>)
+  — any client may join any session room and receive another player's emissions.
+
+OBJECTPLACEMENT-CFG-01: divergent JWT fallbacks — app.config.ts 'dev-secret-object-
+  placement' vs env.config 'dev-secret-change-in-production'; fail-fast only when
+  NODE_ENV=production. Remove fallbacks, single source, always fail-fast.
+
+OBJECTPLACEMENT-DTO-01: payload cap mismatch — DTO caps placements.max(50) but
+  service checks >100. Align (lower cap governs; remove dead 100 check).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Board recomputed from seed; client isCorrect ignored; serverScore stored.
+  - Ownership (userId), expiry, updateMany double-submit guard, discrepancy flag.
+  - serverSeed via crypto.randomBytes; payload bounded; HTTP guard uses real secret.
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core scoring: PASS. Dedup/cap + WS auth + weak seed: FAIL.
+Status: HOLD until VAL-01, AUTH-01, WS-02, CFG-01, DTO-01 resolved.
+Real-money fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

@@ -273,4 +273,22 @@ Legend: [ ] todo   [~] in progress   [x] done+SEEN-working   [!] blocked/bug
               refreshToken; auth/refresh returns snake_case access_token.
   2026-06-25  Next: per-game backends (Phase 3); SDK build (Phase 4);
               20 frontends + game<->platform loop (Phase 5-7).
+  2026-06-25  *** GAME FLEET START: colour-sorting VERIFIED end-to-end ***
+              Backend (:3006) boots healthy (db/redis/memory up). Setup needed:
+                - created postgres role zubaco + 20 per-game DBs (as superuser).
+                - node_modules was corrupted (.d.ts.map w/o .d.ts -> TS7016) ->
+                  rm + npm install --legacy-peer-deps; regenerated prisma client.
+                - fixed redis.service.ts retryStrategy(times:number) TS7006.
+                - fixed .env CORS_ORIGINS 3001 -> 3005 (frontend Vite port).
+                - seeded Configuration stage row (startGame requires it).
+              VERIFIED: POST /game/start -> seed 1179131587 + config. POST
+              /game/submit forged {solved:true,clientScore:99999,moves:[]} ->
+              server REPLAYED moves, stored solved=f, finalScore=128(server),
+              2 CheatFlags: "client claims solved but server replay disagrees"
+              (critical) + "score mismatch client=99999 server=128"(warning).
+              Frontend Vite dev :3005 serves OK. Commit 4d5901d pushed.
+              => per-game server-authoritative anti-cheat PROVEN.
+  2026-06-25  Running scripts/setup-all-games.ps1 to bring up the other 19
+              backends (ensure .env, npm install --legacy-peer-deps, prisma
+              generate + db push, build) -> status matrix in setup-all-games.log.
 ################################################################################

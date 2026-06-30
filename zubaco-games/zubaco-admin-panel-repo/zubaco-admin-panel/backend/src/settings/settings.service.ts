@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@common/prisma/prisma.service';
 
 /**
@@ -44,6 +44,20 @@ export class SettingsService implements OnModuleInit {
   }
 
   async updateMany(updates: Array<{ key: string; value: string }>) {
+    const known = new Map(DEFAULT_SETTINGS.map((s) => [s.key, s.category]));
+    for (const u of updates) {
+      if (!known.has(u.key)) {
+        throw new BadRequestException(`Unknown setting key: ${u.key}`);
+      }
+      const num = Number(u.value);
+      if (!Number.isFinite(num) || num < 0) {
+        throw new BadRequestException(`Setting ${u.key} must be a non-negative number`);
+      }
+      if (u.key.endsWith('_pct') && num > 100) {
+        throw new BadRequestException(`Setting ${u.key} must be a percentage (0-100)`);
+      }
+    }
+
     const results = await Promise.all(
       updates.map((u) =>
         this.prisma.systemSetting.update({

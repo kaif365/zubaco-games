@@ -1,0 +1,47 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — TRUE FALSE BLITZ (module: true-false-blitz)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Same lighter scaffold as Speed Type Answer: scorer.ts/statementBank engine,
+server-authoritative scoring with divergence flag, tight DTO bounds (answers
+.max(60), statementIndex int min 0, clientScore int min 0). BUT all auth surfaces
+use dev-secret fallbacks, HTTP guard is bare jwt.verify (no Redis ownership), WS
+gateway has dev-secret + join no ownership, and provably-fair seed is a 32-bit
+(<<5)-hash → mulberry32 (predictable). Not safe for real money as-is.
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+TRUEFALSEBLITZ-001: random.ts computeFinalSeed folds serverSeed:clientSeed:nonce
+  into a 32-bit ((hash<<5)-hash) value feeding mulberry32 — ~4.3B space, brute-
+  forceable; statementBank picks predictable. Requires 256-bit/crypto provably-fair
+  RNG. (Same class as REFLEXENDURANCE/SPEEDTYPE 32-bit; deferred-strategic.)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+TRUEFALSEBLITZ-WS-01: ws/game.gateway.ts JWT_SECRET || 'dev-secret' + decoded.sub —
+  forgeable; use config jwtSecret + verified userId.
+
+TRUEFALSEBLITZ-WS-02: handleJoinSession joins session:<sessionId> with no ownership
+  — any client can join any session room.
+
+TRUEFALSEBLITZ-AUTH-01: session.guard.ts JWT_SECRET || 'fallback-secret' bare
+  jwt.verify, no fail-fast; remove fallback, throw if unset.
+
+TRUEFALSEBLITZ-CONFIG-01: app.config.ts jwtSecret defaults to
+  'dev-secret-true-false-blitz' — silent insecure secret; must fail-fast.
+
+POSITIVE CONTROLS CONFIRMED:
+  - Server-authoritative scoring + divergence cheat flag.
+  - DTO bounded: answers max 60, statementIndex/clientScore int min 0, uuid session.
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Scoring/DTO bounds: PASS. Auth (dev-secret everywhere) + WS ownership + seed: FAIL.
+HOLD until TRUEFALSEBLITZ-001, WS-01, WS-02, AUTH-01, CONFIG-01 resolved.
+Fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

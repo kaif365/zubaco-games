@@ -63,6 +63,9 @@ export const GAME_TYPES = {
 
 export const GAME_CONFIGS = {
     SQS_POLL_ERROR_RETRY_MS: 5_000,
+    GRID_MAX_INDEX: 99, // max valid row/col index for any block-fill grid cell
+    MAX_PATHS_PER_BOARD: 64, // hard cap on color paths submitted per board
+    MAX_PATH_POINTS: 400, // hard cap on cells in a single path
 } as const;
 
 export const ANTI_CHEAT_CONFIGS = {

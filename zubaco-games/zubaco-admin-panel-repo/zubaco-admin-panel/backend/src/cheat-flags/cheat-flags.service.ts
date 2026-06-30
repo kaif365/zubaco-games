@@ -1,7 +1,7 @@
 import { GAME_IDS, GAME_NAMES, SORT_ORDER } from '@common/constants';
 import { PrismaService } from '@common/prisma/prisma.service';
 import { buildPaginationMeta } from '@common/utils/pagination.util';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 
 import { SqsService } from '../aws/sqs.service';
 import type { CheatFlagEvent } from '../aws/sqs.service';
@@ -128,6 +128,10 @@ export class CheatFlagsService implements OnModuleInit {
     // ─── PLATFORM API CLIENT ─────────────────────────────────────────
 
     private async callPlatformApi(path: string, options: { method: string; body?: any }) {
+        if (!INTERNAL_API_KEY) {
+            // Fail closed: never call the platform anti-cheat API without a configured key.
+            throw new ServiceUnavailableException('Platform integration not configured');
+        }
         const url = `${PLATFORM_API_URL}${path}`;
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',

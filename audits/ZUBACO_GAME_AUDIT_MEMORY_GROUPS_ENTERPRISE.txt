@@ -1,0 +1,51 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — MEMORY GROUPS (module: memory-groups)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Scoring is genuinely server-authoritative: word groups are derived from a seeded
+wordbank, the server recomputes calculateScore() at submit, stores serverScore
+separately from clientScore (client value only feeds a cheat-divergence flag),
+ownership is checked (session.playerId === playerId), expiry is server-clocked,
+and submit-time updateMany guards against double submission. But this is the
+"light" backend variant: the HTTP SessionGuard and WS gateway both fall back to a
+hardcoded secret, the WS gateway leaks session rooms, and maze/word RNG is keyed
+on a weak 32-bit non-crypto seed plus a Math.random nonce.
+
+2) NEW STRATEGIC BLOCKERS (unique — not previously logged)
+--------------------------------------------------------------------------------
+MEMORYGROUPS-001: Provably-fair seed is weak. computeFinalSeed (engine/random.ts)
+  folds serverSeed:clientSeed:nonce into a 32-bit (<<5)-hash, and nonce =
+  Math.floor(Math.random()*100000) (game.service.startGame). 32-bit seed space +
+  non-CSPRNG nonce make board layout brute-forceable. Use crypto seed/nonce and a
+  full-width hash. (Module-level; carried into BLOCKERS.md)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+MEMORYGROUPS-AUTH-01: HTTP SessionGuard accepts process.env.JWT_SECRET || 'fallback'
+  (common/guards/session.guard.ts) — forgeable tokens if env unset in prod.
+
+MEMORYGROUPS-WS-01: WS gateway accepts JWT_SECRET || 'dev-secret' fallback
+  (ws/game.gateway.ts handleConnection). Forgeable WS tokens.
+
+MEMORYGROUPS-WS-02: join-session has no ownership check
+  (ws/game.gateway.ts handleJoinSession) — any client may join any
+  session:<sessionId> room and receive another player's emissions.
+
+MEMORYGROUPS-RNG-01: nonce via Math.random + 32-bit finalSeed hash (see -001).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Server recomputes score; serverScore stored apart from clientScore; cheat flag.
+  - Session ownership enforced; expiry server-clocked; double-submit guarded.
+  - serverSeed/clientSeed via crypto.randomBytes; payload bounded (groups max 3×3).
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core scoring: PASS. WS/HTTP auth fallback + weak seed: FAIL.
+Status: HOLD until MEMORYGROUPS-AUTH-01, WS-01, WS-02, RNG-01 resolved. Real-money
+fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

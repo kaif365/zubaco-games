@@ -1,0 +1,476 @@
+================================================================================
+ZUBACO — ADMIN PANEL — ENTERPRISE ENGINEERING AUDIT
+================================================================================
+Scope        : Admin Panel service (backend) — authentication, authorization,
+               user management, tournament/season control plane, wallet
+               mutations, anti-cheat actions, system settings, audit logging,
+               and the cross-service trust boundary to the platform. Frontend
+               surface reviewed at the security boundary only.
+Mode         : AUDIT ONLY. No code modified. Every conclusion traced from source.
+Admin root   : C:\zubaco-games\zubaco-games\zubaco-admin-panel-repo\
+               zubaco-admin-panel\backend
+Platform root: C:\zubaco-games\zubaco-games\zubaco-platform  (shared Postgres)
+Date         : 2026-06-26
+Verdict      : NOT PRODUCTION-READY. This is the highest-privilege system in the
+               platform yet it has (a) NO role/permission model — every
+               authenticated admin is omnipotent; (b) THREE controllers
+               (prizes, exports, banners) with ZERO auth decorators, i.e.
+               fully anonymous — including unauthenticated wallet crediting and
+               bulk PII/financial export; (c) a global authentication guard that
+               FAILS OPEN; and (d) an audit-logging subsystem that records ZERO
+               rows for ANY action (the actor is never captured, so every write
+               violates the audit_logs FK and is silently discarded). The admin
+               service also writes directly to the real-money platform tables,
+               bypassing every wallet/ledger/TDS invariant.
+
+================================================================================
+0. CODE INVENTORY (what actually exists)
+================================================================================
+Service        : ZUBACO-admin-service (NestJS 11, Prisma 7, ioredis, nestjs-zod,
+                 helmet, AWS SNS/SQS/S3). Build: nest build && tsc-alias.
+DB             : datasource db { provider = "postgresql" } — the SAME physical
+                 Postgres as the platform. Admin Prisma client exposes
+                 user / wallet / transaction / season / seasonStage / game /
+                 cheatFlag / systemSetting plus admin / adminAccessToken /
+                 auditLog. => admin mutations hit real-money platform rows.
+
+Bootstrap (src/main.ts)
+  - app.use(helmet())
+  - app.enableCors({ origin: ADMIN_CORS_ORIGINS split | default })
+  - app.useGlobalPipes(new ZodValidationPipe())   <-- validates ONLY createZodDto
+                                                       bodies; raw @Body() typed
+                                                       bodies are NOT validated.
+
+Global wiring (src/app.module.ts)
+  - APP_INTERCEPTOR  TransactionInterceptor   (request-scoped DB transaction)
+  - APP_INTERCEPTOR  AuditInterceptor         (write-audit logger — see Phase 8)
+  - APP_GUARD        SessionGuard             (global auth — see Phase 1/2)
+  - Middleware       LoggerMiddleware, LanguageMiddleware  forRoutes('*')
+
+Controllers (route count / @RequireSession present / @Public present)
+  admin-auth     3 / 2 / 0      analytics      7 / 1 / 0
+  audit-logs     1 / 1 / 0      banners        6 / 0 / 0   <== UNPROTECTED
+  cheat-flags    7 / 1 / 0      exports        3 / 0 / 0   <== UNPROTECTED
+  games         12 / 1 / 1      notifications  2 / 1 / 0
+  prizes         2 / 0 / 0  <== UNPROTECTED  seasons      13 / 1 / 0
+  settings       2 / 1 / 0      stages         7 / 1 / 0
+  tournaments    8 / 1 / 0      users          9 / 1 / 0
+
+Auth/identity constants (src/common/constants*)
+  REQUEST_CONTEXT = { LANGUAGE:'language', ADMIN:'admin', SESSION:'session' }
+  TOKEN_EXPIRY.LOGIN = 7*24*60*60  (604800s = 7 days)
+  TOKEN_TYPES.LOGIN = 1 ;  USER_TYPES.ADMIN = 2   (single admin user type)
+
+Dependencies of note: NO @nestjs/throttler, NO csurf/csrf. => no rate limiting
+and no CSRF token layer (CSRF risk is low because auth is Bearer-token, not
+cookie — see Phase 9).
+
+================================================================================
+PHASE 1 — ADMIN AUTHENTICATION
+================================================================================
+Login: POST /admin/auth/login  (admin-auth.controller, @Public, HttpCode 200)
+  admin-auth.service.login(email, password):
+    prisma.admin.findFirst({ email, deleted_at:null })
+    verifyPassword(password, admin.password)   (admin/password.util)
+    generateLoginToken(admin.id, USER_TYPES.ADMIN, sessionId)  -> JWT
+    persists adminAccessToken row (access_token, session_id, expires_at = +7d)
+    writes Redis session + admin cache (TTL = TOKEN_EXPIRY.LOGIN = 7d)
+  logout: deletes the token row(s) + Redis session.
+  me    : returns the cached admin.
+
+FINDINGS
+  1.1  NO MFA / 2FA of any kind. Email + password is the only factor for the
+       highest-privilege console.
+  1.2  NO brute-force protection. @nestjs/throttler is not a dependency and no
+       per-account lockout/backoff exists; /admin/auth/login can be hammered.
+  1.3  NO login/logout audit trail. The audit interceptor explicitly SKIPS any
+       path containing '/auth/', so admin sign-in, sign-out and failed logins
+       are never recorded anywhere.
+  1.4  7-day non-rotating bearer token. The session token lives 7 days with no
+       refresh/rotation and no idle timeout; a captured token is replayable for
+       the full window. The only revocation paths are (a) per-session logout and
+       (b) soft-deleting the admin (deleted_at), which the guard re-checks.
+  1.5  No admin provisioning surface. The admin module exposes only auth — there
+       is no create/disable/rotate-admin endpoint; admins are managed by direct
+       DB writes, so there is no audited account-lifecycle.
+
+================================================================================
+PHASE 2 — AUTHORIZATION / RBAC / PRIVILEGE ESCALATION
+================================================================================
+Global guard: src/common/guards/session.guard.ts (APP_GUARD)
+
+  const requirements = reflector.getAllAndOverride(SESSION_METADATA_KEY, [
+      handler, class ]);
+  if (!requirements) { return true; }          <-- FAIL OPEN
+
+  When requirements DO exist: extract Bearer token -> verifyToken -> check
+  tokenType ∈ requirements.tokenTypes and userType ∈ requirements.userTypes,
+  then admin fast-path (Redis session) | DB fallback (adminAccessToken where
+  expires_at > now) re-validating admin.deleted_at = null. On success it sets
+  request[REQUEST_CONTEXT.SESSION] = { sessionId, userId, userType, tokenType }
+  and request[REQUEST_CONTEXT.ADMIN] = <admin>.
+
+FINDINGS
+  2.1  FAIL-OPEN DEFAULT. Any handler that carries neither @RequireSession nor
+       @Public is allowed through with NO authentication, because the guard
+       returns true when no requirement metadata is found. Security is
+       therefore opt-in per controller/handler, the inverse of safe default.
+  2.2  THREE FULLY ANONYMOUS CONTROLLERS (consequence of 2.1):
+         • prizes   (@Controller('admin/prizes'))  — no decorators
+         • exports  (@Controller('admin/exports')) — no decorators
+         • banners  (@Controller('admin/banners')) — no decorators
+       Every route on these three controllers is reachable WITHOUT a token.
+       Impact detailed in Phases 3/5.
+  2.3  NO RBAC. The Admin model (prisma/schema.prisma) has NO role / permission /
+       scope field:
+         model Admin { id email password access_tokens audit_logs created_at
+                       updated_at deleted_at }
+       The ONLY authorization check anywhere is userType === ADMIN (constant 2).
+       Therefore every authenticated admin has identical, total power: edit any
+       user, credit/debit any wallet, distribute prizes, run eliminations,
+       change TDS/fee settings, ban/unban — with no separation of duties, no
+       maker-checker, no least privilege, no read-only/support tier.
+  2.4  NO horizontal scoping. There is no notion of "this admin may act on this
+       tenant/season"; the userType gate is binary.
+  2.5  Cross-service privilege: admin actions that reach the platform
+       (cheat-flags proxy, Phase 6) are trusted by the platform purely via the
+       shared INTERNAL_API_KEY with a body-supplied admin_id — i.e. the platform
+       cannot independently authenticate which admin acted (governing strategic
+       blockers AUTH-002 / AUTH-003).
+
+================================================================================
+PHASE 3 — USER MANAGEMENT
+================================================================================
+src/users/users.controller.ts — class-level @RequireSession({LOGIN, ADMIN})
+(covers all 9 routes; reflector.getAllAndOverride matches the class). So unlike
+prizes/exports/banners, user management IS authenticated — but governed by the
+no-RBAC, broken-audit context above.
+
+users.service.ts:
+  banUser(userId, reason)   -> user.update is_banned=true, ban_reason=reason
+  unbanUser(userId)         -> is_banned=false, ban_reason=null
+  creditWallet(userId,amt,reason)  guard amt>0
+        wallet.upsert(create balance=amt | update increment amt)
+        transaction.create(type DEPOSIT, status COMPLETED,
+                            balance_after, "Admin credit: <reason>")
+  debitWallet(userId,amt,reason)   guard amt>0
+        read wallet; if balance < amt throw; wallet.update decrement
+        transaction.create(type WITHDRAWAL, status COMPLETED, "Admin debit: ...")
+  updateUser(userId,data)   whitelist [display_name, username, is_verified]
+
+FINDINGS
+  3.1  Direct real-money mutation. creditWallet/debitWallet write the shared
+       wallet + transaction tables directly, bypassing the platform wallet
+       service entirely: no idempotency key, no ledger entry pairing, no TDS,
+       no payout pipeline, and bonus_balance is ignored (balance_after reflects
+       cash only). Manifestation of WALLET-002 on the admin side.
+  3.2  Type laundering. An admin credit is persisted as type DEPOSIT and an
+       admin debit as type WITHDRAWAL — there is no distinct ADMIN_CREDIT /
+       ADMIN_ADJUSTMENT type. These rows pollute deposit/withdrawal analytics
+       and the reconciliation set, and an admin "debit" never goes through KYC/
+       TDS/disbursement yet looks like a real withdrawal.
+  3.3  debitWallet TOCTOU. The "balance < amount" check is read-then-write and
+       is not performed under a row lock; concurrent debits can race past the
+       guard (the decrement itself is atomic, but the sufficiency check is not).
+  3.4  Ban is inert beyond the flag. banUser only sets is_banned/ban_reason. It
+       does NOT revoke the user's active sessions/tokens, does NOT remove
+       persisted scores or leaderboard entries, does NOT eliminate the user from
+       in-flight tournaments, and prize selection has no is_banned filter — so a
+       banned user can still rank and be paid (governing blocker ACHEAT-001).
+  3.5  is_verified is admin-settable via updateUser with no KYC evidence trail —
+       a verification/compliance flag can be flipped at will and (per Phase 8)
+       without any recorded actor.
+  3.6  No user deletion / data-subject erasure / account-recovery path exists in
+       the service (only ban). Relevant for DPDPA right-to-erasure obligations.
+
+================================================================================
+PHASE 4 — TOURNAMENT / SEASON CONTROL PLANE
+================================================================================
+seasons.controller.ts (@RequireSession class-level) -> seasons.service.ts:
+  createSeason            status seeded 'UPCOMING'
+  updateSeason            whitelist [name, description, start_date, end_date,
+                          prize_pool, entry_fee, max_players, status]
+  createStage             elimination_pct default 50.0, status 'LOCKED'
+  updateStage             whitelist [name, open_date, close_date,
+                          elimination_pct, status]
+  openStage(id)           status -> 'OPEN'
+  closeStage(id)          status -> 'CLOSED'
+  triggerElimination(id)  requires stage.status==='CLOSED'; eliminateCount =
+                          floor(totalPlayers * elimination_pct/100); ranks
+                          players, sets {rank, eliminated} on stage entries and
+                          season_entry status 'ELIMINATED' for the tail slice.
+tournaments.service.ts   create/update with StatusSchema enum
+                          (ACTIVE|INACTIVE|DEACTIVATE).
+
+FINDINGS
+  4.1  Second elimination/ranking control plane. triggerElimination is a manual
+       admin reimplementation of stage progression that writes the same
+       stage-entry rank/eliminated fields and season_entry status as the
+       platform's own pipeline — divergent dual control planes over money-
+       bearing qualification (governing blocker TOURN-001).
+  4.2  No lifecycle state machine. openStage/closeStage flip status with no
+       guard on the current state (an already-CLOSED stage can be re-opened; a
+       LOCKED stage can jump straight to OPEN), and triggerElimination has no
+       idempotency — re-invoking on the same CLOSED stage re-ranks/re-eliminates
+       (governing blocker TOURN-003).
+  4.3  Post-registration mutation of money terms. updateSeason can change
+       entry_fee / prize_pool / status after a season exists; only some ops are
+       gated on status==='UPCOMING'. Editing prize_pool/entry_fee mid-flight has
+       no compensation logic for already-charged entrants.
+  4.4  Prize distribution is a SEPARATE, unauthenticated, non-idempotent path
+       (Phase 5) — elimination and payout are not transactionally linked.
+
+================================================================================
+PHASE 5 — WALLET / PRIZE MANAGEMENT
+================================================================================
+prizes.controller.ts — @Controller('admin/prizes'), NO @RequireSession / NO
+@Public  => BOTH routes are fully ANONYMOUS:
+  POST /admin/prizes/distribute   body { season_id, distributions[
+                                         {user_id, amount, rank} ] }  raw @Body()
+  GET  /admin/prizes/season/:id
+
+prizes.service.distribute(season_id, distributions):
+  for each d: wallet.update({ where:user_id, data:{ balance:{increment:amount}}})
+              transaction.create(type 'PRIZE_WIN', status 'COMPLETED',
+                                  balance_after, metadata {season_id, rank})
+
+FINDINGS  (CRITICAL)
+  5.1  UNAUTHENTICATED MONEY CREATION. Because prizes has no auth decorator and
+       the guard fails open, ANY anonymous caller can POST arbitrary credits to
+       arbitrary user wallets. This is the single most severe finding: direct,
+       tokenless, real-money minting.
+  5.2  No input validation. The body is a raw inline-typed @Body() (not a
+       createZodDto), so the global ZodValidationPipe does not apply. amount is
+       unchecked — a negative amount becomes a silent debit (increment of a
+       negative), and user_id/season_id are unvalidated.
+  5.3  Non-idempotent double-credit. distribute has no idempotency key and no
+       guard against re-distribution for the same season/rank; a re-POST credits
+       again (the admin half of TOURN-001's double-distribution risk).
+  5.4  Ignores bonus split, no row lock, no ledger pairing (WALLET-002); writes
+       balance_after pre-read in some paths.
+  5.5  No banned-user / eligibility filter — banned cheaters are payable
+       (ACHEAT-001).
+
+exports.controller.ts — @Controller('admin/exports'), NO auth => 3 ANONYMOUS
+  GET /admin/exports/users/csv
+  GET /admin/exports/season/:id/results/csv
+  GET /admin/exports/transactions/csv?from&to
+FINDINGS
+  5.6  ANONYMOUS BULK EXFILTRATION of user PII and the full financial
+       transaction ledger over unauthenticated GETs. Compounded by Phase 8:
+       GET requests are NOT audited, so the exfiltration leaves no trace.
+
+banners.controller.ts — @Controller('admin/banners'), NO auth => 6 ANONYMOUS
+  incl. create/update/delete with raw @Body() body: Banner (no Zod schema).
+FINDINGS
+  5.7  ANONYMOUS content CRUD = stored-content / stored-XSS injection vector
+       into whatever client renders banners; no validation/sanitization.
+
+================================================================================
+PHASE 6 — ANTI-CHEAT MANAGEMENT
+================================================================================
+cheat-flags.service.ts (controller @RequireSession class-level):
+  Ingest : onModuleInit -> sqs.registerHandler(handleEvent); cheat flags flow
+           platform -> SQS -> admin, upserted into cheatFlag (idempotent on
+           reference_id). Unknown gameType/game are dropped with a warn.
+  List   : listCheatFlags (paginated read).
+  Actions (PROXY to platform anti-cheat API via callPlatformApi):
+     reviewFlag(flagId, adminId, 'dismiss'|'warn'|'ban')
+        -> POST {PLATFORM_API_URL}/anti-cheat/flags/:id/review
+           body { action, admin_id: adminId }
+     unbanUser(userId)     -> POST /anti-cheat/users/:id/unban
+     resetRiskScore(userId)-> POST /anti-cheat/users/:id/reset-risk
+  PLATFORM_API_URL/INTERNAL_API_KEY read from env.
+
+FINDINGS
+  6.1  Trust boundary is the shared static key. Admin enforcement actions are
+       authorized by the platform solely via INTERNAL_API_KEY, with the acting
+       admin_id passed in the request BODY — spoofable and non-authoritative on
+       the platform side (governing AUTH-002 / AUTH-003).
+  6.2  Enforcement actions inherit ACHEAT-001: a 'ban' review does not retract
+       persisted scores/leaderboard/StageEntry totals or exclude the user from
+       prize selection — detection without enforcement.
+  6.3  No appeal workflow. Actions are limited to dismiss/warn/ban + unban/
+       reset-risk; there is no structured appeal/override audit record.
+  6.4  adminId forwarded to the platform originates from the admin session
+       context, but per Phase 8 the same identity is NOT captured in the admin's
+       own audit_logs, so the action is attributable on neither side reliably.
+
+================================================================================
+PHASE 7 — SYSTEM MANAGEMENT / SETTINGS / SECRETS
+================================================================================
+settings.service.ts (controller @RequireSession class-level):
+  getAll / get(key) ; updateMany([{key,value}]) -> systemSetting.update each.
+  Seeds DEFAULT_SETTINGS on boot (upsert, never overwrites existing) including
+  money-sensitive keys: platform_fee_pct=10, tds_rate_pct=30,
+  min_withdrawal_amount=100, max_daily_deposits=10000, kyc_required_above=10000,
+  auto_ban_critical_flags=3, default_stage_elimination_pct=50, etc.
+
+FINDINGS
+  7.1  Unvalidated mutation of money/compliance config. updateMany accepts any
+       string value for any existing key (no Zod schema, no per-key validation,
+       no range/type check). An admin can set tds_rate_pct or platform_fee_pct
+       to any string; the value column is untyped text.
+  7.2  Authority ambiguity. These settings live in the admin DB's systemSetting
+       table; whether the platform actually reads them at money-decision time is
+       not enforced in the admin service. If the platform reads them, 7.1 is a
+       direct financial-control risk; if it does not, the admin "controls" are
+       partly cosmetic — either way it is a correctness gap.
+  7.3  No secret management. Cross-service secrets (INTERNAL_API_KEY,
+       PLATFORM_API_URL, AWS creds, DB URL) are read from process.env with no
+       vault/rotation; INTERNAL_API_KEY defaults to '' if unset (cheat-flags),
+       which would silently send an empty-key request rather than fail closed.
+  7.4  No feature-flag guard rails / change review on settings mutations
+       (compounded by the broken audit trail, Phase 8).
+
+================================================================================
+PHASE 8 — AUDIT LOGGING & IMMUTABILITY
+================================================================================
+src/common/interceptors/audit.interceptor.ts (global APP_INTERCEPTOR):
+  Audits only POST/PUT/PATCH/DELETE; skips any '/auth/' path.
+  const adminId = request.session?.adminId || request.user?.id || 'unknown';
+  ... auditLog.create({ admin_id: adminId, action, entity, entity_id, changes,
+                        ip_address }).catch(() => {})   // fire-and-forget
+
+prisma/schema.prisma:
+  model AuditLog {
+    id String @id ; admin_id String ; action String ; entity String ;
+    entity_id String? ; changes Json? @db.JsonB ; ip_address String? ;
+    created_at DateTime @default(now()) ;
+    admin Admin @relation(fields:[admin_id], references:[id], onDelete:Cascade)
+  }   // admin_id is a REQUIRED FK to admins.id
+
+FINDINGS  (CRITICAL)
+  8.1  THE AUDIT TRAIL IS NON-FUNCTIONAL — ZERO ROWS ARE EVER WRITTEN.
+       The guard stores the actor at request['session'] = { ..., userId, ... }
+       (key REQUEST_CONTEXT.SESSION === 'session'), but the interceptor reads
+       request.session?.adminId — a property that does not exist on that object
+       (it is named userId), and request.user is never set. So adminId always
+       resolves to the literal string 'unknown'. admin_id is a REQUIRED foreign
+       key to admins.id; inserting 'unknown' violates the FK constraint, the
+       auditLog.create() rejects, and the rejection is swallowed by .catch(()=>{}).
+       Net effect: NO administrative action is ever recorded. GET /admin/
+       audit-logs will always return empty.
+  8.2  Even if 8.1 were fixed, GET operations are never audited — so the
+       anonymous PII/transaction exports (Phase 5.6) and all read access are
+       invisible.
+  8.3  Auth events are excluded ('/auth/' skip) — no login/logout/lockout trail.
+  8.4  Not immutable. audit_logs is an ordinary table and the admin DB role has
+       full DML on the shared database; rows could be UPDATE/DELETE'd. No
+       append-only enforcement, no hash chaining, no WORM/off-box sink.
+  8.5  No before/after state capture. changes = request.body only (and null for
+       DELETE); there is no prior-value snapshot, so even a working log could not
+       show what a value changed from.
+  8.6  entity_id is extracted only from params.id/seasonId/stageId — routes
+       keyed on :userId (the entire users controller) record entity_id = null.
+  8.7  Fire-and-forget create — any transient DB error drops the record silently
+       (lossy by design).
+
+================================================================================
+PHASE 9 — SECURITY (CSRF / XSS / VALIDATION / DANGEROUS MUTATIONS)
+================================================================================
+  9.1  Authentication bypass — see 2.1/2.2/5.1/5.6/5.7: anonymous money
+       creation, PII/financial export, and content CRUD. Highest severity.
+  9.2  CSRF: low risk — the API authenticates via Authorization: Bearer (not
+       cookies), so cross-site form posts cannot ride ambient credentials. No
+       csurf layer exists, which is acceptable ONLY while auth stays header-based
+       (do not migrate to cookie sessions without adding CSRF defense).
+  9.3  Stored XSS: banners create/update accept raw @Body() with no
+       sanitization (5.7); any HTML/script persisted is rendered by the banner
+       consumer. Validate/encode at the boundary.
+  9.4  Input validation gap: the global ZodValidationPipe only validates
+       createZodDto bodies. Handlers using raw inline-typed @Body() — prizes,
+       banners, users credit/debit, settings updateMany — receive UNVALIDATED
+       input (negative amounts, type coercion, unexpected keys).
+  9.5  Dangerous mutations without confirmation/maker-checker: prize distribute,
+       wallet credit/debit, triggerElimination, ban, and TDS/fee settings are
+       single-call, single-actor, irreversible money/qualification operations
+       with no second-approver and (per Phase 8) no record.
+  9.6  helmet enabled and CORS is allow-list driven (ADMIN_CORS_ORIGINS) — the
+       only two solid security controls present.
+  9.7  No rate limiting anywhere (no throttler) — login brute force (1.2) and
+       export/mutation flooding are unthrottled.
+
+================================================================================
+PHASE 10 — COMPLETENESS / PRODUCTION READINESS
+================================================================================
+PRESENT & sound : helmet, CORS allow-list, ZodValidationPipe (for Zod DTOs),
+                  SQS cheat-flag ingestion (idempotent), Redis-backed session
+                  fast-path with DB fallback + admin soft-delete revalidation,
+                  request-scoped DB transaction interceptor, paginated read APIs.
+ABSENT / BROKEN : RBAC/roles/permissions; MFA; login throttling/lockout; a safe-
+                  by-default (fail-closed) guard; authentication on prizes/
+                  exports/banners; a functioning, attributable, immutable audit
+                  trail; validation on raw-body money endpoints; idempotency &
+                  ledger discipline on admin money writes; a lifecycle state
+                  machine for stages/seasons; maker-checker on dangerous
+                  mutations; secret management; user erasure/recovery.
+
+VERDICT: NOT PRODUCTION-READY. The console can mint money anonymously, exfil PII
+anonymously, grants god-mode to every admin, and keeps no record of who did what.
+
+================================================================================
+LOCALIZED DEFECTS (non-redesign — fixable in place; for a future Admin Fix)
+================================================================================
+ADMIN-VAL-01  prizes.controller has no @RequireSession (fail-open guard makes
+              both routes anonymous, incl. wallet crediting). Add class-level
+              @RequireSession({LOGIN, ADMIN}).
+ADMIN-VAL-02  exports.controller has no @RequireSession — anonymous PII/txn CSV
+              export. Add class-level @RequireSession({LOGIN, ADMIN}).
+ADMIN-VAL-03  banners.controller has no @RequireSession — anonymous content
+              CRUD (stored-XSS vector). Add @RequireSession + body validation.
+ADMIN-VAL-04  SessionGuard fails open: `if (!requirements) return true`. Invert
+              to deny-by-default (require @Public to opt out of auth).
+ADMIN-VAL-05  AuditInterceptor reads request.session?.adminId (undefined) →
+              admin_id 'unknown' → FK violation → every audit insert silently
+              dropped. Read request[REQUEST_CONTEXT.SESSION]?.userId (or the
+              admin context) so a valid admin id is written.
+ADMIN-VAL-06  prizes.distribute / users.creditWallet / users.debitWallet /
+              settings.updateMany / banners use raw @Body(): add createZodDto
+              schemas (positive-amount, enum, length/range) so the global
+              ZodValidationPipe enforces them.
+ADMIN-VAL-07  prizes.distribute is non-idempotent (re-POST double-credits) and
+              accepts negative amount: add an idempotency key (e.g. season_id+
+              rank+user) under the wallet row lock and reject amount<=0.
+ADMIN-VAL-08  users.debitWallet sufficiency check is TOCTOU: perform the
+              balance check + decrement under a row lock / atomic conditional.
+ADMIN-VAL-09  admin wallet adjustments persist as DEPOSIT/WITHDRAWAL and ignore
+              bonus_balance: use a distinct ADMIN_ADJUSTMENT type and include
+              the bonus bucket in balance_after.
+ADMIN-VAL-10  stage lifecycle (openStage/closeStage/triggerElimination) has no
+              state guard/idempotency: gate transitions on current status and
+              make triggerElimination idempotent.
+ADMIN-VAL-11  INTERNAL_API_KEY defaults to '' (cheat-flags) — fail closed if the
+              key is unset instead of sending an empty-key request.
+ADMIN-VAL-12  AuditInterceptor skips GET and '/auth/': audit at least the
+              sensitive exports (reads) and login/logout events.
+
+================================================================================
+STRATEGIC BLOCKERS (require redesign — recorded in BLOCKERS.md)
+================================================================================
+ADMIN-001  No authorization model in the admin service — no roles/permissions/
+           scopes; every authenticated admin is omnipotent and the global guard
+           fails open. Needs a real RBAC + deny-by-default redesign.
+ADMIN-002  Admin service is an unconstrained second money/qualification control
+           plane writing the shared real-money tables directly (prizes, credit/
+           debit, elimination), bypassing the wallet ledger/TDS/idempotency and
+           the platform's progression pipeline. (Governing: WALLET-002, TOURN-001.)
+ADMIN-003  No high-assurance admin authentication: no MFA, no brute-force
+           lockout, long-lived non-rotating bearer token, no admin account
+           lifecycle/audit. Needs MFA + session hardening + provisioning flow.
+ADMIN-004  No trustworthy audit subsystem: actor never captured (zero rows
+           today), reads/auth unaudited, mutable table, no before/after, no
+           tamper-evidence. Needs an attributable, append-only, off-box,
+           before/after audit log with maker-checker on dangerous mutations.
+
+Re-confirmed governing strategic blockers from prior audits: AUTH-002 (platform
+cannot authenticate which admin acted — body admin_id + shared key), AUTH-003
+(shared static INTERNAL_API_KEY trust model), TOURN-001 (dual divergent control
+planes / double prize distribution), TOURN-003 (no enforced lifecycle state
+machine), ACHEAT-001 (ban/flag has no score/leaderboard/eligibility retraction;
+prize selection has no is_banned filter), WALLET-002 (no authoritative ledger/
+idempotency).
+
+================================================================================
+END OF ADMIN PANEL AUDIT
+================================================================================

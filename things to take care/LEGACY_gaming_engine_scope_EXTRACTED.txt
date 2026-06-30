@@ -1,0 +1,1012 @@
+
+
+===== PAGE 1 =====
+SHUNYA  
+Gaming Engine  
+Architecture, Funnel Design & Game Scope Document  
+  
+ 
+Overview & Architecture  
+At the core of Shunya lies its proprietary gaming engine, engineered to function as a high-
+precision elimination funnel. The platform begins with millions of registered participants and 
+employs a multi-stage, skill-based filtration system that culminates in a single, ultimate winner.  
+  
+The engine is built on a philosophy of progressive difficulty — each stage evaluates a deeper 
+cognitive dimension, ensuring that the surviving participants are not merely lucky, but genuinely 
+the most capable players on the platform.  
+  
+Funnel Architecture at a Glance  
+Phase  
+Stages  
+Format  
+Target Outcome  
+Pre-Bucketing  
+Stages 1–3  
+Online (weekly cohorts)  
+Eliminate ~87.5% of 
+participants per cohort  
+Post-Bucketing  
+Stages 4–5  
+Online (merged pool)  
+Whittle down to a few hundred  
+finalists  
+Finale  
+Offline Final  
+Physical / In-Person  
+Crown the single ultimate 
+winner  
+  
+  
+The Online Phase  
+The online phase manages the bulk of all eliminations. It is designed to handle massive 
+concurrent user loads while maintaining competitive integrity. The phase is split into two sub-
+categories based on how participants are grouped — Pre-Bucketing and Post-Bucketing.  
+  
+
+
+===== PAGE 2 =====
+A. Pre-Bucketing (Stages 1 to 3)  
+To ensure fair matchmaking and manageable server loads during the initial surge, participants 
+are grouped into cohorts (called "Buckets") based on the calendar week in which they register.  
+  
+• 
+Weekly Cohorts: Upon app launch, users are capped and grouped by registration week.  
+All users who register in Week 1 form the "Week 1 Bucket," Week 2 users the "Week 2 
+Bucket," and so on. New registrations close completely after Week 5 or Week 6 
+(configurable).  
+• 
+Stage Progression: Within their specific weekly window, each bucket must complete a 
+defined set of games per stage.  
+• 
+The 50% Elimination Rule: At the end of each of the three pre-bucketing stages, 
+approximately the bottom 50% of performers are eliminated. The elimination percentage 
+is configurable by operators.  
+  
+Example Scenario:  If 1,000,000 users register in Week 1: End of Stage 1 → 500,000 remain. End of 
+Stage 2 → 250,000 remain. End of Stage 3 → 125,000 advance.  
+  
+  
+B. Post-Bucketing (Stages 4 to 5)  
+Once all weekly cohorts have completed the three pre-bucketing stages, the surviving 
+participants are de-siloed from their registration cohorts.  
+  
+• 
+Merging the Cohorts: All remaining participants from Weeks 1 through 6 are merged into 
+a single, unified competitive pool.  
+• 
+Final Online Stages: This merged pool competes head-to-head across two final online 
+stages (Stages 4 and 5), evaluated on advanced metrics like persistence, strategy, and 
+speed.  
+• 
+Outcome: By the end of Stage 5, the online engine has successfully narrowed the field 
+from millions to a few hundred elite qualifiers.  
+  
+  
+The Offline Phase (The Finale)  
+The final few hundred participants who survive all five online stages are personally invited to a 
+physical venue to compete in the ultimate showdown.  
+  
+• 
+Physical Competition: Elite players face off in person across a curated set of offline 
+games designed for a live audience and a high-pressure environment.  
+• 
+The Ultimate Winner: This physical stage is the final tier of the Shunya funnel — the 
+single ultimate champion is crowned here.  
+
+
+===== PAGE 3 =====
+  
+  
+  
+ 
+  
+STAGE 1  |  "The Divine Echo of Precision" प्रथम 
+चरण  |  अचकताू  की दव्य गजंू   
+"Your memory is your only weapon. The vault remembers everything — do 
+you?"  
+  
+Stage 1 tests a player's raw memory and knowledge retention. Drawing inspiration from classic 
+memory games such as Simon Says and Memory Matching, and quiz formats used in 
+competitive trivia platforms (e.g., Kahoot!, Quizlet Live), this stage rewards accuracy over 
+speed. Players who advance are those who can faithfully recall and reconstruct information 
+under pressure.  
+  
+Stage 1 Game Summary Table  
+#  
+Game  
+Time Window  
+Evaluation Criteria  
+Shunya Points  
+1  
+Object Placement 
+Memory (4x1) 
+Display: 5 secs 
+Play: 30 secs 
+(max)  
+Win / Lose  
+1 correct 
+placement = 
+20 points 
+Total points = 
+n*m (80)  
+2  Sequence Recall  
+3 mins (max)  
+Win / Lose  
+100  
+3  Spot the Difference  
+3 mins (max)  
+Correct Finds + Speed  
+Up to 100  
+4  
+MCQ — General 
+Knowledge  
+2 mins  
+(time-bound)  
+Correct Answers  
+Easy: 5 | Med: 
+10 | Hard: 20  
+  
+Stage Qualification: Only the top ~50% of scorers (by cumulative Shunya Points) advance to Stage 2. 
+The percentage is operator configurable.  
+  
+  
+Game 1: Object Placement Memory  
+Inspired by: Classic grid-based memory games such as "Concentration" and spatial recall challenges 
+used in neuropsychological assessments.  
+  
+
+
+===== PAGE 4 =====
+Objective: Memorize the positions of n*m objects on a nxm grid, then accurately place them 
+back after they disappear.  
+  
+• 
+The screen displays a nxm grid (n*m cells total).  
+• 
+Four distinct, randomized objects (e.g., fruits, animals, symbols) are placed — one in 
+each cell — and shown to the player for exactly ‘t1’ seconds.  
+• 
+After ‘t1’ seconds, all objects are removed from the grid and placed in a randomized tray 
+at the bottom of the screen along with some other objects which were not part of the 
+grid.  
+• 
+The player must drag and drop each object back into its original cell.  
+• 
+Result: 
+o 
+1 correct placement = 20 points 
+o 
+Total points = 20 * n * m 
+• 
+Difficulty can be scaled in later stages by increasing grid size (e.g., 3x3, 4x4) or reducing 
+the display duration. 
+• 
+Objects displayed should be day to day objects so that they can be recalled easily. 
+  
+Design Note: Object sets should be diverse and culturally neutral. Each game session should use a 
+freshly randomized set to prevent pattern memorization across replays.  
+  
+Reference: memozor.com — Grid Picture Memory Game  
+  
+  
+Game 2: Sequence Recall  
+Inspired by: The classic "Simon" electronic memory game (Hasbro, 1978) and the Corsi Block-Tapping 
+Test used in cognitive psychology research.  
+  
+Objective: Observe a sequence of 4 colored balls flashing in order, then reconstruct that exact 
+sequence from memory.  
+  
+• 
+4-cell horizontal grid — one row containing four colored cells: Green, Red, Blue, 
+and Yellow. 
+• 
+Unique sound per cell — each cell plays a distinct tone when activated, whether by the 
+computer or the player. (Very important as sound will be used to memorize the 
+sequence) 
+• 
+Computer flashes one new cell per round — each round; the computer picks up a 
+random cell and flashes it briefly. It does NOT replay previous cells. 
+• 
+Player repeats the full sequence — after each flash, the player must click all cells in 
+the correct order from round 1 up to the current round. 
+• 
+Sequence grows one each round — if the player succeeds, a new random cell is 
+added and flashed; the player then repeats the longer sequence. 
+
+
+===== PAGE 5 =====
+• 
+Wrong input ends the game — if the player clicks the wrong cell at any point, the game 
+immediately ends and displays the final score. 
+• 
+Visual feedback on activation — cells light up with a glow effect when flashed by the 
+computer or clicked by the player. 
+• 
+Scoring: 
+o 
+Length of the sequence * 20 (For example if the length of the sequence is 5 cells 
+then resulting score is 5*20 i.e 100) 
+  
+Reference: Simon Says — Classic Sequence Memory (mathsisfun.com) 
+The above link is just for reference. The requirements mentioned supersede. 
+ 
+  
+Game 3: Spot the Difference  
+Inspired by: Visual discrimination tasks used in IQ assessments and classic "spot the difference" puzzle 
+formats popularized in print and digitally (e.g., CrazyGames "What's the Difference").  
+  
+Objective: Identify all predefined differences between two near-identical images as quickly as 
+possible, within a 3-minute window.  
+  
+• 
+Two near-identical images are displayed side-by-side on screen, with a fixed 
+number of predefined difference regions embedded in one image.  
+• 
+The player taps the region on either image where they believe a difference exists.  
+• 
+Correct tap: the difference is highlighted and locked; points are awarded. Incorrect tap: a 
+penalty is applied and the miss is recorded.  
+• 
+Scoring system (capped at 100 pts per game):  
+o 
+Base points per correct find (e.g., 10–15 pts depending on difficulty).  
+o 
+Speed bonus for completing all differences ahead of schedule.  
+o 
+Penalty deduction for each incorrect tap.  
+o 
+Hint usage deducts a fixed number of points per hint used.  
+• 
+Game state tracking: number of differences found, remaining differences, time elapsed, 
+and tap attempts are all tracked throughout the session.  
+• 
+Difficulty scaling: Increase the number of differences, reduce their visual prominence, or 
+decrease the available time window in later stages.  
+  
+Reference: CrazyGames — What's the Difference Online  
+  
+  
+Game 4: MCQ — General Knowledge  
+Inspired by: Adaptive quiz formats used by platforms like Duolingo (XP-based scoring), Quizlet Live, and 
+Britannica's skill-based trivia systems.  
+  
+
+
+===== PAGE 6 =====
+Objective: Answer as many correctly-tiered multiple-choice general knowledge questions as 
+possible within a 2-minute time window.  
+  
+• 
+Questions are drawn from a pre-curated General Knowledge bank spanning history, 
+science, geography, culture, and current affairs.  
+• 
+The difficulty system operates on three tiers: Easy (5 pts), Medium (10 pts), Hard (20 
+pts).  
+• 
+Adaptive Difficulty Engine:  
+o 
+2 consecutive correct answers → level increases (Easy → Medium → Hard).  
+o 
+2 consecutive incorrect answers → level decreases (Hard → Medium → Easy).  
+• 
+Both questions and answer options can contain images (e.g., identify a flag, a 
+landmark, or a famous personality).  
+• 
+Score = sum of points from all correct answers within the 2-minute window.  
+• 
+No negative marking in Stage 1.  
+  
+  
+  
+ 
+  
+STAGE 2  |  "The Kinetic Pulse"  
+द्वतीय चरण  |  रफ्तार का महाराज  
+"Thought is a luxury. Here, only your instincts survive."  
+  
+Stage 2 shifts the evaluation lens from pure memory to reaction time and spatial problem-
+solving speed. Drawing from competitive puzzle gaming (e.g., Tetris, 2048, Rush Hour), this 
+stage rewards players who think fast and execute accurately. Hesitation is penalised — the 
+faster a player solves a challenge, the higher their score.  
+  
+Stage 2 Game Summary Table  
+#  
+Game  
+Time Window  
+Evaluation Criteria  
+Shunya Points  
+1  Sliding Puzzle (3x3 
+with numbered tiles) 
+5 mins (max)  
+Reaction Time  
+0 if solved ≤5s; 
+else (Window − 
+Time Taken)  
+2  Colour-Based Sorting  
+3 mins (max)  
+Completion + Efficiency  
+Up to 100 (base + 
+speed + efficiency 
+bonuses)  
+
+
+===== PAGE 7 =====
+3  Block Fill  
+3 mins (max)  
+Completion + Speed  
+Time Window − 
+Time Taken  
+4  MCQ — Mathematics  
+2 mins  
+(time-bound)  
+Correct Answers  
+Easy: 5 | Med: 10 
+| Hard: 20  
+  
+Scoring Note (Reaction Time Games):  Score = (Time Window in seconds) − (Time Taken in 
+seconds). If solved in 0–5 seconds, score = 0 (anti-exploit guard). Example: Solved in 47s on a 120s 
+window → Score = 73 pts.  
+  
+  
+Game 1: Sliding Puzzle  
+Inspired by: The classic 15-Puzzle (invented 1878), popularised digitally on early Nokia phones and 
+modern apps like "Slide Puzzle — Classic Game" on iOS/Android.  
+  
+Objective: Reassemble a scrambled image on a 3x3 grid by sliding tiles into the correct 
+positions as fast as possible.  
+  
+• 
+The screen displays a 3x3 grid containing 9 tiles (one tile is empty to allow movement).  
+• 
+A completed reference image is flashed to the player for 5 seconds to memorise the 
+target state.  
+• 
+After 5 seconds, the tiles are algorithmically scrambled. Solvability is always guaranteed 
+via parity check.  
+• 
+The player slides tiles into the empty space to reconstruct the original image.  
+• 
+A move counter and timer are displayed; only the timer affects scoring.  
+• 
+Result: Successful reconstruction = Win. Score = Time Window (120s) minus Time 
+Taken. Unsolved within 2 minutes = Lose (0 pts).  
+• 
+Image bank: Use abstract patterns rather than real images to avoid recognition bias.  
+  
+Reference: Sliding Puzzle — Brain Training (helpfulgames.com)  
+  
+  
+Game 2: Colour-Based Sorting  
+Inspired by: "Ball Sort Puzzle" (AppStore Top Chart, 2020–present) and colour-classification cognitive 
+tasks used in attention research.  
+  
+Objective: Sort all coloured balls into their matching test tubes — each tube must contain only 
+one colour when complete.  
+  
+
+
+===== PAGE 8 =====
+• 
+The screen presents multiple test tubes (stack structures), each partially filled with 
+coloured balls arranged in a mixed order.  
+• 
+Only the top ball of any tube can be moved. A ball may only be placed on another tube if 
+the top ball there matches its colour, or the tube is empty — and the tube has not 
+exceeded its capacity.  
+• 
+The player can undo moves and reset the board; both actions carry a scoring penalty.  
+• 
+Completion is detected automatically when all tubes contain only a single colour from top 
+to bottom.  
+• 
+Scoring system (capped at 100 pts):  
+o 
+Base score: 60 points awarded upon successful completion.  
+▪ 
+Efficiency bonus: up to 25 points based on fewer moves relative to the optimal 
+move threshold. 
+o 
+Speed bonus: up to 10 points for faster completion. 
+• 
+Difficulty scaling: Increase the number of tubes, number of colours, or stack depth in 
+later stages. 
+  
+Reference: Ball Sort Puzzle — Yandex Games  
+  
+  
+Game 3: Block Fill  
+Inspired by: "Flow Free" (Big Duck Games), the Hamiltonian path problem in graph theory, and puzzle 
+games that require complete path traversal.  
+  
+Objective: Draw a single continuous path — without lifting your finger — that passes through 
+every "enabled" cell in a 8x8 grid.  
+  
+• 
+The screen shows a 8x8 grid (64 cells total). 
+• 
+The grid will contain dots of multiple colors. There will always be 2 dots of the same 
+color. 
+• 
+The player is expected to draw a line connecting both the dots. A line cannot intersect 
+with another line. 
+• 
+Resetting the board is allowed. 
+• 
+Result: All dots connected = Win. Score = Time Window minus Time Taken.  
+• 
+Puzzle sets are pre-validated to guarantee at least one valid solution exists per 
+configuration. 
+• 
+Difficulty scaling: Increase the grid size. 
+  
+Reference: Flow Mania — CrazyGames  
+  
+  
+
+
+===== PAGE 9 =====
+Game 4: MCQ — Mathematics  
+Inspired by: Competitive math challenge formats such as MATHCOUNTS, Vedic Math quizzes, and 
+adaptive platforms like Khan Academy's mastery system.  
+  
+Objective: Answer as many mathematics MCQs as possible within 2 minutes, across an 
+adaptive difficulty range.  
+  
+• 
+Question bank covers: arithmetic, basic algebra, percentages, ratios, geometry, and 
+number theory at the Easy level; progressively introducing speed-maths, data 
+interpretation, and logical number sequences at Medium/Hard.  
+• 
+Same adaptive difficulty engine as Stage 1 MCQ applies (2 correct → level up; 2 
+incorrect → level down).  
+• 
+Questions may include numerical diagrams, graphs, or geometric figures as part of the 
+image-answer system.  
+• 
+No negative marking. Score = sum of all correct answers in the allotted window.  
+  
+  
+  
+ 
+  
+STAGE 3  |  "The Mind Labyrinth" ततीयृ 
+चरण  |  मन का महाभलभ  लय ैु ूा  
+"The maze has no walls — it is built entirely inside your 
+head."  
+  
+Stage 3 is the convergence stage — the first to simultaneously test correctness and reaction 
+time. This stage evaluates higher-order thinking: logical deduction, spatial navigation, and 
+associative memory. Inspired by escape room design principles and dual-task cognitive 
+experiments, this is where the cognitive elite begin to separate from the rest.  
+  
+Stage 3 Game Summary Table  
+#  
+Game  
+Time Window  
+Evaluation Criteria  
+Shunya Points  
+1  
+MCQ — Logical 
+Reasoning  
+2 mins (max)  
+Correct Answers  
+Easy: 5 | Med: 10 | 
+Hard: 20  
+2  Maze Navigation  
+2 mins (max)  
+Win/Lose + Reaction 
+Time  
+Win: 50 pts +  
+(Window − Time  
+Taken)  
+
+
+===== PAGE 10 =====
+3  Memory Card Matching  
+3 mins (max)  
+Win/Lose + Reaction 
+Time  
+Win: 50 pts +  
+(Window − Time  
+Taken)  
+4  MCQ — Mythology  
+2 mins  
+(time-bound)  
+Correct Answers  
+Easy: 5 | Med: 10 | 
+Hard: 20  
+  
+Note on Merged Pool:  Upon completing Stage 3, all remaining weekly cohorts are merged into a 
+single participant pool. Stage 4 onwards is a unified competition.  
+  
+  
+Game 1: MCQ — Logical Reasoning  
+Inspired by: Competitive aptitude formats used in CAT, GMAT, and Mensa IQ tests. Similar to game 
+mechanics in "Brain It On!" and the Lumosity Logic series.  
+  
+Objective: Solve logical reasoning MCQs that test pattern recognition, deductive reasoning, 
+syllogisms, and analogical thinking.  
+  
+• 
+Question types include: number series, letter patterns, analogies (A:B :: C:?), odd-one-
+out, coding-decoding, and logical deduction (If-then statements).  
+• 
+Same adaptive difficulty engine applies. Questions are strictly text-based or 
+accompanied by diagrams/grids.  
+• 
+No negative marking. Score = sum of correctly answered questions within 2 minutes.  
+  
+  
+Game 2: Maze Navigation  
+Inspired by: Classic maze puzzle games and algorithmic maze-solving challenges (DFS/BFS pathfinding). 
+Cognitive research on spatial navigation and mental rotation tasks.  
+  
+Objective: Navigate a player token from the entry point to the exit of a procedurally generated 
+maze as quickly as possible.  
+  
+• 
+The maze is displayed on screen in full at the start of the attempt. 
+• 
+The player uses swipe gestures (Up, Down, Left, Right). 
+• 
+Dead ends are incorporated as deliberate traps; the player must backtrack.  
+• 
+The maze has exactly one optimal solution path. Multiple routes may exist, but only one 
+is shortest.  
+• 
+Result: Reaching the exit = Win (50 base pts + reaction time bonus). Failure to exit 
+within 2 minutes = Lose (0 pts).  
+  
+
+
+===== PAGE 11 =====
+Reference: Maze: Path of Light — Poki  
+  
+  
+Game 3: Memory Card Matching  
+Inspired by: The foundational "Concentration" card game and its digital adaptations. Scientifically linked to 
+episodic memory and working memory research (Baddeley, 1992).  
+  
+Objective: Find all matching pairs of cards on a face-down grid as quickly as possible, using 
+memory to minimise the number of flips.  
+  
+• 
+The grid contains an even number of cards (e.g., 4x4 = 16 cards, 8 unique pairs).  
+• 
+At the start of each round, all cards are briefly revealed face-up for 3 seconds, then 
+flipped face-down.  
+• 
+The player taps any card to flip it, then taps a second card attempting to find its match:  
+o 
+Matched pair: Both cards remain face-up and are locked in place.  
+o 
+Non-matching pair: Both cards flip back face-down after a 1-second display.  
+• 
+Card content types: Symbol pairs, colour pairs, image pairs, or word-image pairs.  
+• 
+Result: All pairs matched = Win (50 base pts + reaction time bonus). Failure to match all 
+within 3 minutes = Lose (0 pts).  
+• 
+Difficulty scaling: Increase grid size. 
+  
+Reference: Memory Card Game — SolitaireBliss  
+  
+  
+Game 4: MCQ — Mythology  
+Inspired by: Cultural knowledge quizzes as seen in "Jeopardy!" category design and specialised 
+mythology trivia apps (e.g., "MythMaster").  
+  
+Objective: Answer mythology-themed MCQs spanning Hindu, Greek, Roman, Norse, Egyptian, 
+and global folklore traditions.  
+  
+• 
+Question types: Identify a deity from a description, match a mythological weapon to its 
+owner, complete a legend, or identify a symbol or artefact.  
+• 
+Questions and answer options may include illustrative artwork or iconography.  
+• 
+Same adaptive difficulty engine applies. Score = sum of correctly answered questions 
+within 2 minutes.  
+  
+  
+  
+ 
+
+
+===== PAGE 12 =====
+  
+STAGE 4  |  "The Crucible of Will"  
+चतथैु चरण  |  सकं ल्प की अअ न  
+"Skill brought you here. Only those who refuse to break will leave."  
+  
+Stage 4 marks the beginning of the post-bucketing phase, where all surviving cohorts compete 
+together in a unified pool for the first time. This stage introduces a new dimension: persistence. 
+Games here have no hard win conditions — players are tested on how long they can sustain 
+performance, how deep they can go, and how composed they remain under escalating 
+pressure.  
+  
+Stage 4 Game Summary Table  
+#  
+Game  
+Time Window  
+Evaluation Criteria  
+Shunya Points  
+1  
+MCQ Rapid Fire (2 incorrect 
+= out)  
+5 mins (max)  
+Correct Answers  
+10 pts per 
+correct answer  
+2  Skill Memory Test — 
+Sequence (3×3)  
+5 mins (max)  
+Levels Cleared + 
+Speed  
+2 × Levels + 
+(Level × 2s per 
+attempt)  
+3  Mini Sudoku (Easy)  
+5 mins (max)  
+Win/Lose + Reaction  
+Win: 100 pts +  
+(Window − Time  
+Taken)  
+4  Path Optimisation  
+5 mins (max)  
+Win/Lose + Efficiency  
+Win: 100 pts + 
+efficiency bonus  
+  
+Game 1: MCQ Rapid Fire (2 Incorrect = Out)  
+Inspired by: "Who Wants to Be a Millionaire" elimination format and "Fastest Finger First" rapid-answer 
+game mechanics.  
+  
+Objective: Answer as many MCQs as possible within 5 minutes — but two cumulative incorrect 
+answers will immediately end the session.  
+  
+• 
+Questions are delivered in rapid succession with minimal pause between them.  
+• 
+Theme: Mixed — covering all prior MCQ themes plus current affairs, science, and 
+technology.  
+• 
+A persistent "Strike Counter" is visible on screen (0/2 incorrect). Two strikes at any point 
+terminate the player's session immediately.  
+
+
+===== PAGE 13 =====
+• 
+Score = 10 pts per correct answer. No partial credit. No adaptive difficulty — questions 
+are served at a fixed randomised difficulty.  
+• 
+This game directly rewards breadth of knowledge and sustained performance under 
+psychological pressure.  
+  
+  
+Game 2: Skill Memory Test — Sequence (3×3)  
+Inspired by: "Simon Says" electronic games and the N-Back working memory paradigm widely used in 
+cognitive psychology research.  
+  
+Objective: Observe and reproduce an increasingly complex sequence of highlighted cells on a 
+3×3 grid, advancing through levels until a mistake is made.  
+  
+• 
+Level 1: A sequence of 3 cells lights up in order. The player must tap them back in the 
+same order.  
+• 
+Each subsequent level adds one additional cell to the sequence.  
+• 
+Scoring: 2 × (Number of Levels Completed). Each level also has a time component — 
+Level × 2 seconds per attempt window. Faster completion earns bonus time credit.  
+• 
+A single mistake on any level ends the game immediately. No second chances within the 
+session.  
+• 
+Maximum sequence length can reach 12–15 cells at the highest levels.  
+ 
+Reference: https://humanbenchmark.com/tests/sequence 
+  
+  
+Game 3: Mini Sudoku (Easy — 6×6)  
+Inspired by: Classic Sudoku (popularised globally post-2004). Digital implementations include NYT 
+Sudoku, Sudoku.com, and competitive Sudoku apps with sub-60s leaderboards.  
+  
+Objective: Complete a 6×6 Sudoku grid as quickly as possible.  
+  
+• 
+A 6×6 grid is pre-populated with a valid, uniquely solvable puzzle (typically 12–15 
+starting clues for Easy difficulty).  
+• 
+Each row and each column must contain the digits 1–6 exactly once.  
+• 
+The grid is divided into six 2×3 sub-boxes, each also requiring the digits 1–6 exactly 
+once.  
+• 
+Input method: Tap a cell → tap a digit from the 1–6 keypad. Pencil-marking (candidate 
+notes) is available as a helper tool.  
+• 
+Result: Correctly filled grid = Win (100 pts + reaction time bonus). Incorrect submission 
+or timeout = Lose (0 pts).  
+• 
+Progression note: Stage 5 introduces standard 9×9 Sudoku at Medium or Hard difficulty.  
+
+
+===== PAGE 14 =====
+  
+  
+Game 4: Path Optimisation  
+Inspired by: The Travelling Salesman Problem (TSP), "Cut the Rope" routing mechanics, and IBM's 
+annual "Ponder This" competitive puzzle challenges.  
+  
+Objective: Find the shortest or most efficient path that visits all required checkpoint nodes on a 
+grid-based network within the time limit.  
+  
+• 
+The screen displays a grid with a set of checkpoint nodes (5–10 nodes at Easy difficulty) 
+connected by weighted or unweighted edges.  
+• 
+The player starts at a defined origin node and must visit all checkpoint nodes — either 
+returning to origin (closed-loop variant) or reaching a defined destination (open-path 
+variant).  
+• 
+The player draws the path by tapping nodes in sequence. The current path length (in 
+steps or cost units) is displayed in real time.  
+• 
+Multiple valid paths exist; the game rewards the most optimal path found within the time 
+window.  
+• 
+Result: All required nodes visited = Win. Bonus points are awarded for path efficiency 
+relative to the pre-calculated optimal solution.  
+• 
+Difficulty scaling: Increase node count, introduce weighted edges, or add blocked and 
+dynamic edges.  
+  
+  
+  
+ 
+  
+STAGE 5  |  "The Final Reckoning" 
+पचंम चरण  |  अंतम परीक्षा  
+"Everything you learned, everything you endured — this is where it 
+counts."  
+Stage 5 is the final online stage and the last round of the post-bucketing phase. It does not 
+introduce entirely new game types — instead, it re-examines the same core skills tested across 
+Stages 1–4, but at elevated difficulty and with tighter time pressure. Players who reach Stage 5 
+have already proven speed, memory, and knowledge. Now they must prove mastery. Only a few 
+hundred will survive to receive their invitation to the Offline Finale.  
+  
+Stage 5 Game Summary Table  
+#  
+Game  
+Time Window  
+Evaluation Criteria  
+Shunya Points  
+
+
+===== PAGE 15 =====
+1  Connections  
+5 mins (max)  
+Correct Groups + 
+Streak  
+5–10 pts per 
+group; streak 
+bonuses apply  
+2  
+Sliding Puzzle (Advanced)  
+(3x3 without numbered 
+tiles) 
+5 mins (max)  
+Win/Lose + Reaction 
+Time  
+Time Window − 
+Time Taken  
+3  Maze Navigation (Hard)  
+5 mins (max)  
+Win/Lose + Reaction 
+Time  
+Win: 50 pts +  
+(Window − Time 
+Taken)  
+4  
+MCQ Rapid Fire (2 
+incorrect = out)  
+5 mins (max)  
+Correct Answers  
+10 pts per 
+correct answer  
+  
+  
+Game 1: Connections  
+Inspired by: The New York Times "Connections" puzzle — a category-grouping game that tests 
+vocabulary, lateral thinking, and cultural knowledge simultaneously.  
+  
+Objective: On a 3×3 grid of tiles, continuously identify and connect groups of related items (by 
+theme, category, pattern, or logic) within a fixed 2-minute session window.  
+  
+• 
+Game Loop: Players identify valid groups of tiles that share a hidden connection (e.g., 
+types of birds, words that follow "fire," things associated with a particular deity). Correct 
+groups clear from the board and new tiles dynamically replace them.  
+• 
+Time Constraint: Each session lasts approximately 2 minutes, rewarding rapid pattern 
+recognition and quick decision-making.  
+• 
+Scoring: Each correct connection awards 5–10 points. Consecutive correct groups 
+trigger a streak bonus, enabling a skilled player to accumulate approximately 100 points 
+in a full session.  
+• 
+Replayability: Infinite tile regeneration with increasing ambiguity and difficulty ensures 
+there is no hard score cap — players continue scoring until time expires.  
+• 
+Difficulty scaling: Increase the subtlety of the category connections (e.g., words with 
+double meanings, cross-cultural references) in harder rounds.  
+  
+Reference: Connections — New York Times Games  
+  
+  
+Game 2: Sliding Puzzle (Advanced)  
+Inspired by: The classic 15-Puzzle. Stage 5 variant increases difficulty with a larger grid and reduced 
+reference time.  
+  
+
+
+===== PAGE 16 =====
+Refer to the explanation provided above. 
+  
+  
+Game 3: Maze Navigation (Hard)  
+Inspired by: Algorithmic maze generation (recursive backtracking, Prim's algorithm). Hard variant 
+introduces fog of war and larger grid dimensions.  
+  
+Objective: Navigate a player token from entry to exit. 
+  
+• 
+Increased grid size. 
+• 
+Controls remain the same: swipe gestures 
+• 
+Dead ends are more frequent and deliberate in the hard layout. Backtracking is expected 
+and factored into the time window.  
+• 
+Result: Reaching the exit = Win (50 base pts + reaction time bonus). Failure within 5 
+minutes = Lose (0 pts).  
+  
+Reference: Maze: Path of Light — Poki  
+  
+  
+Game 4: MCQ Rapid Fire (2 Incorrect = Out)  
+Inspired by: "Who Wants to Be a Millionaire" elimination format and "Fastest Finger First" rapid-answer 
+game mechanics.  
+Objective: Answer as many MCQs as possible within 5 minutes — but two cumulative incorrect 
+answers will immediately end the session.  
+  
+• 
+Same rules as Stage 4's Rapid Fire, but drawn from a harder question bank skewed 
+towards Medium and Hard difficulty tiers.  
+• 
+Theme: Mixed — all prior topics. Questions may deliberately combine themes (e.g., a 
+logical reasoning problem framed in a mythology context).  
+• 
+Strike Counter visible on screen (0/2). Two strikes = immediate session end.  
+• 
+Score = 10 pts per correct answer. No partial credit. No adaptive difficulty.  
+  
+  
+  
+ 
+  
+Appendix: Cross-Stage Mechanics  
+  
+
+
+===== PAGE 17 =====
+Scoring Philosophy  
+Shunya uses a composite scoring approach that rewards distinct cognitive dimensions 
+depending on the stage:  
+  
+Stage  
+Primary Dimension  
+Secondary Dimension  
+Tertiary Dimension  
+Stage 1  
+Correctness (memory 
+accuracy)  
+Knowledge breadth  
+—  
+Stage 2  
+Reaction time  
+Spatial problem-solving  
+—  
+Stage 3  
+Correctness + Speed (dual)  Spatial navigation  
+Cultural knowledge  
+Stage 4  
+Persistence under pressure  Strategic depth  
+Time optimisation  
+Stage 5  
+Mastery synthesis  
+Speed under familiarity  
+Pattern recognition  
+  
+  
+Adaptive MCQ Engine — Detailed Behaviour  
+Condition  
+Action  
+Points per Question  
+Starting state  
+Begin at Easy  
+5 pts  
+2 consecutive correct answers  
+Level increases (Easy → Med → 
+Hard)  
+10 pts / 20 pts  
+Condition  
+Action  
+Points per Question  
+2 consecutive incorrect 
+answers  
+Level decreases (Hard → Med → 
+Easy)  
+10 pts / 5 pts  
+Already at min/max level  
+Level stays; streak counter resets  
+Unchanged  
+  
+  
+Game Integrity & Anti-Cheat Considerations  
+• 
+All puzzle configurations (mazes, sliding puzzles, Sudoku, Block Fill) are server-side 
+validated to guarantee exactly one solvable state per session. (For games with efficiency 
+marks, all possible solutions should be validated) 
+• 
+Reaction time scoring implements a 0–5 second grace-period floor to eliminate exploit 
+scenarios (e.g., pre-clicking, auto-bots).  
+
+
+===== PAGE 18 =====
+• 
+MCQ question banks must be rotated per cohort-session to prevent question farming or 
+sharing across users.  
+• 
+Session tokens should be invalidated immediately upon detecting abnormal input timing 
+patterns (sub-100ms consistent responses across 10+ MCQs).  
+ 
+Guide 
+• 
+To make users familiar with games it’s expected that before the game is started a 5-10 
+second animation (not video) is displayed with a sample game step. 
+  
+Game Reference Links  
+The following external games and frameworks were referenced during game design for Shunya:  
+  
+• 
+Simon Says (Hasbro, 1978) — Sequence memory benchmark for Sequence Recall 
+design.  
+• 
+Concentration / Memory — Classic card-matching reference for Memory Card Matching.  
+• 
+Ball Sort Puzzle (AppStore, 2020+) — Reference for Colour-Based Sorting mechanics.  
+• 
+Flow Free (Big Duck Games) — Reference for Block Fill path-drawing mechanics.  
+• 
+Sudoku.com / NYT Sudoku — Reference UX implementations for Mini Sudoku.  
+• 
+Corsi Block-Tapping Test (Corsi, 1972) — Cognitive psychology basis for Sequence 
+Recall.  
+• 
+Kahoot! / Quizlet Live — Adaptive quiz scoring inspiration for the MCQ engine.  
+• 
+IBM Ponder This (ibm.com/community/ponder) — Path optimisation puzzle design 
+reference.  
+• 
+NYT Connections (nytimes.com/games/connections) — Category grouping design for 
+Connections game.  
+• 
+CrazyGames "What's the Difference" — Visual discrimination reference for Spot the 
+Difference.  
+  
+  
+ 
+SHUNYA Gaming Engine — Scope Document v1.2  
+Confidential — Internal Use Only  

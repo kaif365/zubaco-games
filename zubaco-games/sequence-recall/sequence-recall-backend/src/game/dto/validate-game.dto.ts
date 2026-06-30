@@ -4,7 +4,10 @@ import { z } from 'zod';
 const ValidateGameSchema = z.object({
     gameSessionId: z.string().trim().min(1, 'gameSessionId is required'),
     roundNumber: z.number().int().min(0, 'roundNumber must be greater than or equal to 0'),
-    playerSequence: z.array(z.number().int().positive()).min(1, 'playerSequence is required'),
+    playerSequence: z
+        .array(z.number().int().positive())
+        .min(1, 'playerSequence is required')
+        .max(1000, 'playerSequence exceeds maximum length'),
     sequenceEvents: z
         .array(
             z.object({
@@ -12,6 +15,7 @@ const ValidateGameSchema = z.object({
                 sequenceTimestamp: z.string(),
             }),
         )
+        .max(1000, 'sequenceEvents exceeds maximum length')
         .optional(),
     timestamp: z.string(),
     isCorrect: z.boolean(),

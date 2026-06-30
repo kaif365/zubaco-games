@@ -1,4 +1,4 @@
-import { BLOCK_TYPE } from "@common/constants";
+import { BLOCK_TYPE, GAME_CONFIGS } from "@common/constants";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
@@ -22,7 +22,7 @@ const MoveSchema = z.object({
 });
 
 export const SubmitMovesSchema = z.object({
-  moves: z.array(MoveSchema).min(1),
+  moves: z.array(MoveSchema).min(1).max(GAME_CONFIGS.SUBMIT_MOVES_MAX_BATCH),
 });
 
 export class SubmitMovesDto extends createZodDto(SubmitMovesSchema) {}

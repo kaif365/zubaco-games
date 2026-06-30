@@ -9,7 +9,8 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import * as jwt from 'jsonwebtoken';
+
+import { verifyToken } from '../common/utils/token.util';
 
 @WebSocketGateway({
   cors: {
@@ -34,9 +35,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      const secret = process.env.JWT_SECRET || 'dev-secret';
-      const decoded = jwt.verify(token, secret) as { sub: string };
-      const userId = decoded.sub;
+      const decoded = verifyToken(token);
+      const userId = decoded.userId;
 
       client.data.userId = userId;
       client.join(`user:${userId}`);

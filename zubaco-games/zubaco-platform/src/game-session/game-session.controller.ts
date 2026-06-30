@@ -32,6 +32,7 @@ export class GameSessionController {
       ipAddress,
       deviceFingerprint,
       deviceComponents,
+      clientSeed: dto.client_seed,
     });
   }
 

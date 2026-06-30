@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { FreePlayService } from './free-play.service';
 import { EnergyService } from './energy.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -42,8 +42,14 @@ export class FreePlayController {
   }
 
   @Post('start')
-  async startLevel(@CurrentUser() userId: string, @Body() dto: StartLevelDto) {
-    return this.freePlayService.startLevel(userId, dto.game_type, dto.level);
+  async startLevel(@CurrentUser() userId: string, @Body() dto: StartLevelDto, @Req() req: any) {
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    const deviceFingerprint = req.headers['x-device-fingerprint'] || undefined;
+    return this.freePlayService.startLevel(userId, dto.game_type, dto.level, dto.client_seed, {
+      ipAddress,
+      deviceFingerprint,
+      deviceComponents: dto.device_components,
+    });
   }
 
   @Post('submit')

@@ -36,8 +36,9 @@ export class WalletCleanupService {
   }
 
   /**
-   * Daily at 3 AM IST: reconcile wallet balances
-   * Flag any user whose wallet.balance doesn't match transaction sum
+   * Daily at 3 AM IST: reconcile wallet balances.
+   * Flag any user whose stored wallet total (withdrawable balance +
+   * non-withdrawable bonus) doesn't match the ledger.
    */
   @Cron('0 3 * * *', { timeZone: 'Asia/Kolkata' })
   async dailyReconciliation() {
@@ -46,25 +47,48 @@ export class WalletCleanupService {
       select: { user_id: true, balance: true, bonus_balance: true },
     });
 
+    // One grouped aggregate over the whole ledger instead of two queries per
+    // wallet (WALLET-VAL-13).
+    const grouped = await this.prisma.transaction.groupBy({
+      by: ['user_id', 'type', 'status'],
+      _sum: { amount: true },
+    });
+
+    // Reconcile the COMBINED wallet total (balance + bonus_balance): every credit
+    // or debit moves the combined wallet by its full amount, so no cash/bonus
+    // split is needed. Credits = DEPOSIT / PRIZE_WIN / REFUND / REFERRAL_BONUS
+    // (COMPLETED). Debits = ENTRY_FEE (COMPLETED) + WITHDRAWAL (any status — the
+    // balance is debited at request time and re-credited by an explicit REFUND on
+    // payout failure). TDS_DEDUCTION and GST are informational (no balance delta)
+    // and are excluded (WALLET-VAL-05).
+    const expectedByUser = new Map<string, number>();
+    for (const g of grouped) {
+      const sum = Number(g._sum.amount || 0);
+      if (sum === 0) continue;
+      let delta = 0;
+      if (
+        g.status === 'COMPLETED' &&
+        (g.type === 'DEPOSIT' || g.type === 'PRIZE_WIN' || g.type === 'REFUND' || g.type === 'REFERRAL_BONUS')
+      ) {
+        delta = sum;
+      } else if (g.type === 'ENTRY_FEE' && g.status === 'COMPLETED') {
+        delta = -sum;
+      } else if (g.type === 'WITHDRAWAL') {
+        delta = -sum;
+      }
+      if (delta !== 0) {
+        expectedByUser.set(g.user_id, (expectedByUser.get(g.user_id) || 0) + delta);
+      }
+    }
+
     const discrepancies: { userId: string; expected: number; actual: number }[] = [];
-
     for (const wallet of wallets) {
-      const deposits = await this.prisma.transaction.aggregate({
-        where: { user_id: wallet.user_id, status: 'COMPLETED', type: { in: ['DEPOSIT', 'PRIZE_WIN', 'REFUND'] } },
-        _sum: { amount: true },
-      });
-
-      const debits = await this.prisma.transaction.aggregate({
-        where: { user_id: wallet.user_id, status: { in: ['COMPLETED', 'PENDING'] }, type: { in: ['WITHDRAWAL', 'ENTRY_FEE'] } },
-        _sum: { amount: true },
-      });
-
-      const expectedBalance = Number(deposits._sum.amount || 0) - Number(debits._sum.amount || 0);
-      const actualBalance = Number(wallet.balance);
+      const expected = expectedByUser.get(wallet.user_id) || 0;
+      const actual = Number(wallet.balance) + Number(wallet.bonus_balance);
 
       // Allow small floating point difference
-      if (Math.abs(expectedBalance - actualBalance) > 0.01) {
-        discrepancies.push({ userId: wallet.user_id, expected: expectedBalance, actual: actualBalance });
+      if (Math.abs(expected - actual) > 0.01) {
+        discrepancies.push({ userId: wallet.user_id, expected, actual });
       }
     }
 

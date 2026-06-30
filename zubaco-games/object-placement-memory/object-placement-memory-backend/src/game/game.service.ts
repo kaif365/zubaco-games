@@ -130,11 +130,6 @@ export class GameService {
       throw new BadRequestException('Game session has expired');
     }
 
-    // Limit placements to prevent DoS
-    if (placements.length > 100) {
-      throw new BadRequestException('Too many placements submitted');
-    }
-
     // SERVER-SIDE VALIDATION: Regenerate board from seed and verify placements
     const rng = this.mulberry32(session.seed ?? 0);
     const totalCells = snapshot.gridSize * snapshot.gridSize;
@@ -154,14 +149,18 @@ export class GameService {
       correctPlacements.set(selectedObjects[i], selectedCells[i]);
     }
 
-    // Validate each placement server-side (ignore client's isCorrect)
+    // Validate each placement server-side (ignore client's isCorrect), dedupe by objectId
     let correctCount = 0;
+    const scoredObjects = new Set<string>();
     for (const p of placements) {
+      if (scoredObjects.has(p.objectId)) continue;
+      scoredObjects.add(p.objectId);
       const expectedCell = correctPlacements.get(p.objectId);
       if (expectedCell !== undefined && expectedCell === p.placedCellIndex) {
         correctCount++;
       }
     }
+    correctCount = Math.min(correctCount, objectCount);
 
     const totalObjects = objectCount;
     const accuracy = totalObjects > 0 ? correctCount / totalObjects : 0;

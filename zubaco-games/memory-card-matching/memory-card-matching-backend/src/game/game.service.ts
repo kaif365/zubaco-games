@@ -10,6 +10,7 @@ import { PrismaService } from "@common/prisma/prisma.service";
 import { config } from "@config";
 import { HttpException, Injectable, Logger } from "@nestjs/common";
 import type { Level, Prisma } from "@prisma/client";
+import { randomInt } from "crypto";
 
 import {
   StageConfigService,
@@ -1478,7 +1479,7 @@ export class GameService {
     const copy = [...items];
 
     for (let index = copy.length - 1; index > 0; index -= 1) {
-      const randomIndex = Math.floor(Math.random() * (index + 1));
+      const randomIndex = randomInt(index + 1);
       [copy[index], copy[randomIndex]] = [copy[randomIndex], copy[index]];
     }
 

@@ -1,0 +1,373 @@
+================================================================================
+ZUBACO — ENTERPRISE LEADERBOARD ENGINE AUDIT
+================================================================================
+Audit type      : Audit ONLY (no code modified)
+Date            : 2026-06-26
+Scope           : The platform "Leaderboard Engine" — every reachable path that
+                  ingests a score, updates a ranking store, computes rank/tie
+                  order, serves global / endless / friends / stage / live-stage
+                  rankings, and feeds tournament qualification, elimination, and
+                  prize distribution.
+Verdict         : NOT PRODUCTION-READY as the authoritative ranking system for
+                  real-money tournaments and global rankings. The stage/elimination
+                  ranking that decides money is computed from the DATABASE with a
+                  deterministic multi-key tiebreak and is sound. BUT the Redis-backed
+                  ranking surfaces (global game leaderboard, live stage leaderboard,
+                  "my rank") are a SECOND, non-durable, non-reconciled source of
+                  truth with: no rebuild capability, engine-dependent divergence
+                  (Redis-only writes vs a DB fallback fed by one engine), single-key
+                  tie ordering that disagrees with the authoritative tiebreak,
+                  split-brain pagination across the Redis/DB boundary, unimplemented
+                  period (daily/weekly) boards, and no exclusion of banned/flagged
+                  users from any ranking. These are governed by existing strategic
+                  blockers SCORE-002 (durability/divergence), ACHEAT-001 (no cheater
+                  removal/retraction), and TOURN-001 (dual ranking control planes).
+
+Primary files examined (verified from source, not assumed):
+  src/leaderboard/leaderboard.service.ts     (getGameLeaderboard, getGameLeaderboardFromDb,
+       updateScore, getMyRank, getEndlessLeaderboard, getFriendsLeaderboard,
+       getStageLeaderboard, updateStageScore, getLiveStageLeaderboard,
+       getMyStageRank, clearStageLeaderboard)
+  src/leaderboard/leaderboard.controller.ts  (read endpoints, JwtAuthGuard)
+  src/leaderboard/leaderboard.module.ts      (providers/exports — no scheduler/rebuild)
+  src/common/redis/redis.service.ts          (zadd, zaddGt, zrevrange, zrevrank,
+       zscore, zcard, del)
+  src/tournament/tournament.service.ts       (submitTournamentResult -> updateStageScore)
+  src/tournament/elimination.service.ts      (runElimination ranking, distributePrizes
+       winner selection, clearStageLeaderboard)
+  src/game-session/game-session.service.ts   (submitResult -> updateScore; no gameProgress write)
+  src/free-play/free-play.service.ts         (submitResult -> gameProgress.best_score + updateScore)
+  prisma/schema.prisma                        (GameProgress.best_score/highest_level,
+       StageEntry.total_score/total_time_ms/rank/eliminated/completed_at, SeasonEntry)
+
+Verified integration call-site map (grep):
+  - leaderboard.updateScore():        free-play.submitResult (line 370),
+                                      game-session.submitResult (line 331).
+                                      NOT called by tournament submit.
+  - leaderboard.updateStageScore():   tournament.submitTournamentResult (line 337).
+  - leaderboard.clearStageLeaderboard(): elimination.runElimination (line 118).
+  - leaderboard.getLiveStageLeaderboard(): tournament.controller (line 91).
+  - gameProgress.best_score writer:   free-play.submitResult ONLY (lines 286/308/315).
+  - Redis zset writers:               updateScore -> zaddGt `lb:game:<type>:all-time`;
+                                      updateStageScore -> zadd `lb:stage:<id>`.
+  - Redis zset readers:               getGameLeaderboard, getMyRank,
+                                      getLiveStageLeaderboard, getMyStageRank.
+  - Redis zset rebuild/reconcile:     NONE (no cron, no method, no DB->Redis seed).
+
+================================================================================
+PHASE 1 — LEADERBOARD LIFECYCLE (END-TO-END TRACE)
+================================================================================
+Idealized chain: Game Completion -> Score Validation -> Leaderboard Update ->
+Ranking -> Tie Resolution -> Tournament Update -> Qualification -> Rewards ->
+Cache -> Queries.
+
+ACTUAL lifecycle (verified), by engine:
+
+  FREE-PLAY submit:
+    validateScore (hard reject > theoretical_max*1.1) -> atomic claim (outcome
+    COMPLETED) -> gameProgress.update {best_score = max(old,score), highest_level}
+    + levelResult upsert (in tx) -> THEN (non-blocking try/catch) anti-cheat ->
+    THEN (non-blocking try/catch) leaderboard.updateScore -> Redis zaddGt
+    `lb:game:<type>:all-time`. Writes BOTH DB (gameProgress) and Redis.
+
+  GENERIC GAME-SESSION submit:
+    validateScore -> atomic claim -> anti-cheat -> leaderboard.updateScore ->
+    Redis zaddGt ONLY. Does NOT write gameProgress.best_score. Redis is the sole
+    record of this score for the global board (SCORE-002 / LB-VAL-05).
+
+  TOURNAMENT submit:
+    hard bounds -> validateScore -> atomic tx: claim session + StageEntry
+    {total_score += score, total_time_ms += duration, games_played += 1} +
+    (when games_played >= totalGames) completed_at -> THEN (non-blocking
+    try/catch) leaderboard.updateStageScore -> Redis zadd `lb:stage:<id>` with
+    the cumulative total. Does NOT touch the global game board.
+
+  QUALIFICATION / ELIMINATION (cron + admin):
+    elimination.runElimination reads StageEntry FROM DB (completed_at != null),
+    orders by [total_score desc, total_time_ms asc, registered_at asc, id asc],
+    assigns rank + eliminated, closes stage, clearStageLeaderboard (Redis del).
+    distributePrizes selects winners FROM DB with the same deterministic order.
+
+CRITICAL lifecycle observations:
+  - There are TWO ranking truths. Money decisions (elimination, prizes) read the
+    DATABASE with a full deterministic tiebreak — correct and Redis-independent.
+    User-facing live/global ranks read REDIS sorted sets with single-key ordering
+    — a different, non-durable surface that can disagree with the DB truth.
+  - Every leaderboard write is inside `try { ... } catch { /* non-blocking */ }`
+    on all three submit paths, so a Redis outage silently drops the ranking update
+    while the score/StageEntry total still persists. There is no retry, no queue,
+    and no later reconciliation, so Redis permanently lags DB after any failure.
+  - There is NO rebuild path: no DB->Redis seeding cron/method anywhere. A Redis
+    flush/restart empties every global and live-stage zset; only future submits
+    repopulate it, and only for the engines/users that submit again.
+
+================================================================================
+PHASE 2 — SCORE INGESTION
+================================================================================
+- Score acceptance: global board accepts via updateScore (zaddGt, write-if-higher
+  best score); stage board via updateStageScore (zadd, unconditional overwrite of
+  the cumulative total).
+- Validation: leaderboard performs NO validation of its own; it trusts the score
+  passed by the caller (already bound-checked/claimed upstream by the engine).
+- Duplicate scores: global zaddGt is idempotent for equal/lower scores (no change);
+  double-submit is already blocked upstream by the atomic outcome=null claim.
+- Invalid scores: cannot reach the leaderboard on the validated paths (hard reject
+  upstream). If a path bypassed validation, the leaderboard would store it verbatim.
+- Missing scores: a leaderboard write that throws is swallowed (non-blocking), so a
+  legitimately persisted score can be ABSENT from the ranking with no error surfaced
+  and no backfill.
+- Delayed scores: updateStageScore overwrites with the latest cumulative total via
+  plain `zadd` (no GT guard); an out-of-order/retried write of an older total can
+  REGRESS a player's live score (LB-VAL-04). The global path is GT-guarded so a late
+  lower score cannot lower the best, but a late HIGHER score from a stale read is
+  impossible because the engine passes the just-validated score.
+
+================================================================================
+PHASE 3 — RANKING
+================================================================================
+- Rank calculation: Redis-side via zrevrank (0-based -> +1) for "my rank"; via
+  zrevrange slice index for list rank. DB-side via orderBy + (skip + i + 1).
+- Ordering: Redis sorted sets order by score DESC; for EQUAL scores Redis falls
+  back to member (userId) lexicographic ASC. The DB stage order uses the full
+  tiebreak [total_score desc, total_time_ms asc, registered_at asc, id asc].
+- Tie-breaking: AUTHORITATIVE (elimination/prizes/getStageLeaderboard) tiebreak by
+  time -> registration -> id (deterministic, fair, SCORE-TB-01 fixed). REDIS
+  surfaces (getMyRank, getGameLeaderboard, getMyStageRank, getLiveStageLeaderboard)
+  CANNOT express the secondary keys — equal scores are ranked by userId string, so
+  the live/global rank shown to a user can differ from the final money rank for tied
+  scores (LB-VAL-03). The global DB fallback orders by best_score only, with NO
+  secondary key at all (non-deterministic among ties).
+- Stable ordering: DB order is stable (id tiebreak). Redis order is stable only by
+  userId, not by any competitive criterion.
+- Duplicate entries: a zset holds one member per userId (no duplicates). The
+  Redis-page-1 / DB-page-2 boundary, however, can show a user on both pages or skip
+  one because the two stores order differently (LB-VAL-02).
+- Missing entries: while a Redis zset has >=1 entry on the requested page, the Redis
+  branch returns it WITHOUT a DB top-up, so a user present in gameProgress/StageEntry
+  but absent from Redis (pre-population, partial loss, swallowed write) is invisible
+  (LB-VAL-07).
+
+================================================================================
+PHASE 4 — STORAGE
+================================================================================
+- Redis: global `lb:game:<type>:all-time` (zaddGt, no TTL); live stage
+  `lb:stage:<id>` (zadd, cleared on elimination close). These are the real-time
+  surfaces.
+- Database: GameProgress.best_score (global fallback source, written by FREE-PLAY
+  ONLY); StageEntry.total_score/total_time_ms/rank/eliminated (authoritative for
+  tournament money). gameProgress for endless/friends boards.
+- Synchronization: NONE between Redis and DB for the global board. updateScore
+  writes Redis only; gameProgress is written by a different engine path, so the two
+  stores diverge by engine (generic game-session scores never reach gameProgress)
+  (SCORE-002 / LB-VAL-05). The stage board mirrors StageEntry.total_score but is not
+  reconciled if a write is swallowed.
+- Cache invalidation: global zset is never invalidated/expired/rebuilt. Stage zset
+  is del'd once at elimination close (clearStageLeaderboard).
+- Recovery: NONE for the global board. After a Redis loss, getGameLeaderboard falls
+  back to gameProgress (free-play scores only); generic game-session global scores
+  are unrecoverable. Live-stage rank falls back to getStageLeaderboard (DB) which is
+  intact, so stage display survives a Redis loss but loses live-rank continuity.
+- Rebuild capability: NONE. No DB->Redis seed routine exists for either board.
+
+================================================================================
+PHASE 5 — TOURNAMENT INTEGRATION
+================================================================================
+- Stage rankings: getStageLeaderboard (DB) uses the deterministic tiebreak and is
+  consistent with elimination. getLiveStageLeaderboard (Redis) is score-only and can
+  disagree on ties (LB-VAL-03) and at the Redis/DB page boundary (LB-VAL-02).
+- Tournament rankings: there is no cross-stage / seasonal Redis leaderboard; seasonal
+  standing is implicit in SeasonEntry.status (ACTIVE/ELIMINATED) + per-stage rank.
+- Qualification: decided by elimination.runElimination from DB ranks (survive top
+  ceil((1-pct)*N) finishers; non-finishers eliminated). The Redis live board does
+  NOT drive qualification — good (the money path is Redis-independent).
+- Elimination: DB-authoritative, deterministic, bounded in 500-row chunks; closes
+  stage and clears the Redis stage zset. Sound in isolation.
+- Winner selection: distributePrizes ranks DB StageEntry {eliminated:false,
+  completed_at!=null} with the same deterministic order. CORRECT ordering, BUT no
+  is_banned/flag filter — a banned/flagged cheater still ranks and is paid
+  (ACHEAT-001).
+- Dual control plane: the admin panel's elimination ranks ALL entries with NO time
+  tiebreaker and FLOOR cutoff, producing a different eliminated set than the platform
+  cron — the displayed/authoritative rank can differ depending on which plane ran
+  (TOURN-001).
+
+================================================================================
+PHASE 6 — GAMING ENGINE INTEGRATION
+================================================================================
+- Score updates: free-play and generic game-session submits call updateScore
+  (global); tournament submit calls updateStageScore (stage). Each is non-blocking.
+- Session completion: the leaderboard write happens AFTER the atomic outcome=COMPLETED
+  claim, so a counted score corresponds to a finalized session.
+- Duplicate submissions: blocked upstream by the outcome=null atomic claim
+  (ConflictException on re-submit); the leaderboard never sees a second write for the
+  same session.
+- Replay protection: NONE in the leaderboard itself; the leaderboard trusts the score
+  handed to it. Cross-engine finalization (GAME-001) means a TOURNAMENT session
+  finalized via the generic submit writes the GLOBAL board and skips the stage board
+  entirely — the score silently does not count toward qualification while still
+  appearing in global rankings.
+
+================================================================================
+PHASE 7 — ANTI-CHEAT INTEGRATION
+================================================================================
+- Cheater removal: NONE. No anti-cheat code path removes a member from
+  `lb:game:<type>:all-time` or `lb:stage:<id>`; the leaderboard service exposes no
+  removal/zrem method at all.
+- Flagged players: remain ranked; a raised CheatFlag has no leaderboard effect.
+- Banned players: banUser / applyPenalties / flagRealtime set is_banned / DISQUALIFIED
+  but never touch the zsets or StageEntry totals; every leaderboard READ
+  (getGameLeaderboard(FromDb), getEndlessLeaderboard, getFriendsLeaderboard,
+  getStageLeaderboard, getLiveStageLeaderboard) has NO is_banned filter, so banned
+  users keep their rank (LB-VAL-06).
+- Score invalidation: NONE. A disqualified session's score is already added to the
+  zset / StageEntry.total_score and is never decremented or removed.
+- Rank recalculation: NONE triggered by anti-cheat. (All of the above is the
+  leaderboard-side manifestation of ACHEAT-001.)
+
+================================================================================
+PHASE 8 — PERFORMANCE
+================================================================================
+- Large leaderboards: Redis ZREVRANGE/ZREVRANK/ZSCORE/ZCARD are O(log N + page) /
+  O(log N) — efficient for top-N and "my rank" at scale.
+- Thousands of players: the Redis read surfaces scale well; the per-page user-detail
+  hydrate is one batched `user.findMany({ id: { in } })` (bounded by page size).
+- Redis performance: writes are single O(log N) zadd/zaddGt; no hot multi-key ops.
+- Pagination: deep pages on the DB fallback use offset skip/take (O(skip)) — costly
+  for very deep pages; the Redis path is range-based (cheap) but only for page slices
+  that are fully inside the populated zset (else it spills to the costly DB offset
+  path mid-pagination, LB-VAL-02).
+- Top-N queries: efficient on Redis; getFriendsLeaderboard fetches ALL friends'
+  progress with NO pagination (unbounded result for users with very large friend
+  lists) — minor scalability concern (LB-VAL-08).
+
+================================================================================
+PHASE 9 — SECURITY
+================================================================================
+- Unauthorized updates: there is no public write endpoint; updateScore/updateStageScore
+  are internal service calls reached only through the validated submit pipelines.
+  Score injection risk lives upstream in the shared internal API key trust model
+  (AUTH-003), not in the leaderboard surface itself.
+- Rank manipulation: a client cannot write the zset directly; it can only influence
+  rank via a submitted score, which is bound-checked but client-asserted (GAME-002).
+- Duplicate updates: deduped by the upstream atomic claim; the zset is idempotent.
+- Cache poisoning: the only writers are trusted service calls; however a swallowed
+  write (non-blocking try/catch) leaves a stale/partial cache with no signal — a
+  reliability hole rather than an injection vector.
+- Redis consistency: no transaction spans the DB write and the Redis write; the two
+  can diverge on any failure, and there is no reconciliation to converge them.
+
+================================================================================
+PHASE 10 — EDGE CASES
+================================================================================
+- Equal scores: ranked by userId lexicographic on Redis surfaces (LB-VAL-03);
+  ranked by the deterministic tiebreak on DB/elimination/prizes.
+- Equal times: DB tiebreak continues to registered_at -> id; Redis surfaces ignore
+  time entirely.
+- Deleted users: zset members are raw userIds; a deleted user's id can linger in the
+  zset (no removal hook) and hydrate to `{ id }` only (user.findMany misses it),
+  showing a rank with no profile.
+- Banned users: still ranked and still prize-eligible (LB-VAL-06 / ACHEAT-001).
+- Late submissions: swallowed leaderboard write -> permanent Redis/DB divergence
+  (no backfill); stage `zadd` overwrite can regress on out-of-order writes
+  (LB-VAL-04).
+- Rollbacks: there is no score rollback/retraction path anywhere in the leaderboard
+  (ACHEAT-001).
+- Cache loss: global Redis loss is unrecoverable for generic game-session scores
+  (gameProgress never received them, LB-VAL-05); no rebuild routine (Phase 4).
+- Period boards: getGameLeaderboard accepts `period` and builds
+  `lb:game:<type>:<period>`, but updateScore only ever writes `:all-time`, and the DB
+  fallback ignores period — daily/weekly/monthly requests silently return all-time
+  data (or empty Redis -> all-time DB) (LB-VAL-01).
+
+================================================================================
+PHASE 11 — COMPLETENESS / PRODUCTION-READINESS
+================================================================================
+Is the Leaderboard Engine production-ready for real-money tournaments, global
+rankings, prize qualification, and millions of score updates? NO.
+
+What IS sound:
+  - The money-deciding ranking (stage elimination + prize winner selection) is
+    computed from the DATABASE with a deterministic, fair, multi-key tiebreak and is
+    independent of Redis availability.
+  - Redis read primitives are efficient and correct for top-N / my-rank at scale.
+
+Blocking realities (verified):
+  1. The global game leaderboard has no durable single source of truth: Redis-only
+     writes (zaddGt) with a DB fallback fed by the free-play engine only; generic
+     game-session scores never reach gameProgress, and a Redis flush loses them with
+     no rebuild path (SCORE-002 / LB-VAL-05).
+  2. No anti-cheat retraction: banned/flagged/disqualified users are never removed
+     from any zset or StageEntry total and are never filtered out of any leaderboard
+     read or prize selection (ACHEAT-001 / LB-VAL-06).
+  3. Redis ranking surfaces order ties by userId, disagreeing with the authoritative
+     time/registration/id tiebreak, and pagination splits inconsistently across the
+     Redis/DB boundary (LB-VAL-02/03).
+  4. Two divergent tournament ranking control planes (platform cron vs admin panel)
+     can assign different ranks/eliminations for the same stage (TOURN-001).
+
+Can it safely support real-money tournaments, global rankings, prize qualification,
+and millions of score updates? NO — the user-facing rankings are a non-durable,
+non-reconciled second source of truth that diverges by engine and on failure, cannot
+be rebuilt, ignore the authoritative tiebreak, present period boards that are not
+implemented, and never exclude banned cheaters from rank or payout.
+
+================================================================================
+STRATEGIC BLOCKERS (require redesign — recorded in BLOCKERS.md)
+================================================================================
+  RE-CONFIRMED (not re-added):
+    SCORE-002   Global game leaderboard has no durable single source of truth —
+                Redis-only writes with a DB fallback fed by the free-play engine
+                only; rankings diverge by engine and are lost on a Redis flush; no
+                rebuild/reconciliation. (Governs LB-VAL-01/02/03/05/07.)
+    ACHEAT-001  Detection-only with no enforcement/retraction — no leaderboard
+                removal, score invalidation, rank recalculation, or banned-user
+                exclusion; prize selection has no is_banned filter. (Governs
+                LB-VAL-06.)
+    TOURN-001   Two divergent, uncoordinated tournament ranking/elimination control
+                planes (platform cron vs admin panel) over the same Stage/Entry
+                tables produce different ranks for the same stage.
+    GAME-001    Client-selected finalization endpoint guarded only by outcome=null
+                lets a TOURNAMENT session be finalized via the generic submit, which
+                writes the GLOBAL board and skips the stage board/qualification.
+    GAME-002 / AUTH-003   Scores written to the leaderboard are client-asserted and
+                injectable via the shared internal API key; no server-authoritative
+                re-validation.
+
+  NEWLY RECORDED: none. Every strategic leaderboard defect is already governed by an
+  existing blocker above; no new redesign blocker is introduced by this audit.
+
+NON-BLOCKER LOCALIZED DEFECTS (for a future Leaderboard Fix; cited above):
+  LB-VAL-01  getGameLeaderboard accepts a `period` and builds `lb:game:<type>:<period>`,
+             but updateScore only ever writes `:all-time` and getGameLeaderboardFromDb
+             ignores `period` — daily/weekly/monthly boards silently return all-time
+             data (or empty Redis -> all-time DB).
+  LB-VAL-02  Pagination split-brain: getGameLeaderboard / getLiveStageLeaderboard serve
+             a page from Redis when its slice is non-empty but fall back to the DB
+             (different ordering) for any page whose Redis slice is empty, so adjacent
+             pages can duplicate or drop users and show inconsistent ranks.
+  LB-VAL-03  Redis tie ordering ignores the authoritative secondary keys. getMyRank /
+             getGameLeaderboard / getMyStageRank / getLiveStageLeaderboard rank equal
+             scores by userId lexicographic, disagreeing with the DB tiebreak
+             [total_time_ms -> registered_at -> id]; the global DB fallback orders by
+             best_score only (no tiebreak at all).
+  LB-VAL-04  updateStageScore uses plain `zadd` (unconditional overwrite) with the
+             cumulative total and no GT guard, so an out-of-order/retried write of an
+             older total can regress a player's live score.
+  LB-VAL-05  Global board diverges by engine: updateScore (Redis zaddGt) is called by
+             free-play and generic game-session submits, but only free-play writes
+             gameProgress.best_score; generic game-session scores live only in Redis
+             and are absent from the DB fallback. (Localized symptom of SCORE-002.)
+  LB-VAL-06  No banned/flagged exclusion in any leaderboard read
+             (getGameLeaderboard(FromDb), getEndlessLeaderboard, getFriendsLeaderboard,
+             getStageLeaderboard, getLiveStageLeaderboard) — banned users keep their
+             rank. (Localized symptom of ACHEAT-001.)
+  LB-VAL-07  The Redis branch returns the zset slice with no DB top-up while the zset
+             has >=1 entry on the page, so users present in the DB but missing from
+             Redis (pre-population / partial loss / swallowed write) are invisible.
+  LB-VAL-08  getFriendsLeaderboard has no pagination (returns all friends' progress in
+             one unbounded query), and the friends/endless lists derive rank purely by
+             result index with no tiebreak.
+
+================================================================================
+END OF LEADERBOARD ENGINE AUDIT — NO CODE WAS MODIFIED.
+================================================================================

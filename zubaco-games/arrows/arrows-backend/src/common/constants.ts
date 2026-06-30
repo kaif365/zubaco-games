@@ -66,9 +66,10 @@ export const DEFAULT_STAGE_CONFIG = {
 
 export const GAME_CONFIGS = {
     NEXT_BOARD_ARROWS_REMAINING_THRESHOLD: 1, // unlock next-board when ≤ N arrows remain
-    NEXT_BOARD_SOLVE_PCT_THRESHOLD: 0, // OR when ≥ N% arrows removed
-    SUBMIT_MOVES_EXPIRY_GRACE_SECONDS: 120, // accept submissions up to 2 min after expiryAt
+    NEXT_BOARD_SOLVE_PCT_THRESHOLD: 0.8, // OR when ≥ 80% arrows removed
+    SUBMIT_MOVES_EXPIRY_GRACE_SECONDS: 30, // accept submissions up to 30s after expiryAt
     MOVE_TIMESTAMP_FUTURE_SKEW_MS: 5_000, // tolerate small client/server clock skew
+    SUBMIT_MOVES_MAX_BATCH: 200, // hard cap on moves accepted per submit-moves call
     TIME_BONUS_PER_SECOND: 10, // score points per second remaining at last end-board
     SQS_POLL_ERROR_RETRY_MS: 5_000, // wait before retrying after a failed SQS poll
 } as const;

@@ -1,0 +1,34 @@
+================================================================================
+ZUBACO — PLAYABLE GAMES INVENTORY
+================================================================================
+Repo root : C:\zubaco-games\zubaco-games
+Date      : 2026-06-29
+Total     : 20 playable games
+
+#   Game                       Folder / Module name
+--  -------------------------  -----------------------
+1   Arrows                     arrows
+2   Block Fill                 block-fill
+3   Colour Sorting             colour-sorting
+4   Flash Spot                 flash-spot
+5   Infinity Loop              Infinity-loop
+6   Live Route Builder         live-route-builder
+7   Logic Reflector            logic-reflector
+8   Maze Navigation            maze-navigation
+9   Memory Card Matching       memory-card-matching
+10  Memory Groups              memory-groups
+11  Number Grid Sprint         number-grid-sprint
+12  Object Placement Memory    object-placement-memory
+13  Pattern Survival           pattern-survival
+14  Rapid Category Sort        rapid-category-sort
+15  Reflex Endurance           reflex-endurance
+16  Sequence Recall            sequence-recall
+17  Sliding Puzzle             sliding-puzzle
+18  Speed Type Answer          speed-type-answer
+19  True False Blitz           true-false-blitz
+20  Word Unscramble            word-unscramble
+
+Non-game folders (excluded): .github, .husky, audits, docker, docs,
+infrastructure, k8s, load-tests, ngrok, packages, scripts, sdk,
+zubaco-admin-panel-repo, zubaco-mobile, zubaco-platform, zubaco-web-lobby
+================================================================================

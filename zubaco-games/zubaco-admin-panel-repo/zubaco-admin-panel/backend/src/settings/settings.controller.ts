@@ -2,10 +2,7 @@ import { Controller, Get, Put, Body } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RequireSession, TOKEN_TYPES, USER_TYPES } from '@common/decorators/session.decorator';
 import { SettingsService } from './settings.service';
-
-interface UpdateSettingsDto {
-  settings: Array<{ key: string; value: string }>;
-}
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 @ApiTags('Admin Settings')
 @ApiBearerAuth('authorization')

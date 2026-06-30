@@ -1,0 +1,445 @@
+================================================================================
+ZUBACO — ENTERPRISE WALLET & PAYMENT ENGINE AUDIT
+================================================================================
+Audit type      : Audit ONLY (no code modified)
+Date            : 2026-06-26
+Scope           : The platform "Wallet & Payment Engine" — every reachable path
+                  that creates a wallet, moves money (deposit, entry-fee debit,
+                  prize credit, refund, referral bonus, withdrawal/payout, TDS),
+                  records a Transaction ledger row, talks to the Razorpay /
+                  RazorpayX gateway, and reconciles balances.
+Verdict         : NOT PRODUCTION-READY as a financial-grade money platform. The
+                  hot-path debits/credits are individually concurrency-safe (row
+                  SELECT ... FOR UPDATE locks, an atomic deposit-claim, a TDS/KYC/
+                  OTP/cooling-period withdrawal gate, and a retrying prize credit
+                  with an owed-ledger fallback), and money is stored as
+                  Decimal(12,2). BUT the engine has (1) NO payout execution /
+                  settlement pipeline — the RazorpayX disbursement method is never
+                  invoked, so withdrawals debit the balance and then sit PENDING
+                  forever; (2) NO authoritative double-entry ledger — `balance` is
+                  a mutable column and the Transaction log does NOT reconcile with
+                  it (WITHDRAWAL rows store the post-TDS NET while the wallet is
+                  debited the GROSS, entry-fee bonus/cash split is not represented,
+                  refunds convert non-withdrawable bonus into withdrawable cash),
+                  so the daily reconciliation cron's formula can never balance;
+                  and (3) NO idempotency key on money mutations (prize/refund/
+                  entry-fee), which together with the dual tournament control plane
+                  (TOURN-001) permits double prize payouts. These are governed by
+                  two new strategic blockers (WALLET-001, WALLET-002) plus the
+                  existing TOURN-001 / ACHEAT-001 / AUTH-003 / GAME-002.
+
+Primary files examined (verified from source, not assumed):
+  src/wallet/wallet.service.ts            (getWallet, getTransactions, deposit,
+       requestWithdrawal, deductEntryFee/deductEntryFeeTx, refundEntryFee,
+       creditPrize, creditReferralBonus, initiateWithdrawal, confirmWithdrawal)
+  src/wallet/payment-gateway.service.ts   (createDepositOrder, verifyPayment,
+       handleWebhook, creditDepositAtomically, processWithdrawal,
+       createRazorpayXPayout, createRazorpayOrder, fetchRazorpayPayment,
+       enforceDepositLimits)
+  src/wallet/wallet-cleanup.service.ts    (expireAbandonedDeposits cron,
+       dailyReconciliation cron)
+  src/wallet/bank-detail.service.ts       (addBankAccount, setPrimary,
+       deleteBankDetail, getPrimaryForPayout, checkCoolingPeriod)
+  src/wallet/kyc.service.ts               (submitDocument, getKycStatus,
+       approveDocument, rejectDocument, getPendingQueue)
+  src/wallet/wallet.controller.ts         (REST surface, guards, throttling)
+  src/wallet/guards/razorpay-webhook.guard.ts (IP allow-list, prod-only)
+  src/compliance/tds.service.ts (referenced) ; src/config (limits)
+  prisma/schema.prisma                    (Wallet, Transaction, TransactionType,
+       TransactionStatus, BankDetail, KycDocument, TdsRecord)
+  Callers: src/tournament/tournament.service.ts (deductEntryFeeTx),
+       src/tournament/elimination.service.ts (creditPrizeWithRetry->creditPrize),
+       src/tournament/tournament-scheduler.service.ts (distributePrizes,
+       refundEntryFee), src/social/social.service.ts (creditReferralBonus)
+
+Verified integration call-site map (grep):
+  - deposit credit:        payment-gateway.createDepositOrder (PENDING) ->
+                           verifyPayment / handleWebhook -> creditDepositAtomically
+                           (claim PENDING -> COMPLETED, wallet.increment). 
+  - entry-fee debit:       wallet.deductEntryFeeTx, called INSIDE the season
+                           registration tx (tournament.service line 88).
+  - entry-fee refund:      wallet.refundEntryFee, called by
+                           tournament-scheduler line 214 (season cancel path).
+  - prize credit:          elimination.creditPrizeWithRetry -> wallet.creditPrize,
+                           driven by tournament-scheduler.distributePrizes (final
+                           stage close).
+  - referral bonus:        social.service lines 124/125 -> wallet.creditReferralBonus
+                           (credits bonus_balance).
+  - withdrawal request:    wallet.initiateWithdrawal (OTP) ->
+                           wallet.confirmWithdrawal -> wallet.requestWithdrawal
+                           (debits balance, creates PENDING WITHDRAWAL + TDS row).
+  - withdrawal PAYOUT:     payment-gateway.processWithdrawal -> createRazorpayXPayout.
+                           *** processWithdrawal has NO CALLER anywhere in src ***
+                           (no controller route, no cron, no admin path).
+  - reconciliation:        wallet-cleanup.dailyReconciliation (flag-only, no fix).
+
+================================================================================
+PHASE 1 — WALLET LIFECYCLE (END-TO-END TRACE)
+================================================================================
+Idealized chain: Wallet Creation -> Deposit -> Balance Update -> Entry-Fee
+Deduction -> Tournament Participation -> Prize Credit -> Withdrawal -> Refund ->
+Transaction History -> Settlement.
+
+ACTUAL lifecycle (verified):
+
+  WALLET CREATION:
+    Lazy. getWallet() does findUnique; if absent, prisma.wallet.create({user_id}).
+    Also created implicitly by creditDepositAtomically via wallet.upsert. No
+    explicit creation on user signup is in this module. Two concurrent first
+    touches can race on the @unique user_id (P2002) — getWallet uses create, not
+    upsert (WALLET-VAL-08).
+
+  DEPOSIT:
+    createDepositOrder -> enforceDepositLimits (Redis-config daily/weekly/monthly,
+    counts COMPLETED+PENDING) -> Razorpay order -> writes a PENDING DEPOSIT row
+    (balance_after pre-computed optimistically) -> client pays -> EITHER
+    verifyPayment (HMAC sig check + amount re-fetch) OR webhook payment.captured ->
+    creditDepositAtomically: updateMany WHERE status=PENDING (single-writer claim,
+    count==0 => already processed) -> wallet.upsert increment. Double-credit from
+    the verify+webhook race is correctly prevented by the atomic status claim.
+
+  BALANCE UPDATE:
+    Two write idioms coexist. (a) Atomic relative: creditDepositAtomically and the
+    processWithdrawal failure-refund use wallet.update {increment}. (b) Absolute
+    read-modify-write under a row lock: deposit(), requestWithdrawal(),
+    deductEntryFeeTx(), refundEntryFee(), creditPrize(), creditReferralBonus()
+    each `SELECT ... FOR UPDATE`, compute Number(balance) ± amount in JS, and write
+    the absolute result. The FOR UPDATE lock makes (b) safe WITHIN its own tx, but
+    the absolute-write pattern is unsafe for any future writer that forgets the
+    lock, and Decimal->JS-number conversion is a precision risk (WALLET-VAL-03).
+
+  ENTRY-FEE DEDUCTION:
+    deductEntryFeeTx runs inside the caller's registration tx (good atomicity).
+    Splits bonus-first: deductFromBonus=min(bonus,amount), remainder from balance.
+    Records ONE ENTRY_FEE transaction with amount = full fee and balance_after =
+    newBalance+newBonus. The bonus/cash split is NOT represented in the ledger
+    (only the merged number), so the ledger cannot later prove how much was bonus.
+
+  TOURNAMENT PARTICIPATION:
+    Registration (tournament.service) locks the season row, re-checks duplicate +
+    capacity, debits the fee atomically with entry creation. Sound.
+
+  PRIZE CREDIT:
+    distributePrizes computes tiers (50/25/15/10%) with rounding-remainder to 1st,
+    then creditPrizeWithRetry (3 attempts) -> creditPrize (locked absolute credit).
+    On total failure it writes an owed PRIZE_WIN row with status=FAILED for manual
+    reconciliation. There is NO idempotency guard: creditPrize always creates a new
+    PRIZE_WIN; distributePrizes has no `prizes_distributed` flag, so a second run
+    (admin dual plane TOURN-001, or a scheduler retry after a mid-distribution
+    crash) double-credits every winner (WALLET-VAL-02).
+
+  WITHDRAWAL:
+    initiateWithdrawal: min/max + daily-limit + cooling-period + KYC + balance
+    pre-check -> OTP send -> stores {userId,amount} in Redis (5 min). confirm:
+    re-reads intent, verifies OTP, deletes key, calls requestWithdrawal.
+    requestWithdrawal: re-runs limits, locks wallet, KYC re-check, balance check,
+    TDS calc, debits GROSS amount, writes a PENDING WITHDRAWAL row whose `amount`
+    is the NET payout, plus a TDS_DEDUCTION row. *** Nothing ever moves the PENDING
+    WITHDRAWAL to an actual bank payout: processWithdrawal (RazorpayX) is never
+    called. *** Funds are removed from the wallet balance and the disbursement
+    never happens in code (WALLET-001).
+
+  REFUND:
+    refundEntryFee credits the full fee back to withdrawable `balance` (REFUND
+    row), regardless of how much was originally paid from non-withdrawable bonus —
+    a bonus->cash conversion leak (WALLET-VAL-09). No idempotency key, so a repeated
+    cancel could double-refund.
+
+  TRANSACTION HISTORY:
+    getTransactions paginates by user_id desc(created_at). Correct and indexed
+    (@@index([user_id, created_at])).
+
+  SETTLEMENT:
+    dailyReconciliation (3 AM IST) recomputes an expected balance from sums and
+    LOGS discrepancies; it does not correct anything, and its formula is wrong
+    (see Phase 4 / WALLET-VAL-05) so it will mis-flag every TDS withdrawer.
+
+CRITICAL lifecycle observations:
+  - The withdrawal path DEBITS but never DISBURSES (no settlement). The balance
+    leaves the wallet and the user never receives money via any code path
+    (WALLET-001).
+  - `balance` is the mutable source of truth; the Transaction table is a side log
+    that is NOT a faithful double-entry ledger (net vs gross, bonus split hidden,
+    refund-to-cash), so Σ(ledger deltas) != balance by construction (WALLET-002).
+
+================================================================================
+PHASE 2 — WALLET OPERATIONS
+================================================================================
+- Wallet creation:   lazy create (race-prone, WALLET-VAL-08); upsert in deposit.
+- Balance retrieval: getWallet returns balance + bonus_balance + kyc_verified.
+- Credits:           deposit (locked absolute), creditDepositAtomically (increment),
+                     creditPrize (locked absolute), creditReferralBonus (bonus),
+                     refundEntryFee (locked absolute). Mixed idioms (WALLET-VAL-03).
+- Debits:            requestWithdrawal (locked absolute, GROSS), deductEntryFeeTx
+                     (locked absolute, bonus-first). 
+- Transfers:         There is NO user-to-user transfer endpoint (good — no P2P
+                     money movement surface to abuse).
+- Refunds:           refundEntryFee only; always to cash balance (WALLET-VAL-09).
+- Prize payouts:     creditPrize via retrying wrapper + owed-ledger fallback;
+                     no idempotency (WALLET-VAL-02); no is_banned filter on winner
+                     selection (ACHEAT-001).
+- Bonus credits:     creditReferralBonus -> bonus_balance (non-withdrawable). Bonus
+                     is never reconciled by the daily job (WALLET-VAL-05).
+
+================================================================================
+PHASE 3 — TRANSACTION SAFETY
+================================================================================
+- Atomicity:         Within each operation, yes — $transaction + row lock wraps the
+                     balance write and the Transaction insert together. Entry-fee
+                     debit is atomic with season-entry creation. EXCEPTION: the
+                     processWithdrawal failure path increments the refund OUTSIDE
+                     any lock/transaction and separately from the FAILED status
+                     write — a partial-failure window (WALLET-VAL-04). (Moot today
+                     since processWithdrawal is never called, but latent.)
+- Idempotency:       Deposit is idempotent (atomic PENDING claim; webhook+verify
+                     race safe). Prize / refund / entry-fee are NOT idempotent —
+                     no unique key on Transaction.reference_id and no claim, so a
+                     duplicate invocation double-applies (WALLET-VAL-02, WALLET-002).
+- Double spending:   Withdrawal/entry-fee debits are protected by SELECT FOR UPDATE
+                     row locks, so concurrent debits cannot over-spend a balance.
+- Duplicate requests:Withdraw throttled (5/h); OTP intent is one-time (Redis del).
+                     Deposit dedup via PENDING claim. Prize/refund have none.
+- Rollbacks:         Interactive $transaction rolls back the balance + ledger row
+                     together on throw. The deposit "balance_after" written at order
+                     creation is optimistic and never rolled back if the deposit is
+                     abandoned (the row is just CANCELLED by cron) — balance_after
+                     becomes a stale/false figure on CANCELLED rows.
+- Failed payments:   webhook payment.failed -> updateMany PENDING -> FAILED (by
+                     reference_id, no type filter, WALLET-VAL-12). Abandoned PENDING
+                     deposits expire to CANCELLED after 30 min.
+- Partial failures:  Prize: per-winner retry then owed FAILED ledger row (good).
+                     Payout: failure-refund is non-atomic + refunds NET not GROSS
+                     and writes no reversal Transaction (WALLET-VAL-04).
+
+================================================================================
+PHASE 4 — DATABASE
+================================================================================
+- Transactions:      Postgres interactive $transaction used for every money move.
+- Row locking:       Pessimistic `SELECT * FROM wallets WHERE user_id=$1 FOR UPDATE`
+                     via $queryRawUnsafe (parameterized — not injectable) on
+                     deposit/withdraw/entryfee/refund/prize. Correct serialization
+                     of per-wallet writes.
+- Isolation:         Default (READ COMMITTED) + explicit row lock; sufficient for
+                     the single-row balance invariant. No cross-wallet invariant
+                     needs serializable.
+- Consistency:       Decimal(12,2) column storage is correct, BUT service-layer math
+                     is JS `Number` (float) on the read-modify-write paths — values
+                     within 2^53 paise are exact, yet the pattern is fragile and the
+                     ledger does not reconcile to the column (WALLET-002).
+- Concurrency:       Per-wallet debits safe. Prize distribution relies on the cron's
+                     Redis lock (lock:cron:closeDueStages) + stage status flip for
+                     single execution; the admin dual plane bypasses that lock and
+                     can run distribution concurrently/again (TOURN-001 ->
+                     double-credit, WALLET-VAL-02).
+- Schema gaps:       Transaction has NO unique constraint (e.g. on
+                     (user_id,type,reference_id)) to enforce idempotency at the DB
+                     tier; status has an index but reference_id does not.
+
+================================================================================
+PHASE 5 — PAYOUTS
+================================================================================
+- Winner payouts:    Computed correctly by tier with deterministic tiebreak and
+                     rounding-remainder awarded to 1st (TOURN-WIN-01 already fixed).
+- Prize calculation: 50/25/15% + 10% split across ranks 4-10; remainder reconciled.
+                     Floor-based, integer-rupee amounts.
+- Retry logic:       creditPrizeWithRetry: 3 attempts, then an owed PRIZE_WIN row
+                     with status=FAILED for later reconciliation. Sound for the
+                     credit step.
+- Failed payouts:    Bank disbursement (processWithdrawal) is NEVER invoked, so
+                     there is no payout success/failure lifecycle at all — a
+                     withdrawal cannot succeed or fail; it is debited and stranded
+                     PENDING (WALLET-001). When (if) processWithdrawal is wired, its
+                     failure path refunds NET not GROSS, loses the TDS portion, and
+                     writes no reversal ledger row (WALLET-VAL-04).
+- Duplicate payouts: Prize: NO idempotency -> a re-run double-credits winners
+                     (WALLET-VAL-02). Banned/flagged cheaters are NOT excluded from
+                     winner selection (no is_banned filter -> paid anyway,
+                     ACHEAT-001).
+
+================================================================================
+PHASE 6 — ENTRY FEES
+================================================================================
+- Entry fee deduction: deductEntryFeeTx, atomic with season-entry creation under a
+                     season row lock; bonus-first split. Correct and double-charge
+                     safe (duplicate registration blocked by the locked
+                     user_id_season_id uniqueness check).
+- Duplicate deduction: Prevented for the registration path by the season lock +
+                     unique SeasonEntry. The standalone deductEntryFee() wrapper has
+                     no such guard, but it has no caller today.
+- Refund path:       refundEntryFee credits cash `balance` for the FULL fee even
+                     when part/all was paid from bonus -> bonus-to-cash leak
+                     (WALLET-VAL-09); no idempotency key (double-refund possible).
+- Failed registration: Because the debit is inside the same tx as entry creation,
+                     a registration failure rolls the fee back automatically — good.
+
+================================================================================
+PHASE 7 — SECURITY
+================================================================================
+- Unauthorized transfers: No P2P transfer surface. All money endpoints are behind
+                     JwtAuthGuard; deposit/withdraw additionally throttled; deposit
+                     create-order behind GeoFencingGuard.
+- Balance manipulation: No endpoint writes balance directly; the only client inputs
+                     are deposit amount (gateway-verified: HMAC signature +
+                     server-side amount re-fetch from Razorpay) and withdrawal
+                     amount (server reads balance under lock). Deposit signature uses
+                     a length-safe + timing-safe HMAC compare; webhook HMAC is over
+                     the RAW bytes (correct). Webhook also IP-allow-listed in prod.
+- Transaction tampering: Ledger rows are server-written; client cannot set type/
+                     amount/status. metadata merges spread server-side.
+- Replay attacks:    Deposit verify/webhook replays are idempotent (PENDING claim).
+                     Withdrawal OTP intent is one-time (Redis del after use). BUT
+                     the gateway/internal trust for scores feeding prizes is the
+                     shared static key (AUTH-003) and gameplay is client-asserted
+                     (GAME-002) — upstream of the wallet.
+- Negative balances: Prevented on debits by explicit balance checks under the row
+                     lock (Insufficient balance throws). No DB CHECK(balance>=0)
+                     constraint as defense-in-depth, but the lock makes the app
+                     check authoritative.
+- Cooling-period bypass: initiateWithdrawal checks the 48h bank-change cooling
+                     period, but requestWithdrawal (the actual debit, also reachable
+                     via confirmWithdrawal) does NOT re-check it — a bank-detail
+                     change inside the OTP window slips past the gate
+                     (WALLET-VAL-11).
+
+================================================================================
+PHASE 8 — PERFORMANCE
+================================================================================
+- High transaction volume: Per-wallet writes serialize on a single row lock —
+                     correct, and contention is naturally partitioned per user.
+- Concurrent payments: Deposit claim + wallet upsert are O(1); withdrawal/entry-fee
+                     are single-row locked O(1).
+- Reconciliation cost: dailyReconciliation loads ALL wallets and issues TWO
+                     aggregate queries PER wallet in a sequential JS loop (N+1 over
+                     the whole user base) — O(users) round-trips, unbounded; will
+                     not scale to millions of wallets (WALLET-VAL-13).
+- Daily-limit checks: requestWithdrawal/initiateWithdrawal fetch all of today's
+                     WITHDRAWAL rows with findMany then sum in JS (small per user).
+- Deposit limits:    three separate aggregate() calls per create-order (bounded).
+
+================================================================================
+PHASE 9 — COMPLETENESS / PRODUCTION-READINESS
+================================================================================
+Is the Wallet & Payment Engine production-ready for real-money tournaments,
+thousands of concurrent transactions, and financial reconciliation? NO.
+
+What IS sound:
+  - Money stored as Decimal(12,2); per-wallet debits/credits serialized by row
+    locks; no negative balances; entry-fee debit atomic with registration.
+  - Deposit is gateway-verified (HMAC + amount re-fetch), IP-allow-listed webhook,
+    and double-credit-safe via an atomic PENDING claim.
+  - Withdrawal is gated by KYC, OTP, daily caps, and a 48h bank-change cooling
+    period; prize credit retries and records an owed ledger entry on failure.
+
+Blocking realities (verified):
+  1. NO PAYOUT EXECUTION / SETTLEMENT PIPELINE. processWithdrawal (RazorpayX
+     disbursement) is never called by any route, cron, or admin path; withdrawals
+     debit the wallet and remain PENDING indefinitely with no disbursement, no
+     payout-status webhook reconciliation, no approval queue, and no retry
+     (WALLET-001).
+  2. NO AUTHORITATIVE LEDGER. `balance` is a mutable column and the Transaction log
+     is non-reconciling: WITHDRAWAL stores NET while the wallet is debited GROSS,
+     the entry-fee bonus/cash split is hidden, refunds credit cash for bonus-funded
+     fees, and there is no idempotency key — so prize/refund/entry-fee can
+     double-apply and the reconciliation cron's formula can never balance
+     (WALLET-002).
+  3. DUPLICATE PRIZE PAYOUTS. distributePrizes has no idempotency guard and
+     creditPrize has no unique key; the admin dual control plane (TOURN-001) or a
+     scheduler re-run double-credits winners (WALLET-VAL-02 / TOURN-001).
+  4. BANNED CHEATERS PAID. Winner selection has no is_banned filter (ACHEAT-001).
+
+Can it safely support real-money tournaments, thousands of concurrent
+transactions, and financial reconciliation? NO — withdrawals never actually pay
+out, the ledger cannot be reconciled to balances, prizes can be paid twice and to
+banned users, and the only reconciliation job is a mis-formulated, O(users) alert
+that fixes nothing.
+
+================================================================================
+STRATEGIC BLOCKERS (require redesign — recorded in BLOCKERS.md)
+================================================================================
+  NEWLY RECORDED:
+    WALLET-001  No payout execution & settlement pipeline. The RazorpayX
+                disbursement (processWithdrawal/createRazorpayXPayout) has no
+                caller; withdrawals debit the balance and stay PENDING with no
+                approval workflow, no async payout-status webhook reconciliation,
+                no retry/queue, and no idempotent disbursement. Needs a designed
+                payout lifecycle (approval -> disburse -> reconcile -> retry/
+                reverse). 
+    WALLET-002  No authoritative double-entry ledger / idempotency layer. `balance`
+                is the mutable source of truth and the Transaction table is a
+                non-reconciling side log (WITHDRAWAL net vs gross debit, hidden
+                entry-fee bonus/cash split, refund-to-cash conversion), with no
+                unique idempotency key on money mutations and a reconciliation cron
+                whose formula cannot balance. Financial-grade correctness needs an
+                append-only double-entry ledger with derived balances and
+                idempotency keys (redesign).
+
+  RE-CONFIRMED (not re-added):
+    TOURN-001   Dual divergent tournament control planes can run prize distribution
+                twice / inconsistently over the same Season/Stage tables; combined
+                with the missing prize idempotency this yields double payouts.
+    ACHEAT-001  No retraction/enforcement: prize winner selection has no is_banned
+                filter, so banned/flagged cheaters are still paid.
+    AUTH-003    Scores that drive prize amounts are accepted via the shared static
+                internal API key with no per-service identity / replay protection.
+    GAME-002    Gameplay (scores/durations) feeding prizes is client-asserted and
+                never server-re-validated.
+
+  No other NEW redesign blocker is introduced by this audit.
+
+NON-BLOCKER LOCALIZED DEFECTS (for a future Wallet & Payment Fix; cited above):
+  WALLET-VAL-01  processWithdrawal is unreachable (no caller) — localized symptom of
+                 the missing settlement wiring; the PENDING WITHDRAWAL row created by
+                 requestWithdrawal has no code path that disburses or fails it.
+  WALLET-VAL-02  No idempotency on prize/refund/entry-fee. creditPrize/refundEntryFee
+                 always insert a new Transaction; distributePrizes has no
+                 `prizes_distributed` guard; Transaction.reference_id has no unique
+                 constraint -> a re-run double-applies money.
+  WALLET-VAL-03  Mixed balance-write idioms: atomic {increment} in
+                 creditDepositAtomically/payout-refund vs absolute JS-Number
+                 read-modify-write under a row lock everywhere else; the absolute
+                 pattern is unsafe for any unlocked writer and converts Decimal to
+                 float.
+  WALLET-VAL-04  processWithdrawal failure-refund is non-atomic (increment outside
+                 the status-update tx and outside any row lock), refunds the NET
+                 (post-TDS) amount not the GROSS that was debited (TDS portion is
+                 permanently lost from the user), and writes no reversal/REFUND
+                 Transaction.
+  WALLET-VAL-05  dailyReconciliation formula is wrong: expected = (DEPOSIT+PRIZE_WIN+
+                 REFUND) - (WITHDRAWAL+ENTRY_FEE) compared to wallet.balance only.
+                 It (a) sums WITHDRAWAL as the stored NET while the balance was
+                 debited GROSS, (b) sums full ENTRY_FEE though part came from bonus,
+                 (c) ignores bonus_balance and REFERRAL_BONUS entirely, (d) ignores
+                 TDS_DEDUCTION/GST. Every TDS withdrawer and every bonus-funded entry
+                 is falsely flagged (or masks real drift).
+  WALLET-VAL-06  Ledger invariant broken: requestWithdrawal debits GROSS but stores
+                 the WITHDRAWAL row with amount=NET, so the row no longer equals the
+                 balance delta; downstream daily-limit aggregation sums NET amounts,
+                 letting a user exceed the ₹50k/day GROSS cap.
+  WALLET-VAL-07  Daily withdrawal limit (3/day, ₹50k) counts ALL WITHDRAWAL rows
+                 created today regardless of status, so FAILED/CANCELLED attempts
+                 still consume the user's daily quota.
+  WALLET-VAL-08  getWallet lazily creates via create() (not upsert) — two concurrent
+                 first-touch requests race on @unique user_id and one throws P2002.
+  WALLET-VAL-09  refundEntryFee always credits the withdrawable `balance` for the
+                 full fee even when the fee was partly/wholly paid from
+                 non-withdrawable bonus_balance — converts bonus into cash
+                 (promo-abuse / leakage).
+  WALLET-VAL-10  enforceDepositLimits counts COMPLETED+PENDING deposits, so abandoned
+                 PENDING checkouts (until the 30-min cron cancels them) inflate the
+                 daily/weekly/monthly totals and can falsely block legitimate
+                 deposits; no absolute wallet-balance cap.
+  WALLET-VAL-11  The 48h bank-change cooling period is checked in initiateWithdrawal
+                 but NOT re-checked in requestWithdrawal/confirmWithdrawal, so a bank
+                 detail changed during the OTP window bypasses the gate.
+  WALLET-VAL-12  webhook payment.failed sets PENDING rows to FAILED by reference_id
+                 with no type filter (should scope to DEPOSIT).
+  WALLET-VAL-13  dailyReconciliation issues two aggregate queries per wallet in a
+                 sequential loop over ALL wallets (N+1 over the user base) — does not
+                 scale.
+  WALLET-VAL-14  Deposit "balance_after" is written optimistically at order creation
+                 and left stale on abandoned/CANCELLED deposit rows (the figure never
+                 reflected a real balance).
+
+================================================================================
+END OF WALLET & PAYMENT ENGINE AUDIT — NO CODE WAS MODIFIED.
+================================================================================

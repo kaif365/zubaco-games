@@ -11,6 +11,8 @@ import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import * as jwt from 'jsonwebtoken';
 
+import { appConfig } from '../common/config/app.config';
+
 @WebSocketGateway({
   cors: {
     origin: process.env.CORS_ORIGINS?.split(',') || '*',
@@ -34,7 +36,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      const secret = process.env.JWT_SECRET || 'dev-secret';
+      const secret = appConfig.jwtSecret;
       const decoded = jwt.verify(token, secret) as { sub: string };
       const userId = decoded.sub;
 
@@ -68,7 +70,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessionId: string },
   ): void {
-    client.join(`session:${data.sessionId}`);
+    if (!client.data.userId) {
+      this.logger.warn(`Unauthenticated client ${client.id} denied join: ${data.sessionId}`);
+      return;
+    }
+    client.join(`session:${client.data.userId}:${data.sessionId}`);
     this.logger.debug(`Client ${client.id} joined session: ${data.sessionId}`);
   }
 
@@ -77,7 +83,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessionId: string },
   ): void {
-    client.leave(`session:${data.sessionId}`);
+    client.leave(`session:${client.data.userId}:${data.sessionId}`);
   }
 
   // ─── Server-side emission methods ───
@@ -86,8 +92,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`user:${userId}`).emit(event, payload);
   }
 
-  emitToSession(sessionId: string, event: string, payload: unknown): void {
-    this.server.to(`session:${sessionId}`).emit(event, payload);
+  emitToSession(userId: string, sessionId: string, event: string, payload: unknown): void {
+    this.server.to(`session:${userId}:${sessionId}`).emit(event, payload);
   }
 
   emitToAll(event: string, payload: unknown): void {

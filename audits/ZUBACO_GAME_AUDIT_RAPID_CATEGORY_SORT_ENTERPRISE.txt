@@ -1,0 +1,53 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — RAPID CATEGORY SORT (module: rapid-category-sort)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Heavy variant. Scoring is server-authoritative: submitResult regenerates the item
+sequence from finalSeed, recomputes correctSide (ignores client `correct`), runs
+calculateScore on verified answers, stores serverScore, enforces ownership,
+expiry, an updateMany double-submit guard, fast-answer timing flag, and divergence
+flag. But answers are not deduped (same itemIndex counts repeatedly -> inflation),
+the WS gateway uses a hardcoded dev-secret + decoded.sub, WS rooms lack ownership,
+app.config has a JWT fallback with no non-prod fail-fast, and the seed is a weak
+32-bit hash + Math.random nonce.
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+RAPIDCATEGORY-001: Weak provably-fair seed. computeFinalSeed (engine/random.ts)
+  folds serverSeed:clientSeed:nonce into a 32-bit (<<5)-hash; nonce=Math.random
+  *1_000_000. 32-bit space + non-CSPRNG nonce make the item sequence brute-
+  forceable. Use crypto nonce + full-width hash.
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+RAPIDCATEGORY-VAL-01: answers[] not deduplicated in submitResult. Each verified
+  answer feeds calculateScore; repeating the same correct itemIndex inflates
+  correctCount/score. Dedupe by itemIndex (keep first), cap at totalItems.
+
+RAPIDCATEGORY-AUTH-01: app.config jwtSecret = JWT_SECRET || 'dev-secret-rapid-sort';
+  fail-fast only when NODE_ENV=production. Remove fallback, always fail-fast.
+
+RAPIDCATEGORY-WS-01: WS gateway uses JWT_SECRET || 'dev-secret' and decoded.sub,
+  while HTTP guard uses appConfig.jwtSecret. Forgeable WS tokens + secret drift.
+
+RAPIDCATEGORY-WS-02: join-session has no ownership check (room session:<sessionId>)
+  — any client may join any session room and receive another player's emissions.
+
+RAPIDCATEGORY-RNG-01: nonce via Math.random + 32-bit finalSeed hash (see -001).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Sequence recomputed from seed; client `correct` ignored; serverScore stored.
+  - Ownership; expiry; updateMany double-submit; fast-answer + divergence flags.
+  - serverSeed crypto.randomBytes; HTTP guard uses appConfig; payload bounded (max 100).
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core scoring: PASS. Dedup + WS auth + weak seed: FAIL.
+Status: HOLD until VAL-01, AUTH-01, WS-01, WS-02, RNG-01 resolved.
+Real-money fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

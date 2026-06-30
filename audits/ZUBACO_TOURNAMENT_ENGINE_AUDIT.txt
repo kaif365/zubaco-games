@@ -1,0 +1,378 @@
+================================================================================
+ZUBACO — ENTERPRISE TOURNAMENT ENGINE AUDIT
+================================================================================
+Audit type      : Audit ONLY (no code modified)
+Date            : 2026-06-26
+Scope           : zubaco-platform "Tournament/Season" engine + admin-panel season/
+                  stage control surface that mutates the same tables.
+Verdict         : NOT PRODUCTION-READY. The automated tournament pipeline is inert
+                  in its delivered state and contains a guaranteed runtime fault,
+                  multiple correctness/fairness defects, money-path races, and two
+                  divergent elimination engines operating on the same data.
+
+Primary files examined (verified from source, not assumed):
+  zubaco-platform/src/tournament/tournament.service.ts                 (255 lines)
+  zubaco-platform/src/tournament/elimination.service.ts                (234 lines)
+  zubaco-platform/src/tournament/tournament-scheduler.service.ts       (165 lines)
+  zubaco-platform/src/tournament/tournament.controller.ts              ( 99 lines)
+  zubaco-platform/src/tournament/tournament.module.ts                  ( 16 lines)
+  zubaco-platform/prisma/schema.prisma  (Season/SeasonStage/StageGame/
+       SeasonEntry/StageEntry/Cohort/GameSession + enums)
+  zubaco-platform/src/game-session/dto/game-session.dto.ts  (SubmitTournamentResultDto)
+  zubaco-admin-panel/backend/src/seasons/seasons.service.ts  (parallel control plane)
+
+Terminology note: the spec describes "weekly buckets / bucket merge". The code
+implements a model named Season -> Cohort -> SeasonStage -> StageGame ->
+SeasonEntry -> StageEntry. There is NO weekly-bucket or bucket-merge concept in
+the code. "Cohort" is the nearest analogue and is examined as such.
+
+================================================================================
+PHASE 1 — TOURNAMENT LIFECYCLE (END-TO-END TRACE)
+================================================================================
+Intended (spec) lifecycle:
+  Creation -> Config -> Registration opens -> Player registration -> Bucket
+  assignment -> Stage 1..N (+qualification each) -> Bucket merge -> Winner
+  selection -> Completion.
+
+Actual reachable lifecycle (traced from code):
+
+  [Season created]            admin seasons.service.createSeason -> status=UPCOMING
+        v
+  [UPCOMING -> REGISTRATION]  tournament-scheduler.activateSeasons (@Cron '0 * * * *')
+                              updates seasons with start_date<=now to REGISTRATION.
+        v
+  [Registration]             tournament.service.registerForSeason — allowed while
+                              status in {REGISTRATION, ACTIVE}. Cohort assigned.
+        v
+  [REGISTRATION -> ACTIVE]    *** NO CODE PATH EXISTS *** (see TOURN-LC-01).
+                              Nothing in platform sets a Season to ACTIVE.
+        v
+  [Stage open]               tournament-scheduler.openDueStages requires
+                              season.status === 'ACTIVE' -> never matches -> stages
+                              never auto-open.
+        v
+  [Stage close + elimination] tournament-scheduler.closeDueStages requires
+                              season.status === 'ACTIVE' AND issues an INVALID
+                              Prisma query that always throws (see TOURN-LC-02).
+        v
+  [Winner selection / prizes] only reachable from closeDueStages -> unreachable.
+
+CONCLUSION: As delivered, a season can be created and opened for registration and
+players can register, but the competitive engine (open stage -> play -> close ->
+eliminate -> advance -> winners -> prizes) NEVER RUNS automatically. The only way
+to progress is manual operator action through the admin panel (a second, divergent
+implementation — Phase 10/TOURN-LC-03). The lifecycle is therefore broken end-to-end.
+
+================================================================================
+PHASE 2 — TOURNAMENT CREATION / CONFIGURATION / SCHEDULING
+================================================================================
+Findings:
+- The platform tournament module has NO creation endpoint. Creation/config lives
+  only in the admin panel (seasons.service.createSeason / addStage /
+  assignGamesToStage). The platform engine consumes these rows.
+- createSeason hardcodes status=UPCOMING and persists start_date/end_date/
+  prize_pool/entry_fee/max_players with NO validation:
+    * start_date < end_date not enforced.
+    * end_date vs stage open/close windows not cross-checked.
+    * prize_pool/entry_fee sign/scale not validated at the season level.
+- addStage: stage_number is caller-supplied; nothing enforces a contiguous 1..N
+  sequence, uniqueness is only protected by the DB @@unique([season_id,
+  stage_number]); open_date < close_date NOT enforced; ordering of stage windows
+  vs season window NOT enforced; elimination_pct accepted unbounded (any Float,
+  including <=0 or >=100 — see TOURN-Q-03).
+- updateSeason / updateStage accept an arbitrary `status` string in their allow-
+  list and write it directly with NO state-machine validation: an operator can
+  drive Season UPCOMING->COMPLETED or set Stage status to any StageStatus value
+  (including ELIMINATED, which no engine logic produces/consumes). There is no
+  guard preventing illegal transitions.
+- Scheduling depends entirely on three crons (every-5-min open, every-5-min close,
+  hourly activate). Stage timing granularity is therefore +/-5 minutes; open/close
+  do not happen exactly at open_date/close_date.
+
+================================================================================
+PHASE 3 — PLAYER REGISTRATION
+================================================================================
+registerForSeason(userId, seasonId)  [tournament.service.ts]
+- Existence check: ok (NotFound).
+- Status gate: rejects unless REGISTRATION/ACTIVE — but allows registration during
+  ACTIVE (mid-tournament). A user joining mid-tournament has no StageEntry for
+  already-closed stages, was never eliminated, and remains status=ACTIVE, so they
+  can drop straight into a later OPEN stage — bypassing earlier qualification
+  (fairness defect, TOURN-REG-04).
+- Duplicate registration: guarded by findUnique on (user_id, season_id) AND DB
+  @@unique. OK functionally, but see race below.
+- Max players: `count >= max_players` is a classic TOCTOU check — two concurrent
+  registrations can both read count = max-1 and both insert (TOURN-REG-01). The DB
+  has no capacity constraint to backstop it.
+- Entry fee path is NOT atomic with entry creation:
+    ensureAgeVerified -> walletService.deductEntryFee(...) -> THEN
+    assignCohort -> prisma.seasonEntry.create(...).
+  If create() fails (e.g., the unique race, cohort race, or any DB error) AFTER the
+  fee is debited, the money is gone with NO compensating refund and NO surrounding
+  $transaction (TOURN-REG-02 / money-path).
+- Concurrent registration + cohort assignment: assignCohort reads cohorts, sorts by
+  _count.entries, picks the least full, and creates a new cohort when all are full.
+  Under concurrency multiple registrations select the SAME target cohort (over-
+  filling past max_players) or each create duplicate "Cohort N+1" rows
+  (TOURN-REG-03 / TOURN-BKT-02). No locking, no unique name constraint.
+- Closed/invalid registration (UPCOMING/COMPLETED/CANCELLED): correctly rejected
+  with BadRequest.
+
+================================================================================
+PHASE 4 — BUCKETING (COHORTS)
+================================================================================
+- The spec's "weekly buckets", "registration week calculation", and "bucket merge"
+  are NOT IMPLEMENTED anywhere. There is no week computation, no merge routine, and
+  no scheduled merge step (grep across src confirms cohort logic exists only in
+  tournament.service.assignCohort).
+- assignCohort is a simple least-loaded round-robin with lazy overflow-cohort
+  creation. Cohort.max_players defaults to 10000.
+- CRITICAL: cohort_id is written onto SeasonEntry but is NEVER read by any
+  competitive logic. runElimination, getStageRankings, distributePrizes, and the
+  live leaderboard all scope by season_stage_id ONLY — i.e., ranking/elimination is
+  GLOBAL across the whole stage, never per-cohort/per-bucket. Cohorts are
+  effectively dead/cosmetic data (TOURN-BKT-01).
+- Because there is no merge step, even if cohorts were used there is no defined
+  transition from "many buckets" to a merged field for later stages — the entire
+  Stage-3 "bucket merge" milestone in the spec has no implementation.
+- Edge cases: first registrant when zero cohorts exist -> assignCohort returns null
+  -> entry created with cohort_id=null (silently "no bucket"). No error, no backfill.
+
+================================================================================
+PHASE 5 — STAGE MANAGEMENT
+================================================================================
+- Stage states: LOCKED -> OPEN -> CLOSED (StageStatus also defines ELIMINATED,
+  which is never set or read — dead enum value).
+- Auto OPEN (openDueStages): LOCKED & open_date<=now & season ACTIVE -> OPEN.
+  Inert because season never becomes ACTIVE (Phase 1).
+- Auto CLOSE (closeDueStages): OPEN & close_date<=now & season ACTIVE -> run
+  elimination, then either complete season (final stage) or unlock next stage.
+  Inert for TWO reasons: (a) season never ACTIVE; (b) the findMany itself is an
+  INVALID Prisma query — the `season` relation specifies BOTH `select` and
+  `include` simultaneously (lines ~66-72), which Prisma rejects at validation time
+  with PrismaClientValidationError on every invocation. This throw is OUTSIDE the
+  per-stage try/catch, so closeDueStages cannot function even if a season were
+  ACTIVE (TOURN-LC-02, guaranteed runtime fault).
+- "Immediately open next stage" branch re-reads nextStage and opens it if its
+  open_date<=now; otherwise relies on openDueStages. Unreachable in practice due to
+  the above.
+- Admin parallel control: seasons.service.openStage/closeStage flip stage status
+  directly with no elimination, no next-stage unlock, no Redis cleanup, no
+  notifications — fragmenting stage lifecycle across two systems (Phase 10).
+- Invalid progression: nothing prevents an operator from opening Stage 3 while
+  Stage 2 is still OPEN, or re-opening a CLOSED stage; no ordering invariant is
+  enforced in code.
+
+================================================================================
+PHASE 6 — QUALIFICATION / ELIMINATION
+================================================================================
+Platform engine: elimination.service.runElimination(seasonStageId)
+- Population: ONLY StageEntry rows with completed_at != null are ranked. A player
+  who started but did not finish all of the stage's games (completed_at stays null)
+  is NOT ranked and NOT eliminated; their SeasonEntry.status is left ACTIVE, so they
+  silently SURVIVE by non-participation and can play the next stage
+  (TOURN-Q-01, fairness/correctness).
+- Ordering: total_score DESC, then total_time_ms ASC. If two entries share score
+  AND time, order is non-deterministic; at the survive/eliminate boundary this means
+  arbitrary elimination with no final deterministic tiebreaker (TOURN-Q-02).
+- Cutoff: surviveCount = ceil(n * (1 - elimination_pct/100)). elimination_pct is an
+  unbounded Float (schema default 50). Values <=0 keep everyone; >=100 -> surviveCount
+  could be 0 or negative-driven slicing; no clamping (TOURN-Q-03).
+- Single participant: ceil(1 * 0.5) = 1 -> the lone finisher always survives (0
+  eliminated). Reasonable, but combined with TOURN-Q-01 a single *non-finisher*
+  also survives.
+- Side effects: rank/eliminated updates are batched in one $transaction; BUT the
+  subsequent SeasonEntry.updateMany(ELIMINATED), seasonStage.update(CLOSED),
+  Redis clearStageLeaderboard, and bulk notifications are SEPARATE awaits, not in a
+  transaction. A crash between them leaves partially-eliminated / stage-not-closed
+  state (TOURN-DC-01).
+
+Admin engine: seasons.service.triggerElimination(stageId) — a SECOND, DIFFERENT
+algorithm over the SAME tables:
+  * Ranks ALL stage_entries (NO completed_at filter).
+  * Orders by total_score DESC only (NO time tiebreaker).
+  * eliminateCount = floor(n * pct/100) (FLOOR vs the platform's CEIL-survivors).
+  * Does NOT close the stage, clear Redis, notify, unlock next stage, mark winners,
+    or distribute prizes.
+Running the two engines on the same stage yields DIFFERENT eliminated sets and
+DIFFERENT ranks. There is no single source of truth for qualification
+(TOURN-LC-03 — recorded as a strategic blocker).
+
+================================================================================
+PHASE 7 — WINNER SELECTION / COMPLETION / PRIZES
+================================================================================
+Reached only via closeDueStages on the final stage (currently unreachable, Phases 1/5):
+- isFinalStage computed as stage_number === max(stage_number). For the final stage,
+  runElimination STILL eliminates the bottom elimination_pct of finishers before
+  winners are marked — so the "final" also culls 50% by default (configurable, but
+  surprising for a final).
+- Winners = StageEntry where eliminated=false AND completed_at!=null, ordered by
+  score DESC, time ASC; SeasonEntry.status set to WINNER.
+- distributePrizes: 1st 50% / 2nd 25% / 3rd 15% / ranks 4-10 split 10% via
+  Math.floor; remainder (rounding dust + unallocated when <10 winners) is silently
+  retained (never paid out / never reconciled) (TOURN-WIN-01).
+- Prize credit + notification per winner is wrapped in try/catch and logged on
+  failure but NOT retried and NOT recorded as owed — a transient walletService
+  failure permanently drops that winner's prize (TOURN-WIN-02, money-path).
+- Winner marking (updateMany) and prize distribution are separate, non-atomic
+  steps; a crash between them yields WINNER status with no payout.
+
+================================================================================
+PHASE 8 — EDGE CASES
+================================================================================
+- Cancellation: SeasonStatus.CANCELLED exists but NO code sets it and NO refund/
+  teardown logic exists. A cancelled paid season would strand entry fees
+  (TOURN-EC-01).
+- Empty tournament: runElimination returns early on 0 entries; distributePrizes
+  returns on 0 winners. Safe.
+- Single participant: survives (Phase 6).
+- Duplicate participants: blocked by unique constraint (modulo the TOCTOU race).
+- Invalid stage: startTournamentGame throws NotFound for missing stage/game; OK.
+- Late submission: submitTournamentResult validates ONLY (session belongs to user,
+  mode=TOURNAMENT, outcome=null). It does NOT check stage.status or close_date.
+  A game started before close can be submitted AFTER the stage closed and
+  elimination ran -> increments total_score/ games_played and may set completed_at
+  on an already-ranked/eliminated StageEntry, and writes to a Redis leaderboard that
+  was already cleared. Result: post-elimination score mutation and ranking
+  inconsistency (TOURN-EC-02 / TOURN-DC-02, correctness + integrity).
+- Missing results: a player who never submits is simply never completed -> survives
+  (TOURN-Q-01).
+- Concurrent updates: see Phase 9.
+
+================================================================================
+PHASE 9 — DATA CONSISTENCY
+================================================================================
+- Transactions: used only for the rank/eliminated batch in each engine. The wider
+  invariants (eliminate -> close -> notify -> unlock; register fee -> create entry;
+  mark winners -> pay prizes) are NOT transactional (TOURN-DC-01, TOURN-REG-02,
+  TOURN-WIN-02).
+- submitTournamentResult is itself multi-step (update session -> increment stage
+  totals -> Redis -> maybe set completed_at) with no transaction and no row lock;
+  concurrent submissions for the same StageEntry race on the increments and the
+  "all games played?" completion check (TOURN-DC-02).
+- Idempotency: the per-game ConflictException ("Already played this game") guards
+  re-play, but the submit endpoint relies on outcome=null to prevent double-submit —
+  two concurrent submits for the same session can both pass the initial findFirst
+  before either flips outcome (no SELECT ... FOR UPDATE / no unique guard).
+- Rollbacks: none beyond the single batched $transaction; no compensation anywhere
+  on the money path.
+- Duplicate records: overflow cohorts can be duplicated under load (Phase 3).
+
+================================================================================
+PHASE 10 — INTEGRATION
+================================================================================
+- Authentication: TournamentController is guarded by JwtAuthGuard; register is
+  additionally GeoFencingGuard-gated. OK. (Inherits AUTH-001/002/003 trust-model
+  blockers already on file.)
+- Gaming Engine / Sessions / Scoring: startTournamentGame creates a GameSession
+  (mode=TOURNAMENT, server_seed generated). submitTournamentResult TRUSTS the
+  client-supplied score/duration with ONLY DTO bound checks (score 0..100000,
+  duration 1000..600000). There is NO server-side score validation, NO anti-cheat
+  call, NO replay against server_seed/moves_hash on the tournament path (the
+  tournament module imports no anti-cheat/score-validator). Tournament scores are
+  thus less protected than expected for a money-bearing path (TOURN-SEC-01; relates
+  to SCORE-001 / AUTH-003).
+- Leaderboards: integrates with leaderboardService.updateStageScore /
+  clearStageLeaderboard / getLiveStageLeaderboard / getMyStageRank. The clear-then-
+  late-write ordering (Phase 8) corrupts the live board post-close.
+- Notifications: bulk notify on elimination/advance; per-winner on prize. Bulk send
+  to a whole stage is unbatched (Phase 12).
+- Webhooks: NO tournament webhook/event emission found (spec lists webhooks;
+  none implemented) (TOURN-INT-01).
+- Admin Panel: a full parallel control surface (create/update/delete season &
+  stage, openStage/closeStage, triggerElimination, assignGames, disqualifyPlayer)
+  mutates the same tables with different rules and no coordination with the platform
+  crons (Phases 5/6; TOURN-LC-03).
+
+================================================================================
+PHASE 11 — SECURITY
+================================================================================
+- Unauthorized access: endpoints require JWT; rankings/live are authenticated reads.
+- Tournament manipulation: admin status writes are unvalidated (Phase 2); platform
+  has no admin-identity model (AUTH-002). An operator (or anyone able to reach the
+  admin surface) can flip season/stage status arbitrarily, disqualify players, and
+  trigger the divergent elimination.
+- Stage skipping: no invariant prevents opening a later stage or a mid-tournament
+  registrant entering a later stage (Phases 5/3, TOURN-REG-04).
+- Duplicate participation: constrained (modulo race).
+- Invalid qualification: client-trusted scores + no anti-cheat on the tournament
+  submit path (TOURN-SEC-01) allow score inflation up to the DTO ceiling to drive
+  qualification/prizes.
+- Reward abuse: prize path trusts the (unvalidated) scores that produced the final
+  ranking; rounding remainder is unaccounted (TOURN-WIN-01).
+
+================================================================================
+PHASE 12 — PERFORMANCE / SCALE
+================================================================================
+- runElimination loads ALL completed StageEntry rows for a stage into memory and
+  builds one $transaction with one update PER entry. For a stage with thousands/
+  tens of thousands of finishers this is a single giant transaction of N writes —
+  long lock hold, risk of transaction timeout, and memory pressure (TOURN-PERF-01).
+- The admin triggerElimination has the same per-entry-update-in-one-transaction
+  shape with no pagination.
+- Bulk notifications (eliminated + survived) are sent in one call over potentially
+  tens of thousands of users with no batching/queue visible at this layer
+  (TOURN-PERF-02).
+- Registration/cohort assignment performs multiple round-trips and a sort in app
+  memory per registration; under a registration spike this both races (Phase 3) and
+  serialises poorly (TOURN-PERF-03).
+- Cron fan-out: every-5-min open/close scan is fine at small scale; the close path's
+  N-write transaction per closing stage is the scaling risk.
+
+================================================================================
+PHASE 13 — COMPLETENESS / PRODUCTION-READINESS
+================================================================================
+Is the Tournament Engine truly production-ready?  NO.
+
+Blocking realities (verified):
+  1. The automated competitive pipeline never runs: no REGISTRATION->ACTIVE
+     transition, and closeDueStages contains a guaranteed Prisma validation fault.
+  2. Two divergent elimination/lifecycle engines (platform vs admin) operate on the
+     same tables with different rules and no source of truth.
+  3. The spec's weekly-bucket + bucket-merge model is unimplemented; cohorts are
+     assigned but never used for competition.
+  4. Money-path steps (entry-fee debit, prize credit) are non-atomic with no
+     compensation/refund or owed-ledger.
+  5. Qualification is unfair/incorrect (non-finishers survive; late post-close
+     submissions mutate ranked entries; no deterministic final tiebreaker).
+  6. Tournament score submission trusts the client with no anti-cheat/server
+     validation on a money-bearing path.
+
+Can it safely support large real-world tournaments?  NO — both the inert/guaranteed-
+fault control flow and the per-entry single-transaction elimination/notification
+fan-out preclude safe large-scale operation even if the pipeline were activated.
+
+================================================================================
+STRATEGIC BLOCKERS RECORDED IN BLOCKERS.md (require redesign)
+================================================================================
+  TOURN-001  Dual, divergent tournament control planes / no single source of truth
+             for lifecycle + qualification (platform crons vs admin panel).
+  TOURN-002  Bucketing model mismatch: spec'd weekly buckets + bucket merge are
+             unimplemented; cohorts are assigned but never used for competition.
+  TOURN-003  No enforced tournament lifecycle state machine; the automated pipeline
+             is inert (no REGISTRATION->ACTIVE) and progression depends on manual,
+             unvalidated admin status edits.
+
+NON-BLOCKER DEFECTS (localized fixes for a future Tournament Fix prompt — NOT
+redesign, listed for traceability; tags used above):
+  TOURN-LC-02  closeDueStages Prisma select+include conflict (guaranteed throw).
+  TOURN-Q-01   Non-finishers (completed_at=null) survive elimination.
+  TOURN-Q-02   No deterministic final tiebreaker at the cutoff.
+  TOURN-Q-03   elimination_pct not clamped to (0,100).
+  TOURN-EC-02 / TOURN-DC-02  Late post-close submissions mutate ranked entries; no
+               stage-status/close_date guard in submitTournamentResult.
+  TOURN-REG-01 max_players TOCTOU over-fill.
+  TOURN-REG-02 Entry-fee debit not atomic with entry creation; no refund.
+  TOURN-REG-03 Cohort assignment race / duplicate overflow cohorts.
+  TOURN-REG-04 Mid-tournament (ACTIVE) registration bypasses prior eliminations.
+  TOURN-WIN-01 Prize rounding remainder unaccounted.
+  TOURN-WIN-02 Prize credit failure dropped (no retry / no owed-ledger).
+  TOURN-EC-01  CANCELLED status never set; no cancellation/refund teardown.
+  TOURN-SEC-01 Tournament submit trusts client score; no anti-cheat/server validation.
+  TOURN-INT-01 No tournament webhook/event emission.
+  TOURN-PERF-01/02/03  N-write single-transaction elimination; unbatched bulk
+               notifications; serial racing registration/cohort assignment.
+
+================================================================================
+END OF TOURNAMENT ENGINE AUDIT — NO CODE WAS MODIFIED.
+================================================================================

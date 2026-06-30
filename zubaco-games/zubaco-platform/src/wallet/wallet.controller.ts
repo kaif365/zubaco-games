@@ -71,8 +71,12 @@ export class WalletController {
   @Post('webhook/razorpay')
   @SkipThrottle()
   @UseGuards(RazorpayWebhookGuard)
-  async razorpayWebhook(@Req() req: RawBodyRequest<Request>, @Headers('x-razorpay-signature') signature: string) {
-    return this.paymentGateway.handleWebhook(req.rawBody as Buffer, signature);
+  async razorpayWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('x-razorpay-signature') signature: string,
+    @Headers('x-razorpay-event-id') eventId: string,
+  ) {
+    return this.paymentGateway.handleWebhook(req.rawBody as Buffer, signature, eventId);
   }
 
   // ─── KYC ENDPOINTS ─────────────────────────────────────────────

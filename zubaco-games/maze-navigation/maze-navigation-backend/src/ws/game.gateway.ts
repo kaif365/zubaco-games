@@ -9,7 +9,8 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import * as jwt from 'jsonwebtoken';
+
+import { verifyToken } from '../common/utils/token.util';
 
 @WebSocketGateway({
   cors: {
@@ -34,9 +35,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      const secret = process.env.JWT_SECRET || 'dev-secret';
-      const decoded = jwt.verify(token, secret) as { sub: string };
-      const userId = decoded.sub;
+      const decoded = verifyToken(token);
+      const userId = decoded.userId;
 
       client.data.userId = userId;
       client.join(`user:${userId}`);
@@ -68,7 +68,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessionId: string },
   ): void {
-    client.join(`session:${data.sessionId}`);
+    const userId = client.data.userId;
+    if (!userId) {
+      return;
+    }
+    client.join(`session:${userId}:${data.sessionId}`);
     this.logger.debug(`Client ${client.id} joined session: ${data.sessionId}`);
   }
 
@@ -77,7 +81,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessionId: string },
   ): void {
-    client.leave(`session:${data.sessionId}`);
+    const userId = client.data.userId;
+    if (!userId) {
+      return;
+    }
+    client.leave(`session:${userId}:${data.sessionId}`);
   }
 
   // ─── Server-side emission methods ───
@@ -86,8 +94,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`user:${userId}`).emit(event, payload);
   }
 
-  emitToSession(sessionId: string, event: string, payload: unknown): void {
-    this.server.to(`session:${sessionId}`).emit(event, payload);
+  emitToSession(userId: string, sessionId: string, event: string, payload: unknown): void {
+    this.server.to(`session:${userId}:${sessionId}`).emit(event, payload);
   }
 
   emitToAll(event: string, payload: unknown): void {

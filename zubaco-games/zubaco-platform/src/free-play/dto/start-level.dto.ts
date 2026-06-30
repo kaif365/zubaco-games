@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, Min, Max } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Min, Max } from 'class-validator';
 import { GameType } from '.prisma/client';
 
 export class StartLevelDto {
@@ -9,4 +9,11 @@ export class StartLevelDto {
   @Min(1)
   @Max(999)
   level: number;
+
+  @IsOptional()
+  @IsString()
+  client_seed?: string;
+
+  @IsOptional()
+  device_components?: any;
 }

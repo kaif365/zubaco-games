@@ -183,15 +183,66 @@ export class ScoreValidatorService {
 
   // ─── THEORETICAL MAX ────────────────────────────────────────────
 
-  private computeTheoreticalMax(gameType: GameType, config: Record<string, any>, durationMs: number): number {
-    const timeLimit = config?.time_limit ?? 180; // seconds
+  // Upper bounds applied to client-supplied difficulty config before it is used
+  // to derive a theoretical-max ceiling. Prevents a client from inflating its own
+  // accepted-score ceiling via oversized config (SCORE-CFG-01). These caps are
+  // generous (well above any legitimate game configuration) so they never reject
+  // a real score; they only stop pathological inputs.
+  private static readonly MAX_TIME_LIMIT_SEC = 600; // 10 minutes
+  private static readonly MIN_TIME_LIMIT_SEC = 1;
+  private static readonly MAX_COUNT = 500; // rounds / elements / cells / etc.
+  private static readonly MAX_SCORE_PER_CLICK = 100;
+  private static readonly MAX_BONUS_TIME_RATIO = 5;
+
+  /**
+   * Clamp the numeric fields of a (potentially client-supplied) game config to
+   * sane upper/lower bounds so theoretical-max derivation cannot be inflated by a
+   * malicious or malformed config (SCORE-CFG-01).
+   */
+  private sanitizeConfig(config: Record<string, any> | null | undefined): Record<string, any> {
+    const c = config ?? {};
+    const clampCount = (v: any): number | undefined => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return undefined;
+      return Math.min(ScoreValidatorService.MAX_COUNT, Math.max(1, Math.floor(n)));
+    };
+
+    const rawTime = Number(c.time_limit);
+    const time_limit = Number.isFinite(rawTime)
+      ? Math.min(ScoreValidatorService.MAX_TIME_LIMIT_SEC, Math.max(ScoreValidatorService.MIN_TIME_LIMIT_SEC, rawTime))
+      : undefined;
+
+    const rawSpc = Number(c.score_per_click);
+    const score_per_click = Number.isFinite(rawSpc)
+      ? Math.min(ScoreValidatorService.MAX_SCORE_PER_CLICK, Math.max(1, rawSpc))
+      : undefined;
+
+    const rawRatio = Number(c.bonus_time_ratio);
+    const bonus_time_ratio = Number.isFinite(rawRatio)
+      ? Math.min(ScoreValidatorService.MAX_BONUS_TIME_RATIO, Math.max(0, rawRatio))
+      : undefined;
+
+    return {
+      ...c,
+      ...(time_limit !== undefined ? { time_limit } : {}),
+      ...(clampCount(c.total_rounds) !== undefined ? { total_rounds: clampCount(c.total_rounds) } : {}),
+      ...(clampCount(c.elements) !== undefined ? { elements: clampCount(c.elements) } : {}),
+      ...(clampCount(c.max_elements) !== undefined ? { max_elements: clampCount(c.max_elements) } : {}),
+      ...(score_per_click !== undefined ? { score_per_click } : {}),
+      ...(bonus_time_ratio !== undefined ? { bonus_time_ratio } : {}),
+    };
+  }
+
+  private computeTheoreticalMax(gameType: GameType, rawConfig: Record<string, any>, durationMs: number): number {
+    const config = this.sanitizeConfig(rawConfig);
+    const timeLimit = config?.time_limit ?? 180; // seconds (sanitized)
     const totalRounds = config?.total_rounds ?? config?.elements ?? 10;
 
     switch (gameType) {
       case 'SLIDING_PUZZLE': {
-        // Completed Round: 100pts, Time Bonus: floor(10 × remaining/total)
+        // Completed Round: 100pts, Time Bonus: max 10 (TIME_BONUS_CONFIG.max)
         const rounds = totalRounds || 5;
-        return rounds * 100 + Math.floor(10 * timeLimit / timeLimit); // max time bonus = 10
+        return rounds * 100 + (TIME_BONUS_CONFIG.SLIDING_PUZZLE?.max ?? 10);
       }
 
       case 'ARROWS': {
@@ -241,8 +292,11 @@ export class ScoreValidatorService {
       }
 
       case 'OBJECT_PLACEMENT_MEMORY': {
-        // (correct/total) × 100 + time bonus
-        return 100 + Math.floor(5 * timeLimit / timeLimit); // max = 105 per round
+        // (correct/total) × 100 per round + per-round time bonus (max 5).
+        // Scales with round count so legitimate multi-round scores are not
+        // falsely rejected (SCORE-CALC-01).
+        const rounds = totalRounds || 5;
+        return rounds * (100 + (TIME_BONUS_CONFIG.OBJECT_PLACEMENT_MEMORY?.max ?? 5));
       }
 
       case 'COLOUR_SORTING': {

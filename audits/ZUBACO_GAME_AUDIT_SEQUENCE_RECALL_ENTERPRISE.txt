@@ -1,0 +1,45 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — SEQUENCE RECALL (module: sequence-recall)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+This is the most mature variant: real session microservice (Redis + HTTP fallback)
+SessionGuard, Restate Virtual Objects keyed userId:stageId (prevents cross-user
+forgery), SHA-256 chained sequence generation (strong, not the 32-bit hash), and
+serverSeed via crypto.randomBytes. Validation is server-authoritative via the
+Restate object. HOWEVER the realtime WS gateway authenticates by MOCKING a random
+user (no JWT verification), so anyone can connect and play as a synthetic identity,
+and a second legacy WS stub uses a dev-secret fallback. The validate DTO also has
+unbounded arrays (DoS).
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+SEQUENCERECALL-001: Realtime GameGateway (game/game.gateway.ts afterInit) replaces
+  auth with a mock: userId=randomUUID(), userName='Mock User', sessionId=randomUUID()
+  — "in production these come from JWT verification". No token is ever verified, so
+  every connection is an unauthenticated synthetic user; ranked/real-money play and
+  ownership are meaningless. Requires real JWT verification middleware before launch.
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+SEQUENCERECALL-WS-01: legacy ws/game.gateway.ts handleConnection uses JWT_SECRET ||
+  'dev-secret' + decoded.sub — forgeable; remove or align to env.config secret.
+
+SEQUENCERECALL-DTO-01: validate-game.dto playerSequence (array positive int min 1)
+  and sequenceEvents have NO .max() bound — unbounded payload DoS. Cap both.
+
+POSITIVE CONTROLS CONFIRMED:
+  - SHA-256 chained generateSequence (no weak 32-bit seed); serverSeed crypto bytes.
+  - Restate object key userId:stageId blocks cross-user session targeting.
+  - HTTP SessionGuard uses real Redis/microservice tokens; server-authoritative validate.
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core scoring/seed: PASS. WS auth (mock) + unbounded DTO: FAIL.
+Status: HOLD until SEQUENCERECALL-001 (WS auth), WS-01, DTO-01 resolved.
+Real-money fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

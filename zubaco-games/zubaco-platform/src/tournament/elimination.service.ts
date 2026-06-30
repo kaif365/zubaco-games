@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { NotificationType } from '.prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -133,6 +134,7 @@ export class EliminationService {
     if (eliminatedUserIds.length > 0) {
       await this.notifyInBatches(
         eliminatedUserIds,
+        'ELIMINATION',
         `Eliminated from ${stageName}`,
         `You did not advance past ${seasonName} ${stageName}. Better luck next time!`,
         { screen: 'Tournament', seasonId: stage.season_id },
@@ -147,6 +149,7 @@ export class EliminationService {
     if (survivedUserIds.length > 0) {
       await this.notifyInBatches(
         survivedUserIds,
+        'STAGE_OPEN',
         `Advanced past ${stageName}! 🎉`,
         `Congratulations! You survived ${seasonName} ${stageName}. Get ready for the next round!`,
         { screen: 'Tournament', seasonId: stage.season_id },
@@ -180,10 +183,18 @@ export class EliminationService {
 
     const prizePool = Number(season.prize_pool);
 
-    // Get winners ranked by score
+    // Get winners ranked by score.
+    // Deterministic tiebreak (identical to runElimination): higher score → faster
+    // time → earlier registration → stable id, so prize ranking never depends on
+    // database row ordering when entries are tied (SCORE-TB-01).
     const winners = await this.prisma.stageEntry.findMany({
       where: { season_stage_id: finalStageId, eliminated: false, completed_at: { not: null } },
-      orderBy: [{ total_score: 'desc' }, { total_time_ms: 'asc' }],
+      orderBy: [
+        { total_score: 'desc' },
+        { total_time_ms: 'asc' },
+        { season_entry: { registered_at: 'asc' } },
+        { id: 'asc' },
+      ],
       include: {
         season_entry: {
           include: { user: { select: { id: true, display_name: true } } },
@@ -261,7 +272,7 @@ export class EliminationService {
         try {
           await this.notificationService.sendNotification(
             payout.userId,
-            'TOURNAMENT' as any,
+            'PRIZE_WON',
             `🏆 You won ₹${payout.amount.toLocaleString()}!`,
             `Rank #${payout.rank} in ${seasonName}. Prize has been credited to your wallet.`,
             { screen: 'Wallet', seasonId },
@@ -309,6 +320,7 @@ export class EliminationService {
    */
   private async notifyInBatches(
     userIds: string[],
+    type: NotificationType,
     title: string,
     body: string,
     data: Record<string, any>,
@@ -316,7 +328,7 @@ export class EliminationService {
     for (let i = 0; i < userIds.length; i += EliminationService.NOTIFY_CHUNK_SIZE) {
       const batch = userIds.slice(i, i + EliminationService.NOTIFY_CHUNK_SIZE);
       try {
-        await this.notificationService.sendBulkNotification(batch, 'TOURNAMENT' as any, title, body, data);
+        await this.notificationService.sendBulkNotification(batch, type, title, body, data);
       } catch (err) {
         this.logger.warn(`Bulk notification batch failed (${batch.length} users): ${String(err)}`);
       }

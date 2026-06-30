@@ -31,7 +31,9 @@ export class DeviceDetectionService {
 
     if (sharedDevices.length > 0) {
       const sharedUserIds = sharedDevices.map((d) => d.user_id);
-      const severity: CheatSeverity = sharedDevices.length >= 2 ? 'CRITICAL' : 'HIGH';
+      const totalAccounts = sharedDevices.length + 1; // shared users + current user
+      // 2 accounts on one device = HIGH, 3+ accounts = CRITICAL (device farming).
+      const severity: CheatSeverity = totalAccounts >= 3 ? 'CRITICAL' : 'HIGH';
 
       flags.push({
         type: 'DEVICE_DUPLICATE',
@@ -39,7 +41,7 @@ export class DeviceDetectionService {
         details: {
           fingerprint_hash: fingerprintHash,
           shared_users: sharedUserIds,
-          shared_count: sharedDevices.length + 1, // +1 for current user
+          shared_count: totalAccounts,
           detection_method: 'device_fingerprint',
         },
       });

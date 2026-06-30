@@ -171,3 +171,8 @@ export const config: Config = {
         default: getEnvVar('DEFAULT_LANGUAGE', 'en'),
     },
 };
+
+// Fail fast: dev/test auth controllers must never be enabled in production.
+if (config.env === 'production' && config.security.enableDevAuth) {
+    throw new Error('ENABLE_DEV_AUTH must be false in production');
+}

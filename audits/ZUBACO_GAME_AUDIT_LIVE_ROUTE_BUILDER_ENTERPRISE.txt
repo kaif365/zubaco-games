@@ -1,0 +1,67 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — LIVE ROUTE BUILDER  (module: live-route-builder)
+Backend: C:\zubaco-games\zubaco-games\live-route-builder\live-route-backend
+Scope: AUDIT ONLY — no code modified. Real-money graph/route-building game.
+Date: 2026-06-29
+================================================================================
+
+--------------------------------------------------------------------------------
+1. FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT production-ready (localized defects). The money core is mostly sound:
+submit recomputes nodes from the committed seed and computes serverScore
+server-side, clientScore is advisory (±10 flag only, never authoritative),
+finalize is idempotent (updateMany WHERE status=active → count=0 guard),
+ownership is enforced on submit (playerId mismatch → Forbidden), session expiry
+window enforced. BUT WS join-session has no ownership check and both the WS
+gateway and HTTP SessionGuard fall back to a hardcoded dev secret, and the
+server score is not clamped (path-efficiency can exceed 100% → inflated score).
+Four localized defects (LIVEROUTE-VAL-01..04) must be fixed in a future Fix.
+Real-money fairness remains governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+
+--------------------------------------------------------------------------------
+2. NEW STRATEGIC BLOCKERS
+--------------------------------------------------------------------------------
+None unique to this module. Re-confirmed governing GAME-001/002 (client-selected
+submit; submit bypasses Restate finalize), AUTH-003, ACHEAT-001 (cheat flags
+recorded only — flagged scores still persisted, no retraction). Module row
+LIVEROUTE-001 tracks the localized defects.
+
+--------------------------------------------------------------------------------
+3. LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+LIVEROUTE-VAL-01 [High] — WS join-session no ownership + dev-secret JWT fallback
+  ws/game.gateway.ts:37 secret = JWT_SECRET || 'dev-secret'; session.guard.ts:9
+  JWT_SECRET || 'fallback'. join-session (line 66) joins session:<sessionId>
+  with no check the session belongs to the user — any authenticated user can
+  subscribe to another player's room and receive emits. Fix: remove fallbacks
+  (fail-closed empty secret); namespace rooms per user (session:<userId>:<id>)
+  and verify ownership before join.
+
+LIVEROUTE-VAL-02 [Medium] — server score not clamped (impossible score)
+  game.service.ts: pathEfficiency = (optimal/actual)*100 with no upper cap;
+  optimal is computed over the connected SUBSET, actual over full edges, so
+  efficiency can exceed 100; serverScore = round(eff) + nodesConnected*10 has no
+  max. Inflated authoritative score reaches the leaderboard/payout. Fix: clamp
+  efficiency to 0..100 and bound serverScore to a documented max.
+
+LIVEROUTE-VAL-03 [Medium] — Math.random() nonce + weak 32-bit seed
+  game.service.ts: nonce = Math.floor(Math.random()*100000); random.ts
+  computeFinalSeed folds to a 32-bit djb2 hash → mulberry32. Non-CSPRNG nonce.
+  Fix: crypto.randomInt for nonce (server/client seeds already CSPRNG).
+
+LIVEROUTE-VAL-04 [Low] — submit edge timestamp unbounded
+  dto/submit-game.dto.ts: timestamp z.number() (no int/min) — arbitrary/negative
+  values fed to analyzeInputTiming; clientScore divergence is advisory-only.
+  Fix: bound timestamp (int, min 0) and tighten score tolerance.
+
+--------------------------------------------------------------------------------
+4. PRODUCTION READINESS — VERIFIED OK
+--------------------------------------------------------------------------------
+- Server-authoritative score (serverScore from seed-regenerated nodes).
+- Ownership on submit; idempotent finalize (updateMany status=active guard).
+- Session expiry window enforced (startedAt + timeLimit + grace).
+- Edge node-id bounds validated against generated nodes; edges[] capped 100.
+- Anti-cheat timing/score-divergence detection present — flag-only (ACHEAT-001).
+NOT ready for real-money/ranked until LIVEROUTE-VAL-01/02 fixed; LIVEROUTE-001 tracks.
+================================================================================

@@ -1,0 +1,52 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — MAZE NAVIGATION (module: maze-navigation)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Maze generation is provably fair and server-authoritative: mazes are carved with
+a mulberry32 seeded DFS keyed on finalSeed = sha256(serverSeed:clientSeed:nonce),
+serverSeed via crypto.randomUUID, guaranteeing solvable single-solution mazes;
+BFS computes the true shortest path; moves are validated server-side
+(validateMazeMove: bounds + wall reject), future-timestamp skew is rejected, and
+score is bounded (round 100–1000 efficiency, time bonus capped 500). Strong core.
+Blocking: which template/maze a player gets is chosen with Math.random (fairness),
+the WS gateway is the same inherited insecure boilerplate, and submit-moves
+moves[] has no max cap (DoS).
+
+2) NEW STRATEGIC BLOCKERS (unique — not previously logged)
+--------------------------------------------------------------------------------
+MAZE-001: Maze/template selection uses Math.random
+  (game.service.ts ~L406: skip = Math.floor(Math.random()*count)). Maze layout
+  is provably-fair seeded, but WHICH template is drawn is non-CSPRNG/predictable.
+  Use crypto.randomInt. (Module-level; carried into BLOCKERS.md)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+MAZE-VAL-01: submit-moves moves[] has min(1) but NO max cap
+  (dto/submit-moves.dto.ts). No batch-size guard before dedup/replay in
+  game-session.restate.ts submitMoves. Unbounded array -> replay DoS.
+
+MAZE-WS-01: WS gateway accepts JWT_SECRET || 'dev-secret' fallback
+  (ws/game.gateway.ts handleConnection). Forgeable tokens if env unset in prod.
+
+MAZE-WS-02: join-session has no ownership check
+  (ws/game.gateway.ts handleJoinSession) — any client may join any
+  session:<sessionId> room and receive another player's emissions.
+
+MAZE-RNG-01: Math.random template selection (see MAZE-001).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Provably-fair seeded maze gen; solvable, single-solution; BFS shortest path.
+  - Server-side move validation (bounds + wall); teleport/wall-bypass blocked.
+  - Future-timestamp skew rejected; score bounded; SessionGuard on HTTP handlers.
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core engine: PASS. WS auth + selection RNG + submit cap: FAIL.
+Status: HOLD until MAZE-VAL-01, WS-01, WS-02, RNG-01 resolved. Real-money
+fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

@@ -1,10 +1,10 @@
 import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { AntiCheatService } from './anti-cheat.service';
-import { InternalApiGuard } from '../auth/guards/internal-api.guard';
+import { ServiceIdentityGuard } from '../auth/service-identity/service-identity.guard';
 import { CheatSeverity } from '.prisma/client';
 
 @Controller('anti-cheat')
-@UseGuards(InternalApiGuard)
+@UseGuards(ServiceIdentityGuard)
 export class AntiCheatController {
   constructor(private readonly antiCheatService: AntiCheatService) {}
 

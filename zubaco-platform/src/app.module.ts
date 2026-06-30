@@ -18,6 +18,8 @@ import { GameSessionModule } from './game-session/game-session.module';
 import { AntiCheatModule } from './anti-cheat/anti-cheat.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { WebhookModule } from './webhook/webhook.module';
+import { EventsModule } from './events/events.module';
+import { AdminModule } from './admin/admin.module';
 import { HealthController } from './health.controller';
 import { AppVersionController } from './app-version.controller';
 
@@ -41,6 +43,8 @@ import { AppVersionController } from './app-version.controller';
     AntiCheatModule,
     ComplianceModule,
     WebhookModule,
+    EventsModule,
+    AdminModule,
   ],
   controllers: [HealthController, AppVersionController],
 })

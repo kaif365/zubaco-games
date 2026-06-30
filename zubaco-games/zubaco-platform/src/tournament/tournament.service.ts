@@ -5,9 +5,11 @@ import { AgeVerificationService } from '../compliance/age-verification.service';
 import { LeaderboardService } from '../leaderboard/leaderboard.service';
 import { ScoreValidatorService } from '../game-session/score-validator.service';
 import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
+import { DeviceDetectionService } from '../anti-cheat/device-detection.service';
 import { TournamentEventsService } from './tournament-events.service';
+import { generateServerSeed, hashServerSeed } from '../game-session/seed-rng';
+import { MIN_SESSION_DURATION_MS, MAX_SESSION_DURATION_MS } from '../game-session/constants';
 import { GameType, Prisma } from '.prisma/client';
-import * as crypto from 'crypto';
 
 @Injectable()
 export class TournamentService {
@@ -18,6 +20,7 @@ export class TournamentService {
     private readonly leaderboardService: LeaderboardService,
     private readonly scoreValidator: ScoreValidatorService,
     private readonly antiCheat: AntiCheatService,
+    private readonly deviceDetection: DeviceDetectionService,
     private readonly events: TournamentEventsService,
   ) {}
 
@@ -139,7 +142,19 @@ export class TournamentService {
 
   // ─── START TOURNAMENT GAME ─────────────────────────────────────
 
-  async startTournamentGame(userId: string, seasonId: string, stageNumber: number, gameOrder: number) {
+  async startTournamentGame(
+    userId: string,
+    seasonId: string,
+    stageNumber: number,
+    gameOrder: number,
+    options?: { ipAddress?: string; deviceFingerprint?: string; deviceComponents?: any },
+  ) {
+    // ─── ANTI-CHEAT: Check if user is allowed to play ────────────
+    const sessionCheck = await this.antiCheat.checkSessionAllowed(userId);
+    if (!sessionCheck.allowed) {
+      throw new ForbiddenException(sessionCheck.reason);
+    }
+
     // Verify entry
     const entry = await this.prisma.seasonEntry.findUnique({
       where: { user_id_season_id: { user_id: userId, season_id: seasonId } },
@@ -188,8 +203,20 @@ export class TournamentService {
       if (lc) config = lc.config;
     }
 
-    // Create session
-    const serverSeed = crypto.randomBytes(32).toString('hex');
+    // Concurrent-session prevention (single active session per user).
+    const previousSession = await this.antiCheat.registerActiveSession(userId, 'pending');
+    if (previousSession && previousSession !== 'pending') {
+      await this.prisma.gameSession.updateMany({
+        where: { id: previousSession, outcome: null },
+        data: { outcome: 'ABANDONED', completed_at: new Date() },
+      });
+    }
+    await this.antiCheat.trackSessionStart(userId);
+
+    // Create session with a committed server seed (raw seed is revealed only
+    // after completion via session state — provable fairness).
+    const serverSeed = generateServerSeed();
+    const serverSeedHash = hashServerSeed(serverSeed);
     const session = await this.prisma.gameSession.create({
       data: {
         user_id: userId,
@@ -198,13 +225,28 @@ export class TournamentService {
         stage_entry_id: stageEntry.id,
         server_seed: serverSeed,
         config,
+        ip_address: options?.ipAddress || null,
+        device_fingerprint: options?.deviceFingerprint || null,
       },
     });
+
+    await this.antiCheat.registerActiveSession(userId, session.id);
+
+    // ─── ANTI-CHEAT: Register device fingerprint (ACHEAT-VAL-07) ──
+    if (options?.deviceFingerprint) {
+      try {
+        await this.deviceDetection.upsertFingerprint(
+          userId,
+          options.deviceFingerprint,
+          options.deviceComponents,
+        );
+      } catch { /* non-blocking */ }
+    }
 
     return {
       session_id: session.id,
       game_type: stageGame.game_type,
-      server_seed: serverSeed,
+      server_seed_hash: serverSeedHash,
       config,
     };
   }
@@ -225,7 +267,8 @@ export class TournamentService {
 
     // Hard bounds + plausibility (mirrors the free-play submit path)
     if (score < 0) throw new BadRequestException('Invalid score');
-    if (durationMs < 1000) throw new BadRequestException('Invalid duration');
+    if (durationMs < MIN_SESSION_DURATION_MS) throw new BadRequestException('Invalid duration');
+    if (durationMs > MAX_SESSION_DURATION_MS) throw new BadRequestException('Session timeout exceeded');
     const elapsed = Date.now() - new Date(session.started_at).getTime();
     if (durationMs > elapsed + 5000) {
       throw new ForbiddenException('Duration exceeds session age');
@@ -291,7 +334,12 @@ export class TournamentService {
 
     // Update real-time Redis leaderboard (non-blocking)
     try {
-      await this.leaderboardService.updateStageScore(stage.id, userId, updatedStageEntry.total_score);
+      await this.leaderboardService.updateStageScore(
+        stage.id,
+        userId,
+        updatedStageEntry.total_score,
+        updatedStageEntry.total_time_ms,
+      );
     } catch {
       // Leaderboard failure should not block submission persistence
     }
@@ -299,6 +347,25 @@ export class TournamentService {
     // Run anti-cheat analysis on the money-bearing tournament result (non-blocking)
     try {
       await this.antiCheat.clearActiveSession(userId);
+
+      // Verify heartbeats for long sessions — consistent with the free-play and
+      // generic submit paths.
+      if (durationMs > 15000) {
+        const hbResult = await this.antiCheat.verifyHeartbeats(sessionId, durationMs);
+        if (!hbResult.valid && hbResult.flag) {
+          await this.prisma.cheatFlag.create({
+            data: {
+              user_id: userId,
+              session_id: sessionId,
+              game_type: session.game_type,
+              flag_type: hbResult.flag.type,
+              severity: hbResult.flag.severity,
+              details: hbResult.flag.details,
+            },
+          });
+        }
+      }
+
       await this.antiCheat.analyzeGameResult({
         userId,
         sessionId,
@@ -308,6 +375,7 @@ export class TournamentService {
         ipAddress: session.ip_address || undefined,
         deviceFingerprint: session.device_fingerprint || undefined,
         mode: session.mode,
+        maxPossibleScore: validation.theoretical_max,
       });
     } catch {
       // Anti-cheat failure should not block submission persistence

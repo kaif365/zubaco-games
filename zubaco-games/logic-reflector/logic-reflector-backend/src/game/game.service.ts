@@ -8,6 +8,7 @@ import { config } from "@config";
 import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma";
 import { TerminalError } from "@restatedev/restate-sdk";
+import { randomInt } from "crypto";
 
 import { SnsService } from "../aws/sns.service";
 
@@ -378,7 +379,7 @@ export class GameService {
       });
     }
 
-    const offset = Math.floor(Math.random() * total);
+    const offset = randomInt(total);
 
     const query = Prisma.sql`
             SELECT

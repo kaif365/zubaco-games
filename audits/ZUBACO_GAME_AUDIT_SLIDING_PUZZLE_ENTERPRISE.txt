@@ -1,0 +1,47 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — SLIDING PUZZLE (module: sliding-puzzle)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Full enterprise stack: SessionGuard (Redis + verifyToken, fail-fast jwtSecret),
+Restate Virtual Objects, admin board pool, circuit-breaker, metrics, redis-io
+adapter. Solvability logic is correct: O(n log n) merge-sort inversion count,
+proper parity rule (odd width vs blank-row-from-bottom), not-solved guarantee.
+HTTP auth is sound. BUT shuffle generation uses Math.random (not crypto, not
+provably-fair seeded), and the legacy WS gateway has dev-secret fallback + no
+join-session ownership check, plus submit-moves has unbounded array (DoS).
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+SLIDINGPUZZLE-001: generateSolvableShuffle (game/utils/shuffle.util.ts) shuffles
+  via Math.floor(Math.random()*...) Fisher-Yates; admin board.service builds the
+  reusable shuffle pool from it. No CSPRNG, no provably-fair serverSeed/clientSeed.
+  Boards are predictable/precomputable — solution paths leak for real-money play.
+  Requires crypto/seeded provably-fair generation. (Unique to sliding-puzzle.)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+SLIDINGPUZZLE-WS-01: ws/game.gateway.ts uses JWT_SECRET || 'dev-secret' + decoded.sub
+  — forgeable; should use shared verifyToken/config.security.jwtSecret.
+
+SLIDINGPUZZLE-WS-02: handleJoinSession joins session:<sessionId> with no ownership
+  check — any client can join any session room and receive its emits.
+
+SLIDINGPUZZLE-DTO-01: submit-moves.dto moves array .min(1) has NO .max() — unbounded
+  payload DoS. Cap the array (slot already bounded 0..399).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Solvability: merge-sort inversion parity + not-solved guarantee correct.
+  - HTTP SessionGuard real (Redis + verifyToken), fail-fast JWT_SECRET.
+  - demo.service Math.random is demo-only (acceptable, not ranked path).
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Solvability/HTTP auth: PASS. Provably-fair RNG + WS auth/ownership + DTO: FAIL.
+HOLD until SLIDINGPUZZLE-001 (RNG), WS-01, WS-02, DTO-01 resolved.
+Fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

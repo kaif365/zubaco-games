@@ -1,0 +1,45 @@
+WALLET-001 / WALLET-002 — AUTHORITATIVE WALLET ARCHITECTURE
+Date: 2026-06-30
+Status: Partially Resolved (platform foundation) — blockers remain listed
+
+GOAL
+One authoritative wallet architecture. Every reward, payout, reversal, refund,
+adjustment and settlement passes through ONE transactional financial pipeline.
+No duplicate financial execution; idempotent retries; full immutable audit.
+
+WHAT WAS BUILT (platform foundation)
+1. wallet/ledger/ledger.types.ts
+   FinancialOperation enum: REWARD_CREDIT, TOURNAMENT_PAYOUT, PENDING_PAYOUT,
+   PAYOUT_SETTLEMENT, PAYOUT_REVERSAL, REFUND, ADJUSTMENT.
+   LedgerRequest { userId, operation, amount, idempotencyKey, reason, bucket,
+   source, destination, verificationRef, tournamentRef, enforcementRef }.
+   LedgerResult { transactionId, applied, duplicate, balanceAfter }.
+
+2. wallet/ledger/ledger.service.ts — WalletLedgerService
+   - post(): the ONE money path. Idempotent (Redis lock wallet:ledger:<key>,
+     released on failure -> retry/crash-safe; prior-COMPLETED row short-circuit
+     -> duplicate=true), atomic (single $transaction over FOR UPDATE wallet),
+     Prisma.Decimal math (no partial/float updates), cash/bonus bucket aware,
+     insufficient-balance guard. No duplicate credit/payout/reversal.
+   - settlePending(): PENDING WITHDRAWAL -> COMPLETED settlement (idempotent).
+   - Immutable audit trail in transaction.metadata._ledger: operation, source,
+     destination, reason, bucket, verification_ref, tournament_ref,
+     enforcement_ref, timestamp.
+
+3. WalletModule provides + exports WalletLedgerService; existing WalletService /
+   PaymentGatewayService retained as compatibility adapters.
+
+AUTHORITATIVE RULES respected: rewards/payouts execute only with caller-supplied
+references (verification/tournament/enforcement); no client-triggered payout, no
+bypass. Integrates with tournament orchestrator eligibility, anti-cheat
+enforcement reversal, verification + lifecycle, leaderboard (read-only).
+
+DO-NOT-TOUCH respected: notifications, admin, provably-fair RNG, ACHEAT-002.
+
+BUILD: nest build OK (clean).
+
+REMAINING (why blockers stay listed)
+- Wire RazorpayX disbursement caller + payout-status webhook reconciliation cron
+  onto settlePending / PAYOUT_REVERSAL (approve->disburse->reconcile).
+- reference_id UNIQUE migration + bucket-aware reconciliation formula; retire
+  direct WalletService/admin writers (shared-DB migration + ADMIN redesign).

@@ -1,10 +1,16 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EnergyService } from './energy.service';
 import { AntiCheatService } from '../anti-cheat/anti-cheat.service';
+import { DeviceDetectionService } from '../anti-cheat/device-detection.service';
 import { LeaderboardService } from '../leaderboard/leaderboard.service';
+import { ScoreValidatorService } from '../game-session/score-validator.service';
+import { generateServerSeed, hashServerSeed } from '../game-session/seed-rng';
+import { MIN_SESSION_DURATION_MS, MAX_SESSION_DURATION_MS } from '../game-session/constants';
 import { GameType } from '.prisma/client';
+
+const MAX_FREE_PLAY_LEVEL = 999;
 
 @Injectable()
 export class FreePlayService {
@@ -13,7 +19,9 @@ export class FreePlayService {
     private readonly usersService: UsersService,
     private readonly energyService: EnergyService,
     private readonly antiCheat: AntiCheatService,
+    private readonly deviceDetection: DeviceDetectionService,
     private readonly leaderboard: LeaderboardService,
+    private readonly scoreValidator: ScoreValidatorService,
   ) {}
 
   // ─── GET PROGRESS FOR ALL GAMES ───────────────────────────────
@@ -78,25 +86,53 @@ export class FreePlayService {
   // ─── GET LEVEL CONFIG ──────────────────────────────────────────
 
   async getLevelConfig(gameType: GameType, level: number) {
-    // Try to get stored config
-    let config = await this.prisma.levelConfig.findUnique({
+    // Validate inputs to prevent unbounded / invalid lookups.
+    if (!Object.values(GameType).includes(gameType)) {
+      throw new BadRequestException(`Unknown game type: ${gameType}`);
+    }
+    if (!Number.isInteger(level) || level < 1 || level > MAX_FREE_PLAY_LEVEL) {
+      throw new BadRequestException(`Level must be an integer between 1 and ${MAX_FREE_PLAY_LEVEL}`);
+    }
+
+    // Read the stored config if an admin has defined one; otherwise return an
+    // ephemerally generated config. This is a pure read — it never persists a
+    // row, so an authenticated caller cannot trigger unbounded row creation.
+    const stored = await this.prisma.levelConfig.findUnique({
       where: { game_type_level: { game_type: gameType, level } },
     });
 
-    if (!config) {
-      // Generate default config based on level using scaling formula
-      const generatedConfig = this.generateLevelConfig(gameType, level);
-      config = await this.prisma.levelConfig.create({
-        data: { game_type: gameType, level, config: generatedConfig },
-      });
-    }
+    if (stored) return stored;
 
-    return config;
+    return {
+      id: null,
+      game_type: gameType,
+      level,
+      config: this.generateLevelConfig(gameType, level),
+    };
   }
 
   // ─── START FREE PLAY SESSION ───────────────────────────────────
 
-  async startLevel(userId: string, gameType: GameType, level: number) {
+  async startLevel(
+    userId: string,
+    gameType: GameType,
+    level: number,
+    clientSeed?: string,
+    options?: { ipAddress?: string; deviceFingerprint?: string; deviceComponents?: any },
+  ) {
+    if (!Object.values(GameType).includes(gameType)) {
+      throw new BadRequestException(`Unknown game type: ${gameType}`);
+    }
+    if (!Number.isInteger(level) || level < 1 || level > MAX_FREE_PLAY_LEVEL) {
+      throw new BadRequestException(`Level must be an integer between 1 and ${MAX_FREE_PLAY_LEVEL}`);
+    }
+
+    // ─── ANTI-CHEAT: Check if user is allowed to play ────────────
+    const sessionCheck = await this.antiCheat.checkSessionAllowed(userId);
+    if (!sessionCheck.allowed) {
+      throw new ForbiddenException(sessionCheck.reason);
+    }
+
     const progress = await this.getGameProgress(userId, gameType);
 
     // Check if level is unlocked (must have completed previous level, or level 1)
@@ -104,30 +140,77 @@ export class FreePlayService {
       throw new BadRequestException(`Level ${level} is locked. Complete level ${progress.highest_level} first.`);
     }
 
-    // Consume a life
-    await this.energyService.consumeLife(userId);
-
+    // Resolve config BEFORE charging a life so a config failure never costs one.
     const levelConfig = await this.getLevelConfig(gameType, level);
 
-    // Create game session
-    const serverSeed = this.generateServerSeed();
-    const session = await this.prisma.gameSession.create({
-      data: {
-        user_id: userId,
-        game_type: gameType,
-        mode: 'FREE_PLAY',
-        level,
-        server_seed: serverSeed,
-        config: levelConfig.config as any,
-      },
-    });
+    // Consume a life first (most common failure point); if the user has none,
+    // nothing else has been mutated yet.
+    await this.energyService.consumeLife(userId);
+
+    // Concurrent-session prevention (single active session per user).
+    await this.abandonPreviousSession(userId);
+    await this.antiCheat.trackSessionStart(userId);
+
+    const serverSeed = generateServerSeed();
+    const serverSeedHash = hashServerSeed(serverSeed);
+
+    let session;
+    try {
+      session = await this.prisma.gameSession.create({
+        data: {
+          user_id: userId,
+          game_type: gameType,
+          mode: 'FREE_PLAY',
+          level,
+          server_seed: serverSeed,
+          client_seed: clientSeed || null,
+          config: levelConfig.config as any,
+          ip_address: options?.ipAddress || null,
+          device_fingerprint: options?.deviceFingerprint || null,
+        },
+      });
+    } catch (err) {
+      // Refund the life if the session could not be created (GAME-EC-01).
+      await this.energyService.refundLife(userId).catch(() => undefined);
+      throw err;
+    }
+
+    // Register the active session for concurrency/heartbeat tracking.
+    await this.antiCheat.registerActiveSession(userId, session.id);
+
+    // ─── ANTI-CHEAT: Register device fingerprint (ACHEAT-VAL-07) ────
+    if (options?.deviceFingerprint) {
+      try {
+        await this.deviceDetection.upsertFingerprint(
+          userId,
+          options.deviceFingerprint,
+          options.deviceComponents,
+        );
+      } catch { /* non-blocking */ }
+    }
 
     return {
       session_id: session.id,
-      server_seed: serverSeed,
+      // Only the commitment hash is revealed before play (provable fairness);
+      // the raw server seed is revealed via session state after completion.
+      server_seed_hash: serverSeedHash,
       config: levelConfig.config,
       level,
     };
+  }
+
+  /**
+   * Register a freshly created active session and abandon any prior open
+   * free-play/generic session for the same user.
+   */
+  private async abandonPreviousSession(userId: string): Promise<void> {
+    const previousSession = await this.antiCheat.registerActiveSession(userId, 'pending');
+    if (previousSession && previousSession !== 'pending') {
+      await this.prisma.gameSession.updateMany({
+        where: { id: previousSession, outcome: null },
+        data: { outcome: 'ABANDONED', completed_at: new Date() },
+      });
+    }
   }
 
   // ─── SUBMIT LEVEL RESULT ───────────────────────────────────────
@@ -139,86 +222,146 @@ export class FreePlayService {
     durationMs: number,
     metadata?: any,
   ) {
+    // Hard bounds (mirrors the generic game-session submit path).
+    if (score < 0) throw new ForbiddenException('Invalid score');
+    if (durationMs < MIN_SESSION_DURATION_MS) throw new ForbiddenException('Invalid duration');
+    if (durationMs > MAX_SESSION_DURATION_MS) throw new ForbiddenException('Session timeout exceeded');
+
+    // This path finalizes ONLY free-play level sessions (mode FREE_PLAY with a
+    // level). Tournament and generic sessions are finalized by their own engines.
     const session = await this.prisma.gameSession.findFirst({
-      where: { id: sessionId, user_id: userId, outcome: null },
+      where: { id: sessionId, user_id: userId, outcome: null, mode: 'FREE_PLAY', level: { not: null } },
     });
 
     if (!session) {
       throw new NotFoundException('Game session not found or already completed');
     }
 
-    // Update session
-    await this.prisma.gameSession.update({
-      where: { id: sessionId },
-      data: {
-        score,
-        duration_ms: durationMs,
-        outcome: 'COMPLETED',
-        completed_at: new Date(),
-        metadata: metadata || undefined,
-      },
-    });
+    // Plausibility: duration cannot exceed the real elapsed session age.
+    const elapsed = Date.now() - new Date(session.started_at).getTime();
+    if (durationMs > elapsed + 5000) {
+      throw new ForbiddenException('Duration exceeds session age');
+    }
 
-    // Calculate stars (1-3 based on score thresholds)
+    // Server-side score validation against the game's theoretical bounds.
+    const validation = this.scoreValidator.validateScore(
+      session.game_type,
+      session.config as Record<string, any>,
+      score,
+      durationMs,
+    );
+    if (!validation.valid) {
+      throw new ForbiddenException(`Score rejected: ${validation.reason}`);
+    }
+
+    // Calculate stars (0-3 based on score thresholds)
     const stars = this.calculateStars(score, session.config as any);
 
-    // Update progress
+    // Atomic submit: claim the session (double-submit guard) and persist all
+    // progress side effects in a single transaction so a partial failure cannot
+    // leave a completed session without progress, or double-process on a race.
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.gameSession.updateMany({
+        where: { id: sessionId, user_id: userId, outcome: null, mode: 'FREE_PLAY', level: { not: null } },
+        data: {
+          score,
+          duration_ms: durationMs,
+          outcome: 'COMPLETED',
+          completed_at: new Date(),
+          metadata: metadata || undefined,
+        },
+      });
+
+      if (claimed.count === 0) {
+        throw new ConflictException('Game session already completed');
+      }
+
+      const progress = await tx.gameProgress.findUnique({
+        where: { user_id_game_type: { user_id: userId, game_type: session.game_type } },
+      });
+
+      if (progress) {
+        const updates: any = {
+          total_plays: { increment: 1 },
+          best_score: score > progress.best_score ? score : progress.best_score,
+        };
+
+        // Unlock next level if current level completed with at least 1 star
+        if (session.level && stars >= 1 && session.level >= progress.highest_level) {
+          updates.highest_level = session.level + 1;
+          updates.current_level = session.level + 1;
+        }
+
+        await tx.gameProgress.update({
+          where: { id: progress.id },
+          data: updates,
+        });
+
+        // Upsert level result
+        if (session.level) {
+          await tx.levelResult.upsert({
+            where: { progress_id_level: { progress_id: progress.id, level: session.level } },
+            create: {
+              progress_id: progress.id,
+              level: session.level,
+              stars,
+              best_score: score,
+              attempts: 1,
+              completed: stars >= 1,
+              first_completed: stars >= 1 ? new Date() : null,
+            },
+            update: {
+              stars: { set: stars },
+              best_score: score,
+              attempts: { increment: 1 },
+              ...(stars >= 1 && { completed: true }),
+            },
+          });
+        }
+      }
+    });
+
+    // Re-read progress for the response (post-transaction state).
     const progress = await this.prisma.gameProgress.findUnique({
       where: { user_id_game_type: { user_id: userId, game_type: session.game_type } },
     });
 
-    if (progress) {
-      const updates: any = {
-        total_plays: { increment: 1 },
-        best_score: score > progress.best_score ? score : progress.best_score,
-      };
-
-      // Unlock next level if current level completed with at least 1 star
-      if (session.level && stars >= 1 && session.level >= progress.highest_level) {
-        updates.highest_level = session.level + 1;
-        updates.current_level = session.level + 1;
-      }
-
-      await this.prisma.gameProgress.update({
-        where: { id: progress.id },
-        data: updates,
-      });
-
-      // Upsert level result
-      if (session.level) {
-        await this.prisma.levelResult.upsert({
-          where: { progress_id_level: { progress_id: progress.id, level: session.level } },
-          create: {
-            progress_id: progress.id,
-            level: session.level,
-            stars,
-            best_score: score,
-            attempts: 1,
-            completed: stars >= 1,
-            first_completed: stars >= 1 ? new Date() : null,
-          },
-          update: {
-            stars: { set: stars },
-            best_score: score,
-            attempts: { increment: 1 },
-            ...(stars >= 1 && { completed: true }),
-          },
-        });
-      }
-    }
+    // Clear the active-session lock now that the session is finalized.
+    await this.antiCheat.clearActiveSession(userId);
 
     // Award XP
     const xpEarned = this.calculateXp(stars, session.level || 1);
     await this.usersService.addXp(userId, xpEarned);
 
-    // Run anti-cheat analysis
+    // Run anti-cheat analysis (non-blocking), including heartbeat verification
+    // for long sessions — consistent with the generic submit path.
     try {
+      if (durationMs > 15000) {
+        const hbResult = await this.antiCheat.verifyHeartbeats(sessionId, durationMs);
+        if (!hbResult.valid && hbResult.flag) {
+          await this.prisma.cheatFlag.create({
+            data: {
+              user_id: userId,
+              session_id: sessionId,
+              game_type: session.game_type,
+              flag_type: hbResult.flag.type,
+              severity: hbResult.flag.severity,
+              details: hbResult.flag.details,
+            },
+          });
+        }
+      }
+
       await this.antiCheat.analyzeGameResult({
         userId,
         sessionId,
         score,
         durationMs,
         gameType: session.game_type,
+        ipAddress: session.ip_address || undefined,
+        deviceFingerprint: session.device_fingerprint || undefined,
+        mode: session.mode,
+        maxPossibleScore: validation.theoretical_max,
       });
     } catch { /* anti-cheat failure shouldn't block game completion */ }
 
@@ -252,11 +395,6 @@ export class FreePlayService {
   private calculateXp(stars: number, level: number): number {
     const baseXp = 10;
     return baseXp * stars * Math.min(level, 10);
-  }
-
-  private generateServerSeed(): string {
-    const crypto = require('crypto');
-    return crypto.randomBytes(32).toString('hex');
   }
 
   private generateLevelConfig(gameType: GameType, level: number): any {

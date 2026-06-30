@@ -1,0 +1,142 @@
+================================================================================
+ZUBACO ENTERPRISE PLATFORM RE-AUDIT — POST PLATFORM HARDENING
+Date: 2026-06-30   Mode: AUDIT ONLY (no code modified)   Build: green (nest build)
+Scope: zubaco-platform/src — every execution path traced
+================================================================================
+
+--------------------------------------------------------------------------------
+1. FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION READY.
+
+The eight hardening foundations are CORRECTLY IMPLEMENTED IN ISOLATION and the
+project compiles, BUT only TWO of them are wired into a live execution path
+(GAME-001 lifecycle + GAME-002 verification, and only on the generic
+game-session engine). The remaining foundations — ACHEAT-001 enforcement,
+TOURN-001/002/003 orchestrator, WALLET-001/002 ledger, NOTIF event bus,
+ADMIN control plane — are referenced ONLY by each other. Their single
+integrator, AdminControlPlaneService, has NO controller and no caller, so the
+entire authoritative layer is unreachable at runtime.
+
+Net behavioural effect on the money / fairness path: effectively ZERO. The
+legacy control planes remain the only live code. The platform now carries TWO
+parallel control planes (legacy live + authoritative dormant) for money,
+enforcement, and tournament progression.
+
+No previously-listed blocker qualifies to move to RESOLVED. All correctly remain
+PARTIALLY RESOLVED. One NEW cross-cutting strategic blocker is justified
+(ROLLOUT-001, below).
+
+--------------------------------------------------------------------------------
+2. REMAINING STRATEGIC BLOCKERS (status verified, unchanged)
+--------------------------------------------------------------------------------
+PARTIALLY RESOLVED (foundation present, rollout pending — all verified accurate):
+  ACHEAT-001, TOURN-001, TOURN-002, TOURN-003, WALLET-001, WALLET-002,
+  NOTIF-001, NOTIF-002, NOTIF-003, ADMIN-001, ADMIN-002, ADMIN-003, ADMIN-004,
+  GAME-001, GAME-002, AUTH-003
+STILL OPEN (untouched this phase): AUTH-001, AUTH-002, SCORE-001, SCORE-002,
+  ACHEAT-002, ARCH-001, ARCH-002, TEST-001, INFRA-001, and all per-game *-001.
+NEW: ROLLOUT-001 (authoritative layer unreachable / dual live control planes).
+
+Verified LIVE (wired into a real path):
+  - GAME-001: assertTransition() called in game-session.service.submitResult
+    (ACTIVE->RESULT_PROCESSING->COMPLETED). [game-session.service.ts:190,224]
+  - GAME-002: verification.verify() called in the same method. [:203]
+  - AUTH-003: ServiceIdentityGuard on anti-cheat.controller.
+
+Verified DORMANT (only referenced by AdminControlPlaneService, which is itself
+unreachable — see §3.1):
+  - EnforcementService.enforce()      — admin-control-plane.service.ts:93,102 ONLY
+  - TournamentOrchestrator.advanceStage/resolveRewardEligibility — :68,70 ONLY
+  - WalletLedgerService.post()        — :72,84 ONLY
+  - EventBusService.publish()         — :80 ONLY (single call, WALLET_CREDITED)
+
+--------------------------------------------------------------------------------
+3. NEWLY DISCOVERED ARCHITECTURAL DEFECTS
+--------------------------------------------------------------------------------
+3.1 [CRITICAL] Authoritative layer is a closed, unreachable loop.
+    admin/admin.module.ts declares NO controllers. AdminControlPlaneService.
+    execute() is the sole consumer of the orchestrator, ledger, enforcement
+    engine and event bus, yet nothing invokes execute() (no controller, no cron,
+    no internal caller). Result: the entire post-hardening authoritative surface
+    is dead code at runtime. RBAC, idempotency and the immutable admin:audit
+    trail never execute because no request reaches them.
+
+3.2 [CRITICAL] Dual live control planes now coexist (divergence risk).
+    Money:      live = WalletService.creditPrize / requestWithdrawal /
+                deductEntryFee / creditReferralBonus (direct Decimal writes);
+                dormant = WalletLedgerService.post.
+    Enforcement: live = anti-cheat.service direct `is_banned:true` writes
+                [anti-cheat.service.ts:144 auto, :269 admin-ban, :282 banUser];
+                dormant = EnforcementService.enforce (no leaderboard/stage/
+                payout retraction ever runs on the live path).
+    Tournament:  live = EliminationService.runElimination (direct);
+                dormant = TournamentOrchestrator.advanceStage.
+    Each pair has DIFFERENT idempotency/retraction semantics, so a partial
+    future rollout will silently diverge on real money.
+
+3.3 [HIGH] Enforcement engine absent from the detection path.
+    anti-cheat.service.analyzeGameResult / flagRealtime / banUser still mutate
+    user state directly and never call enforce(). The ACHEAT-001 promise (atomic
+    score/leaderboard/qualification/payout retraction) does not occur for any
+    automatically- or admin-detected cheat in the live path.
+
+3.4 [HIGH] Event bus is 1/11 utilised.
+    Only WALLET_CREDITED is ever published (from the unreachable admin path).
+    game.completed, verification.passed/failed, tournament.progressed/completed,
+    reward.eligible, payout.settled/reversed, anticheat.enforced, account.
+    reviewed are NEVER emitted. InAppEventSubscriber is therefore effectively
+    dormant; the outbox/DLQ machinery processes nothing.
+
+3.5 [MEDIUM] Two independent EVERY_10_SECONDS Redis drains, mixed multi-instance
+    safety. events/event-bus.service.ts drain() claims via zrem (multi-instance
+    safe). webhook/webhook.service.ts processOutbox() guards only with an
+    in-process `processing` boolean (NOT safe across replicas — duplicate
+    delivery under horizontal scale). Pattern inconsistency; webhook path is the
+    weaker of the two.
+
+3.6 [MEDIUM] resolveRewardEligibility (is_banned filter) is unreachable, and no
+    distributePrizes exists in the platform at all (grep: none). The ACHEAT-001
+    "banned cheaters can still be paid" risk is therefore NOT closed on any live
+    path; prize payout remains in WalletService.creditPrize with no is_banned
+    gate.
+
+--------------------------------------------------------------------------------
+4. ROLLOUT GAPS
+--------------------------------------------------------------------------------
+4.1 Three game submit engines still diverge. Lifecycle + verification run ONLY
+    in game-session.service.submitResult. free-play.service (emitGameResult
+    at :288) and tournament.service.submitTournamentResult (:320) keep their own
+    submit/score/emit paths and bypass assertTransition + verification.verify.
+    GAME-001/002 cover 1 of 3 engines.
+4.2 No HTTP/cron entry point for the admin control plane → ADMIN-001..004
+    foundations deliver no runtime RBAC/audit yet.
+4.3 No cron/scheduler invokes TournamentOrchestrator.advanceStage; tournament
+    progression on the platform has no live trigger through the new engine.
+4.4 Wallet ledger not called by any live money mutation; reference_id is still
+    not UNIQUE (no DB constraint), so the idempotency guarantee is advisory
+    (Redis-lock + prior-row check) and not enforced at the storage layer.
+4.5 Legacy WalletService.creditPrize ignores bonus bucket and TDS and is not
+    routed through the ledger — financial correctness unchanged on the live path.
+
+--------------------------------------------------------------------------------
+5. PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Status: RED / NOT READY.
+- Foundations are sound but inert; they must be wired into the live submit,
+  detection, tournament-progression, payout and admin entry points before any
+  behavioural or compliance benefit is realised.
+- Until wiring lands, the platform behaves exactly as the pre-hardening
+  baseline on the money/fairness path, with added dormant surface area.
+Recommended sequencing (no code this phase):
+  1) Add an admin controller (or internal API) in front of
+     AdminControlPlaneService so RBAC + audit actually execute.
+  2) Route free-play + tournament submit through the lifecycle + verification.
+  3) Replace WalletService money mutations with WalletLedgerService.post and add
+     a UNIQUE constraint on the idempotency key (migration).
+  4) Call EnforcementService.enforce from the detection path; add is_banned gate
+     to prize payout.
+  5) Publish the 11 platform events from their authoritative transactions; add
+     leader election (or zrem-claim) to the webhook drain.
+No blocker promoted to RESOLVED. ROLLOUT-001 added.
+================================================================================

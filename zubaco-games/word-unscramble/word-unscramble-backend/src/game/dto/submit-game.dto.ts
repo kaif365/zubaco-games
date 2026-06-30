@@ -4,7 +4,7 @@ import { z } from 'zod';
 const AnswerSchema = z.object({
   wordIndex: z.number().int().min(0),
   solved: z.boolean(),
-  selectedOrder: z.array(z.number().int().min(0)),
+  selectedOrder: z.array(z.number().int().min(0)).max(100),
   timeSpentMs: z.number().int().min(0),
   timestamp: z.number(),
 });

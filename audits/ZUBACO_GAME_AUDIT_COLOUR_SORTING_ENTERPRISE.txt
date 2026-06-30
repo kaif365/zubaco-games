@@ -1,0 +1,118 @@
+================================================================================
+ZUBACO — ENTERPRISE GAME AUDIT (PROMPT #28)
+GAME: Colour Sorting     MODULE: colour-sorting
+================================================================================
+Audit Date : June 29, 2026
+Type       : AUDIT ONLY — no code modified
+Method     : Execution-path tracing (every reachable path verified, not assumed)
+Stack      : NestJS 11 + Restate (helpers) / direct-DB controller · React + Vite
+Paths      : colour-sorting/colour-sorting-backend , colour-sorting-frontend
+Game type  : Water/ball colour-sort (move top ball onto matching/empty tube)
+Verdict    : NOT production-ready for real-money tournaments (see PHASE 12)
+================================================================================
+
+LEGEND: [BLOCKER] release-stopping · [HIGH] · [MED] · [LOW] · [OK] verified sound
+
+================================================================================
+PHASE 1 — GAME FLOW (traced)
+================================================================================
+game.controller.ts (SessionGuard + EnableEncryption) → GameService direct-DB
+(Restate is helpers-only; submit path bypasses Restate). start→ persists session
+(serverSeed=randomBytes16, clientSeed=randomUUID, nonce, finalSeed) returns config
++ seed; client generates tubes from seed. submit→ regenerates puzzle from finalSeed,
+replays moves server-side, isPuzzleSolved, server-scores, atomic claim, persists
+inputs+flags. game-over→ expire. [OK] flow sound EXCEPT solvability (B-01) and
+level-replay mismatch (B-02).
+
+================================================================================
+PHASE 2 — GAME RULES
+================================================================================
+[OK] move rules server-validated: source non-empty, dest under capacity, top-colour
+   match or empty dest, no same-tube; win = all tubes empty or full-uniform.
+[B-01][BLOCKER] generatePuzzle only seededShuffle()s balls into tubes — NO solver
+   verification. Unlike block-fill/arrows, NOTHING guarantees the puzzle is
+   solvable; an unsolvable shuffle is payable in a real-money tournament. Fairness
+   defect. (gov GAME-002)
+[B-02][HIGH] level mismatch: start scales config via getLevelConfig(level) but
+   session stores no level; submit replays with BASE Configuration → solved/score
+   diverge → false cheat flag + score loss in ranked/level play.
+[MED] no pause/resume; wall-clock only. tube capacity ok.
+
+================================================================================
+PHASE 3 — RANDOMNESS
+================================================================================
+[OK] serverSeed CSPRNG (randomBytes). [LOW] nonce = Math.random(); finalSeed via
+   weak djb2 folded to 31 bits (mulberry32). Pool predictability low impact; no
+   solver means difficulty/fairness uncontrolled. No dup-puzzle guard.
+
+================================================================================
+PHASE 4 — TIMER
+================================================================================
+[OK] endTime server-set (+2s grace); submit rejects > endTime+5s; time bonus from
+   server startedAt. Manipulation-resistant. [MED] generous 7s combined grace.
+
+================================================================================
+PHASE 5 — INPUT VALIDATION
+================================================================================
+[OK] Zod: moves[].max(1000), fromTube/toTube int>=0, clientScore int>=0, solved
+   bool, reason max200. Server replays. [LOW] color string no .max(); from/toTube
+   no upper bound (isValidMove bounds-checks). clientScore no max (divergence-capped).
+
+================================================================================
+PHASE 6 — SCORING
+================================================================================
+[OK] server: sortedTubes×pts + efficiency + time; clientScore divergence>50 flags
+   (warning) but server score persisted. [LOW] efficiency uses raw moves.length.
+
+================================================================================
+PHASE 7 — GAME STATE
+================================================================================
+[OK] atomic updateMany claim prevents double-submit; ownership userId-scoped;
+   buildResumeResponse for Restate resume. snapshot model present.
+
+================================================================================
+PHASE 8 — SECURITY
+================================================================================
+[OK] submit replay server-authoritative; session ownership enforced.
+[B-03][HIGH] WS join-session has NO ownership check — any user joins
+   session:<id> and receives emitToSession; gateway JWT fallback 'dev-secret'.
+   HTTP jwtSecret fallback 'dev-secret-colour-sorting'. [gov] AUTH-003/GAME-002.
+
+================================================================================
+PHASE 9 — PERFORMANCE
+================================================================================
+[OK] bounded moves; replay O(n). [B-01 impact] no solver → no solver cost. ok.
+
+================================================================================
+PHASE 10 — EDGE CASES
+================================================================================
+[OK] invalid/same-tube/full/empty handled; >3 invalid → critical flag (proceeds);
+   double-submit blocked. [B-01] unsolvable boards. [B-02] level scored as loss.
+
+================================================================================
+PHASE 11 — INTEGRATION
+================================================================================
+Gaming ✓ direct-DB · Scoring ✓ server-side · Anti-Cheat ⚠ detection-only fire-and-
+forget (gov ACHEAT-001) · Leaderboard/Tournament/Wallet via shared key (gov
+AUTH-003, GAME-001/002).
+
+================================================================================
+FINAL OUTPUT
+================================================================================
+1. VERDICT: NOT production-ready. No solvability guarantee (B-01) and broken
+   level/replay (B-02) make ranked play unfair/unscorable; WS cross-session read
+   + dev-secret fallback (B-03). Fairness governed by deferred GAME-001/002,
+   AUTH-003, ACHEAT-001.
+2. STRATEGIC BLOCKERS: none new — re-confirm GAME-001, GAME-002, AUTH-003,
+   ACHEAT-001. Added COLOURSORT-001 module blocker.
+3. LOCALIZED DEFECTS:
+   COLOURSORT-VAL-01 guarantee solvable puzzles (solver/reverse-shuffle + retry).
+   COLOURSORT-VAL-02 persist level; replay/score with the same scaled config.
+   COLOURSORT-VAL-03 WS join-session ownership scoping + remove dev-secret/JWT
+     fallbacks (gateway + app.config).
+   COLOURSORT-VAL-04 CSPRNG nonce + wider finalSeed; dedup recent puzzles.
+   COLOURSORT-VAL-05 bound color len, tube indices, clientScore in submit DTO.
+4. PRODUCTION READINESS: Real-money/ranked/large-scale: NO until VAL-01..05 +
+   governing blockers resolved.
+================================================================================
+END

@@ -1,0 +1,114 @@
+================================================================================
+ZUBACO — ENTERPRISE GAME AUDIT (PROMPT #30)
+GAME: Flash Spot       MODULE: flash-spot
+================================================================================
+Audit Date : June 29, 2026
+Type       : AUDIT ONLY — no code modified
+Method     : Execution-path tracing (every reachable path verified, not assumed)
+Stack      : NestJS 11 + Restate (helpers) / direct-DB controller · React + Vite
+Paths      : flash-spot/flash-spot-backend , flash-spot/flash-spot-frontend
+Game type  : Reaction grid — tap cells whose property changes during a flash window
+Verdict    : NOT production-ready for real-money tournaments (see PHASE 12)
+================================================================================
+
+LEGEND: [BLOCKER] release-stopping · [HIGH] · [MED] · [LOW] · [OK] verified sound
+
+================================================================================
+PHASE 1 — GAME FLOW (traced)
+================================================================================
+game.controller.ts (SessionGuard + EnableEncryption) → GameService direct-DB
+(Restate helpers-only). start→ one-active-per-stage, scaled snapshot persisted,
+serverSeed=randomBytes16, seed=hash. submit→ regenerate changeSchedule from seed +
+snapshot, validateTap per tap, server-score, score-discrepancy/rapid-input flags,
+atomic claim, persist inputs. game-over→ status map. [OK] flow sound EXCEPT tap
+dedup (B-01).
+
+================================================================================
+PHASE 2 — GAME RULES
+================================================================================
+[OK] schedule server-regenerated (mulberry32) — grid/changes/activate/revert
+   deterministic; level scaling persisted in snapshot (no replay mismatch).
+[B-01][BLOCKER] validateTap is membership-only: a tap is "correct" if any active
+   change matches the cell+window — taps are NOT deduped per change, so spamming
+   the same active cell counts every tap as correct → correctTaps unbounded
+   (≫ changeCount), score inflation up to the 500-tap cap. (gov GAME-002)
+[MED] no pause/resume. tolerance 500ms each side + displayDuration = wide window.
+
+================================================================================
+PHASE 3 — RANDOMNESS
+================================================================================
+[OK] serverSeed CSPRNG; seed = full 32-bit hash; mulberry32 deterministic. No
+   dup-grid guard (low impact). difficulty via level/snapshot.
+
+================================================================================
+PHASE 4 — TIMER
+================================================================================
+[OK] endTime server-set; submit rejects > endTime+5s; time bonus from server
+   startedAt. activate/revert from schedule. [MED] 5s grace + 500ms tap tolerance.
+
+================================================================================
+PHASE 5 — INPUT VALIDATION
+================================================================================
+[OK] Zod: taps[].max(500), cellId int>=0, clientScore int>=0. [B-03][LOW] cellId
+   no upper bound, clientScore no max, timestamp no int/bounds (validateTap clamps
+   effect, but unbounded payload fields).
+
+================================================================================
+PHASE 6 — SCORING
+================================================================================
+[OK] server: correct×pts − wrong×penalty + timeBonus, floor 0; discrepancy>20%&>50
+   flags. [B-01] no per-change correct cap → inflation. [LOW] wrongTaps similarly
+   un-deduped (penalty self-harm only).
+
+================================================================================
+PHASE 7 — GAME STATE
+================================================================================
+[OK] one active session per user+stage; atomic updateMany claim; ownership scoped;
+   buildResumeResponse for Restate. snapshot persists config.
+
+================================================================================
+PHASE 8 — SECURITY
+================================================================================
+[OK] submit replay server-authoritative; ownership enforced (userId+status).
+[B-02][HIGH] WS join-session no ownership scoping (any user joins session:<id>);
+   gateway JWT fallback 'dev-secret'; app.config/env.config dev-secret fallbacks.
+[gov] AUTH-003/GAME-002. rapid-input <100ms flags then breaks (not bounded).
+
+================================================================================
+PHASE 9 — PERFORMANCE
+================================================================================
+[OK] taps capped 500; schedule O(changeCount); validation O(taps×changes).
+
+================================================================================
+PHASE 10 — EDGE CASES
+================================================================================
+[OK] zero taps / expired / double-submit blocked; one-attempt-per-stage. [B-01]
+   spam-correct inflation. timeout via endGame status map.
+
+================================================================================
+PHASE 11 — INTEGRATION
+================================================================================
+Gaming ✓ direct-DB · Scoring ✓ server-side · Anti-Cheat ⚠ detection-only fire-and-
+forget (gov ACHEAT-001) · Leaderboard/Tournament/Wallet via shared key (gov
+AUTH-003, GAME-001/002).
+
+================================================================================
+FINAL OUTPUT
+================================================================================
+1. VERDICT: NOT production-ready. Tap dedup missing (B-01) lets spam inflate score
+   to the cap; WS cross-session read + dev-secret fallbacks (B-02). Replay/scoring
+   otherwise server-authoritative. Fairness governed by deferred GAME-001/002,
+   AUTH-003, ACHEAT-001.
+2. STRATEGIC BLOCKERS: none new — re-confirm GAME-001, GAME-002, AUTH-003,
+   ACHEAT-001. Added FLASHSPOT-001 module blocker.
+3. LOCALIZED DEFECTS:
+   FLASHSPOT-VAL-01 dedup taps per change (one correct credit per scheduled
+     change); cap correctTaps at changeCount.
+   FLASHSPOT-VAL-02 WS join-session ownership scoping + remove dev-secret/JWT
+     fallbacks (gateway + app.config + env.config).
+   FLASHSPOT-VAL-03 bound cellId, clientScore, timestamp in submit DTO.
+   FLASHSPOT-VAL-04 evaluate all rapid-input gaps (don't break after first).
+4. PRODUCTION READINESS: Real-money/ranked/large-scale: NO until VAL-01..04 +
+   governing blockers resolved.
+================================================================================
+END

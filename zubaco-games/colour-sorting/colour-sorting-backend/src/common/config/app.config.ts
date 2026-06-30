@@ -1,6 +1,6 @@
 export const appConfig = {
   port: parseInt(process.env.PORT || '3006', 10),
-  jwtSecret: process.env.JWT_SECRET || 'dev-secret-colour-sorting',
+  jwtSecret: process.env.JWT_SECRET ?? '',
 };
 
 // Fail fast in production if critical env vars are missing

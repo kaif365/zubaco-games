@@ -1,0 +1,52 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — MEMORY CARD MATCHING (module: memory-card-matching)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+The match logic is server-authoritative: the full card layout (cardId + pairId)
+is held in session state, a match only succeeds when the server confirms two
+flips share the same pairId, matched pairs are tracked server-side and a level
+only completes when every expected pairId is matched, final score is deterministic
+(completedLevels*100 + server time bonus), time is server-clocked, and cheat
+flags are persisted. Blocking: the card shuffle is non-CSPRNG (Fisher–Yates with
+Math.random), the WS gateway is the same inherited insecure boilerplate, and
+save-progress moves[] has no max cap (DoS).
+
+2) NEW STRATEGIC BLOCKERS (unique — not previously logged)
+--------------------------------------------------------------------------------
+MEMORYCARD-001: Card shuffle uses Math.random
+  (game.service.ts ~L1481: Math.floor(Math.random()*(index+1)) in shuffle()).
+  Card layout is predictable/biasable; for a memory game with concurrent players
+  this leaks the board. Use crypto.randomInt. (Module-level; carried to BLOCKERS.md)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+MEMORYCARD-VAL-01: save-progress moves[] has min(1) but NO max cap
+  (dto/save-progress.dto.ts). No batch-size guard before replay. Unbounded
+  array -> replay DoS.
+
+MEMORYCARD-WS-01: WS gateway accepts JWT_SECRET || 'dev-secret' fallback
+  (ws/game.gateway.ts handleConnection). Forgeable tokens if env unset in prod.
+
+MEMORYCARD-WS-02: join-session has no ownership check
+  (ws/game.gateway.ts handleJoinSession) — any client may join any
+  session:<sessionId> room and receive another player's emissions.
+
+MEMORYCARD-RNG-01: Math.random card shuffle (see MEMORYCARD-001).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Server-held layout + pairIds; match validated server-side (pendingFlip pairId).
+  - Level completes only when all expected pairIds matched; no client trust.
+  - Deterministic score; server time bonus; cheat flags; GameSessionGuard on HTTP.
+  - Strict zod DTOs (uuid moveId, datetime, .strict()).
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core engine: PASS. WS auth + shuffle RNG + submit cap: FAIL.
+Status: HOLD until MEMORYCARD-VAL-01, WS-01, WS-02, RNG-01 resolved. Real-money
+fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

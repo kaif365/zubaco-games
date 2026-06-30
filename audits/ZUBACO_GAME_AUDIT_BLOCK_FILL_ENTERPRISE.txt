@@ -1,0 +1,122 @@
+================================================================================
+ZUBACO — ENTERPRISE GAME AUDIT (PROMPT #26)
+GAME: Block Fill        MODULE: block-fill
+================================================================================
+Audit Date : June 29, 2026
+Type       : AUDIT ONLY — no code modified
+Method     : Execution-path tracing (every reachable path verified, not assumed)
+Stack      : NestJS 11 + Restate (prod) / direct-DB (dev) · React + Vite (frontend)
+Paths      : block-fill/block-fill-backend , block-fill/block-fill-frontend
+Game type  : Flow/connect-pairs grid-fill (Flow-Free style)
+Verdict    : NOT production-ready for real-money tournaments (see PHASE 12)
+================================================================================
+
+LEGEND: [BLOCKER] release-stopping · [HIGH] · [MED] · [LOW] · [OK] verified sound
+
+================================================================================
+PHASE 1 — GAME FLOW (traced)
+================================================================================
+game.controller.ts → GameSessionOrchestratorService → (Restate prod | GameService
+direct-DB) → block-fill-validator/solver/score.util. All HTTP handlers gated by
+SessionGuard + @RequireSession(LOGIN/USER, PAYLOAD). Boards/pairs authored in DB,
+picked server-side; solver pre-verifies solvability. complete-board validates the
+full solution server-side (adjacency, bounds, self-intersect, overlap, endpoint
+match, full coverage). Finalize archives boards, sets score, runs anti-cheat.
+[OK] start→board→save-progress→complete→next→end→finalize traced sound EXCEPT
+booster path (B-01) and unbounded payloads (B-02).
+
+================================================================================
+PHASE 2 — GAME RULES
+================================================================================
+[OK] Pair validation: in-bounds, distinct endpoints, no dup color/endpoint.
+[OK] Placement: server-side adjacency + bounds + self-intersect + overlap +
+   endpoint-match; full-coverage on complete-board. Solver guarantees solvable.
+[OK] Win = all colors complete + grid fully filled. Lose = expiry → EXPIRED.
+[B-01][BLOCKER] activateBooster enforces NO inventory/usesPerGame: TIME_FREEZE
+   adds 5s to gameEndedAt every call (unlimited time), DOUBLE_POINTS adds flat
+   +50 score every call (unlimited points), SKIP free-completes a board — no
+   cost, no idempotency, no limit, reachable in tournaments via direct
+   gameService call. Server score/timer manipulation. (gov GAME-002)
+[MED] No pause/resume; wall-clock only. [MED] client supplies `level`/`isDaily`
+   in start DTO (level used only in direct-DB mode; isDaily dead — minor).
+
+================================================================================
+PHASE 3 — RANDOMNESS
+================================================================================
+[B-VAL] shuffle() uses Math.random() (game.service.ts) — not CSPRNG, no seed,
+   predictable board order. excludeIds/dup avoided per session. daily seed uses
+   SHA-256 [OK]. Fairness depends on small pool + PRNG.
+
+================================================================================
+PHASE 4 — TIMER
+================================================================================
+[OK] start/end server-set; time-sync server-authoritative; expiry via Restate/
+   service. [B-01] TIME_FREEZE booster lets a client push gameEndedAt forward
+   indefinitely → unlimited play time + max time-remaining score.
+
+================================================================================
+PHASE 5 — INPUT VALIDATION
+================================================================================
+[OK] Zod: sessionId uuid, moveId uuid, color min1, points int. Server replays.
+[B-02][BLOCKER] paths[] and path[] arrays have NO .max() and row/col have no
+   bounds — unbounded payload = memory/CPU DoS at scale. Replay/double-place
+   idempotent by moveId. WS gateway is a no-op stub (no rooms, no authz risk).
+
+================================================================================
+PHASE 6 — SCORING
+================================================================================
+[OK] per-board weight × combo (capped 2x); end bonus = seconds remaining;
+   server-computed, int rounded. [B-01] booster DOUBLE_POINTS injects score;
+   TIME_FREEZE inflates time-bonus. (gov GAME-002/AUTH-003 global injection)
+
+================================================================================
+PHASE 7 — GAME STATE
+================================================================================
+[OK] save-progress version/dedup; current-board/time-sync recover; ownership by
+   userId; finalized read from DB. Multi-tab serialized per session.
+
+================================================================================
+PHASE 8 — SECURITY
+================================================================================
+[OK] session ownership enforced (userId-scoped queries). WS stub → no hijack.
+[B-01] booster timer/score manipulation. [B-02] payload DoS.
+[gov] GAME-002/AUTH-003: global score injection via shared key (deferred).
+
+================================================================================
+PHASE 9 — PERFORMANCE
+================================================================================
+[OK] count+pick boards; finalize transactional. solver capped maxPaths 2000.
+[B-02 impact] unbounded paths inflate validation + storage.
+
+================================================================================
+PHASE 10 — EDGE CASES
+================================================================================
+[OK] zero moves / instant complete / restart / dup submit handled (ownership +
+   completed flags + idempotent finalize). [B-01] SKIP-spam free-clears boards.
+
+================================================================================
+PHASE 11 — INTEGRATION
+================================================================================
+Gaming ✓ · Scoring ✓ server-side · Anti-Cheat ⚠ detection-only fire-and-forget
+(gov ACHEAT-001) · Leaderboard local DB read; global via shared key (gov
+AUTH-003, GAME-001/002) · Tournament/Wallet via internal complete (gov AUTH-003).
+
+================================================================================
+FINAL OUTPUT
+================================================================================
+1. VERDICT: NOT production-ready. Booster system (B-01) is an unmetered server
+   score/timer cheat; payloads unbounded (B-02). Fairness governed by deferred
+   GAME-001/002, AUTH-003, ACHEAT-001.
+2. STRATEGIC BLOCKERS: none new — re-confirm GAME-001, GAME-002, AUTH-003,
+   ACHEAT-001 (boosters governed by GAME-002).
+3. LOCALIZED DEFECTS:
+   BLOCKFILL-VAL-01 enforce booster usesPerGame inventory + idempotency; stop
+     unlimited TIME_FREEZE/DOUBLE_POINTS/SKIP; disable in ranked tournaments.
+   BLOCKFILL-VAL-02 cap paths[]/path[] arrays + bound row/col in DTOs.
+   BLOCKFILL-VAL-03 CSPRNG board shuffle (replace Math.random).
+   BLOCKFILL-VAL-04 ignore/validate client `level`/`isDaily` on server.
+   BLOCKFILL-VAL-05 activateBooster bypasses Restate serialization (race).
+4. PRODUCTION READINESS: Real-money/ranked/large-scale: NO until VAL-01..05 +
+   governing blockers resolved.
+================================================================================
+END

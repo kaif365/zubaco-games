@@ -53,8 +53,11 @@ export function validateTaps(
   const circles = regenerateCircleSequence(seed, maxCircles);
   let correctTaps = 0;
   let wrongTaps = 0;
+  const seen = new Set<number>();
 
   for (const tap of taps) {
+    if (seen.has(tap.circleId)) continue;
+    seen.add(tap.circleId);
     const circle = circles.find(c => c.id === tap.circleId);
     if (!circle) {
       // Tapped a circle that doesn't exist in the sequence

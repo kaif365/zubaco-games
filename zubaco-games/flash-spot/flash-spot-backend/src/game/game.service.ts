@@ -4,7 +4,7 @@ import { Injectable, Logger, NotFoundException, ConflictException, BadRequestExc
 
 import { PrismaService } from '../common/prisma/prisma.service';
 import { EventService } from '../events/event.service';
-import { generateChangeSchedule, validateTap } from './engine/changeValidator';
+import { generateChangeSchedule, validateTap, findMatchingChange } from './engine/changeValidator';
 import { getLevelConfig } from './engine/levelConfig';
 
 export interface StageConfig {
@@ -169,17 +169,20 @@ export class GameService {
       seed: session.seed ?? 0,
     });
 
-    // Validate each tap against the regenerated schedule
+    // Validate each tap against the regenerated schedule. Each scheduled change
+    // is credited at most once, so spamming an active cell cannot inflate score.
     const gameStartTime = session.startedAt.getTime();
     let correctTaps = 0;
     let wrongTaps = 0;
+    const creditedChanges = new Set<number>();
 
     for (const tap of taps) {
       const tapTimeRelative = tap.timestamp - gameStartTime;
-      const isActuallyCorrect = validateTap(tap.cellId, tapTimeRelative, changes);
-      if (isActuallyCorrect) {
+      const matchIndex = findMatchingChange(tap.cellId, tapTimeRelative, changes);
+      if (matchIndex >= 0 && !creditedChanges.has(matchIndex)) {
+        creditedChanges.add(matchIndex);
         correctTaps++;
-      } else {
+      } else if (matchIndex < 0) {
         wrongTaps++;
       }
     }
@@ -226,7 +229,6 @@ export class GameService {
           },
         });
         cheatFlags.push({ reason: `Rapid input: ${gap}ms gap at tap ${i}`, severity: 'warning' });
-        break;
       }
     }
     if (cheatFlags.length > 0) {

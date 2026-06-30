@@ -26,7 +26,7 @@ export class GameService {
 
     const serverSeed = crypto.randomBytes(16).toString('hex');
     const clientSeed = crypto.randomBytes(8).toString('hex');
-    const nonce = Math.floor(Math.random() * 100000);
+    const nonce = crypto.randomInt(100000);
     const session = await this.prisma.gameSession.create({ data: { playerId, stageId, serverSeed, clientSeed, nonce, status: 'active' } });
     const seed = computeFinalSeed(serverSeed, clientSeed, nonce);
 

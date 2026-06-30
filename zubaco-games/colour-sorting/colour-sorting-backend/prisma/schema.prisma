@@ -15,6 +15,7 @@ model GameSession {
   clientSeed   String
   nonce        Int
   finalSeed    Int
+  level        Int?
   status       String     @default("active") // active | submitted | expired
   startedAt    DateTime   @default(now())
   endTime      DateTime

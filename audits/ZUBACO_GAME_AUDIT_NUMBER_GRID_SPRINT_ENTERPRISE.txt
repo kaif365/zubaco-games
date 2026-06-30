@@ -1,0 +1,55 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — NUMBER GRID SPRINT (module: number-grid-sprint)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Scoring is server-authoritative: the grid is regenerated from the seeded RNG at
+submit, the server recomputes calculateScore() and stores serverScore separately
+from clientScore (client value only feeds a divergence flag), ownership is checked,
+expiry is server-clocked, timing analysis flags bot input, and updateMany guards
+double submission. But this is the "light" backend variant: HTTP SessionGuard and
+WS gateway use hardcoded fallback secrets, WS leaks session rooms, the seed is a
+weak 32-bit non-crypto hash with a Math.random nonce, and answers are not deduped
+so the same correct cell can be counted repeatedly to inflate score.
+
+2) NEW STRATEGIC BLOCKERS (unique — not previously logged)
+--------------------------------------------------------------------------------
+NUMBERGRID-001: Weak provably-fair seed. computeFinalSeed (engine/random.ts) folds
+  serverSeed:clientSeed:nonce into a 32-bit (<<5)-hash; nonce=Math.random*100000
+  (game.service.startGame). 32-bit space + non-CSPRNG nonce make grids brute-
+  forceable. Use crypto seed/nonce + full-width hash. (Carried into BLOCKERS.md)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+NUMBERGRID-VAL-01: answers[] is not deduplicated before scoring (engine/scorer.ts:
+  calculateScore loops all answers, max 100, grid is 36 cells). Submitting the
+  same correct cell repeatedly inflates correctCells beyond totalCells -> score
+  inflation. Dedupe by (row,col) and cap correctCells at grid.length.
+
+NUMBERGRID-AUTH-01: HTTP SessionGuard accepts process.env.JWT_SECRET || 'fallback'
+  (common/guards/session.guard.ts) — forgeable tokens if env unset in prod.
+
+NUMBERGRID-WS-01: WS gateway accepts JWT_SECRET || 'dev-secret' fallback
+  (ws/game.gateway.ts handleConnection). Forgeable WS tokens.
+
+NUMBERGRID-WS-02: join-session has no ownership check
+  (ws/game.gateway.ts handleJoinSession) — any client may join any
+  session:<sessionId> room and receive another player's emissions.
+
+NUMBERGRID-RNG-01: nonce via Math.random + 32-bit finalSeed hash (see -001).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Server recomputes score; serverScore stored apart; cheat + timing flags.
+  - Ownership enforced; expiry server-clocked; double-submit guarded.
+  - serverSeed/clientSeed via crypto.randomBytes; answers payload bounded (max 100).
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core scoring: PASS. Auth fallback + weak seed + dup-cell inflation: FAIL.
+Status: HOLD until NUMBERGRID-VAL-01, AUTH-01, WS-01, WS-02, RNG-01 resolved.
+Real-money fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

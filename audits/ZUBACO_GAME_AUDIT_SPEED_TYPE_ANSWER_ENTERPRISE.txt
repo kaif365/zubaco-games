@@ -1,0 +1,48 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — SPEED TYPE ANSWER (module: speed-type-answer)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Lighter variant. POSITIVE: scoring is server-authoritative — game.service computes
+serverScore from server seed/questionBank, returns serverScore as finalScore, and
+flags client/server divergence (publishCheatFlagged). DTO bounds are tight
+(answers .max(30), userAnswer .max(200)). BUT every auth surface uses a dev-secret
+fallback, HTTP guard does only bare jwt.verify (no Redis session ownership), WS
+gateway has dev-secret + join no ownership, and provably-fair seed is a 32-bit
+(<<5)-hash → mulberry32 (predictable). Not safe for real money as-is.
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+SPEEDTYPE-001: random.ts computeFinalSeed folds serverSeed:clientSeed:nonce into a
+  32-bit ((hash<<5)-hash) value feeding mulberry32 — only ~4.3B board space, brute-
+  forceable; clientSeed/nonce questionBank picks predictable. Provably-fair RNG must
+  widen to 256-bit/crypto. (Same class as REFLEXENDURANCE 32-bit; deferred-strategic.)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+SPEEDTYPE-WS-01: ws/game.gateway.ts uses JWT_SECRET || 'dev-secret' + decoded.sub —
+  forgeable; use config jwtSecret + verified userId.
+
+SPEEDTYPE-WS-02: handleJoinSession joins session:<sessionId> with no ownership check
+  — any client can join any session room.
+
+SPEEDTYPE-AUTH-01: session.guard.ts uses JWT_SECRET || 'dev-secret' bare jwt.verify,
+  no fail-fast; remove fallback, throw if JWT_SECRET unset.
+
+SPEEDTYPE-CONFIG-01: app.config.ts jwtSecret defaults to 'dev-secret-speed-type' —
+  silent insecure secret; must fail-fast.
+
+POSITIVE CONTROLS CONFIRMED:
+  - Server-authoritative scoring (serverScore wins) + divergence cheat flag.
+  - DTO bounded: answers max 30, userAnswer max 200, gameSessionId uuid.
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Scoring/DTO bounds: PASS. Auth (dev-secret everywhere) + WS ownership + seed: FAIL.
+HOLD until SPEEDTYPE-001, WS-01, WS-02, AUTH-01, CONFIG-01 resolved.
+Fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

@@ -1,9 +1,11 @@
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
 import { PrismaService } from '@common/prisma/prisma.service';
+import { REQUEST_CONTEXT } from '@common/constants';
 
 /**
- * Logs all admin write operations (POST, PUT, PATCH, DELETE) to the audit_logs table.
+ * Logs admin write operations (POST, PUT, PATCH, DELETE) plus sensitive exports
+ * (PII/financial CSV reads) to the audit_logs table.
  */
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -13,25 +15,33 @@ export class AuditInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
     const method = request.method;
 
-    // Only audit write operations
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+    const isSensitiveRead = method === 'GET' && request.path?.includes('/exports/');
+
+    // Only audit writes and sensitive exports; never audit auth endpoints.
+    if (!isWrite && !isSensitiveRead) {
       return next.handle();
     }
-
-    // Skip auth endpoints
     if (request.path?.includes('/auth/')) {
       return next.handle();
     }
 
-    const adminId = request.session?.adminId || request.user?.id || 'unknown';
+    // Resolve the acting admin from the request context populated by SessionGuard.
+    const session = request[REQUEST_CONTEXT.SESSION];
+    const admin = request[REQUEST_CONTEXT.ADMIN];
+    const adminId: string | undefined = admin?.id || session?.userId;
     const action = `${method} ${request.path}`;
     const entity = this.extractEntity(request.path);
-    const entityId = request.params?.id || request.params?.seasonId || request.params?.stageId || null;
-    const changes = method === 'DELETE' ? null : (request.body || null);
+    const entityId = request.params?.id || request.params?.userId || request.params?.seasonId || request.params?.stageId || null;
+    const changes = method === 'DELETE' || method === 'GET' ? null : (request.body || null);
 
     return next.handle().pipe(
       tap({
         next: () => {
+          if (!adminId) {
+            // No authenticated admin (e.g. rejected request) — admin_id is a required FK; skip.
+            return;
+          }
           // Fire and forget — don't block the response
           this.prisma.auditLog.create({
             data: {

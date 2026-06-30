@@ -41,7 +41,7 @@ export class AntiCheatController {
   @Get('users/:userId/risk-score')
   async getUserRiskScore(@Param('userId') userId: string) {
     const riskScore = await this.antiCheatService.getRiskScore(userId);
-    return { user_id: userId, risk_score: riskScore, penalty_tier: Math.min(5, Math.floor(riskScore / 25)) };
+    return { user_id: userId, risk_score: riskScore, penalty_tier: this.antiCheatService.getPenaltyTier(riskScore) };
   }
 
   @Post('users/:userId/ban')

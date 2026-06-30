@@ -37,6 +37,11 @@ export class WebhookService {
     await this.enqueue('game.result.validated', data);
   }
 
+  /** Signal the wallet/payout layer to prevent or reverse a payout (enforcement). */
+  async emitEnforcementReversal(data: { user_id: string; session_id: string; reason: string }): Promise<void> {
+    await this.enqueue('enforcement.reversal', data);
+  }
+
   private async enqueue(type: WebhookEventType, data: unknown): Promise<void> {
     if (!config.webhook.basePlatformUrl) {
       // No destination configured (e.g. local dev). Skip silently.

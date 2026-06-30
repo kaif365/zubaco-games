@@ -1,5 +1,5 @@
 import { REQUEST_CONTEXT } from '@common/constants';
-import { RequireSession, TOKEN_TYPES, USER_TYPES } from '@common/decorators/session.decorator';
+import { Public, RequireSession, TOKEN_TYPES, USER_TYPES } from '@common/decorators/session.decorator';
 import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -12,6 +12,7 @@ import { AdminLoginDto } from './dto/admin-login.dto';
 export class AdminAuthController {
     constructor(private readonly adminAuthService: AdminAuthService) {}
 
+    @Public()
     @Post('login')
     @HttpCode(200)
     login(@Body() payload: AdminLoginDto) {

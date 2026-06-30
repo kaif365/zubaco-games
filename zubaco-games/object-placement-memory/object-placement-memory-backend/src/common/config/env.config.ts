@@ -6,7 +6,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 export const config = {
   database: { url: process.env.DATABASE_URL || '' },
   server: { port: Number(process.env.PORT) || 3004 },
-  security: { jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production' },
+  security: { jwtSecret: process.env.JWT_SECRET ?? '' },
   throttle: {
     enabled: process.env.THROTTLE_ENABLED !== 'false',
     ttlMs: Number(process.env.THROTTLE_TTL_MS) || 60000,
@@ -19,6 +19,10 @@ export const config = {
     version: '1.0.0',
   },
 } as const;
+// Fail fast if JWT_SECRET is missing
+if (!process.env.JWT_SECRET) {
+  throw new Error('Missing required environment variable: JWT_SECRET');
+}
 // Fail fast in production if critical env vars are missing
 if (process.env.NODE_ENV === 'production') {
   const required = ['DATABASE_URL', 'JWT_SECRET'];

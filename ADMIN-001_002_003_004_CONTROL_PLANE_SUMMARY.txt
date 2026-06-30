@@ -1,0 +1,41 @@
+ADMIN-001 / ADMIN-002 / ADMIN-003 / ADMIN-004 — ADMIN CONTROL PLANE
+Date: 2026-06-30
+Status: Partially Resolved (platform foundation) — blockers remain listed
+
+GOAL
+One unified Admin Control Plane. Admin operations orchestrate the authoritative
+platform pipelines without bypassing them; RBAC, idempotency, immutable audit.
+
+WHAT WAS BUILT (platform foundation)
+1. admin/control-plane/admin.types.ts
+   AdminRole: READ_ONLY, SUPPORT, OPERATOR, FINANCE, SUPER_ADMIN.
+   AdminAction: ADVANCE_STAGE, RESOLVE_REWARDS, CREDIT_WALLET, REVERSE_PAYOUT,
+   ENFORCE_ANTI_CHEAT, MARK_FOR_REVIEW.
+   ROLE_PERMISSIONS least-privilege map; AdminCommand/Context/AuditEntry/Result.
+
+2. admin/control-plane/admin-control-plane.service.ts — AdminControlPlaneService
+   - execute(): the ONE admin entry point.
+     * ADMIN-001: RBAC deny-by-default (role must hold the action, else DENIED).
+     * ADMIN-002: delegates to authoritative pipelines only — TournamentOrchestrator
+       (advance stage / resolve rewards), WalletLedgerService (credit / reverse
+       payout, idempotent + ledger-correct), EnforcementService (enforce / review),
+       EventBus.publish. No direct wallet/transaction/season writes.
+     * ADMIN-003: AdminContext{adminId,role} + requestId on every action;
+       idempotent (Redis lock, DUPLICATE short-circuit), retry/replay safe.
+     * ADMIN-004: immutable append-only admin:audit (actor, role, action, target,
+       requestId, reason, OK/DENIED/DUPLICATE/ERROR, timestamp) for ALL outcomes.
+
+3. admin/admin.module.ts @Global (imports Tournament + Wallet; enforcement/event
+   bus are @Global); registered in app.module. Legacy admin callers adapt here.
+
+DO-NOT-TOUCH respected: provably-fair RNG, ACHEAT-002, ARCH-001/002, TEST-001,
+INFRA-001.
+
+BUILD: nest build OK (clean).
+
+REMAINING (why blockers stay listed)
+- Persist Admin.role + retire admin-repo userType===ADMIN omnipotence (ADMIN-001).
+- Point admin-repo prizes/credit/elimination at this API, remove direct writers
+  (ADMIN-002).
+- MFA + throttle + rotating session + account lifecycle in admin auth (ADMIN-003).
+- Off-box AuditLog + before/after + maker-checker (ADMIN-004, shared-DB migration).

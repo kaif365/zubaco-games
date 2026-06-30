@@ -39,7 +39,7 @@ export class GameService {
     }
     const serverSeed = crypto.randomBytes(16).toString('hex');
     const clientSeed = crypto.randomBytes(8).toString('hex');
-    const nonce = Math.floor(Math.random() * 100000);
+    const nonce = crypto.randomInt(0, 100000);
     const session = await this.prisma.gameSession.create({ data: { playerId, stageId, serverSeed, clientSeed, nonce, status: 'active' } });
     const seed = computeFinalSeed(serverSeed, clientSeed, nonce);
     return { gameSessionId: session.id, seed, config, serverTime: new Date().toISOString(), endTime: new Date(Date.now() + config.timeLimitMs + 2000).toISOString(), level: levelParams?.level ?? 1, scoreMultiplier: levelParams?.scoreMultiplier ?? 1.0 };
@@ -56,7 +56,7 @@ export class GameService {
 
     const cheatReasons: string[] = [];
     const dbConfig = await this.prisma.configuration.findUnique({ where: { stageId: session.stageId } });
-    const config = dbConfig ? { pointsPerRound: dbConfig.pointsPerRound, perfectBonus: dbConfig.perfectBonus } : { pointsPerRound: 20, perfectBonus: 10 };
+    const config = dbConfig ? { pointsPerRound: dbConfig.pointsPerRound, perfectBonus: dbConfig.perfectBonus, timeLimitMs: dbConfig.timeLimitMs } : { pointsPerRound: 20, perfectBonus: 10, timeLimitMs: DEFAULT_CONFIG.timeLimitMs };
 
     // SERVER-SIDE VALIDATION: Regenerate expected sequences and verify player inputs
     const seed = computeFinalSeed(session.serverSeed, session.clientSeed, session.nonce);
@@ -79,8 +79,6 @@ export class GameService {
 
       if (!roundCorrect) break; // First wrong = game over
       verifiedRounds++;
-      // TODO: Perfect detection could also check hesitation timing from client
-      // For now, trust that a completed round with no mistake counts if under threshold
     }
 
     // Perfect rounds can't exceed verified rounds
@@ -92,7 +90,7 @@ export class GameService {
       cheatReasons.push(`Score divergence: client=${dto.clientScore}, server=${serverScore}`);
     }
     const elapsed = Date.now() - session.startedAt.getTime();
-    if (elapsed > DEFAULT_CONFIG.timeLimitMs + 5000) {
+    if (elapsed > config.timeLimitMs + 5000) {
       throw new BadRequestException('Game session has expired');
     }
 

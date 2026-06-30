@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RequireSession, TOKEN_TYPES, USER_TYPES } from '@common/decorators/session.decorator';
 import { UsersService } from './users.service';
+import { WalletAdjustDto, BanUserDto, UpdateUserDto } from './dto/manage-user.dto';
 
 @ApiTags('Admin Users')
 @ApiBearerAuth('authorization')
@@ -52,7 +53,7 @@ export class UsersController {
     }
 
     @Post(':userId/ban')
-    async banUser(@Param('userId') userId: string, @Body() body: { reason: string }) {
+    async banUser(@Param('userId') userId: string, @Body() body: BanUserDto) {
         return this.usersService.banUser(userId, body.reason);
     }
 
@@ -62,17 +63,17 @@ export class UsersController {
     }
 
     @Post(':userId/wallet/credit')
-    async creditWallet(@Param('userId') userId: string, @Body() body: { amount: number; reason: string }) {
+    async creditWallet(@Param('userId') userId: string, @Body() body: WalletAdjustDto) {
         return this.usersService.creditWallet(userId, body.amount, body.reason);
     }
 
     @Post(':userId/wallet/debit')
-    async debitWallet(@Param('userId') userId: string, @Body() body: { amount: number; reason: string }) {
+    async debitWallet(@Param('userId') userId: string, @Body() body: WalletAdjustDto) {
         return this.usersService.debitWallet(userId, body.amount, body.reason);
     }
 
     @Patch(':userId')
-    async updateUser(@Param('userId') userId: string, @Body() body: any) {
+    async updateUser(@Param('userId') userId: string, @Body() body: UpdateUserDto) {
         return this.usersService.updateUser(userId, body);
     }
 }

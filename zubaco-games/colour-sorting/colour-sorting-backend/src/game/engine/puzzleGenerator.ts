@@ -1,4 +1,4 @@
-import { mulberry32, seededShuffle } from './random';
+import { mulberry32 } from './random';
 
 type BallColor = string;
 
@@ -21,28 +21,37 @@ export function generatePuzzle(seed: number, config: StageConfig): Tube[] {
   const colors = ALL_COLORS.slice(0, config.colorCount);
   const { ballsPerTube, emptyTubes } = config;
 
-  const allBalls: BallColor[] = [];
-  for (const color of colors) {
-    for (let i = 0; i < ballsPerTube; i++) {
-      allBalls.push(color);
-    }
-  }
-
-  const shuffled = seededShuffle(allBalls, rng);
+  // Start from the SOLVED state: one full uniform tube per colour + empty tubes.
   const tubes: Tube[] = [];
-  let ballIdx = 0;
-
   for (let i = 0; i < config.colorCount; i++) {
-    const tubeBalls = shuffled.slice(ballIdx, ballIdx + ballsPerTube);
-    ballIdx += ballsPerTube;
-    tubes.push({ id: i, balls: tubeBalls, capacity: ballsPerTube });
+    const color = colors[i];
+    tubes.push({ id: i, balls: Array.from({ length: ballsPerTube }, () => color), capacity: ballsPerTube });
   }
-
   for (let i = 0; i < emptyTubes; i++) {
     tubes.push({ id: config.colorCount + i, balls: [], capacity: ballsPerTube });
   }
 
-  return tubes;
+  // Scramble by applying random VALID forward moves. Every resulting state is
+  // therefore reachable from solved and is guaranteed solvable (reverse path).
+  let state = tubes;
+  const scrambleMoves = config.colorCount * ballsPerTube * 12;
+  for (let s = 0; s < scrambleMoves; s++) {
+    const valid: [number, number][] = [];
+    for (let from = 0; from < state.length; from++) {
+      for (let to = 0; to < state.length; to++) {
+        if (isValidMove(state, from, to)) valid.push([from, to]);
+      }
+    }
+    if (valid.length === 0) break;
+    const [from, to] = valid[Math.floor(rng() * valid.length)];
+    state = executeMove(state, from, to);
+  }
+
+  // Reject an already-solved scramble so play is never trivial.
+  if (isPuzzleSolved(state)) {
+    return generatePuzzle((seed + 1) & 0x7fffffff, config);
+  }
+  return state;
 }
 
 export function isValidMove(tubes: Tube[], fromIdx: number, toIdx: number): boolean {

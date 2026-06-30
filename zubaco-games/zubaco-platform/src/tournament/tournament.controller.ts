@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { TournamentService } from './tournament.service';
 import { EliminationService } from './elimination.service';
 import { LeaderboardService } from '../leaderboard/leaderboard.service';
@@ -40,8 +40,16 @@ export class TournamentController {
     @Param('seasonId') seasonId: string,
     @Param('stageNumber') stageNumber: number,
     @Param('gameOrder') gameOrder: number,
+    @Req() req: any,
+    @Body() body?: { device_components?: any },
   ) {
-    return this.tournamentService.startTournamentGame(userId, seasonId, stageNumber, gameOrder);
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    const deviceFingerprint = req.headers['x-device-fingerprint'] || undefined;
+    return this.tournamentService.startTournamentGame(userId, seasonId, stageNumber, gameOrder, {
+      ipAddress,
+      deviceFingerprint,
+      deviceComponents: body?.device_components,
+    });
   }
 
   @Post('submit')

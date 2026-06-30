@@ -71,6 +71,7 @@ export const GAME_CONFIGS = {
   EXPIRY_GRACE_SECONDS: 5,
   ACTION_TIMESTAMP_FUTURE_SKEW_MS: 10_000,
   SQS_POLL_ERROR_RETRY_MS: 5_000,
+  SAVE_PROGRESS_MAX_BATCH: 200, // hard cap on moves accepted per save-progress request
 } as const;
 
 export const ANTI_CHEAT_CONFIGS = {

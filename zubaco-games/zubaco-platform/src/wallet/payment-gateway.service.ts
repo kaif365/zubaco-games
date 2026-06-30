@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '.prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import * as crypto from 'crypto';
@@ -63,7 +64,10 @@ export class PaymentGatewayService {
         user_id: userId,
         type: 'DEPOSIT',
         amount: amountInr,
-        balance_after: currentBalance + amountInr,
+        // Balance is unchanged until the payment is captured; the post-credit figure
+        // is written at completion, so an abandoned/CANCELLED order never carries a
+        // misleading balance_after (WALLET-VAL-14).
+        balance_after: currentBalance,
         status: 'PENDING',
         reference_id: order.id,
         description: `Deposit ₹${amountInr}`,
@@ -112,7 +116,7 @@ export class PaymentGatewayService {
 
   // ─── WEBHOOK HANDLER ───────────────────────────────────────────
 
-  async handleWebhook(rawBody: Buffer, signature: string) {
+  async handleWebhook(rawBody: Buffer, signature: string, eventId?: string) {
     if (!rawBody || rawBody.length === 0) {
       throw new BadRequestException('Missing webhook body');
     }
@@ -127,7 +131,22 @@ export class PaymentGatewayService {
       throw new BadRequestException('Invalid webhook signature');
     }
 
-    const body = JSON.parse(rawBody.toString('utf8'));
+    // Replay/duplicate safety + audit: once a signed event id is seen, ignore
+    // any redelivery of the same id (NOTIF-VAL-05). First-seen wins for 24h.
+    if (eventId) {
+      const firstSeen = await this.redis.acquireLock(`webhook:razorpay:evt:${eventId}`, 86400);
+      if (!firstSeen) {
+        return { received: true, duplicate: true };
+      }
+    }
+
+    let body: any;
+    try {
+      body = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      throw new BadRequestException('Malformed webhook body');
+    }
+
     const event = body.event;
     const payload = body.payload?.payment?.entity;
 
@@ -138,7 +157,7 @@ export class PaymentGatewayService {
     if (event === 'payment.failed' && payload) {
       const orderId = payload.order_id;
       await this.prisma.transaction.updateMany({
-        where: { reference_id: orderId, status: 'PENDING' },
+        where: { reference_id: orderId, status: 'PENDING', type: 'DEPOSIT' },
         data: { status: 'FAILED' },
       });
     }
@@ -170,16 +189,19 @@ export class PaymentGatewayService {
       }
 
       // Credit wallet atomically
-      await tx.wallet.upsert({
+      const updatedWallet = await tx.wallet.upsert({
         where: { user_id: transaction.user_id },
         create: { user_id: transaction.user_id, balance: transaction.amount },
         update: { balance: { increment: transaction.amount } },
       });
 
-      // Update metadata with payment ID
+      // Record the real post-credit balance and the payment id (WALLET-VAL-14).
       await tx.transaction.update({
         where: { id: transaction.id },
-        data: { metadata: { ...(transaction.metadata as any), razorpay_payment_id: paymentId } },
+        data: {
+          balance_after: updatedWallet.balance,
+          metadata: { ...(transaction.metadata as any), razorpay_payment_id: paymentId },
+        },
       });
 
       return { success: true, amount: Number(transaction.amount) };
@@ -207,10 +229,17 @@ export class PaymentGatewayService {
       throw new BadRequestException('No verified bank detail found');
     }
 
+    // The WITHDRAWAL row stores the GROSS debit; the bank is paid the NET (after TDS)
+    // carried in metadata. Older rows (pre net/gross split) fall back to the stored
+    // amount for both (WALLET-VAL-04/06).
+    const meta = (transaction.metadata as any) || {};
+    const netAmount = meta.net != null ? Number(meta.net) : Number(transaction.amount);
+    const grossRefund = meta.gross != null ? new Prisma.Decimal(meta.gross) : new Prisma.Decimal(transaction.amount);
+
     try {
       const payoutResult = await this.createRazorpayXPayout(
         transaction.user_id,
-        Number(transaction.amount),
+        netAmount,
         bankDetail,
       );
 
@@ -228,19 +257,45 @@ export class PaymentGatewayService {
 
       return { success: true, payout_id: payoutResult.id };
     } catch (error: any) {
-      // Mark as failed but don't lose the transaction
-      await this.prisma.transaction.update({
-        where: { id: transactionId },
-        data: {
-          status: 'FAILED',
-          metadata: { ...(transaction.metadata as any), error: error.message },
-        },
-      });
+      // Atomically reverse the debit under the wallet row lock: re-credit the GROSS
+      // that was withdrawn, record an explicit REFUND ledger row, void the
+      // informational TDS row (no tax event on a failed payout), and mark the
+      // withdrawal FAILED — all in one transaction (WALLET-VAL-04).
+      await this.prisma.$transaction(async (tx) => {
+        const [wallet] = await tx.$queryRawUnsafe<any[]>(
+          `SELECT * FROM "wallets" WHERE "user_id" = $1 FOR UPDATE`,
+          transaction.user_id,
+        );
+        const newBalance = new Prisma.Decimal(wallet ? wallet.balance : 0).plus(grossRefund);
 
-      // Refund wallet balance
-      await this.prisma.wallet.update({
-        where: { user_id: transaction.user_id },
-        data: { balance: { increment: transaction.amount } },
+        await tx.wallet.update({
+          where: { user_id: transaction.user_id },
+          data: { balance: { increment: grossRefund } },
+        });
+
+        await tx.transaction.create({
+          data: {
+            user_id: transaction.user_id,
+            type: 'REFUND',
+            amount: grossRefund,
+            balance_after: newBalance,
+            status: 'COMPLETED',
+            reference_id: transaction.id,
+            description: 'Withdrawal payout failed — amount refunded',
+          },
+        });
+
+        await tx.transaction.deleteMany({
+          where: { user_id: transaction.user_id, type: 'TDS_DEDUCTION', reference_id: transaction.id },
+        });
+
+        await tx.transaction.update({
+          where: { id: transactionId },
+          data: {
+            status: 'FAILED',
+            metadata: { ...(transaction.metadata as any), error: error.message },
+          },
+        });
       });
 
       throw new BadRequestException(`Payout failed: ${error.message}`);
@@ -390,7 +445,7 @@ export class PaymentGatewayService {
         where: {
           user_id: userId,
           type: 'DEPOSIT',
-          status: { in: ['COMPLETED', 'PENDING'] },
+          status: 'COMPLETED',
           created_at: { gte: dayStart },
         },
         _sum: { amount: true },
@@ -412,7 +467,7 @@ export class PaymentGatewayService {
         where: {
           user_id: userId,
           type: 'DEPOSIT',
-          status: { in: ['COMPLETED', 'PENDING'] },
+          status: 'COMPLETED',
           created_at: { gte: weekStart },
         },
         _sum: { amount: true },
@@ -432,7 +487,7 @@ export class PaymentGatewayService {
         where: {
           user_id: userId,
           type: 'DEPOSIT',
-          status: { in: ['COMPLETED', 'PENDING'] },
+          status: 'COMPLETED',
           created_at: { gte: monthStart },
         },
         _sum: { amount: true },

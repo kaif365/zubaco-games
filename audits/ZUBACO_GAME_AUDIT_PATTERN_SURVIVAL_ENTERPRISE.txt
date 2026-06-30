@@ -1,0 +1,56 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — PATTERN SURVIVAL (module: pattern-survival)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Heavy folder layout (Restate, redis-io, hmac/api-key guards) but a "light"
+auth core. Scoring is server-authoritative: submitGame regenerates each round's
+expected sequence from the stored seed, verifies player inputs (first wrong/length
+mismatch = stop), caps perfectRounds at verifiedRounds, stores serverScore,
+enforces ownership, double-submit updateMany guard, and discrepancy flag. But HTTP
+guard and WS gateway use hardcoded fallback secrets, WS rooms lack ownership, the
+seed is a weak 32-bit hash + Math.random nonce, expiry uses DEFAULT_CONFIG instead
+of the session's actual time limit, and a stale TODO remains in scoring.
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+PATTERNSURVIVAL-001: Weak provably-fair seed. computeFinalSeed (engine/random.ts)
+  folds serverSeed:clientSeed:nonce into a 32-bit (<<5)-hash; nonce=Math.random
+  *100000. 32-bit space + non-CSPRNG nonce make sequences brute-forceable. Use
+  crypto nonce + full-width hash.
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+PATTERNSURVIVAL-AUTH-01: HTTP SessionGuard verifies process.env.JWT_SECRET ||
+  'fallback' (common/guards/session.guard.ts) — forgeable tokens, ignores appConfig.
+
+PATTERNSURVIVAL-WS-01: WS gateway uses JWT_SECRET || 'dev-secret' and reads
+  decoded.sub (ws/game.gateway.ts handleConnection) — forgeable WS tokens.
+
+PATTERNSURVIVAL-WS-02: join-session has no ownership check (room session:<sessionId>)
+  — any client may join any session room and receive another player's emissions.
+
+PATTERNSURVIVAL-EXP-01: submitGame expiry test uses DEFAULT_CONFIG.timeLimitMs, not
+  the level/db config time limit applied at startGame. Higher-level (longer) games
+  may be wrongly rejected; shorter configs not enforced. Use session config limit.
+
+PATTERNSURVIVAL-RNG-01: nonce via Math.random + 32-bit finalSeed hash (see -001).
+
+PATTERNSURVIVAL-CLN-01: stale TODO in submitGame ("Perfect detection could also
+  check hesitation timing") — dead comment; perfect rounds trusted via cap only.
+
+POSITIVE CONTROLS CONFIRMED:
+  - Sequences recomputed from seed; first-wrong stop; serverScore stored.
+  - perfectRounds capped; ownership; updateMany double-submit guard; discrepancy.
+  - serverSeed/clientSeed crypto.randomBytes; payload bounded (roundInputs/round max 500).
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core scoring: PASS. Auth fallback + weak seed + expiry-config drift: FAIL.
+Status: HOLD until AUTH-01, WS-01, WS-02, EXP-01, RNG-01 resolved.
+Real-money fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

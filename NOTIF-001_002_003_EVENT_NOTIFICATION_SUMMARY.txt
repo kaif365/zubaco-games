@@ -1,0 +1,46 @@
+NOTIF-001 / NOTIF-002 / NOTIF-003 — UNIFIED EVENT & NOTIFICATION ARCHITECTURE
+Date: 2026-06-30
+Status: Partially Resolved (platform foundation) — blockers remain listed
+
+GOAL
+One unified event + notification architecture. Every platform event published
+once, consumed reliably by notification/webhook subscribers; retry, DLQ,
+idempotent delivery, event versioning.
+
+WHAT WAS BUILT (platform foundation)
+1. events/event.types.ts
+   PlatformEventType (11 authoritative events): game.completed,
+   verification.passed, verification.failed, tournament.progressed,
+   tournament.completed, reward.eligible, wallet.credited, payout.settled,
+   payout.reversed, anticheat.enforced, account.reviewed.
+   Versioned envelope (EVENT_SCHEMA_VERSION), EventSubscriber contract,
+   EventDeliveryRecord, DI_EVENT_SUBSCRIBERS token.
+
+2. events/event-bus.service.ts — EventBusService
+   - publish(): publish-once (Redis dedupe events:published:<id>) AFTER the
+     authoritative transaction commits; fans out one delivery record per
+     subscriber to a Redis outbox (events:outbox).
+   - drain() (10s cron): claims due records via zrem, delivers, retries with
+     exponential backoff, dead-letters (events:deadletter) after MAX_ATTEMPTS.
+   - Idempotent: subscribers dedupe on event.id, duplicate delivery harmless.
+
+3. events/subscribers/in-app.subscriber.ts — InAppEventSubscriber
+   Maps platform events -> in-app notifications via NotificationService.
+   Pluggable through DI_EVENT_SUBSCRIBERS (webhook/email/SMS/push slot in next).
+
+4. events/events.module.ts @Global; registered in app.module. NotificationService
+   / WebhookService retained as compatibility adapters.
+
+AUTHORITATIVE RULES respected: events emitted only after commit, published once,
+no duplicate events, channel fan-out replaces direct service-to-service calls.
+
+DO-NOT-TOUCH respected: admin, provably-fair RNG, ACHEAT-002.
+
+BUILD: nest build OK (clean).
+
+REMAINING (why blockers stay listed)
+- Webhook subscriber adapter onto the existing signed outbox + integrator
+  registry (NOTIF-001).
+- Route challenge/elimination/wallet/anti-cheat emitters through publish()
+  (NOTIF-002).
+- Email transport + per-user channel preferences/templates (NOTIF-003).

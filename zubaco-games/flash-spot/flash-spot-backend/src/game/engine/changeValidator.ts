@@ -178,3 +178,21 @@ export function validateTap(
       tapTimeRelative <= c.revertAt + toleranceMs,
   );
 }
+
+/**
+ * Find the index of the active change a tap matches, or -1 if none.
+ * Used to credit each scheduled change at most once (no spam inflation).
+ */
+export function findMatchingChange(
+  cellId: number,
+  tapTimeRelative: number,
+  changes: ScheduledChange[],
+  toleranceMs = 500,
+): number {
+  return changes.findIndex(
+    (c) =>
+      c.cellId === cellId &&
+      tapTimeRelative >= c.activateAt - toleranceMs &&
+      tapTimeRelative <= c.revertAt + toleranceMs,
+  );
+}

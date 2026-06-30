@@ -8,7 +8,7 @@
  * header (HMAC-SHA256 over the raw JSON body) before trusting the payload.
  */
 
-export type WebhookEventType = 'game.result.validated';
+export type WebhookEventType = 'game.result.validated' | 'enforcement.reversal';
 
 /** The validated game-result data carried by a `game.result.validated` event. */
 export interface GameResultEventData {

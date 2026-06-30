@@ -1,0 +1,59 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — REFLEX ENDURANCE (module: reflex-endurance)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Scoring is server-authoritative: submitGame regenerates the circle sequence from
+seed, recomputes green/non-green per tap (ignores client `correct`), serverScore =
+verified correctTaps, ownership + expiry + updateMany double-submit guard + timing
++ divergence + wrong-tap flags. But validateTaps does not dedupe by circleId so the
+same green circle can be tapped repeatedly to inflate score, HTTP guard + WS gateway
+use hardcoded fallback secrets, WS rooms lack ownership, expiry/wrong-tap caps use
+DEFAULT_CONFIG not session config, DTO/service tap caps disagree, and the seed is a
+weak 32-bit hash + Math.random nonce.
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+REFLEXENDURANCE-001: Weak provably-fair seed. computeFinalSeed (engine/random.ts)
+  folds serverSeed:clientSeed:nonce into a 32-bit (<<5)-hash; nonce=Math.random
+  *100000. 32-bit space + non-CSPRNG nonce make circle sequence brute-forceable.
+  Use crypto nonce + full-width hash.
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+REFLEXENDURANCE-VAL-01: validateTaps (engine/circleValidator.ts) does not dedupe by
+  circleId; repeating the same green circleId counts each tap -> correctTaps/score
+  inflation. Dedupe by circleId; cap at sequence length.
+
+REFLEXENDURANCE-AUTH-01: HTTP SessionGuard verifies JWT_SECRET || 'fallback'
+  (common/guards/session.guard.ts) — forgeable, ignores appConfig.
+
+REFLEXENDURANCE-WS-01: WS gateway uses JWT_SECRET || 'dev-secret' + decoded.sub
+  (ws/game.gateway.ts) — forgeable WS tokens.
+
+REFLEXENDURANCE-WS-02: join-session has no ownership check (room session:<sessionId>)
+  — any client may join any session room and receive another player's emissions.
+
+REFLEXENDURANCE-EXP-01: submitGame expiry + maxWrongTaps use DEFAULT_CONFIG, not the
+  session/level/db config applied at start. Use session config limits.
+
+REFLEXENDURANCE-DTO-01: cap mismatch — DTO taps.max(1000) vs service >2000 check.
+  Align (DTO lower cap governs; remove dead 2000 check).
+
+REFLEXENDURANCE-RNG-01: nonce via Math.random + 32-bit finalSeed hash (see -001).
+
+POSITIVE CONTROLS CONFIRMED:
+  - Circle sequence recomputed from seed; client `correct` ignored; serverScore stored.
+  - Ownership; expiry; updateMany double-submit; timing + wrong-tap + divergence flags.
+  - serverSeed/clientSeed crypto.randomBytes; payload bounded.
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Core scoring: PASS. Dedup + auth + config drift + weak seed: FAIL.
+Status: HOLD until VAL-01, AUTH-01, WS-01, WS-02, EXP-01, DTO-01, RNG-01 resolved.
+Real-money fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

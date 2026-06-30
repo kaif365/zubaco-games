@@ -1,7 +1,11 @@
 export const appConfig = {
   port: parseInt(process.env.PORT || '3012', 10),
-  jwtSecret: process.env.JWT_SECRET || 'dev-secret-word-unscramble',
+  jwtSecret: process.env.JWT_SECRET ?? '',
 };
+
+if (!appConfig.jwtSecret) {
+  throw new Error('Missing required environment variable: JWT_SECRET');
+}
 
 // Fail fast in production if critical env vars are missing
 if (process.env.NODE_ENV === 'production') {

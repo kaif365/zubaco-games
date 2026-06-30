@@ -41,7 +41,8 @@ export class SessionGuard implements CanActivate {
         );
 
         if (!requirements) {
-            return true;
+            // Deny-by-default: a handler with neither @Public nor @RequireSession is denied.
+            throw new UnauthorizedException('TOKEN_INVALID');
         }
 
         const request = context.switchToHttp().getRequest<Request>();

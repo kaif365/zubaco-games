@@ -1,0 +1,51 @@
+================================================================================
+ZUBACO ENTERPRISE GAME AUDIT — WORD UNSCRAMBLE (module: word-unscramble)
+Mode: AUDIT ONLY (no code modified)
+================================================================================
+
+1) FINAL VERDICT
+--------------------------------------------------------------------------------
+NOT PRODUCTION-READY.
+
+Same scaffold family (random.ts/wordBank/scorer engine, server-authoritative
+scoring + divergence flag). Has extra hardening (idempotency, ip-rate-limiter,
+request-size-limiter, crypto). DTO mostly bounded (answers .max(50), clientScore
+int min0). BUT all auth surfaces use dev-secret fallbacks, HTTP guard is bare
+jwt.verify (no Redis ownership), WS gateway dev-secret + join no ownership, seed
+is a 32-bit (<<5)-hash → mulberry32, and selectedOrder has no max. Unsafe for
+real money as-is.
+
+2) NEW STRATEGIC BLOCKERS (unique)
+--------------------------------------------------------------------------------
+WORDUNSCRAMBLE-001: random.ts computeFinalSeed folds serverSeed:clientSeed:nonce
+  into a 32-bit ((hash<<5)-hash) → mulberry32 — ~4.3B space, brute-forceable;
+  wordBank scramble predictable. Requires 256-bit/crypto provably-fair RNG.
+  (Same class as REFLEXENDURANCE/SPEEDTYPE/TRUEFALSEBLITZ; deferred-strategic.)
+
+3) LOCALIZED DEFECTS
+--------------------------------------------------------------------------------
+WORDUNSCRAMBLE-WS-01: ws/game.gateway.ts JWT_SECRET || 'dev-secret' + decoded.sub —
+  forgeable; use config jwtSecret + verified userId.
+
+WORDUNSCRAMBLE-WS-02: handleJoinSession joins session:<sessionId> with no ownership
+  — any client can join any session room.
+
+WORDUNSCRAMBLE-AUTH-01: session.guard.ts JWT_SECRET || 'fallback-secret' bare
+  jwt.verify, no fail-fast; remove fallback, throw if unset.
+
+WORDUNSCRAMBLE-CONFIG-01: app.config.ts jwtSecret defaults to
+  'dev-secret-word-unscramble' — silent insecure secret; must fail-fast.
+
+WORDUNSCRAMBLE-DTO-01: submit-game.dto selectedOrder array has NO .max() — unbounded
+  per-answer (cap answers at 50 but inner array open); cap it.
+
+POSITIVE CONTROLS CONFIRMED:
+  - Server-authoritative scoring + divergence cheat flag.
+  - answers max 50, clientScore int min 0, gameSessionId uuid; extra hardening layer.
+
+4) PRODUCTION READINESS
+--------------------------------------------------------------------------------
+Scoring/bounds: mostly PASS. Auth (dev-secret) + WS ownership + seed + DTO: FAIL.
+HOLD until WORDUNSCRAMBLE-001, WS-01, WS-02, AUTH-01, CONFIG-01, DTO-01 resolved.
+Fairness still governed by deferred GAME-001/002, AUTH-003, ACHEAT-001.
+================================================================================

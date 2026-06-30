@@ -6,7 +6,7 @@ export class SessionGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const auth = req.headers.authorization;
     if (!auth?.startsWith('Bearer ')) throw new UnauthorizedException('Missing token');
-    try { req.user = jwt.verify(auth.slice(7), process.env.JWT_SECRET || 'fallback'); return true; }
+    try { req.user = jwt.verify(auth.slice(7), process.env.JWT_SECRET || ''); return true; }
     catch { throw new UnauthorizedException('Invalid token'); }
   }
 }

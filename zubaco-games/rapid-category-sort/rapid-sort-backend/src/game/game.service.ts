@@ -5,7 +5,7 @@ import { computeFinalSeed } from './engine/random';
 import { generateItemSequence } from './engine/contentGenerator';
 import { calculateScore } from './engine/scorer';
 import { getLevelConfig } from './engine/levelConfig';
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID, randomBytes, randomInt } from 'crypto';
 
 interface AnswerInput {
   itemIndex: number;
@@ -32,7 +32,7 @@ export class GameService {
 
     const serverSeed = randomBytes(16).toString('hex');
     const clientSeed = randomUUID();
-    const nonce = Math.floor(Math.random() * 1_000_000);
+    const nonce = randomInt(0, 1_000_000);
     const finalSeed = computeFinalSeed(serverSeed, clientSeed, nonce);
 
     const endTime = new Date(Date.now() + (levelParams?.timeLimitMs ?? config.timeLimitMs) + 2000);
@@ -78,8 +78,11 @@ export class GameService {
 
     const cheatFlags: { reason: string; severity: string }[] = [];
     const verifiedAnswers: AnswerInput[] = [];
+    const seenItems = new Set<number>();
 
     for (const answer of answers) {
+      if (seenItems.has(answer.itemIndex)) continue;
+      seenItems.add(answer.itemIndex);
       const item = sequence[answer.itemIndex];
       if (!item) {
         cheatFlags.push({ reason: `Invalid item index ${answer.itemIndex}`, severity: 'critical' });

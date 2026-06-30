@@ -67,6 +67,7 @@ export const GAME_CONFIGS = {
   MOVE_TIMESTAMP_FUTURE_SKEW_MS: 5_000, // tolerate small client/server clock skew
   TIME_BONUS_PER_SECOND: 10, // score points per second remaining at last end-board
   SQS_POLL_ERROR_RETRY_MS: 5_000, // wait before retrying after a failed SQS poll
+  SUBMIT_MOVES_MAX_BATCH: 200, // hard cap on moves accepted per submit-moves request
 } as const;
 
 export const TRANSACTION_CONFIGS = {

@@ -35,6 +35,11 @@ export class RedisService implements OnModuleDestroy {
     return this.client.incr(key);
   }
 
+  /** Atomic set-if-absent. Returns true when the key was created. */
+  async setnx(key: string, value: string): Promise<boolean> {
+    return (await this.client.setnx(key, value)) === 1;
+  }
+
   async expire(key: string, seconds: number): Promise<void> {
     await this.client.expire(key, seconds);
   }

@@ -1,6 +1,8 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 
+import { appConfig } from '../config/app.config';
+
 @Injectable()
 export class SessionGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
@@ -9,7 +11,7 @@ export class SessionGuard implements CanActivate {
     if (!auth?.startsWith('Bearer ')) throw new UnauthorizedException('Missing token');
 
     try {
-      const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET || 'fallback-secret');
+      const payload = jwt.verify(auth.slice(7), appConfig.jwtSecret);
       req.user = payload;
       return true;
     } catch {

@@ -9,6 +9,7 @@ import {
 } from "@common/constants";
 import { config } from "@common/config/env.config";
 import { PrismaService } from "@common/prisma/prisma.service";
+import { randomInt } from "crypto";
 import { SnsService } from "../aws/sns.service";
 import { SqsService } from "../aws/sqs.service";
 import { createHash } from "crypto";
@@ -403,7 +404,7 @@ export class GameService {
     if (count === 0) {
       return null;
     }
-    const skip = Math.floor(Math.random() * count);
+    const skip = randomInt(count);
     return this.prisma.mazeTemplate.findFirst({ where, skip });
   }
 

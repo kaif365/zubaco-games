@@ -1,0 +1,354 @@
+================================================================================
+ZUBACO — ENTERPRISE SCORING ENGINE AUDIT
+================================================================================
+Audit type      : Audit ONLY (no code modified)
+Date            : 2026-06-26
+Scope           : The platform "Scoring Engine" — every code path that bounds,
+                  validates, persists, ranks, and propagates a game score that
+                  feeds tournament qualification, leaderboards, and prizes.
+Verdict         : NOT PRODUCTION-READY as a financial-grade scoring authority.
+                  The platform does NOT compute the authoritative score — the
+                  submitted `score` value is taken as-given (client / game-backend
+                  computed) and only bound-checked. The only server-side scoring
+                  calculator (`calculateScoreBreakdown`) is display-only and is
+                  never invoked by any persistence path. Two independent and
+                  divergent "maximum score" authorities exist; the global game
+                  leaderboard has no durable source of truth.
+
+Primary files examined (verified from source, not assumed):
+  zubaco-platform/src/game-session/score-validator.service.ts     (320 lines)
+       — BASE_POINTS, PENALTY_CONFIG, TIME_BONUS_CONFIG, validateScore,
+         computeTheoreticalMax, calculateScoreBreakdown, getScoringConfig
+  zubaco-platform/src/game-session/game-session.service.ts        (submitResult)
+  zubaco-platform/src/free-play/free-play.service.ts              (submitResult)
+  zubaco-platform/src/tournament/tournament.service.ts            (submitTournamentResult)
+  zubaco-platform/src/anti-cheat/anti-cheat.service.ts            (analyzeGameResult,
+       getMaxPossibleScore, getMinReasonableTime)
+  zubaco-platform/src/leaderboard/leaderboard.service.ts          (updateScore,
+       updateStageScore, getGameLeaderboard + DB fallback, getStageLeaderboard,
+       getMyRank)
+  zubaco-platform/src/tournament/elimination.service.ts           (ranking /
+       tiebreak / survivor cutoff / winners)
+  zubaco-platform/src/game-session/dto/game-session.dto.ts
+  zubaco-platform/src/free-play/dto/submit-result.dto.ts
+  zubaco-platform/prisma/schema.prisma  (score Int?, max_score Int?, best_score
+       Int, total_score Int, total_time_ms Int)
+
+Verified call-site map (grep):
+  - calculateScoreBreakdown(): called ONLY from game-session.controller
+    `POST scoring/breakdown`. NOT called by any submit/persist path.
+  - validateScore(): called by free-play.submitResult, game-session.submitResult,
+    tournament.submitTournamentResult (all three engines bound-check).
+  - leaderboard.updateScore() (global zset): called by free-play + game-session
+    submit. NOT by tournament submit (tournament uses updateStageScore only).
+
+================================================================================
+PHASE 1 — SCORE LIFECYCLE (END-TO-END TRACE)
+================================================================================
+Idealized chain: Finish -> Submit -> Input validation -> Score validation ->
+Score calculation -> Bonus -> Penalty -> Final score -> Persistence -> Leaderboard
+-> Tournament -> Qualification -> Rewards.
+
+ACTUAL persisted path (all three engines):
+  Submit(score, durationMs) -> DTO bounds (Min/Max) -> hard bounds in service
+  (score>=0, MIN/MAX duration, elapsed plausibility) -> scoreValidator.validateScore
+  (theoretical-max bound only) -> ATOMIC claim updateMany {outcome:null} -> persist
+  score AS SUBMITTED -> leaderboard.updateScore / StageEntry.total_score increment
+  -> (non-blocking) anti-cheat flags -> qualification/rewards read the persisted
+  totals later.
+
+CRITICAL: the "Score calculation / Bonus / Penalty / Final score" stages DO NOT
+occur server-side for the persisted value. The submitted `score` is written
+verbatim (game-session.service.ts persists `score`; free-play persists `score`;
+tournament increments `total_score` by `score`). The only code that computes
+base/time-bonus/penalty/final (`calculateScoreBreakdown`) is documented in-source
+as "Actual scoring is authoritative in each game backend — this is a reference
+calculator" and is reachable ONLY via the display endpoint. Therefore the platform
+is a score VALIDATOR + bounds-checker, not a score AUTHORITY (relates to GAME-002).
+
+================================================================================
+PHASE 2 — SCORE CALCULATION
+================================================================================
+- Base score: `correctActions * BASE_POINTS[gameType]` — only inside the
+  display-only calculateScoreBreakdown. Never used for the persisted score.
+- Final score: `Math.max(0, base + time_bonus - penalties)` — display-only.
+- Time bonus: `min(floor(multiplier * ratio * timeLimitSec), max)` from
+  TIME_BONUS_CONFIG — display-only.
+- Penalty: `wrongActions * PENALTY_CONFIG.per_wrong` — display-only.
+- Combo/multipliers: not modelled server-side at all (no combo/multiplier fields).
+- Precision: all score columns are Int (schema). BUT SubmitGameResultDto.score and
+  SubmitTournamentResultDto.score use `@IsNumber` (decimals pass validation) while
+  the column is Int — a fractional score passes DTO validation then fails at the
+  Prisma Int write (500-class error rather than a clean 400). Free-play DTO uses
+  `@IsInt` (correct). (SCORE-VAL-02)
+- Overflow: DTO `@Max(100000)` caps input; Int column (~2.1e9) cannot overflow.
+- Underflow / negatives: DTO `@Min(0)` + service `score < 0` reject; breakdown
+  clamps with Math.max(0, …). OK.
+- Formula quirks in computeTheoreticalMax (the actual gate):
+    * SLIDING_PUZZLE / OBJECT_PLACEMENT_MEMORY: `Math.floor(10*timeLimit/timeLimit)`
+      and `Math.floor(5*timeLimit/timeLimit)` are constant identities (=10 / =5);
+      placeholder math (SCORE-CALC-02).
+    * OBJECT_PLACEMENT_MEMORY returns a flat `105` regardless of round count, so a
+      legitimate multi-round score >115 (105×1.1) would be HARD-REJECTED
+      (false-positive rejection risk) (SCORE-CALC-01).
+
+================================================================================
+PHASE 3 — SCORE VALIDATION
+================================================================================
+- Maximum: validateScore rejects `score > ceil(theoreticalMax * 1.1)` (10% margin).
+- Minimum: 0 (DTO + service).
+- Impossible scores: TWO divergent authorities exist:
+    (a) score-validator.computeTheoreticalMax — config-driven per-game formula,
+        HARD-REJECTS at submit.
+    (b) anti-cheat.getMaxPossibleScore — a SEPARATE flat hardcoded table
+        (e.g. SEQUENCE_RECALL 5000, TRUE_FALSE_BLITZ 1000) that only raises a
+        CRITICAL flag, never rejects.
+  The two disagree (e.g. NUMBER_GRID_SPRINT theoretical ≈ 600×1.1=660 vs flat cap
+  1500; SEQUENCE_RECALL theoretical ≈ 1980×1.1 vs flat 5000). A score can pass one
+  and trip the other. There is no single source of truth for "impossible"
+  (SCORE-VAL-01).
+- Invalid submissions: DTO validation + service bounds.
+- Duplicate submissions: atomic `updateMany {outcome:null}` claim with count check
+  on all three engines (post Gaming-Engine Fix). OK.
+- Score tampering / manipulated payloads / client trust: the persisted score is
+  client/game-backend asserted; validateScore only bounds it. For the generic
+  game-session free-play path the bounding `config` is itself client-supplied
+  (stored on the session at start), so a client controlling `config.elements` /
+  `config.total_rounds` raises its own theoretical-max ceiling (SCORE-CFG-01).
+  Root client-trust issue is structural (GAME-002 / SCORE-001 / AUTH-003).
+
+================================================================================
+PHASE 4 — CONFIGURATION
+================================================================================
+- Score config: hardcoded constants in score-validator.service.ts — BASE_POINTS
+  (20 games), PENALTY_CONFIG, TIME_BONUS_CONFIG. Anti-cheat adds two more hardcoded
+  tables (getMaxPossibleScore, getMinReasonableTime). computeTheoreticalMax encodes
+  per-game formulas in a switch. All compiled into the binary (SCORE-001, already a
+  recorded strategic blocker).
+- Per-game config: difficulty parameters (time_limit, elements, total_rounds) come
+  from LevelConfig.config (DB) for free-play/tournament, but the SCORING constants
+  themselves are not in the DB.
+- Bonus / penalty config: hardcoded (SCORE-001).
+- Dynamic configuration: none for scoring constants — changing points/penalties
+  requires a code change + redeploy. (Anti-cheat thresholds ARE DB-configurable via
+  systemSetting, but the scoring tables are not.)
+- Missing configuration: silent fallbacks — `BASE_POINTS[g] ?? 10`,
+  computeTheoreticalMax `default: 5000`, getMaxPossibleScore `|| 5000`,
+  getMinReasonableTime `|| 5000`. A new GameType would silently inherit generic
+  caps rather than failing loudly.
+- Hardcoded values: pervasive (the entire scoring model). SCORE-001.
+
+================================================================================
+PHASE 5 — PERSISTENCE
+================================================================================
+- DB writes: gameSession (score/outcome), gameProgress (free-play), levelResult
+  (free-play), StageEntry.total_score/total_time_ms/games_played (tournament).
+- Transactions: free-play.submitResult and tournament.submitTournamentResult wrap
+  claim + side effects in `$transaction`; game-session.submitResult uses an atomic
+  `updateMany` claim (single statement) (post Gaming-Engine Fix). OK.
+- Rollbacks: transaction aborts on claim count 0 (ConflictException). OK.
+- Duplicate writes / idempotency: guarded by `outcome:null` atomic claim; no
+  dedicated idempotency key, but the binary outcome gate is single-shot.
+- Concurrency / race conditions: the claim count check closes the prior
+  read-then-write TOCTOU. XP award + leaderboard + anti-cheat run AFTER the claim
+  (non-transactional, non-blocking) — a post-claim failure leaves score persisted
+  but leaderboard/XP possibly un-applied (eventual-consistency gap, non-blocking by
+  design).
+
+================================================================================
+PHASE 6 — TOURNAMENT INTEGRATION
+================================================================================
+- Tournament/stage scoring: StageEntry.total_score is the SUM of submitted per-game
+  scores (`increment: score`); total_time_ms sums durations; games_played counts.
+  Single increment site (tournament.service.ts). OK.
+- Qualification / elimination: elimination.service ranks finishers by
+  `[total_score desc, total_time_ms asc]`, survivor cutoff
+  `ceil(n * (1 - eliminationPct))`, non-finishers eliminated. Ranks assigned in
+  bounded 500-row chunks.
+- Tie-breaking: total_score then total_time_ms. When BOTH are equal the order is
+  the database's returned order (no deterministic final tiebreaker such as
+  earliest completion or entry id), so co-tied players on a survival boundary or a
+  prize tier are ordered non-deterministically (SCORE-TB-01).
+- Winner determination: winners ranked `[total_score desc, total_time_ms asc]`
+  (same non-deterministic final tie). Prize tiers distributed by percentage.
+
+================================================================================
+PHASE 7 — LEADERBOARD INTEGRATION
+================================================================================
+- Global game leaderboard (`lb:game:<type>:all-time`): updateScore writes to a
+  Redis zset ONLY (write-if-higher) and performs NO durable DB write. The DB
+  fallback (getGameLeaderboardFromDb) reads `gameProgress.best_score`, which is
+  written ONLY by the free-play engine. Therefore:
+    * Generic game-session free-play scores reach Redis but NOT gameProgress, so
+      they vanish from the leaderboard if Redis is flushed/restarted.
+    * The global leaderboard has no single durable source of truth and diverges by
+      engine (Redis vs gameProgress). (SCORE-002 — strategic.)
+- Ranking consistency: getMyRank / getGameLeaderboard read Redis; consistent with
+  each other while Redis is warm; inconsistent with the DB fallback set.
+- Duplicate updates: updateScore is write-if-higher (zscore read then conditional
+  zadd) — the read-then-write is NOT atomic, so two concurrent higher writes can
+  race (last-writer-wins; benign for a max-zset but not strictly correct)
+  (SCORE-LB-01).
+- Missing updates: tournament submit does NOT call updateScore, so tournament play
+  never contributes to the global game leaderboard (by design — separate stage
+  leaderboard). Stage leaderboard (`lb:stage:<id>`) is set to the absolute
+  total_score via updateStageScore (zadd, unconditional) and cleared on stage close.
+- Redis synchronization: stage leaderboard mirrors StageEntry.total_score; global
+  leaderboard is Redis-authoritative with a divergent DB fallback (above).
+
+================================================================================
+PHASE 8 — GAMING ENGINE INTEGRATION
+================================================================================
+- GameSession integration: scoring is invoked from each engine's submit. Sessions
+  are partitioned (TOURNAMENT -> tournament submit; FREE_PLAY level -> free-play
+  submit; FREE_PLAY no-level -> generic submit) (post Gaming-Engine Fix), so a
+  score can no longer be finalized by the wrong engine.
+- Result submission / validation flow: validateScore runs on all three paths;
+  duration plausibility + bounds enforced on all three.
+- Server-side validation: bounds + theoretical-max only — NOT authoritative
+  recomputation of the score from inputs/seed (GAME-002).
+- Free-play flow: validateScore + stars + XP + gameProgress + Redis leaderboard.
+- Tournament flow: validateScore + StageEntry totals + stage Redis leaderboard +
+  heartbeat/anti-cheat.
+
+================================================================================
+PHASE 9 — ANTI-CHEAT INTEGRATION
+================================================================================
+- Score validation: anti-cheat IMPOSSIBLE_SCORE uses the SEPARATE flat
+  getMaxPossibleScore table (CRITICAL flag, no rejection) — divergent from the
+  submit-blocking validateScore (SCORE-VAL-01).
+- Timing validation: getMinReasonableTime per-game flat table -> TIMING_ANOMALY
+  (HIGH flag) if duration < min and score > 0.
+- Statistical: SCORE_ANOMALY when score > avg + k·stdDev over the last ≥5
+  COMPLETED sessions (configurable k).
+- Replay: SESSION_TAMPERING by moves_hash string-equality dedupe (no server-side
+  re-hash from inputs/seed — GAME-002/GAME-AC).
+- Device / risk scoring / enforcement: flags -> risk points -> penalty tiers
+  (cooldown/temp/perma ban). 
+- ENFORCEMENT ORDERING: the score is PERSISTED and leaderboard/stage totals are
+  updated BEFORE anti-cheat runs (anti-cheat is invoked non-blocking, after the
+  claim). A score that passes validateScore but exceeds the lower flat
+  getMaxPossibleScore is written and COUNTS toward leaderboard/qualification; the
+  CRITICAL flag only adjusts the user's future risk, it does not retract the score
+  or reverse the tournament increment (SCORE-AC-01).
+
+================================================================================
+PHASE 10 — EDGE CASES
+================================================================================
+- Duplicate / simultaneous submissions: atomic claim count guard (OK).
+- Partial submissions: DTO validation rejects missing required fields.
+- Invalid timing: service rejects duration<MIN, >MAX, and >elapsed+5s.
+- Overflow: DTO Max 100000; Int column safe.
+- Negative / zero: Min 0; zero score is accepted (0 stars, 0 leaderboard effect).
+- Extremely high values: bounded by validateScore theoretical max (where the
+  formula is correct) — but see SCORE-CALC-01 (OBJECT_PLACEMENT_MEMORY too low) and
+  SCORE-VAL-01 (divergent anti-cheat cap).
+- Missing data: silent scoring-config fallbacks (Phase 4).
+- Fractional score: passes @IsNumber DTOs (game-session/tournament) then 500s at the
+  Int write (SCORE-VAL-02).
+
+================================================================================
+PHASE 11 — SECURITY
+================================================================================
+- Client-authoritative scoring: the persisted score is client/game-backend asserted
+  and only bound-checked; the server never recomputes it (GAME-002).
+- Score injection: InternalGameController `/internal/game/complete` accepts an
+  arbitrary userId + score behind a single shared INTERNAL_API_KEY (AUTH-003) — any
+  key holder can inject a bounded-but-arbitrary score for any user.
+- Payload tampering: `metadata` / `input_signature` are unvalidated `any`.
+- Replay attacks: hash-equality dedupe only (GAME-002/GAME-AC).
+- Score manipulation: config-trust on the generic free-play path inflates the
+  ceiling (SCORE-CFG-01); divergent caps (SCORE-VAL-01).
+- Unauthorized updates: user paths are JWT + ownership scoped; the internal path is
+  the trust hole (AUTH-003).
+
+================================================================================
+PHASE 12 — PERFORMANCE
+================================================================================
+- Validation is O(1) arithmetic; submit runs several sequential DB queries +
+  anti-cheat detectors synchronously on the request thread (no queue), multiplied
+  across three engines.
+- Redis: updateScore = one read + one conditional write (non-atomic); updateStageScore
+  = one zadd. Leaderboard reads = zrevrange + a user findMany.
+- Queue handling: none — scoring/anti-cheat are inline. No batching.
+- Scalability: bounded per-call but unqueued; high-concurrency bursts hit Postgres
+  and the synchronous anti-cheat path directly (capacity concern, not a correctness
+  bug). The non-durable Redis global leaderboard (SCORE-002) is also a scale/restart
+  risk.
+
+================================================================================
+PHASE 13 — COMPLETENESS / PRODUCTION-READINESS
+================================================================================
+Is the Scoring Engine production-ready for financial-grade use?  NO.
+
+Blocking realities (verified):
+  1. The platform is not a scoring AUTHORITY — the persisted, money-bearing score is
+     supplied by the client/game backend and only bound-checked; the sole server
+     calculator is display-only and never used in persistence (GAME-002).
+  2. Scoring constants/formulas are hardcoded in code (BASE_POINTS, PENALTY_CONFIG,
+     TIME_BONUS_CONFIG, computeTheoreticalMax, anti-cheat caps) — no DB-driven
+     scoring config (SCORE-001).
+  3. The global game leaderboard has no durable, single source of truth — Redis-only
+     writes with a DB fallback fed by only one engine; rankings diverge by engine
+     and are lost on a Redis flush (SCORE-002).
+  4. Two divergent "max score" authorities + several placeholder formulas mean the
+     impossible-score gate is inconsistent and, for at least one game, can reject
+     legitimate scores (SCORE-VAL-01, SCORE-CALC-01).
+  5. Score injection via the shared internal API key (AUTH-003).
+
+Can it safely support real-money tournaments, prize distribution, global
+leaderboards, and thousands of concurrent large tournaments?  NO — because the score
+feeding money is not server-authoritative, the global leaderboard is non-durable,
+and the impossible-score gate is internally inconsistent.
+
+================================================================================
+STRATEGIC BLOCKERS (require redesign — recorded in BLOCKERS.md)
+================================================================================
+  EXISTING (re-confirmed, not re-added):
+    GAME-002  No server-authoritative scoring — the persisted score is client/
+              game-backend asserted and only bound-checked; the server never
+              recomputes it. (Root cause of the client-trust findings here.)
+    SCORE-001 Hardcoded per-game scoring config (PENALTY_CONFIG / TIME_BONUS_CONFIG /
+              BASE_POINTS / theoretical-max formulas / anti-cheat caps) — move to a
+              DB-driven, versioned scoring-config model.
+    AUTH-003  Shared static INTERNAL_API_KEY enables arbitrary score injection for
+              any user via /internal/game/complete.
+
+  NEWLY RECORDED:
+    SCORE-002 Global game leaderboard has no durable single source of truth.
+              leaderboard.updateScore writes a Redis zset only (no DB persistence);
+              the DB fallback reads gameProgress.best_score which is written by the
+              free-play engine ONLY, so generic game-session scores are absent from
+              the fallback and the entire global ranking is lost on a Redis flush.
+              Needs a durable, single-writer leaderboard store (redesign).
+
+NON-BLOCKER LOCALIZED DEFECTS (for a future Scoring Engine Fix; cited above):
+  SCORE-VAL-01  Two divergent max-score authorities — computeTheoreticalMax
+                (submit-blocking) vs anti-cheat.getMaxPossibleScore (flag-only flat
+                table). Consolidate into one source of truth.
+  SCORE-VAL-02  SubmitGameResultDto.score and SubmitTournamentResultDto.score use
+                @IsNumber (fractions accepted) while the column is Int -> fractional
+                score 500s at the Prisma write instead of a clean 400. Should be
+                @IsInt (free-play DTO already is).
+  SCORE-CALC-01 OBJECT_PLACEMENT_MEMORY theoretical max returns a flat 105 ignoring
+                round count, risking false rejection of legitimate multi-round
+                scores.
+  SCORE-CALC-02 Placeholder identity math in computeTheoreticalMax
+                (`floor(10*timeLimit/timeLimit)` == 10, `floor(5*timeLimit/timeLimit)`
+                == 5) for SLIDING_PUZZLE / OBJECT_PLACEMENT_MEMORY.
+  SCORE-CFG-01  Generic game-session free-play stores client-supplied `config`, which
+                feeds computeTheoreticalMax — a client can inflate its own ceiling via
+                config.elements / config.total_rounds.
+  SCORE-AC-01   Score is persisted and leaderboard/stage totals updated BEFORE the
+                non-blocking anti-cheat pass; a score above the lower flat anti-cheat
+                cap but below the validateScore theoretical+10% is persisted and
+                counts, with only a deferred risk-flag (no retraction/reversal).
+  SCORE-TB-01   No deterministic final tiebreaker — entries equal on both total_score
+                and total_time_ms are ordered by DB return order in elimination and
+                winner ranking (non-deterministic on survival/prize boundaries).
+  SCORE-LB-01   updateScore performs a non-atomic read-then-write (zscore then
+                conditional zadd) on the global leaderboard zset.
+
+================================================================================
+END OF SCORING ENGINE AUDIT — NO CODE WAS MODIFIED.
+================================================================================

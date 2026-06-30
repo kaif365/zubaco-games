@@ -1,0 +1,443 @@
+================================================================================
+ZUBACO — ENTERPRISE GAMING ENGINE AUDIT
+================================================================================
+Audit type      : Audit ONLY (no code modified)
+Date            : 2026-06-26
+Scope           : zubaco-platform game-session / free-play / scoring / RNG /
+                  anti-cheat layers that create, validate, score, and finalize
+                  GameSession rows (free play + tournament).
+Verdict         : NOT PRODUCTION-READY for real-money competition. Three
+                  overlapping engines write the same GameSession table with
+                  divergent validation, side effects, and anti-cheat depth; the
+                  finalization endpoint is client-selected and guarded only by
+                  `outcome = null`; gameplay is client-asserted with no server-
+                  authoritative re-validation; several submit paths are non-atomic
+                  with double-submit TOCTOU windows.
+
+Primary files examined (verified from source, not assumed):
+  zubaco-platform/src/game-session/game-session.service.ts        (294 lines)
+  zubaco-platform/src/game-session/game-session.controller.ts     (181 lines; also
+       defines InternalGameController)
+  zubaco-platform/src/game-session/score-validator.service.ts     (320 lines)
+  zubaco-platform/src/game-session/seed-rng.ts                    (111 lines)
+  zubaco-platform/src/game-session/utils/move-hasher.ts
+  zubaco-platform/src/game-session/utils/input-analyzer.ts
+  zubaco-platform/src/game-session/dto/game-session.dto.ts
+  zubaco-platform/src/game-session/game-session.module.ts
+  zubaco-platform/src/free-play/free-play.service.ts
+  zubaco-platform/src/free-play/free-play.controller.ts
+  zubaco-platform/src/free-play/energy.service.ts (consumeLife)
+  zubaco-platform/src/anti-cheat/anti-cheat.service.ts
+  zubaco-platform/src/anti-cheat/device-detection.service.ts
+  zubaco-platform/src/leaderboard/leaderboard.service.ts (updateScore/getMyRank)
+  zubaco-platform/src/auth/guards/jwt-auth.guard.ts
+  zubaco-platform/src/common/redis/redis.service.ts
+  zubaco-platform/src/tournament/tournament.service.ts (start/submit, cross-check)
+  zubaco-platform/prisma/schema.prisma  (GameSession / LevelConfig / GameProgress /
+       LevelResult / DeviceFingerprint / SessionHeartbeat / enums GameMode,
+       SessionOutcome, GameType)
+
+Engine-topology note (critical context for every phase below): there is no single
+"Gaming Engine". THREE services create/finalize GameSession rows:
+  (A) FreePlayService            — POST /free-play/start, /free-play/submit
+  (B) GameSessionService         — POST /game-session/start, /game-session/tournament/
+                                   start, /game-session/:id/submit, and the
+                                   API-key InternalGameController (/internal/game/*)
+  (C) TournamentService          — POST /tournament/.../start, /tournament/submit
+All three write the SAME `game_sessions` table. They disagree on validation,
+side effects, and anti-cheat depth (mapped throughout).
+
+================================================================================
+PHASE 1 — GAME LIFECYCLE (END-TO-END TRACE)
+================================================================================
+The prompt's idealized lifecycle (Request -> Auth -> Tournament validation ->
+Availability -> Session create -> Server seed -> RNG init -> Config -> Launch ->
+Play -> Completion -> Submit -> Validate -> Leaderboard -> Tournament update ->
+Close) is only PARTIALLY realized, and differently per engine.
+
+(A) FREE PLAY  (free-play.service.ts)
+  Auth: JwtAuthGuard (controller). Tournament validation: N/A.
+  Availability: level-unlock check (level <= highest_level+1) + energy.consumeLife
+    (throws if no lives) — life consumed BEFORE session create, no refund on later
+    failure (GAME-EC-01).
+  Session create: GameSession(mode=FREE_PLAY, level, server_seed, config=levelConfig).
+  Server seed: local generateServerSeed() = crypto.randomBytes(32) hex. NO hash
+    commitment returned to client, NO numeric seed derived here (the seed-rng
+    commit/reveal system is NOT used by this engine).
+  RNG init: none server-side.
+  Launch/Play: client-side (WebView).
+  Completion/Submit: submitResult — findFirst(outcome=null) -> update COMPLETED ->
+    calculateStars(score) -> GameProgress update (best_score, total_plays, unlock)
+    -> LevelResult upsert -> addXp -> anti-cheat.analyzeGameResult (flags only) ->
+    leaderboard.updateScore (Redis). NO scoreValidator.validateScore (GAME-SEC-01).
+    Multi-step, NOT transactional; double-submit guarded only by outcome=null
+    (GAME-DC-01).
+  This path NEVER touches tournament state.
+
+(B) GAME-SESSION  (game-session.service.ts)
+  startGame: anti-cheat.checkSessionAllowed (risk/penalty gate) -> registerActive
+    Session (concurrent-session abandon) -> trackSessionStart -> generateServerSeed
+    + hashServerSeed + computeFinalSeed -> GameSession(mode=FREE_PLAY) -> register
+    real session id -> upsertFingerprint. Returns serverSeedHash + numeric seed.
+  startTournamentGame(stageGameId, stageEntryId): loads StageGame, requires
+    season_stage.status==='OPEN', requires StageEntry (not eliminated) owned by
+    user, blocks duplicate completed, config = level_config ONLY (client config
+    ignored), GameSession(mode=TOURNAMENT). NOTE this is a SECOND tournament start
+    path distinct from TournamentService.startTournamentGame.
+  submitResult: hard bounds (score>=0, 1000<=dur, dur<=1800000) -> findFirst(id,
+    user, outcome=null) [NO mode filter] -> elapsed plausibility -> scoreValidator.
+    validateScore (HARD reject) -> update COMPLETED -> clearActiveSession ->
+    verifyHeartbeats (>15s) + analyzeGameResult (flags) -> leaderboard.updateScore
+    (Redis global). Does NOT update GameProgress/stars/XP and does NOT update
+    StageEntry totals/stage leaderboard — even for TOURNAMENT-mode sessions
+    (GAME-INT-01/02).
+
+(C) TOURNAMENT  (tournament.service.ts; cross-checked, fixed in the Tournament
+    Engine Fix): startTournamentGame(seasonId, stageNumber, gameOrder) and
+    submitTournamentResult — the latter now validates score, guards stage status/
+    close_date, claims the session atomically, increments StageEntry totals, and
+    updates the stage Redis leaderboard. This is the ONLY submit path that updates
+    tournament qualification state.
+
+CONCLUSION: a single GameSession can be created by one engine and finalized by
+another (the submit handlers do not all scope by mode/level/stage); the lifecycle
+is therefore not a single deterministic pipeline but a set of overlapping ones
+selected by the client via endpoint choice.
+
+================================================================================
+PHASE 2 — GAME SESSION MANAGEMENT
+================================================================================
+- Creation: three creators (above). server_seed always 32 secure bytes; nonce
+  defaults 0; client_seed never collected by any creator (GAME-RNG-01).
+- Lookup: getSessionState(sessionId,userId) enforces ownership (user_id===userId)
+  and only reveals server_seed once outcome is set (commit/reveal). OK for engine B.
+- Ownership: submit handlers all scope by user_id; the API-key InternalGame
+  controller instead TRUSTS a body-supplied userId (see Phase 13 / AUTH-003).
+- Expiration: GameSession has no TTL/expiry. active_session Redis key has 30-min
+  TTL but the DB row never times out (no TIMED_OUT writer exists; SessionOutcome.
+  TIMED_OUT is defined but never set by any code path — dead enum value).
+- Duplicate/parallel sessions: only engine B startGame prevents concurrency (it
+  abandons the previous active_session). FreePlayService.startLevel and BOTH
+  tournament start paths do NOT register/abandon active sessions, so a user can
+  hold multiple concurrent open sessions by mixing engines; the single
+  active_session:<user> key is also overwritten across engines (GAME-SES-01).
+- Replay attempts: see Phase 10 (hash-equality dedupe only; no seed re-simulation).
+- Cleanup: clearActiveSession on submit (engines B/C) deletes the Redis key only;
+  FreePlayService never clears it. No sweeper for orphaned outcome=null rows.
+- Forced termination: antiCheat.flagRealtime sets outcome=DISQUALIFIED (engine via
+  InternalGameController only).
+- Invalid sessions: findFirst(outcome=null) -> NotFound/Forbidden. A row already
+  COMPLETED/ABANDONED/DISQUALIFIED cannot be re-submitted (outcome!=null).
+
+================================================================================
+PHASE 3 — GAME INITIALIZATION
+================================================================================
+- Game "registry": GameType is a fixed Prisma enum of 20 games. There is NO Game
+  table, NO per-game enabled/disabled/maintenance flag, NO dynamic registration/
+  loading (grep for is_enabled/is_active/disabled/maintenance: none).
+- Config loading: free play uses LevelConfig (game_type,level) or lazily generates
+  + persists one; engine-B tournament uses StageGame.level_config only; engine-B
+  free play passes client-supplied config straight onto the GameSession (engine B
+  startGame stores `config: config || {}` from the client — client-controlled
+  parameters for FREE_PLAY).
+- Invalid games: engine-B startGame casts `gameType as any` and lets Prisma reject
+  an out-of-enum value at insert time (500-class failure rather than a clean 400);
+  free play types the param as GameType but it arrives as a raw string from the
+  body/route with no enum validation pipe.
+- Disabled games: not expressible — no game can be turned off without a code/enum
+  change and redeploy.
+- getLevelConfig (authenticated GET) lazily CREATES a LevelConfig row for any
+  (gameType, level) with an UNBOUNDED level value -> side-effectful read + unbounded
+  row creation reachable by any authenticated user (GAME-EC-02).
+
+================================================================================
+PHASE 4 — RNG & SERVER SEED
+================================================================================
+- Generation: generateServerSeed = crypto.randomBytes(32) (CSPRNG). Good source.
+- Commitment/reveal: seed-rng implements commit (sha256(serverSeed)) + reveal +
+  verifyServerSeed. BUT only engine B (game-session.service) returns serverSeedHash
+  and reveals via getSessionState. FreePlayService and TournamentService store
+  server_seed and never expose a commit hash or reveal flow — provable fairness is
+  not delivered for free play or tournaments.
+- Final seed: computeFinalSeed hashes `${serverSeed}:${clientSeed}:${nonce}` then
+  returns hash.readUInt32BE(0) — only the FIRST 4 BYTES (32 bits) feed mulberry32.
+  Effective procedural-generation seed space is 2^32, not the 256-bit seed
+  (GAME-RNG-01). client_seed is never collected/stored by any creator and nonce is
+  always 0, so the "user-verified fairness" branch is inert.
+- Storage: server_seed persisted on GameSession; revealed only post-outcome
+  (engine B). Seed uniqueness: per-session random; no uniqueness constraint, but
+  collision probability negligible at 256 bits.
+- Seed validation / tampering: there is NO server-side use of the seed to
+  reproduce or validate gameplay. The seed proves the server did not change content
+  after commit (engine B only); it does NOT prove the client's score/moves are
+  consistent with that seed (no re-simulation — see Phase 10 / GAME-002).
+- Predictability: mulberry32 is a non-cryptographic PRNG; given the revealed 32-bit
+  seed the entire sequence is reproducible (by design, for verification). Because
+  the server never validates moves against it, knowledge of the seed gives a client
+  full foreknowledge of procedural content with no server cross-check.
+
+================================================================================
+PHASE 5 — GAMEPLAY VALIDATION
+================================================================================
+- Game rules / move validation / state validation: NONE server-side. No engine
+  re-simulates the game. "Gameplay validation" is limited to: (a) DTO bounds, (b)
+  scoreValidator.validateScore theoretical-max bound (engines B and C only), (c)
+  anti-cheat statistical/timing/bot heuristics AFTER the fact.
+- Completion validation: free play computes stars from score/max_score; engine B/C
+  accept the submitted score if within the theoretical max (+10% margin).
+- Impossible scores: scoreValidator.computeTheoreticalMax per game with a 10%
+  margin -> HARD reject (engines B/C). Free play does NOT call validateScore, so an
+  impossible score is accepted for stars/XP/progress/leaderboard and only FLAGGED
+  by anti-cheat.getMaxPossibleScore (a separate, flatter cap) without rejection
+  (GAME-SEC-01).
+- Impossible timings: engine B rejects dur>30min and dur>session age+5s; free play
+  and tournament rely on DTO bounds + anti-cheat TIMING_ANOMALY flag (HIGH, not a
+  reject).
+- Duplicate completion: per-game "already played this stage" guards exist in both
+  tournament start paths; submit duplicate-completion is prevented only by the
+  outcome=null pre-read (TOCTOU, Phase 6).
+
+================================================================================
+PHASE 6 — RESULT SUBMISSION
+================================================================================
+- Three submit handlers (free-play.submitResult, game-session.submitResult,
+  tournament.submitTournamentResult) with different validation and side effects.
+- Validation: bounds in all; theoretical-max only in B/C; stage-close guard only in
+  C; heartbeat verify only in B.
+- Duplicate submissions: each does findFirst/findFirst+update or (C, post-fix)
+  atomic updateMany claim. Free play and engine B use the read-then-write pattern:
+  two concurrent submits for the same session can both pass the findFirst(outcome=
+  null) before either flips outcome -> double increment of total_plays / duplicate
+  XP / duplicate leaderboard writes (GAME-DC-01). No SELECT ... FOR UPDATE, no
+  unique guard, no transaction wrapping the multi-step body (free play updates
+  session + progress + level_result + xp + leaderboard as separate awaits).
+- Partial/invalid payloads: class-validator rejects malformed DTOs; metadata/
+  input_signature are unvalidated `any`.
+- Concurrent submissions across engines: a tournament session submitted via engine
+  B's generic endpoint marks it COMPLETED without updating StageEntry totals; a
+  later tournament submit then sees outcome!=null and fails (GAME-INT-01).
+- Idempotency: only the binary outcome=null gate; not a true idempotency key.
+
+================================================================================
+PHASE 7 — SCORE VALIDATION
+================================================================================
+- scoreValidator.validateScore: computeTheoreticalMax(gameType, config, durationMs)
+  with maxAllowed = ceil(max*1.1); reject if score>maxAllowed. Per-game formulas
+  are reasonable but several use placeholder identities (e.g. SLIDING_PUZZLE:
+  `floor(10 * timeLimit/timeLimit)` == 10; OBJECT_PLACEMENT_MEMORY similar) and
+  config-driven element counts that, if config is client-controlled (engine B free
+  play stores client config), inflate the theoretical max — a client that controls
+  `config.elements`/`total_rounds` can raise its own ceiling (config-trust on the
+  free-play side of engine B).
+- Client trust: free play fully trusts score (no validateScore). Engines B/C bound
+  it. None recompute it from authoritative move data.
+- Overflow/negative: DTOs enforce 0..100000 (Int column); negative rejected.
+- Score manipulation: bounded by theoretical max (B/C) but otherwise client-
+  asserted; anti-cheat SCORE_ANOMALY is statistical (needs >=5 prior sessions) and
+  only MEDIUM-flags, never rejects.
+
+================================================================================
+PHASE 8 — GAME STATE
+================================================================================
+- Save/restore/sync: there is NO server-side game-state persistence or resume.
+  GameSession stores only seed/config/score/outcome/metadata. A disconnect mid-game
+  leaves outcome=null forever (no timeout writer; SessionOutcome.TIMED_OUT unused).
+- Corruption handling: none; metadata is opaque JSON.
+- Timeouts: not enforced server-side (active_session Redis TTL expires silently;
+  the DB row persists as a permanent open session).
+
+================================================================================
+PHASE 9 — TOURNAMENT INTEGRATION
+================================================================================
+- Two distinct tournament START paths (TournamentService.startTournamentGame by
+  season/stage/order vs GameSessionService.startTournamentGame by stageGameId/
+  stageEntryId) create TOURNAMENT GameSessions with different config sourcing and
+  different stage_entry_id provenance.
+- Only TournamentService.submitTournamentResult updates StageEntry totals + stage
+  leaderboard (single increment site: tournament.service.ts). If a TOURNAMENT
+  session is finalized via GameSessionService.submitResult (no mode guard), the
+  result is recorded on GameSession but the tournament NEVER sees the score:
+  StageEntry.total_score stays unchanged and the global (not stage) Redis
+  leaderboard is written instead (GAME-INT-01). Qualification (which ranks by
+  StageEntry.total_score) silently ignores such results.
+- Stage progression / qualification / rewards: covered by the Tournament Engine
+  (separately audited; TOURN-001/002/003 deferred). The gaming-engine coupling
+  point is the unguarded cross-engine submit above.
+
+================================================================================
+PHASE 10 — ANTI-CHEAT INTEGRATION
+================================================================================
+- Hooks: analyzeGameResult runs 7 detectors — IMPOSSIBLE_SCORE (flat cap),
+  TIMING_ANOMALY, SCORE_ANOMALY (stat), RAPID_PROGRESSION, SESSION_TAMPERING
+  (replay via moves_hash equality), INPUT_BOT_PATTERN (+ pattern shift), DEVICE_
+  DUPLICATE (+ IP correlation, tournament only). Flags update a Redis risk score
+  with progressive penalties (cooldown/temp-ban/perma-ban) + JwtAuthGuard ban-cache
+  sync.
+- Coverage is INCONSISTENT across submit paths:
+    * scoreValidator.validateScore (hard reject): engines B and C only — NOT free
+      play.
+    * verifyHeartbeats: engine B only (and only when dur>15s) — NOT free play, NOT
+      tournament submit.
+    * checkSessionAllowed / risk-tier gate at START: engine B startGame only — NOT
+      free-play.startLevel, NOT either tournament start. Penalty tiers 2/3
+      (throttle/cooldown) are therefore bypassable by starting via the other
+      endpoints (hard is_banned is still caught by JwtAuthGuard) (GAME-AC-02).
+- Server verification / replay validation / move verification: NOT present. The
+  server never recomputes a move hash from authoritative inputs and never re-
+  simulates from server_seed. SESSION_TAMPERING "replay" detection is pure hash
+  EQUALITY between sessions (isValidMoveHash only checks 64-hex format). A unique
+  fabricated moves_hash (or none) defeats it entirely (GAME-AC-01).
+- Fingerprint/timing/bot validation: heuristic and after-the-fact; input_signature
+  is a client-supplied `any` that the client can shape to look human.
+
+================================================================================
+PHASE 11 — PERFORMANCE / SCALE
+================================================================================
+- DB: each submit performs several sequential queries (recentScores take 10,
+  lastHourSessions count, replay findFirst on moves_hash [indexed], historical
+  input_signature take 5, device/IP lookups). Indices exist on (user_id,game_type),
+  moves_hash, started_at. Acceptable per-call, but multiplied across three non-
+  shared submit paths and run inline on the request thread (no queue).
+- Redis: leaderboards + risk + active_session + heartbeat keys; updateScore does a
+  read-then-zadd (not atomic, minor). Heartbeats also written to Postgres per 10s
+  per active session (SessionHeartbeat row each) — write amplification under many
+  concurrent players.
+- No batching/queue for anti-cheat analysis; all detectors run synchronously in the
+  submit request.
+- getLevelConfig row-creation-on-read (GAME-EC-02) is an unbounded-growth vector
+  under load.
+
+================================================================================
+PHASE 12 — FAILURE RECOVERY
+================================================================================
+- Redis client: ioredis with retryStrategy + reconnectOnError + an 'error' handler
+  to avoid process crash. Good. BUT submit paths await Redis (updateScore,
+  clearActiveSession, risk ops); leaderboard/anti-cheat calls are wrapped in
+  try/catch (non-blocking) in free play and engine B, so a Redis outage degrades
+  gracefully for those — EXCEPT the START path (engine B) awaits checkSessionAllowed
+  / registerActiveSession with no fallback, so a Redis outage blocks starting games.
+- DB failures: a failure mid-submit (after session update, before progress/xp)
+  leaves a COMPLETED session with no progress/leaderboard side effects (no
+  transaction; partial state) (GAME-DC-01).
+- Session recovery / retry: none. Orphaned outcome=null rows are never reconciled.
+
+================================================================================
+PHASE 13 — SECURITY
+================================================================================
+- Session hijacking: user-JWT endpoints scope by token userId + ownership checks.
+  OK. InternalGameController (/internal/game/start|complete|heartbeat|flag-realtime)
+  authenticates with a single shared INTERNAL_API_KEY (timing-safe compare) and
+  TRUSTS a body-supplied userId/score — any holder of the key can start/finalize a
+  session and inject a score for ANY user (already recorded as AUTH-003; surfaces
+  directly on the gaming engine here).
+- Replay attacks: only hash-equality dedupe (Phase 10); no seed/move re-validation.
+- Duplicate sessions: preventable only on engine-B start (Phase 2).
+- Unauthorized game access / invalid game IDs: enum-bound; no per-game access
+  control or enable flag.
+- Client manipulation / payload tampering: scores/moves/signatures are client-
+  asserted; free play trusts score outright (GAME-SEC-01); engine B free-play
+  trusts client `config` which feeds the theoretical-max ceiling (Phase 7).
+- Server trust model: the engine is fundamentally client-authoritative for gameplay
+  outcomes; server enforcement is bound-checking + post-hoc heuristics only
+  (GAME-002).
+
+================================================================================
+PHASE 14 — EDGE CASES
+================================================================================
+- Player disconnect: session stuck outcome=null forever (no timeout). 
+- Duplicate start: engine B abandons prior; other engines allow stacking.
+- Duplicate finish: outcome=null gate; TOCTOU double-finish window in free play +
+  engine B (GAME-DC-01).
+- Expired session: no DB expiry; only the Redis active-session key expires.
+- Concurrent finish: races on increments (GAME-DC-01).
+- Invalid timing: bounded (B) / flagged (A,C).
+- Invalid completion / missing game: enum + NotFound handling.
+- Invalid server seed: not independently validatable by the server beyond the
+  commit hash (engine B); seed is not used to validate play.
+
+================================================================================
+PHASE 15 — COMPLETENESS / PRODUCTION-READINESS
+================================================================================
+Is the Gaming Engine truly production-ready?  NO.
+
+Blocking realities (verified):
+  1. Three overlapping engines (free-play, game-session, tournament) write one
+     GameSession table with divergent validation, side effects, and anti-cheat
+     depth; the submit endpoint is client-selected and guarded only by
+     `outcome = null`, allowing a tournament session to be finalized without
+     updating qualification state and allowing penalty/heartbeat/score-validation
+     gates to be bypassed by endpoint choice (GAME-001).
+  2. Gameplay is client-authoritative: scores/durations/moves are asserted by the
+     client and only bound-checked + statistically flagged; the server never
+     reproduces play from server_seed, so "deterministic validation" is not
+     enforced (GAME-002; compounds AUTH-003 score-injection).
+  3. Free-play submission performs no server-side score validation (stars/XP/
+     progress/leaderboard derived from an unvalidated score) (GAME-SEC-01).
+  4. Submit paths (free play + engine B) are non-atomic with a double-submit TOCTOU
+     window (GAME-DC-01).
+  5. Provable fairness is only partially wired (commit/reveal in engine B only;
+     32-bit final seed; client_seed/nonce never collected) (GAME-RNG-01).
+
+Can it safely support thousands of concurrent players, large tournaments, real-
+money competition, anti-cheat, leaderboards, and prize distribution?  NO — the
+client-authoritative outcome model plus the cross-engine finalization ambiguity
+mean scores driving money/qualification are not server-guaranteed, and inconsistent
+anti-cheat coverage across the three submit paths leaves enforced gates bypassable.
+
+================================================================================
+STRATEGIC BLOCKERS RECORDED IN BLOCKERS.md (require redesign)
+================================================================================
+  GAME-001  Multiple overlapping game-session engines (FreePlayService,
+            GameSessionService, TournamentService) operate on one GameSession table
+            with divergent validation/side-effects/anti-cheat depth; finalization
+            endpoint is client-selected and guarded only by outcome=null. Needs one
+            authoritative session lifecycle + submit pipeline.
+  GAME-002  No server-authoritative gameplay validation. Scores/durations/moves are
+            client-asserted; the server only bound-checks, statistically flags, and
+            dedupes move-hashes — it never re-simulates from server_seed. True
+            integrity requires server-side deterministic re-validation per game
+            (spans the 20 game backends). Compounds AUTH-003 and SCORE-001.
+
+NON-BLOCKER DEFECTS (localized fixes for a future Gaming Engine Fix — NOT redesign,
+listed for traceability; tags used above):
+  GAME-SEC-01  Free-play submitResult performs no scoreValidator.validateScore;
+               stars/XP/progress/best_score/leaderboard derived from unvalidated
+               client score (anti-cheat only flags, never rejects).
+  GAME-DC-01   Free-play + game-session submitResult are non-atomic and use a
+               read-then-write (findFirst outcome=null -> update) double-submit
+               TOCTOU; wrap in a transaction + atomic claim (updateMany / row lock).
+  GAME-INT-01  Tournament-mode session can be finalized via the generic game-session
+               submit (no mode guard) -> marks COMPLETED without updating StageEntry
+               totals/stage leaderboard and writes the global leaderboard instead;
+               score silently does not count toward qualification.
+  GAME-INT-02  A FREE_PLAY session started by one engine can be submitted by the
+               other, producing divergent side effects (GameProgress/stars/XP vs
+               Redis-only + anti-cheat) by endpoint choice.
+  GAME-AC-02   checkSessionAllowed (risk/penalty-tier gate) runs only on engine-B
+               startGame; free-play.startLevel and both tournament start paths skip
+               it, so penalty tiers 2/3 (throttle/cooldown) are bypassable.
+  GAME-AC-01   No server-side move re-hash/replay verification against server_seed;
+               SESSION_TAMPERING is hash-equality dedupe only; heartbeat verify runs
+               only on engine-B submit (>15s), not free play or tournament.
+  GAME-RNG-01  computeFinalSeed truncates to 32 bits; client_seed/nonce supported by
+               schema but never collected/stored (nonce always 0); commit/reveal
+               wired only in engine B.
+  GAME-SES-01  Concurrent-session prevention + active-session registration exist only
+               on engine-B startGame; other start paths allow stacked open sessions
+               and overwrite the single active_session key.
+  GAME-EC-01   Free-play startLevel consumes a life before session creation with no
+               refund if subsequent steps fail.
+  GAME-EC-02   getLevelConfig (authenticated GET) lazily creates LevelConfig rows for
+               arbitrary (gameType, unbounded level) — side-effectful read +
+               unbounded row creation.
+  GAME-VAL-01  Inconsistent duration bounds across paths (engine-B hard cap 1,800,000
+               ms vs DTO Max 600,000 ms vs tournament Max 600,000 ms).
+  GAME-EC-03   SessionOutcome.TIMED_OUT is defined but never written; no server-side
+               session-timeout/abandonment sweeper for orphaned outcome=null rows.
+  GAME-INIT-01 No per-game enabled/disabled/maintenance flag; invalid game_type on
+               engine-B startGame is cast `as any` and fails at the DB layer rather
+               than a clean validation error.
+
+================================================================================
+END OF GAMING ENGINE AUDIT — NO CODE WAS MODIFIED.
+================================================================================

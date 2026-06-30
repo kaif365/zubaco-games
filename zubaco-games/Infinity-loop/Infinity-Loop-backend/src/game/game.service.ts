@@ -1,4 +1,6 @@
 import { GAME_SESSION_STATUS, TERMINAL_SESSION_STATUSES, ANTI_CHEAT_CONFIGS, CHEAT_FLAG_TYPE } from '@common/constants';
+import { randomInt } from 'crypto';
+
 import { PrismaService } from '@common/prisma/prisma.service';
 import { config } from '@config';
 import { Injectable, NotFoundException, forwardRef, Inject, Logger } from '@nestjs/common';
@@ -71,7 +73,7 @@ export class GameService {
     private shuffleBoardIds(boardIds: string[]): string[] {
         const shuffled = [...boardIds];
         for (let i = shuffled.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = randomInt(i + 1);
             [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
         }
         return shuffled;

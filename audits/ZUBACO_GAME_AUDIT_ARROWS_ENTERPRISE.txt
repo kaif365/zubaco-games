@@ -1,0 +1,130 @@
+================================================================================
+ZUBACO — ENTERPRISE GAME AUDIT (PROMPT #24)
+GAME: Arrows        MODULE: arrows
+================================================================================
+Audit Date : June 29, 2026
+Type       : AUDIT ONLY — no code modified
+Method     : Execution-path tracing (every reachable path verified, not assumed)
+Stack      : NestJS 11 + Restate virtual-objects (backend) · React + Phaser + Vite (frontend)
+Paths      : arrows/arrows-backend , arrows/arrows-frontend
+Verdict    : NOT production-ready for real-money tournaments (see PHASE 12)
+================================================================================
+
+LEGEND: [BLOCKER] release-stopping · [HIGH] · [MED] · [LOW] · [OK] verified sound
+
+================================================================================
+PHASE 1 — GAME FLOW (traced end-to-end)
+================================================================================
+Endpoints (game.controller.ts) → GameSessionRestateService → Restate virtual
+object (game-session.restate.ts) → GameService (game.service.ts). All handlers
+gated by SessionGuard + @RequireSession(LOGIN/USER) + @EnableEncryption.
+
+Game Load        → POST v1/game/game-start. Re-entry returns in-flight state;
+                   finalized session returned from DB; open-but-no-state →
+                   GAME_SESSION_RECOVERY_REQUIRED (409). [OK]
+Asset Loading    → Frontend (Phaser GameScene.ts) loads sprites; board+arrows
+                   come from server response. No score asset trust. [OK]
+Initialization   → createGameSession snapshots stageConfig (timeLimit, levels,
+                   maxScore) to DB; totalRounds = Σ boardCount. [OK]
+Configuration    → fetchStageConfig requires isEnabled + ≥1 level else 404/422. [OK]
+Timer Start      → expiryAt = now + timeLimit*1000; scheduleExpiry arms durable
+                   Restate timers (markResultProcessing, finalizeExpired). [OK]
+Gameplay         → next-board / submit-moves serialized per (userId:stageId)
+                   virtual-object key — no per-session races. [OK]
+Move Validation  → server replays moves vs in-state arrows (move-validator). [OK]
+Scoring          → server-only (score.util). FE never asserts score. [OK]
+Completion       → endBoard advances/finalizes; endGame finalizes. [OK]
+Result Submission→ finalizeAndCommit writes boards→arrows→moves→status (status
+                   last), idempotent on terminal status. [OK]
+Cleanup          → ctx.clearAll() clears virtual-object state post-finalize. [OK]
+Transition gap   → next-board UNLOCK GATE is effectively a no-op (see B-01).
+
+================================================================================
+PHASE 2 — GAME RULES
+================================================================================
+[B-01][BLOCKER] Next-board gate always open. constants.ts:
+   NEXT_BOARD_ARROWS_REMAINING_THRESHOLD=1, NEXT_BOARD_SOLVE_PCT_THRESHOLD=0.
+   unlock = remaining<=1 || (total>0 && removed/total>=0). removed/total>=0 is
+   ALWAYS true → next-board callable with ZERO arrows removed; player skips
+   every board harvesting partial scores w/o solving. (Prior BLOCKER-4) PRESENT.
+[OK] Arrow generation: boards/arrows authored in DB; server picks, FE renders.
+[OK] Win: all arrows removed all rounds within timeLimit → ENDED + bonus.
+[OK] Lose/Timeout: expiry → RESULT_PROCESSING → finalizeExpired → EXPIRED, 0 bonus.
+[OK] Restart: new game-start blocked while STARTED/RESULT_PROCESSING (409).
+[MED] No explicit pause/resume; wall-clock expiryAt only. Mobile backgrounding
+   burns time (fair, but poor UX).
+
+================================================================================
+PHASE 3 — RANDOMNESS
+================================================================================
+[MED] pickBoardWithArrows uses Math.random() for offset — not CSPRNG, no seed,
+   not reproducible/auditable; small pool → predictable. excludeIds prevent
+   in-session dup boards [OK]. UUID-validated before raw SQL (no injection) [OK].
+
+================================================================================
+PHASE 4 — TIMER
+================================================================================
+[OK] Server-set expiry; submit filters moves after expiryAt; future-skew capped
+   5s; bonus from expiryAt-lastMoveAt (server-side, manipulation-resistant).
+[MED] SUBMIT_MOVES_EXPIRY_GRACE_SECONDS=120 — 2-min post-expiry window; moves
+   still time-filtered, but generous, aids stalling.
+
+================================================================================
+PHASE 5 — INPUT
+================================================================================
+[OK] DTO: x/y int 0..999, clickedAt ISO, moveId uuid; batch+state dedup; sorted;
+   stale-before-lastMove discarded; replayed moveId idempotent.
+[B-02][BLOCKER] No max on moves[] (only .min(1)) — unbounded payload memory/CPU
+   DoS. (Prior BLOCKER-5) PRESENT.
+
+================================================================================
+PHASE 6 — SCORING
+================================================================================
+[OK] round: cleared→maxScore else floor((maxScore-1)*removed/total). bonus only
+   when ENDED. Int32 bounded; no client score path; impossible scores blocked.
+[B-01 impact] partial-clear + open gate inflates totals vs honest solving.
+
+================================================================================
+PHASE 7 — GAME STATE
+================================================================================
+[OK] Refresh/navigate/multi-tab: getStatus rebuilds from state or DB; per-key
+   serialization; recovery 409 on orphaned open session.
+
+================================================================================
+PHASE 8 — SECURITY
+================================================================================
+[B-03][BLOCKER] ws/game.gateway.ts join-session has NO ownership check — any
+   authed user joins session:<any> and reads others' emissions. PRESENT.
+[B-04][BLOCKER] gateway JWT verify falls back to 'dev-secret' — misconfig =
+   token forgery. PRESENT.
+[OK] Score/timer/replay: server-authoritative + moveId dedup.
+[gov] GAME-002/AUTH-003: global score-injection via shared key (deferred).
+
+================================================================================
+PHASE 9 — PERFORMANCE
+================================================================================
+[OK] count+offset board pick (no ORDER BY RANDOM); finalize single $transaction.
+[B-02 impact] unbounded moves[] inflates state + replay. [LOW] usedBoardIds tiny.
+
+================================================================================
+PHASE 10 — EDGE CASES
+================================================================================
+[OK] Zero moves / instant end / restart spam / multi-submit: deny-by-default,
+   409 recovery, idempotent finalize, dedup. Invalid state → terminal.
+
+================================================================================
+PHASE 11 — INTEGRATION
+================================================================================
+Gaming ✓ · Scoring ✓ server-side · Anti-Cheat ⚠ detection-only fire-and-forget
+(gov ACHEAT-001) · Leaderboard/Tournament/Wallet ⚠ shared INTERNAL_API_KEY
+(gov AUTH-003, GAME-001/002).
+
+================================================================================
+PHASE 12 — PRODUCTION READINESS — NO
+================================================================================
+4 blockers reachable now (B-01..B-04). Real-money/ranked: NO until gate, payload
+cap, WS authz, secret fallback fixed; fairness governed by GAME-002/AUTH-003/
+ACHEAT-001. Localized (no redesign): ARROWS-VAL-01 pct>0; -02 cap moves[]; -03
+ws ownership; -04 drop 'dev-secret'; -05 CSPRNG pick; -06 trim 120s grace.
+================================================================================
+END

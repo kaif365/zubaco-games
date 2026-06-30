@@ -79,6 +79,11 @@ export class LeaderboardService {
     }
   }
 
+  /** Authoritatively remove a user's global score (anti-cheat enforcement). */
+  async removeScore(userId: string, gameType: GameType): Promise<void> {
+    await this.redis.zrem(`lb:game:${gameType}:all-time`, userId);
+  }
+
   // ─── GET MY RANK ───────────────────────────────────────────────
 
   async getMyRank(userId: string, gameType: GameType): Promise<{ rank: number | null; score: number | null }> {
