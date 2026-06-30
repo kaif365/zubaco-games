@@ -2,14 +2,11 @@
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import { toast } from 'react-toastify';
 
-import { STORAGE_KEYS } from '@/constants/storageKeys'; // TODO(temp): 401 dev-session refresh
-import { fetchDevSession } from '@/services/authService'; // TODO(temp): 401 dev-session refresh
 import { ApiRequestError } from '@/types/api.types';
 import { decryptPayload, encryptPayload, isEncryptedPayload } from '@/utils/encryption';
 import { clearAuthStorage, storage } from '@/utils/storage';
 import { appConfig } from '@app/config/appConfig';
 
-const AUTH_RECOVERY_FLAG = 'ZUBACO-auth-recovery-attempted';
 const UNAUTHORIZED_TOAST_ID = 'auth-unauthorized-error';
 
 type EnvelopeLike = {
@@ -55,15 +52,13 @@ const httpClient: AxiosInstance = axios.create({
   },
 });
 
-// TODO(temp): 401 dev-session refresh — remove when real auth is in place
-async function recoverFromUnauthorized(): Promise<void> {
+// On 401 the session is no longer valid: clear local auth state and send the
+// user back to the entry point. No silent session recovery is performed.
+function handleUnauthorized(): void {
   clearAuthStorage();
-  sessionStorage.setItem(AUTH_RECOVERY_FLAG, 'true');
-  try { const data = await fetchDevSession(appConfig.socket.stageId); await storage.setSecure(STORAGE_KEYS.AUTH_TOKEN, data.token); } catch { /* refresh failed — navigate anyway */ }
   toast.error('Your session has expired. Please try again.', { toastId: UNAUTHORIZED_TOAST_ID });
   window.location.href = '/';
 }
-// end TODO(temp)
 
 // ─── Request: inject auth token + encrypt body ───────────────────────────────
 
@@ -133,7 +128,7 @@ httpClient.interceptors.response.use(
       let payload: unknown = error.response?.data;
 
       if (status === 401) {
-        await recoverFromUnauthorized();
+        handleUnauthorized();
         return Promise.reject(new ApiRequestError('Unauthorized', 401));
       }
 

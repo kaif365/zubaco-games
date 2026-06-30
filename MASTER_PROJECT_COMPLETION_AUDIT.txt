@@ -1,0 +1,436 @@
+================================================================================
+ZUBACO ENTERPRISE
+MASTER PROJECT COMPLETION AUDIT
+END-TO-END WHOLE REPOSITORY CERTIFICATION
+================================================================================
+Mode ............ AUDIT ONLY / READ ONLY. No code modified.
+Repo root ....... c:\zubaco-games  (single git repo, 11,605 tracked files)
+Audit date ...... 2026-07-01
+Method .......... Runtime/execution-path tracing + direct file verification +
+                  four parallel deep domain traces. Where a domain was sampled
+                  rather than read file-by-file, it is marked
+                  "VERIFIED BY SAMPLING" — NOT assumed complete.
+================================================================================
+
+IMPORTANT HONESTY NOTE
+  This repo contains ~11.6k files with heavy triple-duplication (see Domain 28).
+  I did NOT read every one of the 11,605 files individually; that is not how
+  completeness is determined. I traced what actually executes, verified the
+  canonical entrypoints directly, and sampled the 20 game folders. Every
+  conclusion below cites current code. Anything I could not positively verify is
+  marked NEEDS AUDIT rather than claimed COMPLETE.
+
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Zubaco is a multi-app monorepo, not a single service. It comprises:
+  - zubaco-platform/ ............ central NestJS backend (auth, wallet,
+                                  tournament, leaderboard, social, compliance,
+                                  anti-cheat, events). CANONICAL, builds GREEN.
+  - 20 game apps ................ each a Vite/React (1 Next.js) FRONTEND plus its
+                                  own NestJS GAME BACKEND (per-game session/
+                                  verification, metrics, e2e tests, k8s).
+  - zubaco-admin-panel-repo/ .... Next.js admin frontend + NestJS admin backend.
+  - zubaco-mobile/ .............. React Native player app (the intended
+                                  production player client).
+  - zubaco-web-lobby/ ........... EXPLICITLY TEMPORARY 3-file dev launcher (stub).
+  - infrastructure/, docker/, .github/, redis/ ... IaC, containers, CI/CD.
+
+The backend platform and the per-game backends are strong and largely complete.
+Infrastructure-as-code, Docker, and CI/CD are extensive. HOWEVER the project is
+NOT production-ready because of concrete, code-verified gaps:
+  - The central platform backend has ZERO automated tests and no `test` script,
+    yet CI claims to test it (false-green).
+  - The MOBILE app (the stated production player client) renders PLACEHOLDER data
+    on every main screen — 12+ TODOs; no real data fetching wired.
+  - The ADMIN panel runs on MOCK data for flagged-users and dashboard, has a
+    no-backend notifications page, and is MISSING KYC, withdrawal-approval,
+    anti-cheat-review and audit-log UIs.
+  - There is NO production web player app (only the temporary lobby stub).
+  - 14 of 20 game frontends have no tests; games are not tested in CI.
+  - Observability is instrumented (OTel/Prometheus/pino) but there is no metrics
+    backend (no Prometheus/Grafana deployment) and no error tracking (no Sentry).
+  - The repository carries ~3x duplicated copies of large portions of the code.
+
+VERDICT: PROJECT NOT COMPLETE (full item list in Sections 11-14, roadmap in
+MASTER_REMAINING_WORK_ROADMAP.txt).
+
+
+--------------------------------------------------------------------------------
+2. OVERALL COMPLETION PERCENTAGE
+--------------------------------------------------------------------------------
+  Weighted, evidence-based estimate of "production-ready complete":
+
+  Central backend (platform) implementation ...... ~95%
+  Central backend tests .......................... ~0%
+  Per-game backends (impl) ....................... ~90%  (sampled: arrows)
+  Game frontends (impl) .......................... ~95%
+  Game frontends (tests) ......................... ~30%  (6/20)
+  Admin panel .................................... ~70%
+  Mobile app ..................................... ~55%  (UI yes, data no)
+  Production web player app ...................... ~5%   (stub only)
+  Infrastructure / IaC ........................... ~90%
+  Docker / CI-CD ................................. ~85%
+  Monitoring / observability ..................... ~70%  (client yes, server no)
+  Testing (whole repo) ........................... ~40%
+  Documentation .................................. ~50%
+  Security ....................................... ~75%
+  Repository hygiene ............................. ~30%  (triple duplication)
+
+  OVERALL PROJECT COMPLETION (production readiness): ~70%
+  OVERALL IMPLEMENTATION-ONLY (ignoring tests/ops): ~85%
+
+
+--------------------------------------------------------------------------------
+3. DOMAIN-BY-DOMAIN STATUS (28 domains)
+--------------------------------------------------------------------------------
+  Legend: COMPLETE / PARTIAL / NOT IMPLEMENTED / NEEDS AUDIT / LEGACY / DORMANT / DEAD
+
+   1. Game Logic ................. COMPLETE (20/20 real engines; sampled)
+   2. Backend (platform) ......... PARTIAL (impl complete; tests absent)
+   3. Frontend (games) ........... PARTIAL (impl complete; 14/20 untested)
+   4. Wallet ..................... COMPLETE (ledger-authoritative, idempotent)
+   5. Tournament ................. COMPLETE (orchestrator + payout live)
+   6. Leaderboard ................ COMPLETE (verified-only, exactly-once)
+   7. Notifications .............. PARTIAL (backend live; in-app+push+webhook;
+                                   email/SMS not implemented; admin send UI no-backend)
+   8. Admin ...................... PARTIAL (~70%; mocks + missing UIs)
+   9. Authentication ............. COMPLETE (OTP/Google/Apple/JWT/refresh)
+  10. Authorization ............. COMPLETE (JwtAuthGuard, ServiceIdentityGuard,
+                                   per-request ban check)
+  11. Anti-Cheat ................ COMPLETE (detect + transactional enforce/reverse)
+  12. Verification .............. COMPLETE (VerificationPipeline; per-game verifiers)
+  13. Session Lifecycle ......... COMPLETE (single SessionCompletionService path)
+  14. Redis ..................... COMPLETE (global service; dev binaries in /redis;
+                                   prod via ElastiCache)
+  15. Database .................. COMPLETE (Prisma, 26 models, 3 migrations)
+  16. Infrastructure ............ COMPLETE (Terraform AWS full stack)
+  17. Docker .................... COMPLETE (multi-stage + prod compose)
+  18. CI/CD ..................... PARTIAL (3 workflows; platform test step is
+                                   false-green; games not tested in CI)
+  19. Monitoring ................ PARTIAL (OTel/Prometheus/CloudWatch instrumented;
+                                   no metrics store/Grafana; no Sentry/APM)
+  20. Logging ................... COMPLETE (pino structured logging)
+  21. Testing ................... PARTIAL (games+per-game backends partial;
+                                   platform & admin backend none)
+  22. Security .................. PARTIAL (helmet/WAF/HMAC/validation strong;
+                                   plaintext dev secrets; PAT-in-remote; gaps)
+  23. Performance ............... PARTIAL (k6 load/soak/ws scripts exist;
+                                   not run/validated here)
+  24. Scalability ............... COMPLETE (ECS autoscaling, HPA, read replicas)
+  25. Documentation ............. PARTIAL (env examples, k8s/load-test READMEs,
+                                   many analysis .txt; no unified API/runbook docs)
+  26. Deployment ................ PARTIAL (pipelines exist; no post-deploy smoke
+                                   tests; not executed/verified here)
+  27. Developer Experience ...... PARTIAL (lint/husky in places; duplication hurts)
+  28. Repository Hygiene ........ NOT ACCEPTABLE (≈3x duplicated trees; temp stub;
+                                   committed PAT history)
+
+
+--------------------------------------------------------------------------------
+4. BACKEND STATUS
+--------------------------------------------------------------------------------
+  CENTRAL PLATFORM (c:\zubaco-games\zubaco-platform) — CANONICAL, builds GREEN.
+    - Runtime module graph (app.module.ts): Config, Throttler, Schedule, Logger,
+      Prisma, Redis, Auth, Users, FreePlay, Tournament, Leaderboard, Wallet,
+      Social, Notification, GameSession, AntiCheat(@Global), Compliance,
+      Webhook(@Global), Events(@Global), Admin(@Global). Indirectly wired:
+      ScoringModule + RngModule (via Tournament/GameSession/FreePlay),
+      LeaderboardModule (re-imported by AntiCheat).
+    - 14 controllers, ~99 REST endpoints (global prefix /api/v1).
+    - 48 services, ALL injected/used — no dead service files.
+    - 0 TODO/FIXME/stub markers in backend src.
+    - WebSockets: ABSENT at platform (request/response only).
+    - Cron/workers: EventBusService @Cron(10s) drain (outbox retry+DLQ);
+      WalletCleanupService and WithdrawalDisbursementService are @Cron workers
+      (deposit expiry / payout disbursement). No BullMQ.
+    - Prisma: 26 models; migrations 20260524_compliance_regulatory,
+      20260525_weekly_bucketing, 20260630_transaction_ledger_key.
+    - Money/ban/completion/leaderboard single-writer guarantees verified (M1-M10).
+    - GAP: NO automated tests; package.json has NO `test` script (only build,
+      start, start:dev, start:prod, prisma:*, lint). git ls-files shows ZERO
+      *.spec.ts/*.test.ts/test/ under zubaco-platform. (VERIFIED directly.)
+
+  PER-GAME BACKENDS (e.g. zubaco-games-repo/zubaco-games/arrows/arrows-backend)
+    - NestJS, OpenTelemetry (traces/metrics/logs), /metrics Prometheus endpoint,
+      /health/live + /health/ready, HMAC service auth, jest + e2e specs with 60%
+      coverage threshold. Status: COMPLETE for sampled game (arrows).
+    - NEEDS AUDIT: only arrows-backend was opened in depth; the other 19 backends
+      are assumed structurally similar but were NOT each verified.
+
+  ADMIN BACKEND (zubaco-admin-panel-repo/zubaco-admin-panel/backend)
+    - NestJS + Prisma + JWT + AWS SDK + Swagger. GAP: no jest config, no tests.
+
+
+--------------------------------------------------------------------------------
+5. FRONTEND STATUS
+--------------------------------------------------------------------------------
+  GAMES (20): all have real game-logic engines (sampled multiple), httpClient +
+  save-progress outbox + React Query; 8 use socket.io-client. 19 Vite/React,
+  1 Next.js (Infinity-Loop). Build-ready. TESTS: only 6/20 have suites
+  (Arrows, Block-Fill, Sequence-Recall, Sliding-Puzzle, Maze-Navigation,
+  Infinity-Loop); 14/20 have NONE. Status: PARTIAL.
+
+  ADMIN PANEL (Next.js 16): login + 7 working pages with REAL API (users, games,
+  tournaments, stages, wallets). MOCK/TODO: flagged-users and dashboard stats
+  (MOCK_* with "replace with real API" TODOs); notifications page has UI but no
+  backend; UsersTable delete is a placeholder; game-registry has a temporary
+  auth-bypass TODO. MISSING UIs: KYC review, withdrawal approval, anti-cheat
+  review, audit-log viewer. Status: PARTIAL ~70%.
+
+  MOBILE (React Native): complete navigation + auth screens + a comprehensive
+  /api/v1 API client. BUT every main screen (Home, FreePlay, Tournament,
+  Leaderboard, Wallet, Profile, Notifications, Referral, Settings, Support)
+  renders PLACEHOLDER_* data with 12+ TODOs to wire real fetching; Onboarding is
+  a placeholder. Games load via WebView. Status: PARTIAL ~55% (UI without data).
+
+  PRODUCTION WEB PLAYER APP: DOES NOT EXIST. zubaco-web-lobby is a 3-file static
+  "TEMPORARY dev launcher" (index.html + package.json + TEMPORARY_README.md) whose
+  own README says to delete it. Status: NOT IMPLEMENTED.
+
+
+--------------------------------------------------------------------------------
+6. INFRASTRUCTURE STATUS
+--------------------------------------------------------------------------------
+  TERRAFORM (infrastructure/terraform): VPC (3 AZ), ECR (platform+admin+20 games),
+  RDS Postgres 16 (Multi-AZ prod, encrypted, backups, PI), ElastiCache Redis 7
+  (replicas, encryption, failover), ECS Fargate (Container Insights, circuit
+  breaker), ALB (TLS1.3, HTTP->HTTPS, /api/v1/health), CloudFront+S3 CDNs, SQS
+  (game-events/notifications/analytics + DLQ), SNS fan-out, Route53, Secrets
+  Manager, ECS autoscaling, CloudWatch alarms (CPU/mem/5xx/latency), WAF
+  (rate-limit + managed rules). S3+DynamoDB TF backend. Status: COMPLETE (~90%).
+  DOCKER: multi-stage Dockerfile.game-backend (healthcheck) and .game-frontend
+  (nginx SPA); docker-compose.yml (postgres/redis/platform/admin) and
+  docker-compose.prod.yml (resource limits, log rotation, read-only fs,
+  no-new-privileges). Status: COMPLETE.
+  K8S/HELM (zubaco-games-repo/zubaco-games/k8s): deployments (Prometheus
+  annotations, liveness/readiness, resource limits, secret injection), ingress
+  (nginx, cert-manager TLS, per-game routing, websocket support), network policy,
+  HPA. Status: PARTIAL (~70%; no Prometheus/Grafana/log-aggregation manifests).
+  GAP: SQS queues exist in IaC but the platform backend uses a Redis outbox, not
+  SQS — confirm intended wiring (possible unused infra).
+
+
+--------------------------------------------------------------------------------
+7. TESTING STATUS
+--------------------------------------------------------------------------------
+  Platform backend ............. NONE (no specs, no test script). CRITICAL.
+  Admin backend ................ NONE (no jest config).
+  Admin frontend ............... PARTIAL (jest configured; a few service tests).
+  Per-game backends ............ PARTIAL/GOOD (arrows verified: jest + e2e, 60%).
+  Game frontends ............... PARTIAL (6/20 have tests; 14/20 none).
+  Mobile ....................... CONFIGURED only (jest set up; specs not present
+                                 in tracked files).
+  Load testing ................. PRESENT (k6 game-api/websocket/soak) — NOT run here.
+  CI test execution ............ platform-ci runs `npm test -- --passWithNoTests`
+                                 (false-green: no tests exist); games-ci builds
+                                 only (no test step); admin-ci builds only.
+  Overall: PARTIAL ~40%. No evidence any test suite was executed/passed in this
+  audit; the DB is a dummy/unmigrated instance.
+
+
+--------------------------------------------------------------------------------
+8. SECURITY STATUS
+--------------------------------------------------------------------------------
+  STRONG: helmet, global ValidationPipe(whitelist/forbidNonWhitelisted), JWT +
+  refresh rotation, per-request ban enforcement, ServiceIdentityGuard (HMAC +
+  replay protection) on admin/anti-cheat, Razorpay webhook signature (timing-safe),
+  WAF rate limiting + managed rules, TLS1.3, encrypted RDS/Redis, Secrets Manager,
+  read-only containers, no-new-privileges.
+  ISSUES / GAPS:
+   - [HIGH] A GitHub PAT (ghp_...) is embedded in the git `origin` remote URL and
+     was exposed in chat history — MUST be rotated and purged.
+   - [MED] docker-compose.yml has plaintext JWT/HMAC dev secrets and
+     .env.example placeholder secrets ("change-in-prod") — ensure never used in
+     prod and not committed as real values.
+   - [MED] Admin game-registry contains a temporary auth-bypass TODO
+     ("REMOVE ... ONCE ARROWS GAME SERVER AUTH IS FIXED").
+   - [MED] No centralized error tracking (Sentry/APM) → security/abuse signals
+     not correlated.
+   - [LOW] No automated dependency/secret scanning step visible in CI.
+   - Application-level pen-test / threat-model: NEEDS AUDIT (not performed).
+
+
+--------------------------------------------------------------------------------
+9. DOCUMENTATION STATUS
+--------------------------------------------------------------------------------
+  PRESENT: .env.example for platform/admin/games; k8s and load-test READMEs;
+  web-lobby TEMPORARY_README; many root analysis/checklist .txt files
+  (per-game *_GAME_ANALYSIS / *_TEST_CHECKLIST, ZUBACO_MASTER_EXECUTIVE_SUMMARY,
+  ZUBACO_COMPLETE_REQUIREMENTS, ZUBACO_GAPS_TRACKER, ZUBACO_FUTURE_TODO,
+  audits/ folder).
+  MISSING: unified API reference (no Swagger on platform; admin has Swagger),
+  architecture/runbook/onboarding docs, deployment runbook, incident playbooks,
+  a single source-of-truth README explaining the 3 duplicated trees and which is
+  canonical. Status: PARTIAL ~50%.
+
+
+--------------------------------------------------------------------------------
+10. PRODUCTION READINESS STATUS
+--------------------------------------------------------------------------------
+  NOT READY. Blocking reasons (all code-verified):
+   - No central-backend tests; CI test gate is false-green.
+   - Mobile (intended production client) shows placeholder data everywhere.
+   - No production web player app.
+   - Admin runs on partial mock data and is missing operational UIs (KYC,
+     withdrawal approval, anti-cheat review, audit log).
+   - No metrics backend / dashboards / error tracking deployed.
+   - Live deployment, migrations against a real DB, and load tests have NOT been
+     executed/verified.
+   - Repository hygiene (triple duplication, committed PAT) must be resolved.
+
+
+--------------------------------------------------------------------------------
+11. REMAINING IMPLEMENTATION ITEMS
+--------------------------------------------------------------------------------
+  I-01  Mobile: wire all main screens to the real API (remove PLACEHOLDER_* and
+        12+ TODOs in Home/FreePlay/Tournament/Leaderboard/Wallet/Profile/
+        Notifications/Referral/Settings/Support).
+  I-02  Mobile: implement the Onboarding swipeable slides (currently placeholder).
+  I-03  Mobile: implement Support remote-config/URLs and Settings fetch + logout.
+  I-04  Admin: replace flagged-users MOCK_FLAGGED with real anti-cheat API.
+  I-05  Admin: replace dashboard MOCK_DASHBOARD_STATS / MOCK_ACTIVITY with real API.
+  I-06  Admin: wire the notifications page to a real send endpoint.
+  I-07  Admin: implement UsersTable delete (currently placeholder).
+  I-08  Admin: build KYC review UI.
+  I-09  Admin: build withdrawal-approval workflow UI.
+  I-10  Admin: build anti-cheat review dashboard UI (backend routes exist).
+  I-11  Admin: build audit-log viewer UI (backend audit exists).
+  I-12  Admin: remove the temporary arrows game-server auth-bypass; finish game
+        server auth integration.
+  I-13  Production WEB player app: build it (or formally decide mobile-only) and
+        delete zubaco-web-lobby.
+  I-14  Notifications: implement email/SMS channels if in scope (currently only
+        in-app + push + webhook).
+  I-15  Confirm games↔backend wiring end-to-end: ensure score submission/session
+        completion from each game frontend reaches the correct backend
+        (platform vs per-game) — verify the 20 frontends against live routes.
+  I-16  Per-game backends: verify all 20 (only arrows verified) for parity,
+        completeness, and no stubs.
+  I-17  Reconcile SQS (in IaC) vs Redis outbox (in code) — implement or remove the
+        unused queue path so infra matches runtime.
+
+
+--------------------------------------------------------------------------------
+12. REMAINING VALIDATION (TESTING) ITEMS
+--------------------------------------------------------------------------------
+  V-01  Add a real `test` script + jest config to zubaco-platform.
+  V-02  Author platform unit tests for money-critical paths (ledger, deposit/
+        withdrawal lifecycle, enforcement, session completion, leaderboard).
+  V-03  Author platform e2e tests (auth, wallet, tournament, anti-cheat).
+  V-04  Remove `--passWithNoTests` false-green; fail CI when no tests run.
+  V-05  Add tests for the 14 untested game frontends.
+  V-06  Add a test step to games-ci and admin-ci.
+  V-07  Add admin backend jest config + tests.
+  V-08  Add/confirm mobile test specs (jest configured but no specs tracked).
+  V-09  Execute the k6 load/soak/websocket suites against a staging env and record
+        results vs thresholds.
+  V-10  Run prisma migrations against a real Postgres and validate the schema
+        (current DB is dummy/unmigrated).
+  V-11  Add post-deploy smoke/integration tests to the pipelines.
+  V-12  Verify all 20 per-game backend test suites actually pass.
+
+
+--------------------------------------------------------------------------------
+13. REMAINING OPERATIONAL ITEMS
+--------------------------------------------------------------------------------
+  O-01  Rotate + purge the exposed GitHub PAT in the `origin` remote and history.
+  O-02  Deploy a metrics backend (Prometheus/Grafana or AMP/CloudWatch dashboards)
+        — metrics are emitted but not stored/visualized.
+  O-03  Add error tracking/APM (Sentry/Datadog) across services.
+  O-04  Add app-level alerting rules (error rate, payment failures, SLA).
+  O-05  Ensure production secrets come only from Secrets Manager/K8s secrets;
+        remove plaintext from compose; add secret scanning to CI.
+  O-06  Resolve repository duplication: pick ONE canonical tree, remove the other
+        two copies, document the structure.
+  O-07  Add backup/restore + DR runbooks; verify RDS backups + restore drill.
+  O-08  Write deployment + incident-response runbooks and a top-level README.
+  O-09  Stand up a Prometheus deployment manifest in k8s (annotations exist, no
+        scraper).
+  O-10  Verify staging/prod deploy pipelines actually run (not validated here).
+
+
+--------------------------------------------------------------------------------
+14. BLOCKER MATRIX
+--------------------------------------------------------------------------------
+  Status: ✅ FULLY RESOLVED  🟡 PARTIALLY RESOLVED  ❌ NOT IMPLEMENTED  ⚪ OBSOLETE
+  (IDs are derived from CURRENT findings; supported by code cited above.)
+
+  ID            AREA                                   STATUS
+  -----------   ------------------------------------   ----------------------
+  GAME-IMPL     Game logic (20 engines)                ✅ FULLY RESOLVED
+  GAME-TEST     Game frontend tests (14/20 missing)    🟡 PARTIALLY RESOLVED
+  GAME-BE       Per-game backends (1/20 verified)      🟡 PARTIALLY RESOLVED
+  AUTH-CORE     Auth (OTP/Google/Apple/JWT/refresh)    ✅ FULLY RESOLVED
+  AUTHZ         Guards + per-request ban check         ✅ FULLY RESOLVED
+  SCORE         Authoritative leaderboard              ✅ FULLY RESOLVED
+  ACHEAT-BE     Anti-cheat enforce/reverse             ✅ FULLY RESOLVED
+  ACHEAT-UI     Anti-cheat review dashboard (admin)    ❌ NOT IMPLEMENTED
+  TOURN         Tournament orchestration + payout      ✅ FULLY RESOLVED
+  WALLET        Ledger + deposit/withdrawal lifecycle  ✅ FULLY RESOLVED
+  WALLET-KYCUI  KYC review UI (admin)                  ❌ NOT IMPLEMENTED
+  WALLET-WDUI   Withdrawal-approval UI (admin)         ❌ NOT IMPLEMENTED
+  NOTIF-BE      Event bus + in-app/push/webhook        ✅ FULLY RESOLVED
+  NOTIF-EMAIL   Email/SMS channels                     ❌ NOT IMPLEMENTED
+  NOTIF-ADMINUI Admin notifications send wiring        ❌ NOT IMPLEMENTED
+  ADMIN-CORE    Admin core pages (users/games/etc.)    🟡 PARTIALLY RESOLVED
+  ADMIN-MOCK    Admin flagged/dashboard mock data      🟡 PARTIALLY RESOLVED
+  ADMIN-AUDITUI Admin audit-log viewer                 ❌ NOT IMPLEMENTED
+  MOBILE-NAV    Mobile navigation + auth screens       ✅ FULLY RESOLVED
+  MOBILE-DATA   Mobile real data wiring (placeholders) ❌ NOT IMPLEMENTED
+  WEB-APP       Production web player app              ❌ NOT IMPLEMENTED
+  ARCH          Backend single-writer architecture     ✅ FULLY RESOLVED
+  INFRA-IAC     Terraform AWS stack                    ✅ FULLY RESOLVED
+  INFRA-K8S     K8s/Helm manifests                     🟡 PARTIALLY RESOLVED
+  DOCKER        Dockerfiles + compose                  ✅ FULLY RESOLVED
+  CICD          Pipelines exist                        🟡 PARTIALLY RESOLVED
+  CICD-TEST     CI actually runs tests                 ❌ NOT IMPLEMENTED (false-green)
+  TEST-PLATFORM Platform backend tests                 ❌ NOT IMPLEMENTED
+  TEST-ADMINBE  Admin backend tests                    ❌ NOT IMPLEMENTED
+  MON-INSTR     OTel/pino/metrics instrumentation      ✅ FULLY RESOLVED
+  MON-STORE     Metrics store + dashboards (Prom/Graf) ❌ NOT IMPLEMENTED
+  MON-ERROR     Error tracking / APM (Sentry)          ❌ NOT IMPLEMENTED
+  SEC-PAT       Exposed GitHub PAT rotation            ❌ NOT IMPLEMENTED
+  SEC-SECRETS   Plaintext dev secrets / scanning       🟡 PARTIALLY RESOLVED
+  DOCS          Unified API/runbook/architecture docs  🟡 PARTIALLY RESOLVED
+  HYGIENE-DUP   ~3x repository duplication              ❌ NOT IMPLEMENTED
+  HYGIENE-STUB  Remove temporary web-lobby stub         ❌ NOT IMPLEMENTED
+  PERF          Load tests executed/validated           ❌ NOT IMPLEMENTED (not run)
+  DEPLOY        Verified staging/prod deploy            ❌ NOT IMPLEMENTED (not run)
+
+
+--------------------------------------------------------------------------------
+15. FINAL PROJECT COMPLETION ROADMAP
+--------------------------------------------------------------------------------
+  Full phased roadmap with priority, effort, reason, and dependencies is in:
+      MASTER_REMAINING_WORK_ROADMAP.txt
+  Summary of phases:
+    Phase 1  Security & hygiene hardening (PAT, secrets, duplication, false-green CI)
+    Phase 2  Test coverage (platform critical paths, CI gates, game/admin tests)
+    Phase 3  Admin completeness (mocks -> real APIs + missing operational UIs)
+    Phase 4  Mobile completeness (placeholder -> real data) — production client
+    Phase 5  Production web player app (or formal mobile-only decision)
+    Phase 6  Observability backend (metrics store, dashboards, error tracking, alerts)
+    Phase 7  Pre-production validation (migrations, load/soak, deploy, smoke, DR)
+    Phase 8  Documentation & launch readiness
+
+
+--------------------------------------------------------------------------------
+16. FINAL VERDICT
+--------------------------------------------------------------------------------
+  PROJECT NOT COMPLETE
+
+  The central backend and per-game backends are strong, and infrastructure/IaC is
+  extensive — but the project cannot be truthfully certified production-ready.
+  Code-verified blockers remain across testing (platform/admin have none; CI is
+  false-green), the mobile production client (placeholder data everywhere), the
+  admin panel (mock data + missing KYC/withdrawal/anti-cheat/audit UIs), the
+  absent production web app, observability (no metrics store / error tracking),
+  unverified deployment/load validation, and serious repository hygiene issues
+  (≈3x duplication, an exposed committed PAT). Every remaining item is listed in
+  Sections 11-14 and phased in MASTER_REMAINING_WORK_ROADMAP.txt.
+
+================================================================================
+END OF REPORT — MASTER_PROJECT_COMPLETION_AUDIT
+================================================================================

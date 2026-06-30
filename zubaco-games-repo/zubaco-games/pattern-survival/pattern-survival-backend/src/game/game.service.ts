@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { EventService } from '../events/event.service';
 import { computeFinalSeed } from './engine/random';
 import { getLevelConfig } from './engine/levelConfig';
+import { analyzeInputTiming } from './engine/timingAnalyzer';
 import * as crypto from 'crypto';
 
 export interface GameConfig { gridSize: number; timeLimitMs: number; flashDurationMs: number; pointsPerRound: number; perfectBonus: number; colors: string[]; }
@@ -45,7 +46,7 @@ export class GameService {
     return { gameSessionId: session.id, seed, config, serverTime: new Date().toISOString(), endTime: new Date(Date.now() + config.timeLimitMs + 2000).toISOString(), level: levelParams?.level ?? 1, scoreMultiplier: levelParams?.scoreMultiplier ?? 1.0 };
   }
 
-  async submitGame(playerId: string, dto: { gameSessionId: string; roundInputs: number[][]; perfectRounds: number; clientScore: number }) {
+  async submitGame(playerId: string, dto: { gameSessionId: string; roundInputs: number[][]; perfectRounds: number; clientScore: number; roundTimings?: number[][] }) {
     const session = await this.prisma.gameSession.findUnique({ where: { id: dto.gameSessionId } });
     if (!session) throw new BadRequestException('Session not found');
     if (session.playerId !== playerId) throw new ForbiddenException('Not your session');
@@ -79,12 +80,23 @@ export class GameService {
 
       if (!roundCorrect) break; // First wrong = game over
       verifiedRounds++;
-      // TODO: Perfect detection could also check hesitation timing from client
-      // For now, trust that a completed round with no mistake counts if under threshold
     }
 
     // Perfect rounds can't exceed verified rounds
     verifiedPerfectRounds = Math.min(dto.perfectRounds, verifiedRounds);
+
+    // A perfect round requires zero mistakes AND human-like hesitation timing.
+    // When the client supplies per-input timings, run them through the existing
+    // timing analyzer; if the timing is statistically inhuman (e.g. automated
+    // input), void the perfect bonus and flag the session.
+    if (verifiedPerfectRounds > 0 && dto.roundTimings && dto.roundTimings.length > 0) {
+      const timestamps = dto.roundTimings.slice(0, verifiedRounds).flat();
+      const timing = analyzeInputTiming(timestamps);
+      if (timing.isSuspicious) {
+        cheatReasons.push(`Perfect bonus rejected (timing): ${timing.reason}`);
+        verifiedPerfectRounds = 0;
+      }
+    }
 
     const serverScore = verifiedRounds * config.pointsPerRound + verifiedPerfectRounds * config.perfectBonus;
 

@@ -19,7 +19,7 @@ import { LevelSelector, getHighestLevel, setHighestLevel, setLevelStars } from '
 import { Settings } from './Settings';
 import { StatsScreen, updateStats } from './StatsScreen';
 import { Achievements, AchievementPopup, checkAchievements } from './Achievements';
-import { DailyChallenge, isDailyCompleted, completeDailyChallenge, getDailyLevel } from './DailyChallenge';
+import { DailyChallenge, isDailyCompleted, completeDailyChallenge } from './DailyChallenge';
 import { Confetti } from './Confetti';
 import { PauseDialog } from './PauseDialog';
 

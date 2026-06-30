@@ -1,7 +1,6 @@
-import { randomUUID } from 'crypto';
-
-import { MOVE_STATUS } from '@common/constants';
+import { MOVE_STATUS, TOKEN_TYPES, USER_TYPES } from '@common/constants';
 import { WsExceptionFilter } from '@common/filters/ws-exception.filter';
+import { verifyToken } from '@common/utils/token.util';
 import { wsSuccess } from '@common/utils/ws-response.util';
 import { Logger, UseFilters } from '@nestjs/common';
 import {
@@ -16,6 +15,8 @@ import {
     WsException,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+
+import { UserService } from '../user/user.service';
 
 import { GameSessionRestateService } from './game-session-restate.service';
 
@@ -40,7 +41,16 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
     private readonly logger = new Logger(GameGateway.name);
 
-    constructor(private readonly gameSessionRestate: GameSessionRestateService) {}
+    // Token types accepted for realtime gameplay (mirrors the HTTP SessionGuard).
+    private static readonly ALLOWED_TOKEN_TYPES: ReadonlyArray<number> = [
+        TOKEN_TYPES.LOGIN,
+        TOKEN_TYPES.GAME_SESSION,
+    ];
+
+    constructor(
+        private readonly gameSessionRestate: GameSessionRestateService,
+        private readonly userService: UserService,
+    ) {}
 
     /**
      * After init.
@@ -51,18 +61,45 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
      */
     afterInit(server: Server) {
         server.use((socket: Socket, next) => {
-            try {
-                // Mocking user — in production these come from JWT verification
-                (socket.data as SocketData) = {
-                    userId: randomUUID(),
-                    userName: 'Mock User',
-                    sessionId: randomUUID(),
-                    stageId: null,
-                };
-                next();
-            } catch {
-                next(new Error('AUTH_FAILED'));
-            }
+            void (async () => {
+                try {
+                    const token =
+                        (socket.handshake.auth?.token as string | undefined) ??
+                        socket.handshake.headers?.authorization?.replace('Bearer ', '');
+
+                    if (!token) {
+                        return next(new Error('TOKEN_INVALID'));
+                    }
+
+                    const payload = verifyToken(token);
+
+                    if (
+                        payload.userType !== USER_TYPES.USER ||
+                        !GameGateway.ALLOWED_TOKEN_TYPES.includes(payload.tokenType)
+                    ) {
+                        return next(new Error('TOKEN_INVALID'));
+                    }
+
+                    // verifyUser is the source of truth for session validity and
+                    // rejects expired sessions and banned/removed users.
+                    const user = await this.userService.verifyUser(
+                        payload.sessionId,
+                        payload.userId,
+                        token,
+                    );
+
+                    (socket.data as SocketData) = {
+                        userId: user.id,
+                        userName: user.name,
+                        sessionId: payload.sessionId,
+                        stageId: null,
+                    };
+
+                    next();
+                } catch (err) {
+                    next(err instanceof Error ? err : new Error('AUTH_FAILED'));
+                }
+            })();
         });
 
         this.logger.log('GameGateway initialized on namespace /realtime');

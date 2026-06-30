@@ -1,0 +1,290 @@
+================================================================================
+ZUBACO ENTERPRISE
+MASTER REMAINING WORK ROADMAP
+================================================================================
+Companion to MASTER_PROJECT_COMPLETION_AUDIT.txt
+Mode ............ AUDIT ONLY (planning artifact; no code changed)
+Date ............ 2026-07-01
+Verdict ......... PROJECT NOT COMPLETE
+================================================================================
+
+HOW TO READ THIS
+  Priority ...... P0 (blocker / security) > P1 (launch-critical) > P2 (important)
+                  > P3 (nice-to-have / cleanup).
+  Effort ........ Relative T-shirt size with rough engineer-day band:
+                  S (~1-2d) · M (~3-5d) · L (~1-2wk) · XL (~3wk+).
+                  These are rough planning sizes, NOT commitments.
+  Reason ........ Why it blocks "complete / production-ready".
+  Dependencies .. What must be done first.
+
+  Phases are ordered to de-risk first (security/hygiene/tests) before building
+  out the remaining product surfaces, then production validation and launch.
+
+
+================================================================================
+PHASE 1 — SECURITY & REPOSITORY HYGIENE HARDENING
+================================================================================
+1.1  Rotate & purge the exposed GitHub PAT (origin remote + history)
+     Priority: P0 | Effort: S
+     Reason: A live ghp_ token is embedded in the git remote and was exposed in
+             chat; it grants repo access. Must be revoked, replaced with a
+             credential helper, and scrubbed from history.
+     Dependencies: none.
+
+1.2  Remove plaintext secrets from docker-compose.yml; enforce Secrets Manager/
+     K8s secrets for all non-dev environments
+     Priority: P0 | Effort: S
+     Reason: Prevents real secret leakage; aligns runtime with IaC.
+     Dependencies: none.
+
+1.3  Add secret + dependency scanning to CI (e.g. gitleaks + npm audit/Dependabot)
+     Priority: P1 | Effort: S
+     Reason: Catch future secret commits and vulnerable deps automatically.
+     Dependencies: 1.1.
+
+1.4  Resolve ≈3x repository duplication: choose ONE canonical tree, delete the
+     other copies, document structure in a top-level README
+     Priority: P1 | Effort: L
+     Reason: Triple-duplicated code (top-level apps + zubaco-games/ inner +
+             zubaco-games-repo/zubaco-games) makes "complete" undefinable and
+             risks editing the wrong copy. (DESTRUCTIVE — confirm canonical first.)
+     Dependencies: identify which tree CI/k8s actually build from.
+
+1.5  Delete the temporary zubaco-web-lobby stub (per its own README) once a real
+     web entry exists or mobile-only is confirmed
+     Priority: P2 | Effort: S
+     Reason: Explicitly temporary; reduces confusion.
+     Dependencies: 5.1 decision.
+
+1.6  Remove the admin temporary arrows auth-bypass TODO and finish game-server auth
+     Priority: P1 | Effort: M
+     Reason: "REMOVE ... ONCE ARROWS GAME SERVER AUTH IS FIXED" indicates an
+             intentional security shortcut still live.
+     Dependencies: per-game backend auth (Phase 3/Phase 4 game wiring).
+
+
+================================================================================
+PHASE 2 — TEST COVERAGE & CI GATES
+================================================================================
+2.1  Add `test` script + jest config to zubaco-platform
+     Priority: P0 | Effort: S
+     Reason: The central backend currently has NO test script and NO specs; CI's
+             test step is therefore meaningless.
+     Dependencies: none.
+
+2.2  Author platform unit tests for money/safety-critical paths (ledger,
+     deposit/withdrawal lifecycle, enforcement/ban, session completion, leaderboard)
+     Priority: P0 | Effort: XL
+     Reason: These handle real money and bans; they are the highest-risk code and
+             are completely untested.
+     Dependencies: 2.1.
+
+2.3  Author platform e2e tests (auth, wallet, tournament, anti-cheat) against a
+     migrated test DB + Redis
+     Priority: P1 | Effort: L
+     Reason: Validate end-to-end flows; CI already provisions Postgres+Redis.
+     Dependencies: 2.1, 7.1.
+
+2.4  Remove `--passWithNoTests`; make CI fail when zero tests run
+     Priority: P0 | Effort: S
+     Reason: Eliminates the current false-green gate.
+     Dependencies: 2.1.
+
+2.5  Add a test step to games-ci and admin-ci workflows
+     Priority: P1 | Effort: S
+     Reason: Games and admin are built but never tested in CI.
+     Dependencies: 2.6, 2.7.
+
+2.6  Add tests for the 14 untested game frontends
+     Priority: P2 | Effort: XL
+     Reason: 70% of games have no regression safety net.
+     Dependencies: none.
+
+2.7  Add admin backend jest config + tests; add/confirm mobile specs
+     Priority: P2 | Effort: L
+     Reason: Admin backend has no tests; mobile has jest configured but no specs.
+     Dependencies: none.
+
+2.8  Verify all 20 per-game backend suites actually pass (only arrows verified)
+     Priority: P2 | Effort: M
+     Reason: Parity across game backends is assumed, not proven.
+     Dependencies: 1.4.
+
+
+================================================================================
+PHASE 3 — ADMIN PANEL COMPLETENESS
+================================================================================
+3.1  Replace flagged-users MOCK_FLAGGED with real anti-cheat API
+     Priority: P1 | Effort: M
+     Reason: Core moderation runs on in-memory mock data.
+     Dependencies: anti-cheat routes (exist).
+
+3.2  Replace dashboard MOCK_DASHBOARD_STATS / MOCK_ACTIVITY with real API
+     Priority: P2 | Effort: M
+     Reason: Ops dashboard shows fabricated numbers.
+     Dependencies: analytics/stats endpoints (may need backend work).
+
+3.3  Wire admin notifications page to a real send endpoint
+     Priority: P2 | Effort: M
+     Reason: UI exists with no backend; broadcast/admin notify not functional.
+     Dependencies: notification backend (exists) + new admin route.
+
+3.4  Implement UsersTable delete action (currently placeholder)
+     Priority: P2 | Effort: S
+     Reason: Admin user-delete is a no-op placeholder.
+     Dependencies: backend delete route.
+
+3.5  Build KYC review UI
+     Priority: P1 | Effort: L
+     Reason: KYC approvals required to operate payouts compliantly; no UI exists.
+     Dependencies: KYC backend (exists in wallet).
+
+3.6  Build withdrawal-approval workflow UI
+     Priority: P1 | Effort: L
+     Reason: Manual payout approval is an operational/compliance necessity; absent.
+     Dependencies: withdrawal backend (exists).
+
+3.7  Build anti-cheat review dashboard UI
+     Priority: P1 | Effort: L
+     Reason: Enforcement/reverse exist server-side but have no operator UI.
+     Dependencies: anti-cheat routes (exist).
+
+3.8  Build audit-log viewer UI
+     Priority: P2 | Effort: M
+     Reason: Admin actions are audited server-side but not viewable.
+     Dependencies: admin audit endpoint (exists).
+
+
+================================================================================
+PHASE 4 — MOBILE APP COMPLETENESS (production player client)
+================================================================================
+4.1  Wire all main screens to the real API (remove every PLACEHOLDER_* + 12 TODOs)
+     Priority: P1 | Effort: XL
+     Reason: The stated production client renders fake data on Home, FreePlay,
+             Tournament, Leaderboard, Wallet, Profile, Notifications, Referral,
+             Settings, Support — it cannot ship.
+     Dependencies: API client (exists), platform routes (exist).
+
+4.2  Implement Onboarding swipeable slides
+     Priority: P3 | Effort: S
+     Reason: Currently a placeholder screen.
+     Dependencies: none.
+
+4.3  Implement Settings fetch + logout and Support remote-config/URLs
+     Priority: P2 | Effort: M
+     Reason: TODO-marked, non-functional.
+     Dependencies: 4.1.
+
+4.4  End-to-end verify game launch (WebView) + score/session submission per game
+     Priority: P1 | Effort: L
+     Reason: Confirm each game frontend's submission actually reaches the correct
+             backend and updates wallet/leaderboard.
+     Dependencies: 1.4, 4.1.
+
+4.5  Mobile release pipeline (build/sign/store) + crash reporting wiring
+     Priority: P2 | Effort: L
+     Reason: No mobile CD; crashReporting.ts present but verify it reports.
+     Dependencies: 6.3.
+
+
+================================================================================
+PHASE 5 — PRODUCTION WEB PLAYER APP
+================================================================================
+5.1  Decide: build a production web player app, OR formally commit to mobile-only
+     Priority: P1 | Effort: S (decision)
+     Reason: Today there is only the temporary lobby stub; scope must be settled.
+     Dependencies: product decision.
+
+5.2  If building: implement the web player app (lobby, auth, games, wallet,
+     tournaments, leaderboard)
+     Priority: P1 | Effort: XL
+     Reason: Major missing surface if web is in scope.
+     Dependencies: 5.1, platform routes (exist).
+
+
+================================================================================
+PHASE 6 — OBSERVABILITY BACKEND & ALERTING
+================================================================================
+6.1  Deploy a metrics store + dashboards (Prometheus + Grafana, or AMP/CloudWatch)
+     Priority: P1 | Effort: M
+     Reason: Services emit /metrics and have scrape annotations but nothing
+             collects/visualizes them.
+     Dependencies: k8s (exists).
+
+6.2  Add app-level alerting rules (error rate, payment failures, SLA breaches)
+     Priority: P1 | Effort: M
+     Reason: Only infra CloudWatch alarms exist; no business/error alerts.
+     Dependencies: 6.1.
+
+6.3  Add error tracking / APM (Sentry/Datadog) across platform, games, admin, mobile
+     Priority: P1 | Effort: M
+     Reason: No centralized exception tracking today.
+     Dependencies: none.
+
+
+================================================================================
+PHASE 7 — PRE-PRODUCTION VALIDATION
+================================================================================
+7.1  Run Prisma migrations against a real Postgres and validate schema
+     Priority: P0 | Effort: S
+     Reason: Current DB is a dummy/unmigrated instance; migrations unproven.
+     Dependencies: none.
+
+7.2  Execute k6 load/soak/websocket suites against staging; record vs thresholds
+     Priority: P1 | Effort: M
+     Reason: Performance is scripted but never validated.
+     Dependencies: a deployed staging env.
+
+7.3  Add post-deploy smoke/integration tests to pipelines
+     Priority: P1 | Effort: M
+     Reason: Broken deploys are not currently caught automatically.
+     Dependencies: 2.3, deploy pipeline run.
+
+7.4  Execute and verify staging + production deploy pipelines end-to-end
+     Priority: P1 | Effort: M
+     Reason: Pipelines exist but have not been proven to run/deploy here.
+     Dependencies: 1.x, 7.1.
+
+7.5  Backup/restore + DR drill (RDS restore, Redis failover)
+     Priority: P2 | Effort: M
+     Reason: Backups configured in IaC but never restore-tested.
+     Dependencies: 7.4.
+
+7.6  Reconcile SQS (IaC) vs Redis outbox (code): implement or remove unused path
+     Priority: P2 | Effort: M
+     Reason: Infra provisions queues the runtime does not use; pick one.
+     Dependencies: 1.4.
+
+
+================================================================================
+PHASE 8 — DOCUMENTATION & LAUNCH READINESS
+================================================================================
+8.1  Top-level README explaining apps + which tree is canonical
+     Priority: P1 | Effort: S
+     Dependencies: 1.4.
+8.2  Unified API reference (add Swagger to platform; consolidate)
+     Priority: P2 | Effort: M
+     Dependencies: none.
+8.3  Deployment + incident-response runbooks
+     Priority: P2 | Effort: M
+     Dependencies: 7.4.
+8.4  Architecture + onboarding docs
+     Priority: P3 | Effort: M
+     Dependencies: 1.4.
+
+
+================================================================================
+CRITICAL PATH TO "PRODUCTION READY"
+================================================================================
+  Minimum set that flips the verdict to PRODUCT-LAUNCHABLE (mobile-first):
+    P0:  1.1, 1.2, 2.1, 2.2, 2.4, 7.1
+    P1:  1.3, 1.4, 2.3, 3.5, 3.6, 3.7, 4.1, 4.4, 5.1, 6.1, 6.2, 6.3, 7.2, 7.3, 7.4, 8.1
+  Everything else (P2/P3) hardens and rounds out the product but is not strictly
+  launch-blocking.
+
+  Until at least the P0 + launch-critical P1 items above are done, the honest
+  status remains: PROJECT NOT COMPLETE.
+
+================================================================================
+END OF ROADMAP — MASTER_REMAINING_WORK_ROADMAP
+================================================================================

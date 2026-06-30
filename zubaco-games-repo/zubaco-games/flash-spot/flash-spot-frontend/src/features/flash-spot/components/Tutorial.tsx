@@ -6,7 +6,7 @@ const TUTORIAL_KEY = 'zubaco_flash_spot_tutorial_done';
 const STEPS = [
   { icon: '👁️', title: 'Watch the Grid', desc: 'A grid of coloured shapes is shown. Pay close attention!' },
   { icon: '✨', title: 'Spot Changes', desc: 'Cells will briefly change colour, shape, size, or opacity.' },
-  { icon: '👆', title: 'Tap Fast', desc: 'Tap the cell while it's changing to score points.' },
+  { icon: '👆', title: 'Tap Fast', desc: 'Tap the cell while it is changing to score points.' },
   { icon: '❌', title: 'Avoid Mistakes', desc: 'Tapping an unchanged cell costs you penalty points.' },
   { icon: '🔥', title: 'Build Combos', desc: 'Consecutive correct taps build a streak multiplier!' },
   { icon: '⏱️', title: 'Beat the Clock', desc: 'Score as many points as possible before time runs out.' },

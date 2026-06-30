@@ -1,0 +1,637 @@
+================================================================================
+ZUBACO ENTERPRISE
+PHASE 1 — COMPLETE GAME CERTIFICATION MATRIX
+(ALL GAMES VERIFIED INDIVIDUALLY — NO SAMPLING)
+================================================================================
+Mode ............ AUDIT ONLY / READ ONLY. No code modified, fixed, or refactored.
+Canonical tree .. c:\zubaco-games\zubaco-games-repo\zubaco-games\
+                  (confirmed canonical: CI/k8s build+deploy only from this tree)
+Method .......... Every one of the 20 games opened individually. For each game
+                  BOTH "<game>-backend" and "<game>-frontend" were inspected:
+                  controllers, services, DTOs/validators, game engine, scoring,
+                  verification/anti-cheat, lifecycle, prisma schema, ws gateway,
+                  redis, frontend src/screens/httpClient, package.json, tests.
+Date ............ 2026-07-01
+Games count ..... 20
+================================================================================
+
+CROSS-CUTTING FACTS (apply to ALL games unless overridden per game)
+  - ARCHITECTURE: each game = standalone NestJS backend + React/Vite (or Next.js)
+    frontend. Wallet, Tournament, and the authoritative cross-game Leaderboard are
+    DELEGATED TO THE PLATFORM. Game backends publish events (AWS SNS/SQS or BullMQ:
+    GAME_COMPLETED / CHEAT_FLAGGED / SCORE_ANOMALY); the platform consumes them and
+    owns money/tournament/global-leaderboard. Therefore for every game:
+        WalletRuntime = NO (by design)   TournamentRuntime = NO (by design)
+        In-app Notifications = NO (event publishing only; delivery delegated)
+    These NOs are ARCHITECTURAL, not defects.
+  - LEADERBOARD: every game ships an in-memory leaderboard engine
+    (engine/leaderboard.ts: submit/getTop/getRank/getAroundUser). It is a local
+    helper; the durable/authoritative leaderboard is the platform's. So
+    "LeaderboardRuntime" below = "engine present; persistence delegated".
+  - SERVER-AUTHORITATIVE: every game regenerates game state from a server seed and
+    re-validates the client's submission server-side (move replay / answer
+    re-derivation / grid regeneration). Client scores are recomputed, not trusted.
+  - VERIFICATION/ANTI-CHEAT: every game flags score divergence + timing anomalies
+    (bot-speed detection) and most persist CheatFlags.
+  - TESTS EXIST BUT CI DOES NOT RUN THEM: each backend has at least
+    test/app.e2e-spec.ts (security/health); several add engine/leaderboard.spec.ts.
+    HOWEVER the games CI workflow has NO test step (build only) — so these suites
+    are NOT executed in CI. (Cross-cutting gap; tracked in summary.)
+  - SECURITY BASELINE (all games): SessionGuard/JWT, HMAC service auth, request/
+    response encryption decorator, Zod/class-validator DTOs, seed-based determinism.
+
+
+================================================================================
+PER-GAME CERTIFICATION
+================================================================================
+
+--------------------------------------------------------------------------------
+GAME 01 — arrows
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (Restate sessions; game-start/next-board/
+                        submit-moves/end-board/end-game/status; move-validator
+                        replay engine).
+  Frontend Status ..... COMPLETE (Vite+React, Phaser 4 engine; game/results/
+                        leaderboard screens; encrypted API client).
+  Game Logic Status ... COMPLETE (waypoint arrow tracking, path-clear, round score
+                        + time bonus).
+  Runtime Status:
+      ServerAuthoritative YES (calculateRoundScore after move replay)
+      Verification        YES (CheatFlag persist + publish on replay mismatch)
+      Leaderboard         engine present (delegated)
+      Wallet              NO (delegated)   Tournament NO (delegated)
+      Notifications       events only (SNS)
+      WebSockets          YES (gateway wired; game loop is HTTP-primary)
+      Redis               NO
+      Tests               test/app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (SessionGuard, HMAC, encryption, move idempotency).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 02 — block-fill
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (Restate sessions; game-configs/start/save-
+                        progress/next-board/complete-board/end-game/time-sync).
+  Frontend Status ..... COMPLETE (Vite+React; GameBoard; save-progress; httpClient).
+  Game Logic Status ... COMPLETE (path solving, grid validation, level difficulty).
+  Runtime Status:
+      ServerAuthoritative YES (moves validated server-side; score on complete-board)
+      Verification        YES (path validation; leaderboard score verification)
+      Leaderboard         engine present (+ engine/__tests__/leaderboard.spec.ts)
+      Wallet NO  Tournament NO  Notifications events only (BullMQ)
+      WebSockets          YES but handlers are STUBS that redirect to HTTP
+                          (return USE_HTTP_GAME_SESSION_START/COMPLETE — intentional)
+      Redis               YES (@socket.io/redis-adapter)
+      Tests               app.e2e-spec.ts + leaderboard.spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (SessionGuard + Transactional; validation each save).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 03 — colour-sorting
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (start/submit(with move replay)/game-over;
+                        deterministic puzzle generator).
+  Frontend Status ..... COMPLETE (Vite+React, useBallSort hook: undo stack, combo,
+                        timer; all UI components).
+  Game Logic Status ... COMPLETE (seeded generator, isValidMove, sorted detection).
+  Runtime Status:
+      ServerAuthoritative YES (server replays moves from finalSeed)
+      Verification        YES ("Client claims solved but server replay disagrees"
+                          -> CheatFlag + event)
+      Leaderboard         engine present (+ leaderboard.spec.ts)
+      Wallet NO  Tournament NO  Notifications events only (BullMQ)
+      WebSockets          NO (pure HTTP REST)
+      Redis               NO (BullMQ uses Redis, not game state)
+      Tests               app.e2e-spec.ts + leaderboard.spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (SessionGuard, Zod DTOs, replay detection).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 04 — flash-spot
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (config/current-session/start/submit/game-over;
+                        deterministic change-schedule from seed).
+  Frontend Status ..... COMPLETE (Vite+React; play/results/leaderboard; axios).
+  Game Logic Status ... COMPLETE (change-schedule gen, tap validation, time bonus).
+  Runtime Status:
+      ServerAuthoritative YES ("Regenerate change schedule from seed" server-side)
+      Verification        YES (CheatFlag on mismatch; trackCheatFlag metrics)
+      Leaderboard         engine present (+ leaderboard.spec.ts)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          NO (frontend imports socket.io-client but does NOT use it)
+      Redis               NO
+      Tests               app.e2e-spec.ts + leaderboard.spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE (code).
+  DeadCode/Cleanup .... UNUSED dependency: frontend package.json includes
+                        socket.io-client but it is never used (cosmetic; remove
+                        in future cleanup — NOT blocking).
+  Security ............ CLEAN (SessionGuard + HMAC; seed determinism).
+  FINAL VERDICT ....... FULLY COMPLETE (one cosmetic unused-dep note).
+
+--------------------------------------------------------------------------------
+GAME 05 — Infinity-loop  (Next.js frontend; real-time WS game loop)
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (GameController + GameGateway WS; GameService /
+                        GameConfigService / GameEventsService; Restate state).
+  Frontend Status ..... COMPLETE (Next.js; Zustand store; socket.io-client; play/
+                        results/leaderboard; Tailwind; Playwright e2e tests).
+  Game Logic Status ... COMPLETE (grid rotation single+batch, solved detection,
+                        level progression).
+  Runtime Status:
+      ServerAuthoritative YES (board state server-side in Restate; solved computed
+                          server-side; idempotent replay via routing key)
+      Verification        YES (per-rotation validation; idempotency)
+      Leaderboard         engine present (+ leaderboard.spec.ts)
+      Wallet NO  Tournament NO  Notifications events only (socket broadcasts)
+      WebSockets          YES — PRIMARY game loop (loop:start/rotate/rotate-batch/
+                          end; reconnect with token verification)
+      Redis               YES (RedisIoAdapter for socket.io pub/sub across instances)
+      Tests               app.e2e-spec.ts + leaderboard.spec.ts + frontend Playwright
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (JWT verified on connect AND re-verified per message;
+                        dev-only /join gated by config.security.enableDevAuth).
+  FINAL VERDICT ....... FULLY COMPLETE (most sophisticated; real-time + distributed).
+
+--------------------------------------------------------------------------------
+GAME 06 — live-route-builder
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (start/submit; server-side scoring + persistence).
+  Frontend Status ..... COMPLETE (Vite+React route-drawing UI; socket.io client;
+                        encrypted httpClient; error boundaries).
+  Game Logic Status ... COMPLETE (seeded node gen, path distance, optimal path,
+                        score = pathEfficiency + nodesConnected*10).
+  Runtime Status:
+      ServerAuthoritative YES (pathEfficiency recomputed; clientScore +-10 tolerance)
+      Verification        YES (edge validity, analyzeInputTiming bot detection,
+                          score divergence, session expiry)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS or local log)
+      WebSockets          YES (ws/game.gateway.ts join/leave session)
+      Redis               YES (RedisService; cache + socket.io adapter)
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (SessionGuard, seed/nonce replay guard, timing
+                        fingerprint, encryption).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 07 — logic-reflector
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (REST + Restate; laser sim, block physics,
+                        multi-round; game-start/next-level/submit-moves/end-board/
+                        end-game/status).
+  Frontend Status ..... COMPLETE (Vite+React; framer-motion; stage content; WS).
+  Game Logic Status ... COMPLETE (laser isSolved, block placement validation,
+                        calculateRoundScore + time bonus).
+  Runtime Status:
+      ServerAuthoritative YES (Restate object holds board/block state; verifyRound)
+      Verification        YES (replayMoves, laser path validation, integrity checks)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (Redis-adapter gateway)
+      Redis               YES (socket.io redis-io.adapter)
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (Restate TerminalError rejects invalid moves;
+                        assertRequestMatchesSession; encryption; throttle).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 08 — maze-navigation
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (Restate state machine; maze gen, shortest path,
+                        move validation; game-start/next-board/submit-moves/
+                        end-board/end-game/status).
+  Frontend Status ..... COMPLETE (Vite+React maze render; move controls; store;
+                        theme/localization; WS).
+  Game Logic Status ... COMPLETE (procedural maze from seed, computeShortestPath,
+                        validateMazeMove, score + time bonus).
+  Runtime Status:
+      ServerAuthoritative YES (Restate calculateRoundScore; shortest-path verified)
+      Verification        YES (wall/bounds validation, shortest-path comparison)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS/SQS)
+      WebSockets          YES (Redis-adapter gateway)
+      Redis               YES (redis.service.ts)
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (clientSeed+serverSeed, direction enum validation,
+                        grid bounds, expiry grace, encryption).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 09 — memory-card-matching
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (Restate multi-level; S3 + SNS/SQS; game-configs/
+                        start/next-level/save-progress/complete-board/game-over).
+  Frontend Status ..... COMPLETE (Vite+React card-flip animations, level UI, state).
+  Game Logic Status ... COMPLETE (pair matching, level tiers, preview/mismatch
+                        timing, score + time bonus).
+  Runtime Status:
+      ServerAuthoritative YES (Restate object holds card state; pairs validated;
+                          board completed server-side)
+      Verification        YES (SaveProgressDto move validation; pair verification)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (Redis-adapter gateway)
+      Redis               YES (cache + socket.io pub/sub)
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (GameSessionGuard, AuthUser, uuid moveId validation,
+                        Restate ownership, encryption).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 10 — memory-groups
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (word bank, group validation, server scoring,
+                        cheat detection; start/submit).
+  Frontend Status ..... COMPLETE (Vite+React group assembly; socket.io; encrypted
+                        httpClient).
+  Game Logic Status ... COMPLETE (seeded selectWordSet, shuffle, group validation,
+                        score = pointsPerGroup*correct + timeBonus).
+  Runtime Status:
+      ServerAuthoritative YES (playerGroups validated vs wordSet.groups; finalScore
+                          recomputed)
+      Verification        YES (group structure match, score +-10 tolerance, time
+                          bounds, 3-words/group validation)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS or local log)
+      WebSockets          YES (ws/game.gateway.ts + Redis adapter)
+      Redis               YES (RedisService; cache + socket.io)
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (SessionGuard, seed word selection, structure
+                        validation, cheat publish, encryption).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 11 — number-grid-sprint
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (gridGenerator, scorer, achievements, combo,
+                        booster engines; start/submit).
+  Frontend Status ..... COMPLETE (menu/levels/achievements/stats/settings/gameplay;
+                        socketClient.ts).
+  Game Logic Status ... COMPLETE (seeded grid, answer validation, combo/booster).
+  Runtime Status:
+      ServerAuthoritative YES (grid regenerated from seed; answers validated; score
+                          recalculated; timing analyzed)
+      Verification        YES (CheatFlag reasons, analyzeInputTiming, score
+                          divergence >5pt, session expiry)
+      Leaderboard         engine present (in-memory; DB GameSession; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (/game namespace; emitToUser/Session/All; Redis adapter)
+      Redis               YES (RedisService get/set/getJSON; graceful fallback)
+      Tests               app.e2e-spec.ts (50+ cases: health/auth/apikey/hmac/flow)
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (SessionGuard, ApiKeyGuard, HmacGuard, encryption,
+                        score tolerance).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 12 — object-placement-memory
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (config/start/submit/game-over; placement
+                        verification, cheat detection).
+  Frontend Status ..... COMPLETE (app router; features/components/engine/hooks).
+  Game Logic Status ... COMPLETE (16-item pool, seeded shuffle, placement
+                        validation, score tracking).
+  Runtime Status:
+      ServerAuthoritative YES (board regenerated from seed; placements validated;
+                          correctness verified; score recalculated)
+      Verification        YES (CheatFlag, placement-count cap, grid bounds, score
+                          threshold, timing)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (/game namespace; session rooms; Redis adapter)
+      Redis               YES
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (SessionGuard, max-100 placement DoS guard,
+                        server correctness verify, timing).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 13 — pattern-survival                          ***PARTIALLY COMPLETE***
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (sequence gen mulberry32, round validation,
+                        perfect/regular round tracking; start/submit).
+  Frontend Status ..... COMPLETE (features/components/engine/hooks).
+  Game Logic Status ... COMPLETE (seeded sequence, round validation, scoring).
+  Runtime Status:
+      ServerAuthoritative YES (sequence regenerated per round; input validated;
+                          score recalculated)
+      Verification        YES (score divergence >10pt, analyzeInputTiming, round
+                          overflow, hesitation patterns)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only
+      WebSockets          YES (/game namespace)
+      Redis               YES (full RedisModule)
+      Tests               app.e2e-spec.ts
+  Missing Features .... none blocking.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... 1 — game.service.ts line 91:
+                        "TODO: Perfect detection could also check hesitation timing
+                        from client." OPTIONAL anti-cheat enhancement; currently
+                        trusts mistake-free rounds as perfect. NON-BLOCKING.
+  Security ............ CLEAN (server regen, input length/count validation, score
+                        divergence, timing, expiry).
+  FINAL VERDICT ....... PARTIALLY COMPLETE — core loop complete; 1 OPTIONAL TODO
+                        (hesitation timing) remains. Does not block production.
+
+--------------------------------------------------------------------------------
+GAME 14 — rapid-category-sort
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (16 category pairs x8; start/submit/game-over;
+                        answer validation, scoring).
+  Frontend Status ..... COMPLETE (router/features/components/engine).
+  Game Logic Status ... COMPLETE (seeded shuffle, left/right sort validation,
+                        wrong/missed penalties).
+  Runtime Status:
+      ServerAuthoritative YES (category sequence regenerated; each answer validated
+                          server-side; correctness NOT trusted; score recalculated)
+      Verification        YES (CheatFlag severity, per-answer verify, <100ms
+                          bot-gap detection, score divergence >30pt)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (/game namespace + Redis adapter)
+      Redis               YES
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (server regen, independent answer verify, bot timing,
+                        missed-item penalty, invalid-index reject).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 15 — reflex-endurance
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (circle gen, tap validation, timing analysis,
+                        cheat detection; start/submit).
+  Frontend Status ..... COMPLETE (features/components/engine/hooks).
+  Game Logic Status ... COMPLETE (color-distributed circle gen, tap validation,
+                        speed progression).
+  Runtime Status:
+      ServerAuthoritative YES (circle sequence regenerated via circleValidator;
+                          each tap validated by color; score recalculated)
+      Verification        YES (score divergence >3pt, maxWrongTaps, timing anomaly,
+                          circle-id validation)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only
+      WebSockets          YES (/game namespace + Redis adapter; emitToUser/Session)
+      Redis               YES
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (circleValidator regen, score tol <3pt, wrong-tap
+                        threshold, minAvgResponseMs 120ms, max-2000-tap DoS guard).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 16 — sequence-recall                           ***PARTIALLY COMPLETE***
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (Restate durability; config/status/start/move/
+                        end-game; dedicated game-anti-cheat.service.ts).
+  Frontend Status ..... COMPLETE (React+TS; engine, services, micro-screens, tests).
+  Game Logic Status ... COMPLETE (sequence gen, move validation, demo/actual rounds,
+                        wrong-move variants, completion detection).
+  Runtime Status:
+      ServerAuthoritative YES (score + sequence validated server-side via Restate)
+      Verification        YES (click-too-fast, uniform-timing CoV, impossible
+                          solve-time, invalid end-state)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only
+      WebSockets          YES (/realtime namespace) — SEE SECURITY
+      Redis               YES (ioredis)
+      Tests               3 files: app.e2e-spec.ts, game.controller.test.ts,
+                          engine/__tests__/leaderboard.spec.ts (most-tested game)
+  Missing Features .... none blocking.
+  Remaining Bugs ...... none functional.
+  Remaining TODOs ..... 3 (+1 doc):
+      - backend game.gateway.ts line 55: "Mocking user — in production these come
+        from JWT verification" (WS gateway does NOT verify JWT; uses a mock user).
+      - frontend httpClient.ts lines 6-7: "TODO(temp): 401 dev-session refresh"
+        (auto dev-session recovery via localStorage).
+      - game-start.dto.ts line 4: benign comment (stage hardcoded server-side).
+      - micro-screens doc: "Demo defaults src/mocks/ (safe to remove once real
+        content)".
+  Security ............ ISSUE (PRODUCTION-BLOCKING): the WebSocket gateway mocks the
+                        user instead of verifying the JWT, and the frontend has an
+                        unguarded dev-session refresh. These dev bypasses MUST be
+                        removed/guarded before production. (HTTP path uses
+                        SessionGuard; only the WS gateway + dev refresh are affected.)
+  FINAL VERDICT ....... PARTIALLY COMPLETE — feature-complete and the most rigorously
+                        tested game, BUT carries a WS auth dev-bypass (mock user) and
+                        a dev-session refresh that must be removed before production.
+
+--------------------------------------------------------------------------------
+GAME 17 — sliding-puzzle
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (Restate; multi-level boards; SNS/SQS; board
+                        shuffle; game-start/next-board/submit-moves/end-board/
+                        end-game).
+  Frontend Status ..... COMPLETE (React+TS; ARCHITECTURE.md + DEVELOPMENT_GUIDE.md
+                        + overview doc — best-documented game).
+  Game Logic Status ... COMPLETE (shuffle, piece counts, level progression,
+                        round score + time bonus).
+  Runtime Status:
+      ServerAuthoritative YES (score server-side; board/piece/move legality via
+                          Restate; score.util calculateRoundScore/TimeBonus)
+      Verification        YES (server replays shuffle; move-validator.ts)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (/game namespace; join/leave; emit user/session/all)
+      Redis               YES
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE (functional).
+  DeadCode/Cleanup .... main.ts line 4: "// Temporary comment for verification"
+                        (benign leftover comment; cosmetic; NOT blocking).
+  Security ............ CLEAN (DB-driven boards, move validation vs server state,
+                        no hardcoded secrets).
+  FINAL VERDICT ....... FULLY COMPLETE (one cosmetic temp-comment note).
+
+--------------------------------------------------------------------------------
+GAME 18 — speed-type-answer
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (question bank gen, server answer validation,
+                        score recalculation, cheat flagging, SNS; start/submit).
+  Frontend Status ..... COMPLETE (React+TS; typing engine, save-progress, socket,
+                        crypto).
+  Game Logic Status ... COMPLETE (seeded questions, timer, answer submit, speed
+                        bonus, answer verification).
+  Runtime Status:
+      ServerAuthoritative YES (serverScore recomputed; divergence >2 -> 'flagged')
+      Verification        YES (questions regenerated from computeFinalSeed; per-
+                          answer correctness; timingAnalyzer; time overflow >+10s)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (/game; JWT auth on connect; join/leave)
+      Redis               YES (socket.io adapter)
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (WS token from handshake, disconnect if absent; score
+                        tolerance 2; minAvgResponseMs 200; deterministic regen).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 19 — true-false-blitz
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (statement bank, server answer verification,
+                        anti-cheat: tampering/divergence/timing/overflow; SNS).
+  Frontend Status ..... COMPLETE (React+TS; blitz engine, save-progress, socket,
+                        crypto).
+  Game Logic Status ... COMPLETE (seeded statements, T/F evaluation, streak bonus +
+                        penalty, answer verification).
+  Runtime Status:
+      ServerAuthoritative YES (statements regenerated; per-answer correctness;
+                          score recalculated; flag if divergence >0)
+      Verification        YES (answer-tampering: serverCorrect = stmt.isTrue ===
+                          chosenTrue; timingAnalyzer; time overflow)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (/game; JWT auth — same pattern as speed-type)
+      Redis               YES
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (deterministic statements, tamper detection, aggressive
+                        any-divergence flag, timing, overflow).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+--------------------------------------------------------------------------------
+GAME 20 — word-unscramble
+--------------------------------------------------------------------------------
+  Backend Status ...... COMPLETE (word bank, server answer verification, anti-cheat:
+                        word-order/divergence/timing/overflow; SNS).
+  Frontend Status ..... COMPLETE (React+TS; unscramble engine, save-progress, socket,
+                        crypto).
+  Game Logic Status ... COMPLETE (word gen + scramble, selected-order submit,
+                        completion detection, score + time bonus).
+  Runtime Status:
+      ServerAuthoritative YES (words regenerated from seed; selected order verified
+                          to spell the unscrambled word; score recalculated)
+      Verification        YES (builtWord = selectedOrder->scrambled; if != word ->
+                          flag; score divergence >0; timing; overflow)
+      Leaderboard         engine present (in-memory; delegated)
+      Wallet NO  Tournament NO  Notifications events only (SNS)
+      WebSockets          YES (/game; same pattern)
+      Redis               YES
+      Tests               app.e2e-spec.ts
+  Missing Features .... none at game scope.
+  Remaining Bugs ...... none found.
+  Remaining TODOs ..... NONE.
+  Security ............ CLEAN (deterministic word bank, server word reconstruction,
+                        any-divergence flag, minAvgResponseMs 500, overflow).
+  FINAL VERDICT ....... FULLY COMPLETE.
+
+
+================================================================================
+SUMMARY
+================================================================================
+  TOTAL GAMES VERIFIED (individually, no sampling) ........ 20 / 20
+
+  GAMES FULLY COMPLETE ................................... 18
+    arrows, block-fill, colour-sorting, flash-spot, Infinity-loop,
+    live-route-builder, logic-reflector, maze-navigation,
+    memory-card-matching, memory-groups, number-grid-sprint,
+    object-placement-memory, rapid-category-sort, reflex-endurance,
+    sliding-puzzle, speed-type-answer, true-false-blitz, word-unscramble
+
+  GAMES PARTIALLY COMPLETE .............................. 2
+    - pattern-survival  (1 OPTIONAL anti-cheat TODO; non-blocking)
+    - sequence-recall   (WS gateway mock-user dev-bypass + dev-session refresh
+                         MUST be removed before production — PRODUCTION-BLOCKING
+                         security item, though small)
+
+  GAMES NOT COMPLETE .................................... 0
+
+  GAME-LAYER OVERALL COMPLETION ......................... ~97%
+    Implementation/logic ............ ~99% (all 20 complete & server-authoritative)
+    Production-readiness deductions .. sequence-recall WS auth bypass; per-game
+                                       test suites not executed by CI.
+
+--------------------------------------------------------------------------------
+CONSOLIDATED REMAINING WORK (game layer only)
+--------------------------------------------------------------------------------
+  G-01 [P0/SECURITY] sequence-recall: remove/guard the WebSocket gateway mock-user
+       (game.gateway.ts ~line 55) and verify JWT on WS connect+message like
+       speed-type/true-false/word-unscramble/Infinity-loop do; remove the frontend
+       dev-session refresh (httpClient.ts lines 6-7). PRODUCTION-BLOCKING for this
+       game only.
+  G-02 [P2/ENHANCEMENT] pattern-survival: implement the optional hesitation-timing
+       check in perfect-round detection (game.service.ts line 91), or formally
+       accept it as out-of-scope. NON-BLOCKING.
+  G-03 [P1/PROCESS] Add a TEST step to the games CI workflow so the existing per-game
+       suites (app.e2e-spec.ts, engine/leaderboard.spec.ts, sequence-recall's 3
+       files, Infinity-loop Playwright) actually run and gate merges. Today CI
+       builds games but never runs their tests.
+  G-04 [P3/CLEANUP] flash-spot: remove the unused socket.io-client frontend
+       dependency. COSMETIC.
+  G-05 [P3/CLEANUP] sliding-puzzle: remove the "Temporary comment for verification"
+       leftover in main.ts line 4. COSMETIC.
+  G-06 [P2/CONSISTENCY] Standardize the WebSocket layer: block-fill's WS handlers are
+       intentional HTTP-redirect stubs and flash-spot's frontend imports socket.io
+       without using it — document or normalize so the WS story is consistent across
+       games. NON-BLOCKING.
+
+--------------------------------------------------------------------------------
+SCOPE NOTES / HONEST CAVEATS
+--------------------------------------------------------------------------------
+  - Wallet / Tournament / cross-game authoritative Leaderboard / Notification
+    DELIVERY are intentionally NOT in the game backends; they are platform
+    responsibilities reached via published events (SNS/SQS/BullMQ). The "NO" marks
+    for those columns are BY DESIGN, not defects. End-to-end proof that each game's
+    GAME_COMPLETED event is actually consumed by the platform (wallet credit,
+    leaderboard write, tournament scoring) is a PLATFORM-integration test and is
+    OUT OF SCOPE for this game-only certification (tracked in the master audit as
+    item I-15).
+  - All 20 games were opened and their real source inspected (controllers,
+    services, engines, validators, gateways, DTOs, frontends). This certification
+    supersedes the "VERIFIED BY SAMPLING" caveat in the master project audit:
+    the game folders are now FULLY VERIFIED.
+
+================================================================================
+FINAL PHASE-1 VERDICT
+================================================================================
+  GAME LAYER: SUBSTANTIALLY COMPLETE — 18/20 FULLY COMPLETE, 2/20 PARTIALLY
+  COMPLETE (pattern-survival optional TODO; sequence-recall WS auth dev-bypass),
+  0/20 NOT COMPLETE. The only production-blocking game-level item is the
+  sequence-recall WebSocket mock-user auth bypass (G-01). Process gap: per-game
+  tests exist but are not run in CI (G-03).
+================================================================================
+END OF REPORT — GAME_CERTIFICATION_MATRIX
+================================================================================

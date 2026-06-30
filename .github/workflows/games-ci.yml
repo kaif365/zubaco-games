@@ -53,7 +53,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build Backend
+      - name: Build & Test Backend
         working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
         run: |
           BACKEND=$(ls -d *-backend 2>/dev/null || echo "")
@@ -62,9 +62,11 @@ jobs:
             npm ci --legacy-peer-deps
             npx prisma generate 2>/dev/null || true
             npx tsc --noEmit
+            # Run unit/integration/engine/leaderboard tests (jest). Fails the build on test failure.
+            npm run test --if-present
           fi
 
-      - name: Build Frontend
+      - name: Build & Test Frontend
         working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
         run: |
           FRONTEND=$(ls -d *-frontend 2>/dev/null || echo "")
@@ -72,6 +74,11 @@ jobs:
             cd $FRONTEND
             npm ci --legacy-peer-deps
             npm run build
+            # Run Playwright end-to-end tests where the game defines them. Fails the build on test failure.
+            if ls playwright.config.* >/dev/null 2>&1; then
+              npx playwright install --with-deps chromium
+              npm run test:e2e --if-present
+            fi
           fi
 
   deploy-games:

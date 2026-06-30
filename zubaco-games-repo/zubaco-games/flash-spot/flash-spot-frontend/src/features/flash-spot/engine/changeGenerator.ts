@@ -111,8 +111,8 @@ export function generateRound(config: RoundConfig): GeneratedRound {
     const cell = grid[cellId];
     const property = randomPick(CHANGE_PROPERTIES, rng);
 
-    let from: string;
-    let to: string;
+    let from: string = '';
+    let to: string = '';
 
     switch (property) {
       case 'color': {

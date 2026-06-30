@@ -1,7 +1,6 @@
 import { validateEnvironment } from './config/env.validation';
 import { RedisIoAdapter } from './ws/redis-io.adapter';
 import { Logger } from 'nestjs-pino';
-// Temporary comment for verification
 import 'reflect-metadata';
 import { ApiExceptionFilter } from '@common/filters/api-exception.filter';
 import { ApiResponseInterceptor } from '@common/interceptors/api-response.interceptor';
