@@ -14,7 +14,7 @@ interface FaqItem {
   answer: string;
 }
 
-// TODO: Replace with API call or remote config
+// Static FAQ content (intentionally bundled — no remote-config dependency).
 const FAQ_ITEMS: FaqItem[] = [
   { id: '1', question: 'How do I join a tournament?', answer: 'Go to the Tournament tab and tap on any upcoming tournament. Pay the entry fee to reserve your spot.' },
   { id: '2', question: 'How do withdrawals work?', answer: 'Complete KYC verification first. Then go to Wallet → Withdraw. Minimum withdrawal is ₹50. Funds are credited within 24 hours.' },
@@ -31,12 +31,10 @@ export const SupportScreen: React.FC = () => {
   };
 
   const handleTerms = () => {
-    // TODO: Replace with actual URLs
     Linking.openURL('https://zubaco.com/terms');
   };
 
   const handlePrivacy = () => {
-    // TODO: Replace with actual URLs
     Linking.openURL('https://zubaco.com/privacy');
   };
 
