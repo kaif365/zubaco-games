@@ -10,6 +10,7 @@
     "start:prod": "node dist/main",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:push": "prisma db push",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "jest",
@@ -22,6 +23,9 @@
     "test:db:push": "node scripts/test-db-push.js",
     "test:db:seed": "node scripts/seed-test.js",
     "test:local": "npm run test:infra:up && npm run test:db:push && npm run test:ci"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "keywords": [
     "gaming",

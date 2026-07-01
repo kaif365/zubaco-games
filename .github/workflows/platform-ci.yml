@@ -184,6 +184,26 @@ jobs:
           docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:staging-${{ github.sha }} .
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:staging-${{ github.sha }}
 
+      # OPS-S2: apply pending Prisma migrations against the staging DB BEFORE the
+      # new task set goes live, so schema changes are in place when the new code
+      # starts. DATABASE_URL is an environment-scoped secret (staging).
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: zubaco-platform/package-lock.json
+
+      - name: Install dependencies (for migrations)
+        working-directory: zubaco-platform
+        run: npm ci --legacy-peer-deps
+
+      - name: Apply database migrations
+        working-directory: zubaco-platform
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run prisma:migrate:deploy
+
       - name: Deploy to ECS Staging
         run: |
           aws ecs update-service \
@@ -218,6 +238,26 @@ jobs:
           docker tag ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+
+      # OPS-S2: apply pending Prisma migrations against the production DB BEFORE
+      # the new task set goes live. DATABASE_URL is an environment-scoped secret
+      # (production).
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: zubaco-platform/package-lock.json
+
+      - name: Install dependencies (for migrations)
+        working-directory: zubaco-platform
+        run: npm ci --legacy-peer-deps
+
+      - name: Apply database migrations
+        working-directory: zubaco-platform
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run prisma:migrate:deploy
 
       - name: Deploy to ECS Production
         run: |

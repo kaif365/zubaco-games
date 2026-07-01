@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { AuthModule } from './auth/auth.module';
@@ -26,7 +27,16 @@ import { AppVersionController } from './app-version.controller';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    // SEC-S1 (F1): global default throttle. The `skipIf` disables HTTP rate
+    // limiting only inside the automated test harness (both the e2e and
+    // integration bootstraps set NODE_ENV=test); dev and production remain
+    // fully rate-limited. Per-route @Throttle() decorators (OTP send/verify,
+    // login, deposit, withdraw) are only enforced because ThrottlerGuard is
+    // now bound as an APP_GUARD below.
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60000, limit: 100 }],
+      skipIf: () => process.env.NODE_ENV === 'test',
+    }),
     ScheduleModule.forRoot(),
     LoggerModule,
     PrismaModule,
@@ -47,5 +57,11 @@ import { AppVersionController } from './app-version.controller';
     AdminModule,
   ],
   controllers: [HealthController, AppVersionController],
+  providers: [
+    // SEC-S1 (F1): bind the throttler globally so the pre-existing @Throttle()
+    // route limits (and the global default) are actually enforced. Without this
+    // guard binding the ThrottlerModule was inert and no 429 was ever returned.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

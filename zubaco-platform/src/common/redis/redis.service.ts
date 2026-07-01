@@ -12,7 +12,15 @@ export class RedisService implements OnModuleDestroy {
       port: config.redis.port,
       password: config.redis.password,
       maxRetriesPerRequest: 3,
+      // OPS-S2 (O-Redis): explicit, bounded reconnect. ioredis auto-reconnects on
+      // a dropped connection; cap the backoff at 2s so a Redis blip recovers fast
+      // without a thundering-herd of instant retries.
+      retryStrategy: (times) => Math.min(times * 100, 2000),
+      enableReadyCheck: true,
     });
+    // Prevent an unhandled 'error' event from crashing the process during a
+    // transient Redis outage; ioredis keeps retrying in the background.
+    this.client.on('error', () => {});
   }
 
   async get(key: string): Promise<string | null> {
@@ -79,7 +87,14 @@ export class RedisService implements OnModuleDestroy {
     return this.client.zrem(key, member);
   }
 
-  onModuleDestroy() {
-    this.client.disconnect();
+  async onModuleDestroy() {
+    // OPS-S2 (O1): quit() flushes pending commands and closes the connection
+    // gracefully (vs disconnect() which drops it abruptly), so an in-flight
+    // command during shutdown is not lost.
+    try {
+      await this.client.quit();
+    } catch {
+      this.client.disconnect();
+    }
   }
 }

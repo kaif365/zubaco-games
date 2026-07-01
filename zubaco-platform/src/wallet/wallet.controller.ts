@@ -9,7 +9,8 @@ import { GeoFencingGuard } from '../compliance/geo-fencing.guard';
 import { RazorpayWebhookGuard } from './guards/razorpay-webhook.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CreateDepositOrderDto, VerifyDepositDto, WithdrawDto, ConfirmWithdrawalDto } from './dto/wallet.dto';
-import { KycDocType, BankAccountType } from '.prisma/client';
+import { SubmitKycDto } from './dto/kyc.dto';
+import { AddBankDetailDto } from './dto/bank-detail.dto';
 
 @Controller('wallet')
 export class WalletController {
@@ -89,7 +90,7 @@ export class WalletController {
   @UseGuards(JwtAuthGuard)
   async submitKycDocument(
     @CurrentUser() userId: string,
-    @Body() body: { document_type: KycDocType; document_url: string; document_number?: string },
+    @Body() body: SubmitKycDto,
   ) {
     return this.kycService.submitDocument(userId, body.document_type, body.document_url, body.document_number);
   }
@@ -106,7 +107,7 @@ export class WalletController {
   @UseGuards(JwtAuthGuard)
   async addBankDetail(
     @CurrentUser() userId: string,
-    @Body() body: { account_type: BankAccountType; account_holder: string; account_number?: string; ifsc_code?: string; upi_id?: string },
+    @Body() body: AddBankDetailDto,
   ) {
     return this.bankDetailService.addBankAccount(userId, body);
   }

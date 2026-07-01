@@ -33,9 +33,15 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // OPS-S2 (O1): enable Nest lifecycle shutdown hooks so SIGTERM/SIGINT (sent by
+  // Docker/ECS/Kubernetes on redeploy or scale-down) trigger app.close(), which
+  // stops accepting new connections and runs OnModuleDestroy on every provider
+  // (Prisma $disconnect, Redis quit) for a clean, connection-draining shutdown.
+  app.enableShutdownHooks();
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`Zubaco Platform running on port ${port}`);
+  app.get(Logger).log(`Zubaco Platform running on port ${port}`);
 }
 
 bootstrap();

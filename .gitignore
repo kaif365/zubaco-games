@@ -21,6 +21,11 @@ boot.err
 !.env.example
 !.env.test
 
+# Redis snapshots / local binary artifacts (should never be committed)
+*.rdb
+**/dump.rdb
+redis.zip
+
 # OS / editor
 .DS_Store
 Thumbs.db

@@ -22,7 +22,11 @@ export class GeoFencingGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const userId = request.user?.id || request.user?.sub;
+    // SEC-S1 (F2): JwtStrategy.validate() returns `{ userId }`, so the previous
+    // `request.user?.id || request.user?.sub` read was always undefined and the
+    // geo-fencing control silently allowed every authenticated user (banned
+    // states included). Read `userId` first, keeping the legacy keys as fallback.
+    const userId = request.user?.userId || request.user?.id || request.user?.sub;
 
     if (!userId) {
       return true; // Let auth guards handle unauthenticated

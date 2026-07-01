@@ -14,6 +14,7 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { AppleLoginDto } from './dto/apple-login.dto';
+import { LinkAccountDto } from './dto/link-account.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 
@@ -75,7 +76,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async linkAccount(
     @CurrentUser() userId: string,
-    @Body() dto: { provider: 'google' | 'apple' | 'phone'; provider_id?: string; phone?: string; email?: string },
+    @Body() dto: LinkAccountDto,
   ) {
     return this.authService.linkAccount(userId, dto);
   }

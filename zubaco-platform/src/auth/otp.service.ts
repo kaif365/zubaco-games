@@ -105,11 +105,15 @@ export class OtpService {
   }
 
   private generateSecureOtp(length: number): string {
+    // SEC-S1 (F4): reject bytes >= 250 so every accepted byte maps uniformly
+    // onto 0-9 (250 = 25*10). Plain `byte % 10` biases digits 0-5 because 256
+    // is not a multiple of 10 (CWE-331 insufficient randomness).
     const digits = '0123456789';
     let otp = '';
-    const bytes = crypto.randomBytes(length);
-    for (let i = 0; i < length; i++) {
-      otp += digits[bytes[i] % 10];
+    while (otp.length < length) {
+      const byte = crypto.randomBytes(1)[0];
+      if (byte >= 250) continue;
+      otp += digits[byte % 10];
     }
     return otp;
   }

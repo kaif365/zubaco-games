@@ -184,6 +184,12 @@ export class PaymentGatewayService {
       .update(`${orderId}|${paymentId}`)
       .digest('hex');
 
+    // SEC-S1 (F5): validate shape before timingSafeEqual, which throws a
+    // RangeError (unhandled 500) when the client-supplied signature differs in
+    // length. Reject malformed signatures with a deterministic 400 instead.
+    if (typeof signature !== 'string' || signature.length !== expectedSignature.length) {
+      throw new BadRequestException('Invalid payment signature');
+    }
     if (!crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature))) {
       throw new BadRequestException('Invalid payment signature');
     }
@@ -214,6 +220,12 @@ export class PaymentGatewayService {
       .update(JSON.stringify(body))
       .digest('hex');
 
+    // SEC-S1 (F5): a missing/short `x-razorpay-signature` header would make
+    // timingSafeEqual throw (unhandled 500). Reject malformed signatures with a
+    // deterministic 400 before the constant-time comparison.
+    if (typeof signature !== 'string' || signature.length !== expectedSignature.length) {
+      throw new BadRequestException('Invalid webhook signature');
+    }
     if (!crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature))) {
       throw new BadRequestException('Invalid webhook signature');
     }

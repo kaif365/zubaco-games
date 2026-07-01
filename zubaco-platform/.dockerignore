@@ -1,6 +1,18 @@
 node_modules
 dist
 .env
+.env.*
+!.env.example
 *.log
 .git
 .gitignore
+
+# Tests, coverage and docs — not needed in the runtime image
+test
+coverage
+*.md
+
+# Local runtime junk that must never enter the image
+*.rdb
+*.zip
+docker-compose*.yml
