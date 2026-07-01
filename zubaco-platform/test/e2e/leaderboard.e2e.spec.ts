@@ -37,7 +37,12 @@ describe('E2E · Section H — Leaderboard', () => {
       .get(`${API}/leaderboard/game/${GAME}`)
       .set(bearer(user.accessToken));
     expect(res.status).toBe(200);
-    expect(res.body).toBeDefined();
+    expect(Array.isArray(res.body)).toBe(true);
+    // The seeded user must appear as the sole (rank 1) entry with their real best score.
+    const mine = res.body.find((row: any) => row.user?.id === user.userId);
+    expect(mine).toBeDefined();
+    expect(mine.rank).toBe(1);
+    expect(mine.score).toBe(1800);
   });
 
   it('returns the caller\'s own rank (GET /leaderboard/game/:gameType/me)', async () => {
@@ -49,6 +54,10 @@ describe('E2E · Section H — Leaderboard', () => {
       .get(`${API}/leaderboard/game/${GAME}/me`)
       .set(bearer(user.accessToken));
     expect(res.status).toBe(200);
+    // Rank is served from the Redis sorted set, which is only populated by real
+    // gameplay score submissions — none here — so the caller is honestly unranked.
+    expect(res.body).toHaveProperty('rank', null);
+    expect(res.body).toHaveProperty('score', null);
   });
 
   it('returns the endless leaderboard (GET /leaderboard/game/:gameType/endless)', async () => {
