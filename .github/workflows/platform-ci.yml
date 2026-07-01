@@ -5,10 +5,12 @@ on:
     branches: [main, develop]
     paths:
       - 'zubaco-platform/**'
+      - '.github/workflows/platform-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'zubaco-platform/**'
+      - '.github/workflows/platform-ci.yml'
 
 env:
   AWS_REGION: ap-south-1
@@ -22,6 +24,7 @@ jobs:
     defaults:
       run:
         working-directory: zubaco-platform
+        shell: bash
 
     services:
       postgres:
@@ -33,7 +36,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d zubaco_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -47,6 +50,21 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zubaco_test?schema=public
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      JWT_ACCESS_SECRET: test-access-secret-min-32-characters-000
+      JWT_REFRESH_SECRET: test-refresh-secret-min-32-characters-00
+      NODE_ENV: test
+      INTERNAL_API_KEY: test-internal-key
+      BASE_PLATFORM_WEBHOOK_URL: https://base-platform.example.test/webhook
+      WEBHOOK_SIGNING_SECRET: integration-webhook-signing-secret
+      WEBHOOK_MAX_ATTEMPTS: "3"
+      WEBHOOK_BACKOFF_BASE_SECONDS: "0"
+      WEBHOOK_BACKOFF_MAX_SECONDS: "0"
+      WEBHOOK_TIMEOUT_MS: "2000"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -56,34 +74,89 @@ jobs:
           cache: 'npm'
           cache-dependency-path: zubaco-platform/package-lock.json
 
-      - run: npm ci --legacy-peer-deps
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Prepare log directory
+        run: mkdir -p logs
+
+      - name: Verify backing services are reachable
+        run: |
+          node -e '
+            const net = require("net");
+            const wait = (port, host) => new Promise((resolve, reject) => {
+              let tries = 0;
+              const attempt = () => {
+                const s = net.connect(port, host);
+                s.setTimeout(2000);
+                s.once("connect", () => { s.destroy(); resolve(); });
+                const retry = () => {
+                  s.destroy();
+                  if (++tries >= 30) return reject(new Error(host + ":" + port + " unreachable"));
+                  setTimeout(attempt, 2000);
+                };
+                s.once("error", retry);
+                s.once("timeout", retry);
+              };
+              attempt();
+            });
+            (async () => {
+              await wait(5432, "localhost"); console.log("PostgreSQL reachable on 5432");
+              await wait(6379, "localhost"); console.log("Redis reachable on 6379");
+            })().catch((e) => { console.error(e.message); process.exit(1); });
+          ' 2>&1 | tee logs/service-check.log
 
       - name: Generate Prisma Client
         run: npx prisma generate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zubaco_test
 
       - name: Type Check
         run: npx tsc --noEmit
 
-      - name: Run Migrations
-        run: npx prisma db push --force-reset
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zubaco_test
+      - name: Provision test database schema (Prisma)
+        run: npx prisma db push --force-reset 2>&1 | tee logs/prisma-db-push.log
 
-      - name: Run Tests
-        run: npm test -- --coverage --passWithNoTests --forceExit
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zubaco_test
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-          JWT_ACCESS_SECRET: test-access-secret-ci
-          JWT_REFRESH_SECRET: test-refresh-secret-ci
-          NODE_ENV: test
-          INTERNAL_API_KEY: test-internal-key
+      - name: Run Unit Tests
+        run: |
+          set -o pipefail
+          npm test -- --coverage --passWithNoTests --forceExit 2>&1 | tee logs/unit-tests.log
+
+      - name: Run Integration Tests
+        run: |
+          set -o pipefail
+          npm run test:integration -- --forceExit 2>&1 | tee logs/integration-tests.log
 
       - name: Build
         run: npm run build
+
+      - name: Collect failure diagnostics
+        if: failure()
+        run: |
+          node -e '
+            const net = require("net");
+            const probe = (port, host) => new Promise((resolve) => {
+              const s = net.connect(port, host);
+              s.setTimeout(2000);
+              s.once("connect", () => { s.destroy(); resolve(host + ":" + port + " OPEN"); });
+              const fail = () => { s.destroy(); resolve(host + ":" + port + " CLOSED"); };
+              s.once("error", fail); s.once("timeout", fail);
+            });
+            (async () => {
+              console.log(await probe(5432, "localhost"));
+              console.log(await probe(6379, "localhost"));
+              console.log("node " + process.version);
+            })();
+          ' 2>&1 | tee logs/diagnostics.log
+
+      - name: Upload test logs & coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-test-artifacts
+          path: |
+            zubaco-platform/logs/
+            zubaco-platform/coverage/
+          if-no-files-found: ignore
+          retention-days: 14
 
   deploy-staging:
     needs: test

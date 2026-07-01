@@ -19,6 +19,7 @@ boot.err
 .env
 .env.*
 !.env.example
+!.env.test
 
 # OS / editor
 .DS_Store

@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Zubaco Platform — EPHEMERAL TEST INFRASTRUCTURE (Phase T3)
+#
+# Spins up ONLY the backing services the test suites need (PostgreSQL + Redis),
+# isolated from the production stack in the repo-root docker-compose.yml.
+#
+#   docker compose -f docker-compose.test.yml up -d --wait   # start + block until healthy
+#   docker compose -f docker-compose.test.yml down -v          # stop + wipe all state
+#
+# Design goals:
+#   * Separate TEST database (zubaco_test) — never touches production data.
+#   * Automatic reset — Postgres data lives on tmpfs, so every `up` is a clean DB.
+#   * No manual setup — `--wait` blocks until both services report healthy.
+#   * No production credentials — only throwaway local test values below.
+# ─────────────────────────────────────────────────────────────────────────────
+name: zubaco-platform-test
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: zubaco-postgres-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zubaco_test
+    ports:
+      - "5432:5432"
+    # Ephemeral storage: data is discarded on container stop -> clean DB per run.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zubaco_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: zubaco-redis-test
+    ports:
+      - "6379:6379"
+    # Disable persistence — tests want a fast, stateless cache.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
