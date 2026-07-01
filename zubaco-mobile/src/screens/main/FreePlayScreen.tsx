@@ -5,68 +5,120 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { api } from '../../services/api';
+import { SecureStorage } from '../../services/secureStorage';
+import { GAME_CATALOG, GameCatalogEntry, resolveGameUrl } from '../../constants/games';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-// TODO: Replace with API call using @tanstack/react-query
-const PLACEHOLDER_GAMES = [
-  { id: '1', name: 'Memory Match', icon: '🧠', bestScore: 1200 },
-  { id: '2', name: 'Speed Type', icon: '⌨️', bestScore: 980 },
-  { id: '3', name: 'Sliding Puzzle', icon: '🧩', bestScore: 750 },
-  { id: '4', name: 'Colour Sort', icon: '🎨', bestScore: 1500 },
-  { id: '5', name: 'Arrow Rush', icon: '➡️', bestScore: 600 },
-  { id: '6', name: 'Pattern Survival', icon: '🔷', bestScore: 0 },
-];
 
 export const FreePlayScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
 
-  // TODO: Fetch energy/lives from API
-  const energy = 5;
-  const maxEnergy = 5;
+  const energyQuery = useQuery({
+    queryKey: ['energy'],
+    queryFn: () => api.getEnergy(),
+  });
 
-  const handlePlayGame = (gameId: string) => {
-    // TODO: Get actual game URL and create session via API
-    navigation.navigate('Game', {
-      gameUrl: `https://games.zubaco.com/${gameId}`,
-      sessionId: `session-${gameId}`,
-      token: 'placeholder-token',
-    });
+  const progressQuery = useQuery({
+    queryKey: ['progress'],
+    queryFn: () => api.getAllProgress(),
+  });
+
+  const startMutation = useMutation({
+    mutationFn: async (entry: GameCatalogEntry) => {
+      const level = progressQuery.data?.[entry.gameType]?.current_level ?? 1;
+      const [session, token] = await Promise.all([
+        api.startLevel(entry.gameType, level),
+        SecureStorage.getAccessToken(),
+      ]);
+      return { entry, level, session, token: token ?? '' };
+    },
+    onSuccess: ({ entry, level, session, token }) => {
+      // Real backend session — no placeholder values reach the WebView.
+      navigation.navigate('Game', {
+        gameUrl: resolveGameUrl(entry),
+        sessionId: session.session_id,
+        token,
+        gameType: entry.gameType,
+        level,
+        mode: 'FREE_PLAY',
+      });
+      energyQuery.refetch();
+    },
+    onError: (err: Error) => Alert.alert('Cannot start game', err.message),
+  });
+
+  const energy = energyQuery.data;
+  const available = energy?.total_available ?? 0;
+  const maxEnergy = energy?.max_lives ?? 5;
+
+  const handlePlayGame = (entry: GameCatalogEntry) => {
+    if (startMutation.isPending) return;
+    startMutation.mutate(entry);
   };
 
-  const renderGameCard = ({ item }: { item: (typeof PLACEHOLDER_GAMES)[0] }) => (
-    <TouchableOpacity
-      style={styles.gameCard}
-      onPress={() => handlePlayGame(item.id)}
-      activeOpacity={0.7}
-    >
-      <Text style={styles.gameIcon}>{item.icon}</Text>
-      <Text style={styles.gameName}>{item.name}</Text>
-      <Text style={styles.bestScore}>Best: {item.bestScore}</Text>
-    </TouchableOpacity>
-  );
+  const renderGameCard = ({ item }: { item: GameCatalogEntry }) => {
+    const bestScore = progressQuery.data?.[item.gameType]?.best_score ?? 0;
+    return (
+      <TouchableOpacity
+        style={styles.gameCard}
+        onPress={() => handlePlayGame(item)}
+        activeOpacity={0.7}
+        disabled={startMutation.isPending}
+      >
+        <Text style={styles.gameIcon}>{item.icon}</Text>
+        <Text style={styles.gameName}>{item.name}</Text>
+        <Text style={styles.bestScore}>Best: {bestScore}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Free Play</Text>
         <View style={styles.energyBadge}>
-          <Text style={styles.energyText}>⚡ {energy}/{maxEnergy}</Text>
+          {energyQuery.isLoading ? (
+            <ActivityIndicator color="#FBBF24" size="small" />
+          ) : (
+            <Text style={styles.energyText}>⚡ {available}/{maxEnergy}</Text>
+          )}
         </View>
       </View>
 
+      {startMutation.isPending && (
+        <View style={styles.startingBanner}>
+          <ActivityIndicator color="#6C3CE1" size="small" />
+          <Text style={styles.startingText}>Starting session…</Text>
+        </View>
+      )}
+
       <FlatList
-        data={PLACEHOLDER_GAMES}
+        data={GAME_CATALOG}
         renderItem={renderGameCard}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.gameType}
         numColumns={2}
         columnWrapperStyle={styles.row}
         contentContainerStyle={styles.grid}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={energyQuery.isFetching || progressQuery.isFetching}
+            onRefresh={() => {
+              energyQuery.refetch();
+              progressQuery.refetch();
+            }}
+            tintColor="#6C3CE1"
+          />
+        }
       />
     </View>
   );
@@ -100,6 +152,17 @@ const styles = StyleSheet.create({
     color: '#FBBF24',
     fontSize: 14,
     fontWeight: '600',
+  },
+  startingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  startingText: {
+    color: '#9CA3AF',
+    fontSize: 13,
   },
   grid: {
     paddingHorizontal: 12,

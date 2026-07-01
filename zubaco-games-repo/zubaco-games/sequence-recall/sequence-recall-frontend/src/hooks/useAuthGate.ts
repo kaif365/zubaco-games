@@ -3,52 +3,61 @@
 import { useAudioContextValue } from '@/audio/AudioProvider';
 import { STORAGE_KEYS } from '@/constants/storageKeys';
 import { gameConfigQueryOptions } from '@/features/sequence-recall/api/gameConfig.query';
+import { bootstrapAuthFromUrl } from '@/services/sessionBootstrap';
 import { storage } from '@/utils/storage';
 import { appConfig } from '@app/config/appConfig';
 import { queryClient } from '@app/providers/QueryProvider';
-import { fetchDevSession } from '@services/authService';
 
 const GAME_AUDIO_SCENE = 'sequence-recall';
 
 const TOKEN_KEY = STORAGE_KEYS.AUTH_TOKEN;
 const EXPIRES_KEY = STORAGE_KEYS.AUTH_EXPIRES_AT;
-const ACTIVE_GAME_SESSION_KEY = STORAGE_KEYS.ACTIVE_GAME_SESSION;
 const AUTH_RECOVERY_FLAG = 'ZUBACO-auth-recovery-attempted';
 
 export type AuthGateLoadingPhase = 'dev-session' | 'config' | 'audio';
 
 let sessionPromise: Promise<void> | null = null;
 
-function getOrFetchSession(stageId: string): Promise<void> {
+// Development-only mock session. The dynamic import keeps the mock-user dev path
+// (and VITE_MOCK_USER_URL) out of production bundles entirely.
+async function mintDevSession(stageId: string): Promise<void> {
+  const { fetchDevSession } = await import('@services/authService');
+  const data = await fetchDevSession(stageId);
+  await Promise.all([
+    storage.setSecure(TOKEN_KEY, data.token),
+    storage.setSecure(EXPIRES_KEY, data.expiresAt),
+  ]);
+}
+
+function getOrMintDevSession(stageId: string): Promise<void> {
   if (!sessionPromise) {
-    sessionPromise = fetchDevSession(stageId)
-      .then(async (data) => {
-        await Promise.all([
-          storage.setSecure(TOKEN_KEY, data.token),
-          storage.setSecure(EXPIRES_KEY, data.expiresAt),
-        ]);
-      })
-      .catch((err: unknown) => {
-        sessionPromise = null;
-        throw err;
-      });
+    sessionPromise = mintDevSession(stageId).catch((err: unknown) => {
+      sessionPromise = null;
+      throw err;
+    });
   }
   return sessionPromise;
 }
 
-async function hasStoredDevSession(): Promise<boolean> {
-  const [token, persistedSession] = await Promise.all([
-    storage.getSecure<string>(TOKEN_KEY),
-    storage.getSecure<unknown>(ACTIVE_GAME_SESSION_KEY),
-  ]);
-  return Boolean(token && persistedSession);
+async function hasStoredToken(): Promise<boolean> {
+  const token = await storage.getSecure<string>(TOKEN_KEY);
+  return Boolean(token);
 }
 
-async function ensureDevSession(): Promise<void> {
-  if (await hasStoredDevSession()) {
+// Production authentication: the host platform launches the embedded game with a
+// JWT in the launch URL. Development builds fall back to a local mock session.
+// No automatic dev session is ever created in production.
+async function ensureSession(): Promise<void> {
+  if (await hasStoredToken()) return;
+
+  if (await bootstrapAuthFromUrl()) return;
+
+  if (import.meta.env.DEV) {
+    await getOrMintDevSession(appConfig.socket.stageId);
     return;
   }
-  await getOrFetchSession(appConfig.socket.stageId);
+
+  throw new Error('Missing authentication token. Launch the game from the ZUBACO platform.');
 }
 
 async function prefetchGameConfig(): Promise<void> {
@@ -101,10 +110,10 @@ export function useAuthGate() {
 
     void (async () => {
       try {
-        const skipDevSession = await hasStoredDevSession();
-        if (!skipDevSession) {
+        const alreadyAuthenticated = await hasStoredToken();
+        if (!alreadyAuthenticated) {
           setPhase('dev-session');
-          await ensureDevSession();
+          await ensureSession();
         }
 
         setPhase('config');

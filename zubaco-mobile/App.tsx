@@ -1,10 +1,21 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { navigationRef } from './src/navigation/navigationRef';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { OfflineProvider } from './src/contexts/OfflineContext';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { initCrashReporting } from './src/services/crashReporting';
+import { installGlobalErrorHandlers } from './src/services/globalErrorHandler';
+import { pushNotifications } from './src/services/pushNotifications';
+import { track } from './src/services/analyticsEvents';
+
+// One-time, side-effect initialisation at module load (before first render).
+initCrashReporting();
+installGlobalErrorHandlers();
+pushNotifications.configure();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,17 +45,35 @@ const linking = {
 };
 
 export default function App() {
+  const routeNameRef = useRef<string | undefined>(undefined);
+
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <OfflineProvider>
-            <NavigationContainer linking={linking}>
-              <RootNavigator />
-            </NavigationContainer>
-          </OfflineProvider>
-        </AuthProvider>
-      </QueryClientProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <OfflineProvider>
+              <NavigationContainer
+                ref={navigationRef}
+                linking={linking}
+                onReady={() => {
+                  routeNameRef.current = navigationRef.getCurrentRoute()?.name;
+                }}
+                onStateChange={() => {
+                  const previous = routeNameRef.current;
+                  const current = navigationRef.getCurrentRoute()?.name;
+                  if (current && previous !== current) {
+                    track.screen(current).catch(() => {});
+                  }
+                  routeNameRef.current = current;
+                }}
+              >
+                <RootNavigator />
+              </NavigationContainer>
+            </OfflineProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }

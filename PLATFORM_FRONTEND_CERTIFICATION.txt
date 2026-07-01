@@ -1,0 +1,460 @@
+================================================================================
+ZUBACO ENTERPRISE
+PLATFORM FRONTEND CERTIFICATION
+PHASE 2 - COMPLETE AUDIT (NO SAMPLING)
+================================================================================
+Audit date .......... July 1, 2026
+Mode ................ AUDIT ONLY (read-only; no code was modified)
+Scope ............... The Zubaco PLATFORM frontend(s) - NOT the games
+Method .............. Full file-by-file inspection of every module (no sampling)
+Repositories audited:
+  A) zubaco-mobile ............ React Native player-facing app (the real product)
+  B) zubaco-admin-panel-repo/zubaco-admin-panel/frontend .. Next.js admin console
+Excluded (not platform frontend):
+  - zubaco-web-lobby ...... throwaway dev launcher (self-labelled "TEMPORARY",
+                            package name 0.0.1-dev, `npx serve` static HTML);
+                            README says "NOT the production web app" and "should
+                            be deleted and replaced".
+  - zubaco-platform ....... NestJS BACKEND (nest-cli.json, prisma), not a frontend
+  - the 20 individual games (certified separately in Phase 1/1B)
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+The "platform frontend" is delivered as TWO applications:
+
+  (A) zubaco-mobile - the React Native PLAYER app. This is the real, intended
+      consumer product (the web lobby is explicitly a disposable dev tool, and no
+      production web frontend exists yet).
+
+  (B) zubaco-admin-panel/frontend - the Next.js internal ADMIN console.
+
+Headline findings:
+
+  * ADMIN CONSOLE (B): SUBSTANTIALLY COMPLETE (~72%). Authentication, Games,
+    Users, Tournaments and Stages are fully wired to the real admin backend with
+    forms, validation (zod + react-hook-form), pagination, loading/empty states,
+    a 401 interceptor and an AuthGuard. Dashboard and Flagged/anti-cheat are
+    functional UIs but backed by MOCK data (TODO: real API). Analytics,
+    Notifications, Seasons and Wallets are PARTIAL. Leaderboard admin and a User
+    detail page are NOT IMPLEMENTED. 10 unit tests exist. Dark mode + responsive
+    are complete. One security item: dummy admin credentials are hardcoded in
+    config.
+
+  * PLAYER APP (A): EARLY / DEMO STAGE (~38%). The shell is real and polished -
+    navigation, dark theme, OTP auth (send/verify), AuthContext with secure
+    Keychain token storage, offline banner, deep-linking, a secure game WebView
+    launcher, and a well-defined REST client exposing 27 endpoints. HOWEVER most
+    feature screens render HARDCODED / PLACEHOLDER data: Wallet balance and
+    transactions, Notifications, Referral, Free Play, and Settings are all mock;
+    Tournament and Leaderboard screens are empty skeletons. Only 5 of the 27
+    defined API endpoints are actually called. The game launcher passes STUB
+    session token values ('pending' / ''), so real play sessions are not yet
+    established. Google Sign-In and Onboarding are unimplemented stubs. There are
+    0 tests.
+
+  * REAL-TIME: NEITHER app uses WebSockets/socket.io/SSE. All data flow is REST
+    (React Query in admin; fetch in mobile). Mobile "live" delivery is intended
+    via push notifications (react-native-push-notification) but no wiring exists.
+
+Bottom line: the ADMIN panel is close to production for its wired modules; the
+PLAYER app is a convincing UI shell whose commerce-critical surfaces (wallet,
+tournaments, leaderboards, notifications, referrals, real game sessions) are not
+yet connected to the backend that already exposes the endpoints for them.
+
+================================================================================
+2. FRONTEND ARCHITECTURE
+================================================================================
+-------------------------------------------------------------
+A) zubaco-mobile (React Native 0.76, React 18.3)
+-------------------------------------------------------------
+Stack: React Navigation 7 (native-stack + bottom-tabs), @tanstack/react-query 5,
+zustand 5 (declared, minimally used), react-native-webview, biometrics,
+device-info, push-notification, google-signin, AsyncStorage + Keychain.
+Structure (src/, 25 TS/TSX files total):
+  screens/auth   : SplashScreen, OnboardingScreen, LoginScreen, OtpScreen
+  screens/main   : Home, FreePlay, Tournament, Leaderboard, Wallet, Profile,
+                   Settings, Notifications, Referral, Support
+  screens/game   : GameScreen (WebView launcher)
+  services       : api.ts (REST client, 27 endpoints), secureStorage (Keychain),
+                   biometric, analytics (Firebase - stub/console), crashReporting
+                   (Sentry - never initialized)
+  contexts       : AuthContext (auth state + token lifecycle), OfflineContext
+  navigation     : RootNavigator (auth vs app vs loading), MainTabs (5 tabs)
+  components      : AppUpdateModal (force-update; not mounted in App.tsx)
+State: AuthContext (global auth), React Query (server cache), local useState for
+UI. Token in Keychain. Base URL localhost:3000/api/v1 (dev) / api.zubaco.com (prod).
+
+-------------------------------------------------------------
+B) zubaco-admin-panel/frontend (Next.js App Router, TypeScript, Tailwind)
+-------------------------------------------------------------
+Stack: Next.js (app/ router), React Query, Tailwind CSS, zod + react-hook-form,
+custom fetch client. Structure (src/, 226 TS/TSX files, 10 test files):
+  app/            : login/, (admin)/ route group with dashboard, games, games/[id],
+                   users, tournaments, tournaments/[id], stages, stages/[id],
+                   flagged, analytics, notifications, seasons, wallets; root page
+                   redirects to /games.
+  features/       : auth, dashboard, games, users, tournaments, stages, flagged
+                   (each: components/ + hooks/)
+  lib/api         : client.ts (fetch wrapper, Bearer from cookie, 401 handler,
+                   ngrok header), http.ts (get/post/put/patch/del), endpoints/*
+  services/       : auth + thin service layer
+  providers/      : React Query provider, auth
+  components/layout: AdminLayout, AuthGuard, sidebar/nav
+  config/         : routes, query-keys, auth (DUMMY CREDS), game-registry,
+                   pagination, navigation
+  mocks/          : dashboard.ts, flagged.ts (USED); games.ts, users.ts (dead)
+  __tests__/      : components, hooks, services, utils (10 tests)
+State: React Query (server), Context (auth user), cookie (token), localStorage
+(user + sidebar). Env: NEXT_PUBLIC_API_BASE_URL.
+
+================================================================================
+3. COMPLETED MODULES
+================================================================================
+ADMIN (B) - COMPLETE, real backend wiring, forms, validation, states:
+  [COMPLETE] Admin Authentication - login form, POST /admin/auth/login,
+             GET /admin/auth/me session check, logout, AuthGuard, 401 auto-logout.
+  [COMPLETE] Games management - GET/POST/PATCH/DELETE /admin/games; list with
+             search + status toggle + delete; detail page with 3 tabs (Overview,
+             Config, Pool); per-game zod-validated config editors (game-registry).
+  [COMPLETE] Users management - GET /admin/users (paginated + search + filter),
+             ban/unban (POST /admin/users/:id/ban|unban). (Delete is UI-only -
+             see section 5.)
+  [COMPLETE] Tournaments management - full CRUD (GET/POST/PUT/DELETE), stage
+             assignment (POST/DELETE .../stages), create/edit drawer with zod
+             validation, detail page.
+  [COMPLETE] Stages management - full CRUD, game assignment/removal, create modal
+             with validation, detail page.
+  [COMPLETE] HTTP client & interceptors - Bearer injection, credentials:include,
+             401 -> clear+toast+redirect, 404->null option, ApiError typing.
+  [COMPLETE] Dark mode + responsive layout (Tailwind sm/lg/xl, collapsing sidebar).
+  [COMPLETE] Shared UI: DataTable, EmptyState, PageHeader, StatCard, StatusBadge
+             (with unit tests), pagination + debounce hooks (tested).
+
+PLAYER APP (A) - COMPLETE (shell/plumbing level):
+  [COMPLETE] Navigation - RootNavigator (auth/app/loading split), MainTabs (5
+             tabs), deep linking (zubaco:// + https://zubaco.com).
+  [COMPLETE] OTP Authentication - LoginScreen (POST /auth/otp/send) + OtpScreen
+             (POST /auth/otp/verify, 6-box auto-advance, resend), AuthContext
+             login/logout, secureStorage (Keychain), persistent session restore.
+  [COMPLETE] SplashScreen, OfflineContext (NetInfo banner), Support screen
+             (FAQ + mailto + Terms/Privacy links), Game WebView launcher security
+             (origin allowlist, message protocol GAME_COMPLETED/ERROR/EXIT,
+             hardware back guard).
+  [COMPLETE] Dark theme (consistent design tokens across all 15 screens).
+  [COMPLETE] REST client definition - api.ts cleanly defines all 27 endpoints.
+
+================================================================================
+4. INCOMPLETE MODULES
+================================================================================
+PLAYER APP (A):
+  [PARTIAL]  Home/Dashboard - renders a HARDCODED 20-game grid; DOES call
+             GET /free-play/progress for levels, but the play handler navigates
+             with sessionId:'pending', token:'' (no /free-play/start call).
+  [PARTIAL]  Wallet - hardcoded balances (real 150 / bonus 45), PLACEHOLDER
+             transactions, hardcoded kycVerified:false; getWallet/getTransactions/
+             requestWithdrawal all UNUSED; "Add Money" has no handler. (TODOs.)
+  [PARTIAL]  Notifications - PLACEHOLDER list; refresh is a setTimeout mock; mark-
+             read is local-state only (getNotifications/markNotificationRead UNUSED).
+  [PARTIAL]  Referral - hardcoded code "ZUBACO-AK2026", mock referral list/stats;
+             Share button has no handler (getReferralCode/applyReferralCode UNUSED).
+  [PARTIAL]  Free Play - PLACEHOLDER_GAMES, hardcoded energy 5/5,
+             token:'placeholder-token'; no API wiring (3 TODOs).
+  [PARTIAL]  Settings - hardcoded profile ("Arjun Kumar", phone), toggles not
+             persisted, linked-accounts hardcoded, logout handler stubbed (TODOs).
+  [PARTIAL]  Profile - real (reads AuthContext) but read-only; updateProfile,
+             getStats, getHistory all UNUSED; no edit form.
+  [PARTIAL]  Game launcher session - WebView receives token/sessionId verbatim
+             from route params (stub values); no server session established.
+  [NOT IMPL] Tournament screen - useQuery(getActiveSeasons) defined but data never
+             rendered; "Tournament cards will go here" placeholder. Register/status/
+             start/submit endpoints all UNUSED.
+  [NOT IMPL] Leaderboard screen - title/subtitle only; no query; all 3 leaderboard
+             endpoints UNUSED.
+  [NOT IMPL] Onboarding - single static title; "Placeholder - implement swipeable
+             onboarding slides".
+  [NOT IMPL] Google Sign-In - button present, onPress is an empty stub; googleLogin
+             endpoint UNUSED. Biometric login (biometric.ts) never invoked.
+  [DORMANT]  analytics.ts (console-log stub, never called), crashReporting.ts
+             (Sentry, initCrashReporting never called), AppUpdateModal (not mounted),
+             refreshTokens (no rotation logic wired), zustand (declared, unused).
+
+ADMIN (B):
+  [PARTIAL]  Dashboard - StatCards + ActivityList render, but data is MOCK
+             (dashboard.ts endpoints return MOCK_DASHBOARD_STATS with a 500ms fake
+             delay; 2 TODOs). ChartPlaceholder = "Chart coming soon".
+  [PARTIAL]  Flagged / anti-cheat review - full table + detail modal + safe/suspend/
+             review actions, but entirely MOCK (flagged.ts in-memory store; 3 TODOs).
+  [PARTIAL]  Analytics - overview/user-growth/revenue/game-popularity endpoints
+             wired, but chart rendering incomplete (placeholders).
+  [PARTIAL]  Seasons - list/create/open/close endpoints exist; page UI incomplete.
+  [PARTIAL]  Wallets - GET /admin/wallets/transactions rendered as a basic table;
+             no payout/refund controls.
+  [NOT IMPL] Notifications (admin send) - compose form present; Send button has no
+             onClick handler; no validation; no endpoint.
+  [NOT IMPL] Leaderboard admin - no route, no component.
+  [NOT IMPL] User detail page - no users/[id] route (unlike tournaments/stages).
+
+================================================================================
+5. BROKEN / NON-FUNCTIONAL FEATURES
+================================================================================
+(Elements present in the UI that do nothing or cannot complete their action.)
+
+PLAYER APP (A):
+  - Google Sign-In button (LoginScreen) - empty onPress; no auth occurs.
+  - Wallet "Add Money" button - no handler; "Withdraw" gated on hardcoded KYC=false
+    and has no handler even when enabled.
+  - Referral "Share" button - no handler (no Share API call).
+  - Settings logout - stub handler (does not call AuthContext.logout).
+  - Notifications refresh / mark-read - do not reach the backend.
+  - Game launch (Home & Free Play) - navigates with empty/placeholder token and
+    'pending' session, so a real, authorized game session is NOT created.
+  - OnboardingScreen - defined but effectively unreachable (no trigger) and empty.
+
+ADMIN (B):
+  - Users "Delete" - UsersTable delete path is a placeholder comment
+    ("// Placeholder for actual delete call"); shows a toast but calls no API.
+  - Admin Notifications "Send Notification" - button has no onClick; sends nothing.
+  - Dashboard & Flagged actions operate only on in-memory mock stores (no
+    persistence beyond the current session).
+
+No hard runtime crashes were identified in either app; "broken" here means
+non-wired / no-op interactive elements.
+
+================================================================================
+6. MOCK / PLACEHOLDER / FAKE DATA
+================================================================================
+PLAYER APP (A) - hardcoded/placeholder data (31 TODO/placeholder/mock hits):
+  - Home: GAME_LIST (20 games) hardcoded.
+  - Wallet: realBalance 150, bonusBalance 45, kycVerified false, PLACEHOLDER
+    transactions (5).
+  - Notifications: PLACEHOLDER_NOTIFICATIONS (5).
+  - Referral: code "ZUBACO-AK2026", PLACEHOLDER_REFERRALS (3), totals 3 / Rs.75.
+  - Free Play: PLACEHOLDER_GAMES (6), energy 5/5, token 'placeholder-token'.
+  - Settings: "Arjun Kumar", "+91 98765 43210", hardcoded linked accounts, version.
+  - Game/Home nav: sessionId 'pending', token '' (stub session).
+  - Support: FAQ hardcoded (acceptable); Terms/Privacy URLs marked TODO.
+
+ADMIN (B) - mocks actually USED at runtime (no NEXT_PUBLIC_USE_MOCKS flag; wired
+directly in endpoint files):
+  - src/mocks/dashboard.ts  -> USED by lib/api/endpoints/dashboard.ts (fake delay).
+  - src/mocks/flagged.ts    -> USED by lib/api/endpoints/flagged.ts (8 records,
+    in-memory mutations).
+  - src/mocks/games.ts      -> DEAD (present, zero imports; real /admin/games used).
+  - src/mocks/users.ts      -> DEAD (present, zero imports; real /admin/users used).
+  - game-registry.tsx:~145  -> temp token comment "TODO: REMOVE ... ONCE ARROWS
+    GAME SERVER AUTH IS FIXED".
+
+================================================================================
+7. PLACEHOLDER COMPONENTS / DEAD CODE
+================================================================================
+PLAYER APP (A):
+  - OnboardingScreen (empty placeholder), AppUpdateModal (never mounted),
+    analytics.ts / crashReporting.ts (never invoked), biometric.ts (never invoked),
+    22 of 27 api.ts endpoints defined but never called.
+ADMIN (B):
+  - ChartPlaceholder ("Chart coming soon"), mocks/games.ts + mocks/users.ts (dead),
+    CreatePoolModal reported imported-but-unused, admin Notifications compose form
+    (no handler), missing users/[id] and leaderboard routes.
+
+================================================================================
+8. BACKEND INTEGRATION MATRIX
+================================================================================
+Legend: [C]=Connected (called + rendered), [P]=Partially Connected (called but not
+rendered / stubbed input), [X]=Not Connected (endpoint defined, never called).
+
+--- PLAYER APP (A) vs platform API (base /api/v1) -----------------------------
+  Auth
+    POST /auth/otp/send ....................... [C] LoginScreen
+    POST /auth/otp/verify ..................... [C] OtpScreen
+    POST /auth/logout ......................... [C] AuthContext
+    POST /auth/google ......................... [X] (Google button is a stub)
+    POST /auth/refresh ........................ [X] (no token rotation wired)
+  Users
+    GET  /users/me ............................ [C] AuthContext / Home
+    PATCH/users/me ............................ [X] (no profile edit)
+    GET  /users/me/stats ...................... [X]
+    GET  /users/me/history .................... [X]
+  Free Play
+    GET  /free-play/progress .................. [C] Home
+    GET  /free-play/progress/:type ............ [X]
+    POST /free-play/start ..................... [X] (session is stubbed)
+    POST /free-play/submit .................... [X]
+  Tournament
+    GET  /tournament/seasons .................. [P] TournamentScreen (fetched, not shown)
+    POST /tournament/seasons/:id/register ..... [X]
+    GET  /tournament/seasons/:id/status ....... [X]
+    POST .../stages/:n/games/:o/start ......... [X]
+    POST /tournament/submit ................... [X]
+  Leaderboard
+    GET  /leaderboard/game/:type .............. [X]
+    GET  /leaderboard/game/:type/me ........... [X]
+    GET  /leaderboard/game/:type/friends ...... [X]
+  Wallet
+    GET  /wallet .............................. [X] (screen uses hardcoded balance)
+    GET  /wallet/transactions ................. [X]
+    POST /wallet/withdraw ..................... [X]
+  Social
+    GET  /social/friends ...................... [X]
+    POST /social/friends/request .............. [X]
+    GET  /social/referral/code ................ [X] (code hardcoded)
+    POST /social/referral/apply ............... [X]
+  Notifications
+    GET  /notifications ....................... [X] (placeholder list)
+    POST /notifications/:id/read .............. [X] (local state only)
+  ---> Player app: 5 Connected, 1 Partial, 21 Not Connected (of 27).
+
+--- ADMIN (B) vs admin API (base /admin, some game APIs at /v1) ----------------
+  Auth:        /admin/auth/login|logout|me ........................ [C]
+  Games:       GET/POST/PATCH/DELETE /admin/games(/:id) ........... [C]
+  Users:       GET /admin/users(/:id); POST .../ban|unban ......... [C]
+               (delete user ................................... [P] UI-only)
+  Tournaments: GET/POST/PUT/DELETE /admin/tournaments; +/- stages .. [C]
+  Stages:      GET/POST/PUT/DELETE /admin/stages; +/- games ........ [C]
+  Analytics:   /admin/analytics/overview|user-growth|revenue|
+               game-popularity .................................... [P] (data in, charts not rendered)
+  Seasons:     /admin/seasons (+open/close) ....................... [P] (UI incomplete)
+  Wallets:     GET /admin/wallets/transactions .................... [P] (list only)
+  Dashboard:   stats + activity .................................. [X] MOCKED
+  Flagged:     list/detail/status ................................ [X] MOCKED
+  Notifications (send): ......................................... [X] (no handler/endpoint)
+  Leaderboard admin: ............................................ [X] (not implemented)
+  Game configs/pools: /v1/stage-configs, /v1/levels, /v1/boards,
+               /v1/puzzles/generate, /v1/admin/maze-templates ...... [C]
+  ---> Admin: core CRUD Connected; Dashboard/Flagged Mocked; Analytics/Seasons/
+       Wallets Partial; Notifications/Leaderboard Not Connected.
+
+================================================================================
+9. RESPONSIVE STATUS
+================================================================================
+ADMIN (B): COMPLETE. Mobile-first Tailwind (sm/lg/xl), collapsing sidebar, tables
+  reflow, forms go full-width. No dedicated device QA harness (manual only).
+PLAYER APP (A): N/A in the web sense - native RN app using flex layouts +
+  react-native-safe-area-context; single-column phone layouts throughout. No
+  tablet/landscape-specific layouts observed. No production web frontend exists,
+  so there is currently no responsive *web* player experience.
+
+================================================================================
+10. ACCESSIBILITY STATUS
+================================================================================
+ADMIN (B): BASIC. Semantic buttons/inputs, password show/hide, focus-visible via
+  Tailwind defaults. Gaps: little/no explicit aria-* labelling on icon-only
+  buttons, no documented keyboard-nav or screen-reader testing, color-only status
+  cues (StatusBadge) without text alternatives in some spots.
+PLAYER APP (A): MINIMAL. No accessibilityLabel/accessibilityRole/accessibilityHint
+  usage observed on touchables; OTP boxes and icon buttons lack a11y labels; no
+  dynamic font-scaling or reduced-motion handling verified. Recommend an
+  accessibility pass before store submission.
+
+================================================================================
+11. PERFORMANCE FINDINGS
+================================================================================
+ADMIN (B):
+  - React Query caching + pagination limit UI over-fetching; skeletons avoid layout
+    shift. Dashboard's artificial 500ms mock delay should disappear with real API.
+  - No obvious N+1 fetch loops; query keys are hierarchical/cache-friendly.
+PLAYER APP (A):
+  - Because most screens use static/mock data, current runtime cost is trivial; the
+    real cost profile will only appear once endpoints are wired.
+  - React Query defaults retry:2, staleTime:30s (reasonable).
+  - Game WebView is the main heavy surface; it injects session then loads remote
+    game bundles - acceptable, but no preloading/caching strategy.
+  - No list virtualization concerns yet (lists are tiny mock arrays).
+  - Neither app ships real-time transport, so no socket back-pressure concerns.
+
+================================================================================
+12. SECURITY FINDINGS
+================================================================================
+ADMIN (B):
+  [HIGH]   Dummy admin credentials hardcoded in src/config/auth.ts
+           (admin@ZUBACO.com / Admin@123). Must be removed before production.
+  [GOOD]   401 interceptor clears state + redirects; token in cookie; AuthGuard on
+           the (admin) route group; credentials:include for cookie transport.
+  [NOTE]   ngrok-skip-browser-warning header auto-added when base URL contains
+           "ngrok" - fine for dev, ensure prod base URL is a real domain.
+  [NOTE]   Mocked Dashboard/Flagged means moderation actions are not persisted /
+           auditable yet - a control-integrity gap for anti-cheat governance.
+PLAYER APP (A):
+  [GOOD]   Tokens stored in Keychain (secureStorage), not AsyncStorage; Bearer
+           auth; WebView origin allowlist (game.zubaco.com/localhost) + message
+           validation; forced-update modal available.
+  [MED]    Game session token passed to the WebView is a stub ('') - once real,
+           ensure short-lived, scoped tokens and that they are not logged.
+  [MED]    api.logout / auth restore use silent `catch {}` - failures are swallowed;
+           no session-expiry/auto-logout on token invalidation.
+  [LOW]    crashReporting (Sentry) never initialized -> no production error
+           visibility; analytics is a console stub -> no telemetry.
+
+================================================================================
+13. REMAINING FRONTEND WORK (summary; full backlog in
+    PLATFORM_FRONTEND_REMAINING_WORK.txt)
+================================================================================
+PLAYER APP (A) - the bulk of remaining work:
+  1. Wire Wallet (balance/transactions/withdraw) to real endpoints; add deposit flow.
+  2. Build Tournament screens (list/join/status/play/submit).
+  3. Build Leaderboard screens (global/friends/me).
+  4. Wire Notifications (fetch/mark-read/push registration).
+  5. Wire Referral (code/apply/share) and Free Play (energy/start/submit).
+  6. Establish real game sessions (POST /free-play/start & /tournament/.../start)
+     and pass real tokens to the WebView.
+  7. Implement Google Sign-In + Onboarding; add Profile edit; token refresh rotation.
+  8. Initialize crash reporting + analytics; mount AppUpdateModal; add tests.
+ADMIN (B):
+  1. Replace Dashboard + Flagged mocks with real endpoints.
+  2. Implement real Delete User API call.
+  3. Finish Analytics charts, Seasons UI, Wallets payout controls.
+  4. Implement admin Notifications send + Leaderboard admin + User detail page.
+  5. Remove hardcoded credentials; expand test coverage.
+
+================================================================================
+14. COMPLETION %
+================================================================================
+Weighted by feature scope and backend-integration depth (audit-based estimate):
+
+  ADMIN CONSOLE (B) ................................... ~72% complete
+    Auth ..................... 100%   Games ........... 100%
+    Users .................... 90% (delete stub)  Tournaments .... 100%
+    Stages ................... 100%  Dashboard ....... 40% (mock)
+    Flagged .................. 45% (mock)  Analytics ....... 55%
+    Seasons .................. 50%   Wallets ......... 45%
+    Notifications ............ 15%   Leaderboard ..... 0%   User detail .. 0%
+
+  PLAYER APP (A) ..................................... ~38% complete
+    Navigation/Shell ......... 100%  Dark mode ....... 100%
+    OTP Auth ................. 90% (Google/onboarding missing)
+    Home ..................... 55% (grid real, session stubbed)
+    Profile .................. 45%   Support ......... 90%
+    Wallet ................... 20%   Tournament ...... 10%
+    Leaderboard .............. 5%    Notifications ... 25%
+    Referral ................. 20%   Free Play ....... 25%   Settings .. 25%
+    Game launcher ............ 60% (secure shell, stub session)
+
+  OVERALL PLATFORM FRONTEND ......................... ~52% complete
+  (admin near-ready for its wired modules; player app is a UI shell needing
+  end-to-end backend integration).
+
+================================================================================
+15. FINAL VERDICT
+================================================================================
+  NOT CERTIFIED FOR PRODUCTION (as a whole).
+
+  * ADMIN CONSOLE (B): CONDITIONALLY CERTIFIABLE. Its Auth/Games/Users/Tournaments/
+    Stages modules are production-grade. Blockers before full sign-off: remove
+    hardcoded credentials, replace Dashboard + Flagged mocks with real APIs, and
+    implement the real Delete User call. Analytics/Seasons/Wallets/Notifications/
+    Leaderboard/User-detail remain to be finished but are non-blocking for the
+    core operational console.
+
+  * PLAYER APP (A): NOT CERTIFIED. It is an excellent, well-architected shell, but
+    the commerce- and engagement-critical surfaces (wallet, tournaments,
+    leaderboards, notifications, referrals) and real game-session establishment are
+    not connected to the backend (which already exposes the needed endpoints).
+    Significant integration work remains before player-facing release.
+
+  * PLATFORM WEB FRONTEND: DOES NOT EXIST. The only web artifact (zubaco-web-lobby)
+    is a self-described throwaway dev launcher slated for deletion. If a production
+    web player experience is in scope, it is greenfield work.
+
+  No code was modified during this audit. See PLATFORM_FRONTEND_REMAINING_WORK.txt
+  for the prioritized, itemized remediation backlog.
+================================================================================

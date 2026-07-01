@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "ZUBACO-games-base",
   "version": "1.0.0",
   "private": true,
@@ -48,6 +48,7 @@
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^14.5.2",
     "@types/howler": "^2.2.12",

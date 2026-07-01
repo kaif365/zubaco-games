@@ -52,7 +52,6 @@ import { useValidate } from '@/features/sequence-recall/hooks/useValidate';
 import { getApiErrorMessage } from '@/lib/api/getApiErrorMessage';
 import { sendReadySignal } from '@/lib/embed/messaging';
 import { cn } from '@/lib/utils';
-import { fetchDevSession } from '@/services/authService'; // TODO(temp): 409 dev-session refresh
 import { ApiRequestError } from '@/types/api.types';
 import type {
   GameOverReason,
@@ -1427,9 +1426,17 @@ export function SequenceRecallGameShell() {
         startDelayTimerRef.current = null;
       }, ROUND_INTIAL_START_DELAY_MS);
     } catch (err: unknown) {
-      // TODO(temp): 409 dev-session refresh — stage already completed, refresh session and retry
-      if (!isRetry && err instanceof ApiRequestError && err.statusCode === 409) {
+      // Development-only recovery: a 409 means the local mock stage is already
+      // completed — mint a fresh dev session and retry. The dynamic import keeps
+      // the mock-user path out of production builds, so this never runs in prod.
+      if (
+        import.meta.env.DEV &&
+        !isRetry &&
+        err instanceof ApiRequestError &&
+        err.statusCode === 409
+      ) {
         try {
+          const { fetchDevSession } = await import('@/services/authService');
           const sessionData = await fetchDevSession(appConfig.socket.stageId);
           await storage.setSecure(STORAGE_KEYS.AUTH_TOKEN, sessionData.token);
           await handleStart(true);
@@ -1438,7 +1445,6 @@ export function SequenceRecallGameShell() {
           // fall through to show error if retry also fails
         }
       }
-      // end TODO(temp)
       showApiError({
         title: t('errors.startFailed'),
         description: getApiErrorMessage(err, t('game.toast.somethingWrong')),

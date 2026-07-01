@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -6,58 +6,101 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api, AppNotification, NotificationsPage } from '../../services/api';
 
-interface Notification {
-  id: string;
-  icon: string;
-  title: string;
-  body: string;
-  timeAgo: string;
-  read: boolean;
+const TYPE_ICONS: Record<string, string> = {
+  STAGE_OPEN: '🏆',
+  STAGE_CLOSING: '⏳',
+  ELIMINATION: '❌',
+  PRIZE_WON: '💰',
+  FRIEND_REQUEST: '👥',
+  CHALLENGE: '⚔️',
+  SYSTEM: '🔔',
+  PROMOTION: '🎁',
+};
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  if (Number.isNaN(diff)) return '';
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days > 1 ? 's' : ''} ago`;
+  return new Date(dateStr).toLocaleDateString();
 }
 
-// TODO: Replace with API call using @tanstack/react-query
-const PLACEHOLDER_NOTIFICATIONS: Notification[] = [
-  { id: '1', icon: '🏆', title: 'Tournament Starting', body: 'The Speed Challenge starts in 10 minutes!', timeAgo: '5 min ago', read: false },
-  { id: '2', icon: '💰', title: 'Winnings Credited', body: '₹50 has been added to your wallet.', timeAgo: '2 hours ago', read: false },
-  { id: '3', icon: '👥', title: 'New Referral', body: 'Your friend Arjun just joined Zubaco!', timeAgo: '5 hours ago', read: true },
-  { id: '4', icon: '🎮', title: 'New Game Available', body: 'Try the new Logic Reflector game now.', timeAgo: '1 day ago', read: true },
-  { id: '5', icon: '⚡', title: 'Energy Refilled', body: 'Your energy is fully restored. Play now!', timeAgo: '2 days ago', read: true },
-];
-
 export const NotificationsScreen: React.FC = () => {
-  const [notifications, setNotifications] = useState<Notification[]>(PLACEHOLDER_NOTIFICATIONS);
-  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    // TODO: Refetch notifications from API
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+  const notificationsQuery = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => api.getNotifications(1),
+  });
 
-  const markAsRead = (id: string) => {
-    // TODO: Call API to mark notification as read
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => api.markNotificationRead(id),
+    // Optimistically flip the notification to read so the change persists visually
+    // immediately; the invalidate on settle reconciles with the backend.
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: ['notifications'] });
+      const previous = queryClient.getQueryData<NotificationsPage>(['notifications']);
+      if (previous) {
+        queryClient.setQueryData<NotificationsPage>(['notifications'], {
+          ...previous,
+          notifications: previous.notifications.map((n) =>
+            n.id === id ? { ...n, read: true } : n,
+          ),
+          unread_count: Math.max(0, previous.unread_count - 1),
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['notifications'], context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
+  const markAsRead = (item: AppNotification) => {
+    if (!item.read) markReadMutation.mutate(item.id);
   };
 
-  const renderNotification = ({ item }: { item: Notification }) => (
+  const notifications = notificationsQuery.data?.notifications ?? [];
+
+  const renderNotification = ({ item }: { item: AppNotification }) => (
     <TouchableOpacity
       style={[styles.notificationRow, !item.read && styles.unread]}
-      onPress={() => markAsRead(item.id)}
+      onPress={() => markAsRead(item)}
       activeOpacity={0.7}
     >
-      <Text style={styles.icon}>{item.icon}</Text>
+      <Text style={styles.icon}>{TYPE_ICONS[item.type] || '🔔'}</Text>
       <View style={styles.content}>
         <Text style={styles.notifTitle}>{item.title}</Text>
         <Text style={styles.body}>{item.body}</Text>
-        <Text style={styles.timeAgo}>{item.timeAgo}</Text>
+        <Text style={styles.timeAgo}>{timeAgo(item.created_at)}</Text>
       </View>
       {!item.read && <View style={styles.unreadDot} />}
     </TouchableOpacity>
   );
+
+  if (notificationsQuery.isLoading) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Notifications</Text>
+        <ActivityIndicator color="#6C3CE1" style={styles.loader} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -70,14 +113,16 @@ export const NotificationsScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
+            refreshing={notificationsQuery.isFetching}
+            onRefresh={() => notificationsQuery.refetch()}
             tintColor="#6C3CE1"
           />
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>No notifications yet</Text>
+            <Text style={styles.emptyText}>
+              {notificationsQuery.error ? 'Could not load notifications.' : 'No notifications yet'}
+            </Text>
           </View>
         }
       />
@@ -147,5 +192,8 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#6B7280',
     fontSize: 15,
+  },
+  loader: {
+    marginTop: 40,
   },
 });

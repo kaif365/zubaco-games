@@ -58,7 +58,7 @@ function getWeekDays(): { date: Date; dateStr: string; label: string }[] {
 }
 
 export function DailyChallenge({ onBack, onStartDaily }: DailyChallengeProps) {
-  const [daily, setDaily] = useState<DailyState>(loadDaily);
+  const [daily] = useState<DailyState>(loadDaily);
   const today = getDateStr();
   const isCompletedToday = daily.completedDays.includes(today);
   const weekDays = useMemo(getWeekDays, []);

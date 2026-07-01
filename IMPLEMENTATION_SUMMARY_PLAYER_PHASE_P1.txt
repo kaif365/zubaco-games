@@ -1,0 +1,323 @@
+================================================================================
+IMPLEMENTATION SUMMARY — PLAYER MOBILE APP, PHASE P1
+(WALLET + NOTIFICATIONS + REFERRAL + FREE PLAY)
+================================================================================
+Repo:      c:\zubaco-games\zubaco-mobile  (React Native 0.76.0 / React 18.3.1)
+Backend:   c:\zubaco-games\zubaco-platform (NestJS, /api/v1) — UNCHANGED
+Mode:      IMPLEMENTATION. No API breaking changes. No architecture redesign.
+Date:      Phase P1
+
+--------------------------------------------------------------------------------
+1. OBJECTIVE
+--------------------------------------------------------------------------------
+Replace ALL placeholder / mock implementations in four player-facing screens of
+the zubaco-mobile app with real backend integration, reusing the existing API
+client, @tanstack/react-query, AuthContext, navigation and theme:
+  - WalletScreen         (balance, transactions, deposit, withdraw, KYC)
+  - NotificationsScreen  (list, mark-as-read persistence)
+  - ReferralScreen       (referral code, share, apply code)
+  - FreePlayScreen       (real energy, real progress, REAL backend session ->
+                          WebView with REAL sessionId + REAL session token)
+No new backend, game or infrastructure changes. Build must remain green.
+
+--------------------------------------------------------------------------------
+2. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+All four screens were rewired from hardcoded/mock data to live backend calls
+verified against the actual NestJS controllers and Prisma models. The API client
+was extended (type-safe, additive only) with the endpoints that were missing on
+the client (two-step withdrawal confirm, deposit order/verify, energy). A static
+game catalog constant replaced the fake game list, and Free Play now creates a
+real /free-play/start session and hands the REAL session_id and the user's REAL
+access token to the game WebView (no placeholders remain). On game completion the
+app submits the authoritative result to /free-play/submit.
+
+STATUS CAVEAT (honest): the compile/lint verification could NOT be executed
+because the local C: drive is 100% full (0 bytes free), which makes
+`npm install` fail with ENOSPC and therefore `tsc`/`eslint` cannot run. The
+in-editor TypeScript language service reported NO errors on every modified file
+(best-available static check). See sections 12, 17, 18 and 19. This phase is
+therefore reported as CODE-COMPLETE with BUILD VERIFICATION BLOCKED, not fully
+COMPLETE.
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+  src/services/api.ts
+      - Added exported response interfaces (WalletData, WalletTransaction,
+        TransactionType, TransactionsPage, WithdrawalInit, WithdrawalResult,
+        DepositOrder, AppNotification, NotificationsPage, EnergyData,
+        GameProgressData, AllProgress, StartLevelResult).
+      - Typed existing methods: getWallet, getTransactions, getNotifications,
+        markNotificationRead, applyReferralCode, getAllProgress, getGameProgress,
+        startLevel.
+      - Added methods (additive, non-breaking): confirmWithdrawal,
+        createDepositOrder, verifyDeposit, getEnergy.
+  src/screens/main/WalletScreen.tsx      (full rewrite of logic; styles extended)
+  src/screens/main/NotificationsScreen.tsx (full rewrite of logic)
+  src/screens/main/ReferralScreen.tsx    (full rewrite of logic + styles)
+  src/screens/main/FreePlayScreen.tsx    (full rewrite of logic + 2 styles)
+  src/screens/game/GameScreen.tsx        (submit free-play result on completion)
+  src/navigation/RootNavigator.tsx       (Game route params extended, optional)
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+  src/constants/games.ts
+      Static product catalog of the 19 Free Play games (1:1 with the backend
+      GameType enum): { gameType, name, icon, devPort }. Helpers gameSlug() and
+      resolveGameUrl() resolve the playable URL (localhost:<port> in dev,
+      https://game.zubaco.com/<slug> in prod — matches the GameScreen WebView
+      origin allowlist).
+
+--------------------------------------------------------------------------------
+5. FILES REMOVED
+--------------------------------------------------------------------------------
+  None. (A partial node_modules created by the failed `npm install` was deleted
+  as cleanup — it was install output, not source, and left the tree exactly as
+  before the install attempt.)
+
+--------------------------------------------------------------------------------
+6. WALLET INTEGRATION
+--------------------------------------------------------------------------------
+Backend verified: WalletController + WalletService + KycService.
+  - Balance / bonus / KYC: useQuery(['wallet']) -> GET /wallet returns the Wallet
+    row { balance, bonus_balance, kyc_verified, currency, ... }. balance and
+    bonus_balance are Prisma Decimals (JSON strings) and are Number()-coerced.
+    KYC status is read from the authoritative wallet.kyc_verified (no hardcode);
+    the KYC banner and the Withdraw button's disabled state are driven by it.
+  - Transactions: useQuery(['wallet','transactions']) -> GET /wallet/transactions
+    returns { transactions, total, page, totalPages }. Rendered with a
+    type->label map, credit/debit direction derived from TransactionType, real
+    amounts, and a relative "time ago" derived from created_at.
+  - Pull-to-refresh (RefreshControl) refetches wallet + transactions.
+  - Loading (ActivityIndicator), empty ("No transactions yet") and error states
+    ("Could not load ...") are all handled.
+  - WITHDRAW (two-step OTP flow, exactly as the backend requires):
+      Step 1  POST /wallet/withdraw {amount}     -> { withdrawal_id, message } (OTP sent)
+      Step 2  POST /wallet/withdraw/confirm {withdrawal_id, otp}
+                                                  -> { new_balance, net_payout, tds_deducted, status }
+      Implemented as a modal: amount entry -> "Send OTP" -> OTP entry -> "Confirm".
+      On success the wallet cache is invalidated. Backend validation messages
+      (min/max, daily limits, KYC required, insufficient balance) surface to the
+      user via the thrown Error message (no client-side hardcoded limits).
+  - DEPOSIT:
+      POST /wallet/deposit/create-order {amount} -> { order_id, amount, currency, key_id }
+      then POST /wallet/deposit/verify {order_id, payment_id, signature}.
+      The full JS integration is wired: amount modal -> create order -> (Razorpay
+      checkout) -> verify -> invalidate wallet. The native capture step uses the
+      react-native-razorpay SDK, loaded via an optional lazy require so the app
+      still compiles/runs when the native module is absent; when absent the
+      server-side (idempotent) order is created and the user is told to complete
+      payment. See section 19 for the one remaining dependency.
+
+--------------------------------------------------------------------------------
+7. NOTIFICATIONS INTEGRATION
+--------------------------------------------------------------------------------
+Backend verified: NotificationController + NotificationService + Prisma
+Notification model.
+  - List: useQuery(['notifications']) -> GET /notifications returns
+    { notifications, total, unread_count, page }. The Notification row has no
+    icon/timeAgo, so the UI derives an icon from NotificationType (STAGE_OPEN,
+    PRIZE_WON, FRIEND_REQUEST, CHALLENGE, SYSTEM, PROMOTION, ...) and a relative
+    time from created_at.
+  - Mark-as-read PERSISTS: useMutation -> POST /notifications/:id/read with an
+    OPTIMISTIC cache update (onMutate flips read=true and decrements
+    unread_count) and onSettled invalidation so the read state is reconciled with
+    the backend and survives refetch/return. onError rolls back.
+  - Real pull-to-refresh (RefreshControl -> refetch), loading and error/empty
+    states. The setTimeout mock and local-only useState list were removed.
+
+--------------------------------------------------------------------------------
+8. REFERRAL INTEGRATION
+--------------------------------------------------------------------------------
+Backend verified: SocialController + SocialService.
+  - Referral code: useQuery(['referralCode']) -> GET /social/referral/code
+    returns { code } (server-generated ZUB + first-6-of-userId). Loading/error
+    states handled.
+  - Share WORKS: React Native Share.share() sends the real code + join link.
+  - Apply a code: input + useMutation -> POST /social/referral/apply {code}
+    returns { message }; on success the wallet cache is invalidated because the
+    backend credits a referral bonus to both users' wallets.
+  - All mock removed (hardcoded 'ZUBACO-AK2026', fake counts/earnings, and
+    PLACEHOLDER_REFERRALS). An honest info card explains that referral bonuses
+    appear in Wallet transactions. See section 19 re: referrer-facing stats.
+
+--------------------------------------------------------------------------------
+9. FREE PLAY INTEGRATION
+--------------------------------------------------------------------------------
+Backend verified: FreePlayController + FreePlayService + EnergyService.
+  - Energy: useQuery(['energy']) -> GET /free-play/energy returns
+    { current_lives, max_lives, bonus_lives, total_available, ... }. The badge
+    shows total_available/max_lives (no hardcoded 5/5).
+  - Progress: useQuery(['progress']) -> GET /free-play/progress returns a map
+    keyed by GameType with { current_level, highest_level, best_score, ... }.
+    Each card's "Best" is the real best_score; the level to start is the real
+    current_level.
+  - Start a REAL session: on tap, useMutation calls
+    POST /free-play/start {game_type, level} -> { session_id, server_seed, config }
+    (this consumes a life server-side) AND reads the user's access token from
+    SecureStorage in parallel, then navigates to the Game route with:
+        sessionId = session.session_id   (REAL backend session id)
+        token     = user access token    (REAL auth token; NOT 'placeholder-token')
+        gameUrl   = resolveGameUrl(game)  (real per-game URL, allowlist-compatible)
+        gameType, level, mode='FREE_PLAY'
+    energy is refetched afterwards. A "Starting session…" indicator is shown.
+  - PLACEHOLDER_GAMES, hardcoded energy, `session-${gameId}` and
+    'placeholder-token' were all removed.
+  - Result submission: GameScreen, on GAME_COMPLETED with mode='FREE_PLAY',
+    calls POST /free-play/submit {session_id, score, duration_ms} before
+    navigating back (backward compatible — HomeScreen, which also uses the Game
+    route, passes no mode and is unaffected).
+
+--------------------------------------------------------------------------------
+10. API ENDPOINTS CONNECTED (all under /api/v1)
+--------------------------------------------------------------------------------
+  GET  /wallet                                (getWallet)
+  GET  /wallet/transactions                   (getTransactions)
+  POST /wallet/withdraw                        (requestWithdrawal — initiate/OTP)
+  POST /wallet/withdraw/confirm                (confirmWithdrawal — NEW)
+  POST /wallet/deposit/create-order            (createDepositOrder — NEW)
+  POST /wallet/deposit/verify                  (verifyDeposit — NEW)
+  GET  /notifications                          (getNotifications)
+  POST /notifications/:id/read                 (markNotificationRead)
+  GET  /social/referral/code                   (getReferralCode)
+  POST /social/referral/apply                  (applyReferralCode)
+  GET  /free-play/energy                       (getEnergy — NEW)
+  GET  /free-play/progress                     (getAllProgress)
+  POST /free-play/start                        (startLevel)
+  POST /free-play/submit                       (submitFreePlayResult)
+
+--------------------------------------------------------------------------------
+11. PLACEHOLDER DATA REMOVED
+--------------------------------------------------------------------------------
+  Wallet:        realBalance=150, bonusBalance=45, kycVerified=false hardcodes;
+                 PLACEHOLDER_TRANSACTIONS[5]; no-op Add Money / Withdraw buttons.
+  Notifications: PLACEHOLDER_NOTIFICATIONS[5]; useState local list; setTimeout
+                 refresh mock; local-only markAsRead.
+  Referral:      'ZUBACO-AK2026'; totalReferrals=3; totalEarnings=75;
+                 PLACEHOLDER_REFERRALS[3]; empty handleShare.
+  Free Play:     PLACEHOLDER_GAMES[6]; energy=5/maxEnergy=5; sessionId
+                 `session-${gameId}`; token 'placeholder-token';
+                 URL games.zubaco.com/<id> (which failed the WebView allowlist).
+  All associated "// TODO: ... from API" comments were removed.
+
+--------------------------------------------------------------------------------
+12. RUNTIME VERIFICATION
+--------------------------------------------------------------------------------
+  In-editor TypeScript diagnostics (language service) on all 8 modified/created
+  files: NO ERRORS reported.
+  Full `tsc --noEmit` and `eslint .`: NOT EXECUTED — blocked by a full disk
+  (see section 17/18). A live end-to-end run against the backend was not
+  performed in this environment.
+
+--------------------------------------------------------------------------------
+13. SESSION FLOW VERIFICATION (Free Play -> Game -> Submit)
+--------------------------------------------------------------------------------
+  [x] Free Play calls the real /free-play/start endpoint (consumes a life).
+  [x] WebView receives REAL sessionId (session.session_id).
+  [x] WebView receives REAL token (user access token from Keychain), NOT a
+      placeholder.
+  [x] No 'placeholder-token' / 'session-*' values remain.
+  [x] On GAME_COMPLETED the app posts the score/duration to /free-play/submit.
+  Note (cross-layer): the standalone games each run their own backend and expect
+  their own per-game HS256 JWT (see zubaco-web-lobby dev harness). Minting a
+  game-scoped token is a Games/Infra concern that is explicitly out of scope for
+  this player-app phase and was NOT modified. The app now passes the real
+  authenticated session token + real backend session id; see section 19.
+
+--------------------------------------------------------------------------------
+14. REACT QUERY INTEGRATION
+--------------------------------------------------------------------------------
+  Query keys: ['wallet'], ['wallet','transactions'], ['notifications'],
+  ['referralCode'], ['energy'], ['progress'] (['progress'] key matches the one
+  already used by HomeScreen, so the cache is shared).
+  Mutations: deposit, withdraw-initiate, withdraw-confirm, mark-notification-read
+  (optimistic + rollback + invalidate), apply-referral-code (invalidates wallet),
+  start-level. No new QueryClient created — the app-level provider is reused.
+
+--------------------------------------------------------------------------------
+15. SECURITY IMPACT
+--------------------------------------------------------------------------------
+  - No new secrets or tokens are hardcoded. The game token is the user's existing
+    access token read from Keychain (SecureStorage), not embedded in source.
+  - Withdrawals remain protected by the backend's server-side OTP two-step flow,
+    KYC gate and rate limits; the client only relays them.
+  - Deposit verification (signature/amount) stays server-side; the client never
+    computes trust decisions.
+  - The GameScreen WebView origin allowlist (game.zubaco.com / localhost) is
+    unchanged; the new game URLs are allowlist-compatible.
+  - No new dependency was added to package.json (the optional Razorpay require is
+    guarded and degrades gracefully); no OWASP Top 10 regressions introduced.
+
+--------------------------------------------------------------------------------
+16. PERFORMANCE IMPACT
+--------------------------------------------------------------------------------
+  - Screens now issue network requests via React Query with the app's existing
+    caching (staleTime 30s, retry 2). Negligible added overhead; lists reuse the
+    existing FlatList virtualization.
+  - startLevel + token read run in parallel (Promise.all).
+  - Optimistic notification read avoids an extra round-trip before UI update.
+
+--------------------------------------------------------------------------------
+17. BUILD RESULT
+--------------------------------------------------------------------------------
+  BLOCKED / NOT VERIFIED.
+  `npm install` fails with ENOSPC: "no space left on device". The C: drive has
+  0 bytes free (verified: Get-PSDrive C -> Free = 0). Without node_modules,
+  `tsc --noEmit` and `eslint .` cannot run. The partial install was cleaned up
+  (~78 MB free afterward — still far below what a React Native install needs).
+  Freeing space would require deleting user files, which was NOT done without
+  authorization. The in-editor TypeScript checker (which is the best signal
+  available here) reports no errors on the changed files.
+
+--------------------------------------------------------------------------------
+18. TESTS EXECUTED
+--------------------------------------------------------------------------------
+  - `npm test` (jest): NOT EXECUTED (no node_modules — disk full).
+  - `tsc --noEmit`:     NOT EXECUTED (blocked as above).
+  - `eslint .`:         NOT EXECUTED (blocked as above).
+  - IDE TypeScript diagnostics: PASS (no errors) on all 8 files.
+  - Android build:      NOT RUN (no emulator/device available; also disk full).
+
+--------------------------------------------------------------------------------
+19. REMAINING PLAYER APP ITEMS (honest, nothing hidden)
+--------------------------------------------------------------------------------
+  A) BUILD VERIFICATION (environment blocker): run `npm install` then
+     `tsc --noEmit`, `eslint .`, `npm test` once the C: drive has free space.
+     This is the only thing preventing a fully-green certification of this phase.
+  B) DEPOSIT native capture: install `react-native-razorpay` (a single client
+     dependency). The full JS flow (order -> checkout -> verify) is already wired
+     behind an optional require; without the native module the checkout step is
+     skipped and the user is told to complete payment. No backend change needed.
+  C) REFERRAL stats/history: the backend exposes /social/referral/code and
+     /social/referral/apply but NO referrer-facing endpoint for "number of
+     referrals / total earned / list of referred friends". Those UI elements were
+     therefore removed (not faked). Showing them would require a new backend
+     endpoint (out of scope: backend is DO-NOT-TOUCH).
+  D) FREE PLAY game token exchange: games run their own backends and validate a
+     per-game JWT. The platform's /free-play/start does not mint such a token.
+     The app currently passes the user's platform access token + real session id.
+     A production game-token exchange is a Games/Infra concern (DO-NOT-TOUCH).
+  E) Transactions/notifications pagination: currently page 1 with pull-to-refresh.
+     Infinite scroll can be added later (endpoints already support ?page/limit).
+  F) KYC document submission UI: the app reads kyc_verified and gates withdrawals;
+     a document-upload flow (POST /wallet/kyc/submit) is not part of this phase.
+
+--------------------------------------------------------------------------------
+20. FINAL STATUS
+--------------------------------------------------------------------------------
+  CODE INTEGRATION: COMPLETE for all four screens + Free Play session/submit flow.
+      [x] Wallet uses real backend            [x] Transactions use backend
+      [x] Deposit flow implemented (JS wired)  [x] Withdraw flow implemented (OTP)
+      [x] Notifications use backend            [x] Read status persists
+      [x] Referral uses backend                [x] Share works
+      [x] Free Play starts real sessions       [x] WebView gets REAL sessionId
+      [x] WebView gets REAL session token      [x] No placeholder session values
+  BUILD / TEST VERIFICATION: BLOCKED by a full local disk (0 bytes free) — see
+  sections 17-19. This phase is NOT marked fully COMPLETE because the "build must
+  remain green" gate could not be independently verified in this environment.
+  No API breaking changes. No backend/game/infra/architecture changes. DO-NOT-
+  TOUCH areas untouched (HomeScreen remains backward compatible with the extended,
+  optional Game route params).
+================================================================================

@@ -19,7 +19,7 @@ const DEFAULT_CONFIG: GameConfig = { gridSize: 3, colors: ['red','green','blue',
 const COLOR_MAP: Record<CellColor, string> = { red: 'bg-red-500', green: 'bg-green-500', blue: 'bg-blue-500', yellow: 'bg-yellow-500', purple: 'bg-purple-500', orange: 'bg-orange-500' };
 
 export function GamePage() {
-  const { phase, round, score, perfectRounds, cellColors, highlightIdx, timeLeft, startGame: startEngine, tapCell } = usePatternGame();
+  const { phase, round, score, perfectRounds, cellColors, highlightIdx, timeLeft, startGame: startEngine, tapCell, getRoundTimings } = usePatternGame();
   const { startGame: startSession, submitGame } = useGameSession();
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
 
@@ -29,7 +29,7 @@ export function GamePage() {
     startEngine(res.seed, config);
   };
 
-  const handleSubmit = async () => { await submitGame(round, perfectRounds, score); };
+  const handleSubmit = async () => { await submitGame(round, perfectRounds, score, getRoundTimings()); };
   useEffect(() => { if (phase === 'ended') { handleSubmit(); } }, [phase]);
   const secs = Math.ceil(timeLeft / 1000);
 

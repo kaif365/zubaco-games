@@ -52,7 +52,7 @@ function saveLevels(levels: LevelData[]) {
 }
 
 export function LevelSelector({ onBack, onSelectLevel }: LevelSelectorProps) {
-  const [levels, setLevels] = useState<LevelData[]>(loadLevels);
+  const [levels] = useState<LevelData[]>(loadLevels);
 
   useEffect(() => {
     saveLevels(levels);

@@ -28,7 +28,18 @@ export type RootStackParamList = {
   Login: undefined;
   Otp: { phone: string };
   MainTabs: undefined;
-  Game: { gameUrl: string; sessionId: string; token: string };
+  Game: {
+    gameUrl: string;
+    sessionId: string;
+    token: string;
+    gameType?: string;
+    level?: number;
+    mode?: 'FREE_PLAY' | 'TOURNAMENT' | 'CHALLENGE';
+    seasonId?: string;
+    stageNumber?: number;
+    gameOrder?: number;
+    challengeId?: string;
+  };
   FreePlay: undefined;
   Wallet: undefined;
   Notifications: undefined;

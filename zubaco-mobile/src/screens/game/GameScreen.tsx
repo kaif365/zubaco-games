@@ -3,20 +3,34 @@ import { View, StyleSheet, BackHandler, Alert } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useQueryClient } from '@tanstack/react-query';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { api } from '../../services/api';
 
 type GameRoute = {
   key: string;
   name: 'Game';
-  params: { gameUrl: string; sessionId: string; token: string };
+  params: {
+    gameUrl: string;
+    sessionId: string;
+    token: string;
+    gameType?: string;
+    level?: number;
+    mode?: 'FREE_PLAY' | 'TOURNAMENT' | 'CHALLENGE';
+    seasonId?: string;
+    stageNumber?: number;
+    gameOrder?: number;
+    challengeId?: string;
+  };
 };
 
 export function GameScreen() {
   const route = useRoute<GameRoute>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const queryClient = useQueryClient();
   const webViewRef = useRef<WebView>(null);
 
-  const { gameUrl, sessionId, token } = route.params;
+  const { gameUrl, sessionId, token, mode, gameType, seasonId, challengeId } = route.params;
 
   // Inject session data into WebView
   const injectedJavaScript = `
@@ -37,10 +51,48 @@ export function GameScreen() {
       const data = JSON.parse(event.nativeEvent.data);
 
       switch (data.type) {
-        case 'GAME_COMPLETED':
-          // Game finished - navigate back with result
-          navigation.goBack();
+        case 'GAME_COMPLETED': {
+          const score = Number(data.score) || 0;
+          const durationMs = Number(data.duration_ms ?? data.durationMs ?? data.duration) || 0;
+
+          // Submit the authoritative result to the correct backend path based on
+          // the mode this session was launched in, then refresh affected caches.
+          let submit: Promise<unknown>;
+          if (mode === 'TOURNAMENT' && sessionId) {
+            submit = api.submitTournamentResult(sessionId, score, durationMs).then(() => {
+              queryClient.invalidateQueries({ queryKey: ['seasons'] });
+              if (seasonId) {
+                queryClient.invalidateQueries({ queryKey: ['seasonStatus', seasonId] });
+              }
+              if (gameType) {
+                queryClient.invalidateQueries({ queryKey: ['leaderboard', gameType] });
+                queryClient.invalidateQueries({ queryKey: ['myRank', gameType] });
+              }
+            });
+          } else if (mode === 'CHALLENGE' && sessionId && challengeId) {
+            submit = api.submitChallengeScore(challengeId, sessionId, score).then(() => {
+              queryClient.invalidateQueries({ queryKey: ['challenges'] });
+            });
+          } else if (mode === 'FREE_PLAY' && sessionId) {
+            submit = api.submitFreePlayResult(sessionId, score, durationMs).then(() => {
+              queryClient.invalidateQueries({ queryKey: ['progress'] });
+              queryClient.invalidateQueries({ queryKey: ['energy'] });
+              if (gameType) {
+                queryClient.invalidateQueries({ queryKey: ['leaderboard', gameType] });
+                queryClient.invalidateQueries({ queryKey: ['myRank', gameType] });
+              }
+            });
+          } else {
+            submit = Promise.resolve();
+          }
+
+          submit
+            .catch(() => {
+              // Non-fatal: the session may already be finalised server-side.
+            })
+            .finally(() => navigation.goBack());
           break;
+        }
 
         case 'GAME_ERROR':
           Alert.alert('Game Error', data.message || 'Something went wrong');
@@ -62,7 +114,7 @@ export function GameScreen() {
     } catch {
       // Ignore non-JSON messages
     }
-  }, [navigation]);
+  }, [navigation, mode, sessionId, seasonId, challengeId, gameType, queryClient]);
 
   // Handle hardware back button
   useFocusEffect(

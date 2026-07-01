@@ -27,7 +27,7 @@ export function Confetti({ active, duration = 3000 }: Props) {
       id: i,
       x: 50 + (Math.random() - 0.5) * 10,
       y: 50 + (Math.random() - 0.5) * 10,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      color: COLORS[Math.floor(Math.random() * COLORS.length)]!,
       size: 4 + Math.random() * 6,
       angle: Math.random() * 360,
       distance: 80 + Math.random() * 200,

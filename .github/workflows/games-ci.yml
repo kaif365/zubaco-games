@@ -81,8 +81,80 @@ jobs:
             fi
           fi
 
+  e2e-game:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.games != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        game: ${{ fromJson(needs.detect-changes.outputs.games) }}
+
+    # Backend e2e suites boot the full Nest AppModule, which connects to Postgres
+    # and Redis on init. Provide both as throwaway service containers.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: zubaco
+          POSTGRES_PASSWORD: zubaco_test
+          POSTGRES_DB: game_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zubaco"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://zubaco:zubaco_test@localhost:5432/game_test?schema=public
+      JWT_SECRET: test-secret
+      HMAC_SECRET: dev-hmac-secret
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Backend E2E (Postgres + Redis)
+        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        run: |
+          BACKEND=$(ls -d *-backend 2>/dev/null || echo "")
+          if [ -z "$BACKEND" ]; then
+            echo "No backend for ${{ matrix.game }}; skipping e2e."
+            exit 0
+          fi
+          cd $BACKEND
+          # Skip games that do not define an e2e suite.
+          if ! node -e "process.exit(require('./package.json').scripts && require('./package.json').scripts['test:e2e'] ? 0 : 1)"; then
+            echo "No test:e2e script for ${{ matrix.game }}; skipping."
+            exit 0
+          fi
+          npm ci --legacy-peer-deps
+          npx prisma generate
+          # Provision the schema against the throwaway Postgres service container.
+          if ls prisma/schema.prisma >/dev/null 2>&1; then
+            npx prisma db push --accept-data-loss --skip-generate
+          fi
+          npm run test:e2e
+
   deploy-games:
-    needs: [detect-changes, build-game]
+    needs: [detect-changes, build-game, e2e-game]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production

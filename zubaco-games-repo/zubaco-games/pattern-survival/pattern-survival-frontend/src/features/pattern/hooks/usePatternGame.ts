@@ -18,6 +18,10 @@ export function usePatternGame() {
   const configRef = useRef<GameConfig | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const startTimeRef = useRef(0);
+  // Per-round input timestamps (ms). Each completed round contributes one array
+  // of tap times, sent to the backend as `roundTimings` for hesitation analysis.
+  const roundTimingsRef = useRef<number[][]>([]);
+  const currentRoundTapsRef = useRef<number[]>([]);
 
   const showSequence = useCallback((seq: number[], flashMs: number) => {
     setPhase('showing');
@@ -41,6 +45,8 @@ export function usePatternGame() {
     setRound(0);
     setScore(0);
     setPerfectRounds(0);
+    roundTimingsRef.current = [];
+    currentRoundTapsRef.current = [];
     setTimeLeft(config.timeLimitMs);
     startTimeRef.current = Date.now();
 
@@ -59,21 +65,28 @@ export function usePatternGame() {
 
   const tapCell = useCallback((cellIdx: number) => {
     if (phase !== 'input' || !configRef.current) return;
+    const tapTime = Math.round(performance.now());
     const newInput = [...playerInput, cellIdx];
     setPlayerInput(newInput);
 
     const currentStep = newInput.length - 1;
     if (newInput[currentStep] !== sequence[currentStep]) {
-      // Wrong! Game over
+      // Wrong! Game over. Discard this incomplete round's timings.
+      currentRoundTapsRef.current = [];
       clearInterval(timerRef.current);
       setPhase('ended');
       return;
     }
 
+    currentRoundTapsRef.current.push(tapTime);
+
     if (newInput.length === sequence.length) {
       // Completed round
       const config = configRef.current;
       const newRound = round + 1;
+      // Commit this round's tap timings (one entry per completed round).
+      roundTimingsRef.current.push(currentRoundTapsRef.current);
+      currentRoundTapsRef.current = [];
       setRound(newRound);
       setScore((s) => s + config.pointsPerRound);
       setPerfectRounds((p) => p + 1);
@@ -89,5 +102,7 @@ export function usePatternGame() {
 
   useEffect(() => { return () => { clearInterval(timerRef.current); }; }, []);
 
-  return { phase, round, score, perfectRounds, cellColors, highlightIdx, playerInput, sequence, timeLeft, startGame, tapCell };
+  const getRoundTimings = useCallback((): number[][] => roundTimingsRef.current, []);
+
+  return { phase, round, score, perfectRounds, cellColors, highlightIdx, playerInput, sequence, timeLeft, startGame, tapCell, getRoundTimings };
 }

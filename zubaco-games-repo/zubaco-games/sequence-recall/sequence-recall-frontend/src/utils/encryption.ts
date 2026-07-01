@@ -16,6 +16,23 @@ export type EncryptedPayload = {
 const keyCache = new Map<string, CryptoKey>();
 
 /**
+ * Copies bytes into a fresh ArrayBuffer-backed view.
+ *
+ * Web Crypto's BufferSource type (TS 5.7+ lib.dom) rejects a generic
+ * Uint8Array<ArrayBufferLike> because it could be backed by a SharedArrayBuffer.
+ * Copying guarantees a plain ArrayBuffer-backed Uint8Array.
+ *
+ * @param {Uint8Array} bytes - The source bytes.
+ *
+ * @returns {Uint8Array} An ArrayBuffer-backed copy.
+ */
+function toCryptoInput(bytes: Uint8Array) {
+  const copy = new Uint8Array(bytes.length);
+  copy.set(bytes);
+  return copy;
+}
+
+/**
  * Import key from hex.
  *
  * @param {string} hexKey - The hex key.
@@ -30,7 +47,7 @@ export async function importKeyFromHex(hexKey: string): Promise<CryptoKey> {
     throw new Error('Encryption key must be a 64-character hex string (32 bytes)');
   }
 
-  const key = await crypto.subtle.importKey('raw', hexToBytes(hexKey), { name: 'AES-GCM' }, false, [
+  const key = await crypto.subtle.importKey('raw', toCryptoInput(hexToBytes(hexKey)), { name: 'AES-GCM' }, false, [
     'encrypt',
     'decrypt',
   ]);
@@ -54,7 +71,7 @@ export async function encryptPayload(data: unknown, hexKey: string): Promise<Enc
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, tagLength: 128 },
     key,
-    stringToBytes(JSON.stringify(data)),
+    toCryptoInput(stringToBytes(JSON.stringify(data))),
   );
 
   // Web Crypto appends the 16-byte GCM auth tag at the end of the output.
@@ -94,7 +111,7 @@ export async function decryptPayload(payload: unknown, hexKey: string): Promise<
   }
 
   const key = await importKeyFromHex(hexKey);
-  const iv = base64ToBytes(payload.iv);
+  const iv = toCryptoInput(base64ToBytes(payload.iv));
   const ciphertext = base64ToBytes(payload.ciphertext);
   const tag = base64ToBytes(payload.tag);
 

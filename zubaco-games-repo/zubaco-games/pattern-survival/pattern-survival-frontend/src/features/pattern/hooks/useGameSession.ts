@@ -15,9 +15,11 @@ export function useGameSession() {
     } finally { setLoading(false); }
   }, []);
 
-  const submitGame = useCallback(async (roundsReached: number, perfectRounds: number, clientScore: number): Promise<SubmitResponse> => {
+  const submitGame = useCallback(async (roundsReached: number, perfectRounds: number, clientScore: number, roundTimings?: number[][]): Promise<SubmitResponse> => {
     if (!sessionId) throw new Error('No session');
-    const { data } = await httpClient.post<{ data: SubmitResponse }>('/game/submit', { gameSessionId: sessionId, roundsReached, perfectRounds, clientScore });
+    const payload: { gameSessionId: string; roundsReached: number; perfectRounds: number; clientScore: number; roundTimings?: number[][] } = { gameSessionId: sessionId, roundsReached, perfectRounds, clientScore };
+    if (roundTimings && roundTimings.length > 0) payload.roundTimings = roundTimings;
+    const { data } = await httpClient.post<{ data: SubmitResponse }>('/game/submit', payload);
     return data.data;
   }, [sessionId]);
 

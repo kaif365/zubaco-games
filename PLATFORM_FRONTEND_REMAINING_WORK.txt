@@ -1,0 +1,235 @@
+================================================================================
+ZUBACO ENTERPRISE
+PLATFORM FRONTEND - REMAINING WORK
+PHASE 2 (AUDIT-DERIVED BACKLOG - NO CODE CHANGED)
+================================================================================
+Audit date .. July 1, 2026
+Scope ....... zubaco-mobile (player app) + zubaco-admin-panel/frontend (admin)
+Priority key: P0 = blocks production/certification
+              P1 = required for a usable feature
+              P2 = polish / hardening / nice-to-have
+Status key .. NOT IMPLEMENTED | PARTIAL | MOCK | STUB | DORMANT | BROKEN(no-op)
+
+This document lists ONLY remaining work. Completed/wired modules are in
+PLATFORM_FRONTEND_CERTIFICATION.txt (sections 3 and 8).
+
+================================================================================
+PART 1 - PLAYER APP (zubaco-mobile)   [the bulk of remaining work]
+================================================================================
+
+--- WALLET (P0) -----------------------------------------------------------------
+Current: WalletScreen uses hardcoded realBalance 150 / bonusBalance 45,
+         kycVerified:false, PLACEHOLDER transactions. Buttons non-functional.
+Endpoints exist but UNUSED: GET /wallet, GET /wallet/transactions,
+         POST /wallet/withdraw.
+Work:
+  [P0] Wire GET /wallet -> real balances; remove hardcoded values.
+  [P0] Wire GET /wallet/transactions (paginated) -> transaction list.
+  [P0] Implement "Withdraw" flow -> POST /wallet/withdraw with amount validation,
+       KYC gating from real user state, success/error handling.
+  [P1] Implement "Add Money"/deposit flow (no endpoint in api.ts today -> needs
+       backend deposit/payment endpoint + UI).
+  [P1] Real KYC status source + KYC start flow.
+  Files: src/screens/main/WalletScreen.tsx (TODOs at ~L10, L20), src/services/api.ts.
+
+--- TOURNAMENTS (P0) ------------------------------------------------------------
+Current: TournamentScreen is an empty skeleton ("Tournament cards will go here");
+         getActiveSeasons() is fetched but never rendered.
+Endpoints UNUSED: GET /tournament/seasons, POST .../register, GET .../status,
+         POST .../stages/:n/games/:o/start, POST /tournament/submit.
+Work:
+  [P0] Render active seasons list from getActiveSeasons().
+  [P0] Season detail + Register (POST .../register) + status (GET .../status).
+  [P0] Start tournament game (POST .../start) -> real session -> WebView.
+  [P0] Submit tournament result (POST /tournament/submit).
+  [P1] Stage/bracket progression UI, prize/leaderboard display.
+  Files: src/screens/main/TournamentScreen.tsx, src/screens/game/GameScreen.tsx.
+
+--- LEADERBOARD (P0) ------------------------------------------------------------
+Current: LeaderboardScreen has only a title/subtitle; no queries.
+Endpoints UNUSED: GET /leaderboard/game/:type, .../me, .../friends.
+Work:
+  [P0] Build ranking list UI (global/per-game) + my-rank highlight.
+  [P1] Friends leaderboard tab (depends on Social wiring).
+  [P2] Filters (game type, period), pagination/infinite scroll.
+  Files: src/screens/main/LeaderboardScreen.tsx.
+
+--- NOTIFICATIONS (P1) ----------------------------------------------------------
+Current: PLACEHOLDER list; refresh = setTimeout mock; mark-read = local only.
+Endpoints UNUSED: GET /notifications, POST /notifications/:id/read.
+Work:
+  [P1] Wire GET /notifications (paginated) via React Query.
+  [P1] Wire POST /notifications/:id/read on tap.
+  [P1] Register device push token (react-native-push-notification is a dependency
+       but not initialized) + handle inbound push -> deep link.
+  [P2] Unread badge on tab/header.
+  Files: src/screens/main/NotificationsScreen.tsx (TODOs L20/L35/L40).
+
+--- REFERRAL / SOCIAL (P1) ------------------------------------------------------
+Current: hardcoded code "ZUBACO-AK2026", mock referral list/stats; Share no-op.
+Endpoints UNUSED: GET /social/referral/code, POST /social/referral/apply,
+         GET /social/friends, POST /social/friends/request.
+Work:
+  [P1] Wire referral code (GET .../code) + apply (POST .../apply).
+  [P1] Implement Share button via RN Share API.
+  [P2] Friends list + friend requests UI.
+  Files: src/screens/main/ReferralScreen.tsx (TODOs L10/L18/L24).
+
+--- FREE PLAY (P1) --------------------------------------------------------------
+Current: PLACEHOLDER_GAMES, hardcoded energy 5/5, token 'placeholder-token'.
+Endpoints UNUSED: GET /free-play/progress/:type, POST /free-play/start,
+         POST /free-play/submit.
+Work:
+  [P1] Replace PLACEHOLDER_GAMES with catalog + per-game progress.
+  [P1] Real energy/lives from backend.
+  [P0] POST /free-play/start -> real session_id + server_seed + config;
+       pass real token to WebView; POST /free-play/submit on completion.
+  Files: src/screens/main/FreePlayScreen.tsx (TODOs L15/L28/L33), GameScreen.tsx.
+
+--- GAME SESSION ESTABLISHMENT (P0) ---------------------------------------------
+Current: Home and Free Play navigate to GameScreen with sessionId:'pending' and
+         token:'' / 'placeholder-token'. No real, authorized session is created.
+Work:
+  [P0] Before launching the WebView, call the relevant start endpoint
+       (free-play/start or tournament/.../start), obtain session_id + a scoped
+       short-lived token, and inject those into window.__ZUBACO__.
+  [P0] On GAME_COMPLETED, call the matching submit endpoint with score/duration.
+  Files: src/screens/main/HomeScreen.tsx (L48-54), FreePlayScreen.tsx (L37),
+         src/screens/game/GameScreen.tsx.
+
+--- AUTHENTICATION GAPS (P1) ----------------------------------------------------
+Current: OTP send/verify complete. Google Sign-In button is an empty stub;
+         Onboarding is an empty placeholder; refresh-token rotation not wired.
+Endpoints UNUSED: POST /auth/google, POST /auth/refresh.
+Work:
+  [P1] Implement Google Sign-In (google-signin dep present) -> POST /auth/google.
+  [P1] Implement token refresh on 401 using POST /auth/refresh + retry; add
+       session-expiry/auto-logout (today failures are swallowed via `catch {}`).
+  [P2] Implement swipeable Onboarding slides; wire biometric unlock (biometric.ts
+       exists but is never called).
+  Files: src/screens/auth/LoginScreen.tsx (L45 stub), OnboardingScreen.tsx (L5),
+         src/contexts/AuthContext.tsx, src/services/api.ts, biometric.ts.
+
+--- PROFILE & SETTINGS (P1/P2) --------------------------------------------------
+Current: Profile is read-only (from AuthContext); Settings is hardcoded and not
+         persisted; Settings logout handler is a stub.
+Endpoints UNUSED: PATCH /users/me, GET /users/me/stats, GET /users/me/history.
+Work:
+  [P1] Profile edit form -> PATCH /users/me; show stats (getStats) + history.
+  [P1] Settings: source profile from AuthContext; persist toggles (AsyncStorage/
+       backend); wire logout to AuthContext.logout.
+  [P2] Real linked-account management; replace hardcoded app version with
+       device-info; replace Support Terms/Privacy TODO URLs with final URLs.
+  Files: src/screens/main/ProfileScreen.tsx, SettingsScreen.tsx (TODOs L12/L17),
+         SupportScreen.tsx (TODOs L34/L39).
+
+--- OBSERVABILITY / RELIABILITY (P1/P2) -----------------------------------------
+Work:
+  [P1] Call initCrashReporting() in App.tsx (Sentry currently never initialized)
+       and set SENTRY_DSN; capture exceptions.
+  [P1] Integrate analytics (currently a console stub) at key events/screens.
+  [P2] Mount AppUpdateModal (defined but not rendered anywhere).
+  [P2] Add automated tests (0 tests today; jest is configured).
+  Files: App.tsx, src/services/crashReporting.ts, analytics.ts, components/AppUpdateModal.tsx.
+
+--- NAVIGATION CLEANUP (P2) -----------------------------------------------------
+  [P2] Provide entry points for FreePlay/Notifications/Settings (defined in stack
+       but not linked from tabs/headers); consume :code param on Referral deep link;
+       remove or wire the orphaned Onboarding route.
+
+================================================================================
+PART 2 - ADMIN CONSOLE (zubaco-admin-panel/frontend)
+================================================================================
+
+--- SECURITY (P0) ---------------------------------------------------------------
+  [P0] Remove hardcoded dummy credentials (admin@ZUBACO.com / Admin@123) from
+       src/config/auth.ts before production.
+  Files: src/config/auth.ts.
+
+--- DASHBOARD (P0) --------------------------------------------------------------
+Current: MOCK stats + activity (artificial 500ms delay); ChartPlaceholder.
+  [P0] Replace mock endpoints with real API (stats + recent activity).
+  [P1] Implement real charts (integrate a chart lib; remove "Chart coming soon").
+  Files: src/lib/api/endpoints/dashboard.ts (TODOs L7/L13), src/mocks/dashboard.ts,
+         src/features/dashboard/components/ChartPlaceholder.tsx.
+
+--- FLAGGED / ANTI-CHEAT (P0) ---------------------------------------------------
+Current: Entirely MOCK (in-memory store; 8 records). Actions not persisted.
+  [P0] Wire fetch list / fetch by id / update status to real backend endpoints
+       (moderation actions must be persisted + auditable).
+  Files: src/lib/api/endpoints/flagged.ts (TODOs L16/L52/L63), src/mocks/flagged.ts,
+         src/features/flagged/*.
+
+--- USERS (P1) ------------------------------------------------------------------
+Current: List/ban/unban real; DELETE is a UI-only placeholder.
+  [P1] Implement the real Delete User API call (currently
+       "// Placeholder for actual delete call" -> toast only).
+  [P2] Add a User detail page (users/[id]) - absent today (unlike tournaments/stages).
+  Files: src/features/users/components/UsersTable.tsx (L48).
+
+--- ANALYTICS (P1) --------------------------------------------------------------
+Current: overview/user-growth/revenue/game-popularity endpoints wired; chart
+         rendering incomplete.
+  [P1] Complete chart rendering + loading/error/empty states.
+  Files: src/app/(admin)/analytics/page.tsx.
+
+--- SEASONS (P1) ----------------------------------------------------------------
+Current: list/create/open/close endpoints exist; page UI incomplete (loading/
+         submit callbacks not finished).
+  [P1] Finish list + create/edit forms + open/close actions + states.
+  Files: src/app/(admin)/seasons/page.tsx, src/lib/api/endpoints/seasons.ts.
+
+--- WALLETS / PAYOUTS (P1) ------------------------------------------------------
+Current: transactions list only (GET /admin/wallets/transactions).
+  [P1] Add payout/refund/adjustment controls + filters + detail; error/empty states.
+  Files: src/app/(admin)/wallets/page.tsx, src/lib/api/endpoints/wallets.ts.
+
+--- ADMIN NOTIFICATIONS (P1) ----------------------------------------------------
+Current: Compose form present; Send button has NO onClick; no validation; no endpoint.
+  [P1] Implement send handler + validation + backend endpoint wiring.
+  Files: src/app/(admin)/notifications/page.tsx.
+
+--- LEADERBOARD ADMIN (P2) ------------------------------------------------------
+Current: NOT IMPLEMENTED (no route/component).
+  [P2] Add leaderboard admin route + views if required by product.
+
+--- CLEANUP / HARDENING (P2) ----------------------------------------------------
+  [P2] Remove dead mocks (src/mocks/games.ts, src/mocks/users.ts - zero imports).
+  [P2] Resolve game-registry.tsx temp-token TODO ("REMOVE ... ONCE ARROWS GAME
+       SERVER AUTH IS FIXED").
+  [P2] Remove/wire reported unused CreatePoolModal.
+  [P2] Add error UI to Analytics/Seasons/Wallets; a11y labels on icon-only buttons.
+  [P2] Expand test coverage beyond the 10 existing unit tests (add feature/route
+       integration tests, especially auth + CRUD flows).
+
+================================================================================
+PART 3 - CROSS-CUTTING / PLATFORM-LEVEL
+================================================================================
+  [P1] REAL-TIME: neither frontend uses WebSockets/SSE. If live tournament
+       standings, live leaderboards, or live notifications are required, a
+       transport (socket.io/SSE) + client wiring must be added on both apps.
+  [P1] ACCESSIBILITY pass: RN accessibilityLabel/role on all touchables; web
+       aria-* on icon buttons; keyboard + screen-reader testing.
+  [P2] PRODUCTION WEB PLAYER FRONTEND does not exist. zubaco-web-lobby is a
+       throwaway dev launcher (self-labelled TEMPORARY, "should be deleted and
+       replaced"). If a production web player experience is in scope, it is
+       greenfield (framework choice, design-system port, auth, catalog, game
+       embedding).
+  [P2] CONFIG/ENV: confirm production base URLs (player: api.zubaco.com; admin:
+       NEXT_PUBLIC_API_BASE_URL) and that ngrok-only behaviour is dev-scoped.
+
+================================================================================
+PRIORITIZED "DO FIRST" LIST
+================================================================================
+  1. [P0] Admin: remove hardcoded credentials (config/auth.ts).
+  2. [P0] Admin: replace Dashboard + Flagged mocks with real APIs.
+  3. [P0] Player: establish real game sessions (start endpoints + real tokens).
+  4. [P0] Player: wire Wallet (balance/transactions/withdraw).
+  5. [P0] Player: build Tournament + Leaderboard screens.
+  6. [P1] Player: Notifications + push registration; Referral/Free Play wiring;
+          Google Sign-In + token refresh.
+  7. [P1] Admin: real Delete User; finish Analytics/Seasons/Wallets/Notifications.
+  8. [P2] Observability (Sentry/analytics), accessibility, tests, dead-code cleanup.
+
+No code was modified. This is an audit backlog only.
+================================================================================
