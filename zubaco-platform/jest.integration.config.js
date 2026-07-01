@@ -20,6 +20,11 @@ module.exports = {
   transform: {
     '^.+\\.ts$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
   },
+  // ESM-interop: the ESM-only `uuid` v14 cannot be required by Jest's module
+  // runtime. Map it to a CommonJS shim that still returns REAL crypto UUIDs.
+  moduleNameMapper: {
+    '^uuid$': '<rootDir>/test/integration/uuid-cjs-shim.js',
+  },
   testTimeout: 30000,
   maxWorkers: 1, // serialised — the specs share one Redis instance
   clearMocks: true,
