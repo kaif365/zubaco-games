@@ -1,0 +1,300 @@
+================================================================================
+IMPLEMENTATION SUMMARY — TESTING PHASE T1 (BACKEND UNIT TESTS)
+Project: Zubaco Platform (zubaco-platform, NestJS backend)
+Scope:   UNIT TESTS ONLY. No integration tests. No E2E tests. No CI changes.
+Mode:    Implementation. Build kept GREEN. No API/architecture changes.
+================================================================================
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+This phase established an enterprise-grade UNIT test suite for the backend's
+highest-risk business logic: scoring (money-adjacent), tax/compliance money
+math (GST, TDS), age-gating, provably-fair RNG determinism, tournament
+elimination rules, and anti-cheat fraud detection.
+
+Key finding up front (honest): the backend had ZERO pre-existing unit tests AND
+NO test framework installed at all (no jest / ts-jest / @nestjs/testing / test
+script). The task instruction to "reuse the existing testing framework" could
+not be followed literally because none existed. A minimal, standard jest +
+ts-jest toolchain was therefore installed as devDependencies (local, reversible,
+no CI impact) so tests can actually run and be verified.
+
+Result: 7 unit-test suites, 70 tests, ALL PASSING. Production build remains
+GREEN (`npm run build` succeeds; spec files are excluded from the build via the
+existing tsconfig.build.json). No production source file was modified — only
+test files and test-only config were added.
+
+--------------------------------------------------------------------------------
+2. EXISTING UNIT TEST AUDIT
+--------------------------------------------------------------------------------
+Audit performed before implementation:
+
+- Test files present in backend (before): NONE. No *.spec.ts, no *.test.ts
+  anywhere under src/.
+- Test framework installed (before): NONE.
+    jest              -> absent
+    ts-jest           -> absent
+    @nestjs/testing   -> absent
+    @types/jest       -> absent
+    "test" npm script -> absent (only build/start/prisma/lint existed)
+- Jest/vitest config (before): NONE.
+- Broken tests: N/A (no tests existed).
+- Duplicate tests: N/A (no tests existed).
+- Skipped/disabled/meaningless tests: N/A (no tests existed).
+
+Conclusion: there was nothing to remove, de-duplicate, or repair. This phase is
+a from-scratch establishment of the unit test layer, focused strictly on
+business logic (not framework internals, not trivial getters).
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+- package.json
+    Added devDependencies: jest@29, ts-jest@29, @types/jest@29.
+    Added scripts: "test": "jest", "test:watch": "jest --watch".
+    (No existing scripts, dependencies, or config were changed or removed.)
+
+NOTE: No production/source (.ts under src that ships) file was modified. The
+      public API surface and architecture are unchanged.
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+Test configuration (test-only, not shipped, not CI):
+- jest.config.js                 Jest config (ts-jest transform, rootDir=src,
+                                  testRegex .spec.ts, setup file).
+- tsconfig.spec.json             Test compiler options extending base tsconfig
+                                  (ignoreDeprecations "6.0", explicit rootDir,
+                                  isolatedModules, jest/node types) — required
+                                  for TypeScript 6.x under ts-jest.
+- jest.setup.ts                  Sets test-only JWT_ACCESS_SECRET /
+                                  JWT_REFRESH_SECRET / NODE_ENV before module
+                                  load (src/config throws at import otherwise).
+                                  Non-secret placeholder values; no real auth.
+
+Unit test suites (7):
+- src/scoring/scoring.service.spec.ts
+- src/compliance/gst.service.spec.ts
+- src/compliance/tds.service.spec.ts
+- src/compliance/age-verification.service.spec.ts
+- src/rng/deterministic-rng.service.spec.ts
+- src/tournament/elimination.service.spec.ts
+- src/anti-cheat/anti-cheat.service.spec.ts
+
+--------------------------------------------------------------------------------
+5. UNIT TESTS ADDED  (70 tests total)
+--------------------------------------------------------------------------------
+ScoringService — 16 tests (pure, dependency-free)
+  * Missing/null/factless metadata -> unvalidated zero-score fallback.
+  * Score never negative; always integer-rounded (penalty clamping).
+  * Sliding puzzle: 100/round + floor(10 * remaining/total) time bonus;
+    no time data -> no bonus.
+  * Reaction-time anti-exploit floor: <=5s solve -> 0; >5s -> window-time;
+    not-completed -> 0; maze win base (50) added on top.
+  * Spot-the-difference: wrong-click/hint penalties clamp at 0; config-driven
+    base/penalties honoured.
+  * Colour sorting: base + efficiency(<=25) + speed(<=10) capped at 100;
+    incomplete -> 0.
+  * Generic config-driven scorer: correct*pts - wrong*penalty; used as fallback
+    for unknown game types.
+  * maxScore resolution: configured max_score overrides derived max.
+
+GstService — 6 tests (pure money math)
+  * GST-inclusive extraction (128 -> base 100 / GST 28; 100 -> 78.13 / 21.87).
+  * 2-decimal rounding + base+gst reconstitutes total.
+  * Zero fee -> no NaN.
+  * GST-exclusive (100 -> +28 -> 128); rounding of odd values.
+  * Display breakdown fields match the inclusive calculation.
+
+TdsService — 6 tests (Prisma-mocked money math)
+  * 30% of withdrawal deducted when liability exceeds it.
+  * Deduction capped at remaining liability.
+  * TDS already paid this FY subtracted (idempotency across withdrawals).
+  * Net winnings floored at 0 when entry fees exceed winnings.
+  * 2-decimal rounding of TDS and net amount.
+  * TDS summary sums records; valid financial-year string.
+
+AgeVerificationService — 7 tests (Prisma-mocked, boundary-focused)
+  * Under-age rejected (BadRequestException) with NO DB write.
+  * Exactly 18 today (boundary) -> verified; DB updated age_verified=true.
+  * 18th birthday one day away -> rejected (age counted as 17).
+  * Clearly adult -> verified.
+  * ensureAgeVerified gate: verified passes; unverified/absent user throws.
+
+DeterministicRng / DeterministicRngService — 16 tests (pure, provably-fair)
+  * Reproducibility: identical seed -> identical stream; different seed diverges.
+  * uint32 range and float [0,1) invariants.
+  * intBetween inclusive bounds; reaches both endpoints; degenerate max<=min
+    -> returns min.
+  * Deterministic Fisher-Yates shuffle; result is a true permutation.
+  * pick returns an in-array element.
+  * buildSeedMaterial "::" joining and empty-string defaults.
+  * create() reproducibility; nonce change diverges.
+  * fingerprint: stable 32-hex for equal values; differs on tamper.
+
+EliminationService — 6 tests (Prisma-mocked, tournament rules)
+  * Unified pool (post-bucketing): surviveCount = ceil(n*(1-pct)); marks
+    ELIMINATED; closes stage.
+  * Per-bucket (pre-bucketing): eliminates within each cohort separately.
+  * Survivor count rounds up (ceil) so ties favour survival.
+  * Ordering enforces score desc then time asc (faster-wins tiebreaker).
+  * Empty field short-circuits (no transaction, no stage close).
+  * Missing stage throws.
+
+AntiCheatService.analyzeGameResult — 13 tests (Prisma+Enforcement mocked)
+  * Legitimate result -> no flags, no persistence.
+  * Impossible score (> theoretical max) -> CRITICAL.
+  * Timing anomaly (faster than min human time, score>0) -> HIGH; zero score
+    is NOT flagged.
+  * Board fingerprint mismatch -> SESSION_TAMPERING CRITICAL.
+  * Client score inflation past max(10, 25%) tolerance -> HIGH; within tolerance
+    -> no flag.
+  * Bot input cadence: >=6 sub-100ms intervals -> CRITICAL; 3-5 -> HIGH;
+    near-zero-variance over >=10 inputs -> HIGH; human/short log -> none.
+  * Auto-enforcement triggers at 3 critical flags (enforce + session sweep +
+    refresh-token purge); below threshold -> no enforcement.
+
+--------------------------------------------------------------------------------
+6. WEAK TESTS REPLACED
+--------------------------------------------------------------------------------
+None — there were no pre-existing tests to replace. All new tests use meaningful
+assertions on business outcomes (exact scores, money amounts, flag types/
+severities, boundary decisions), not trivial "toBeDefined" checks.
+
+--------------------------------------------------------------------------------
+7. BROKEN TESTS REMOVED
+--------------------------------------------------------------------------------
+None — no pre-existing tests existed.
+
+--------------------------------------------------------------------------------
+8. DUPLICATE TESTS REMOVED
+--------------------------------------------------------------------------------
+None — no pre-existing tests existed.
+
+--------------------------------------------------------------------------------
+9. CRITICAL MODULES COVERED
+--------------------------------------------------------------------------------
+COVERED (business logic, high value):
+  [x] Scoring engine (all game formulas, anti-exploit floor, clamping)
+  [x] Score calculations / validation logic
+  [x] Money calculations — GST (28%) inclusive/exclusive
+  [x] Money calculations — TDS (30% net, per-withdrawal cap, idempotent offset)
+  [x] Verification / compliance — age 18+ gating (boundary)
+  [x] Provably-fair RNG determinism + tamper fingerprint (verification logic)
+  [x] Tournament elimination business rules (bucketing, ceil survival, tiebreak)
+  [x] Anti-cheat detection + severity + auto-enforcement trigger + idempotency
+  [x] Authorization-adjacent: anti-cheat auto-enforcement path (invalidate
+      sessions / purge refresh tokens) asserted via mocks
+
+--------------------------------------------------------------------------------
+10. RUNTIME VERIFICATION
+--------------------------------------------------------------------------------
+Command: npx jest
+Toolchain: jest@29 + ts-jest@29 compiling TypeScript 6.x sources (decorators
+enabled via tsconfig.spec.json). Tests instantiate services directly with
+lightweight jest mocks for PrismaService / EnforcementService — no database,
+no Redis, no network, no external processes.
+
+--------------------------------------------------------------------------------
+11. BUILD RESULT
+--------------------------------------------------------------------------------
+Command: npm run build   (nest build)
+Result:  SUCCESS (GREEN). No errors. Spec files are excluded from the production
+build by the existing tsconfig.build.json, so adding tests did not affect the
+shipped output or the public API.
+
+--------------------------------------------------------------------------------
+12. TEST RESULT
+--------------------------------------------------------------------------------
+Test Suites: 7 passed, 7 total
+Tests:       70 passed, 70 total
+Snapshots:   0 total
+Status:      GREEN
+
+Per suite:
+  scoring.service.spec.ts ............ 16 passed
+  gst.service.spec.ts ................  6 passed
+  tds.service.spec.ts ................  6 passed
+  age-verification.service.spec.ts ...  7 passed
+  deterministic-rng.service.spec.ts .. 16 passed
+  elimination.service.spec.ts ........  6 passed
+  anti-cheat.service.spec.ts ......... 13 passed
+
+--------------------------------------------------------------------------------
+13. APPROXIMATE UNIT COVERAGE
+--------------------------------------------------------------------------------
+Coverage was intentionally focused on the highest-risk business logic rather
+than raw line percentage (quality over quantity; no coverage report tooling was
+added, per scope).
+
+Effective coverage of targeted services (qualitative):
+  ScoringService ................ ~high (all registered scorers + helpers hit)
+  GstService .................... ~complete (all public methods + boundaries)
+  TdsService .................... calculateTds + getTdsSummary money paths
+  AgeVerificationService ........ ~complete (both methods, boundary cases)
+  DeterministicRng(+Service) .... ~complete (all public methods, determinism)
+  EliminationService ............ runElimination decision logic (core)
+  AntiCheatService .............. analyzeGameResult detection + enforce trigger
+
+Whole-backend line coverage is LOW by design — this phase deliberately did not
+attempt to cover controllers, infrastructure adapters, or Prisma-heavy
+orchestration services (see gaps below).
+
+--------------------------------------------------------------------------------
+14. REMAINING UNIT TEST GAPS
+--------------------------------------------------------------------------------
+Honest list of what is NOT yet unit-tested and why:
+
+- Wallet ledger (wallet/ledger/ledger.service.ts, ~25KB) and payment gateway:
+  heavily transactional (prisma.$transaction, row locks, idempotency keys).
+  Meaningful tests need substantial transaction/mock scaffolding or an
+  integration harness; deferred to keep this phase honest (unit-only) rather
+  than writing shallow mock-only assertions that don't exercise real logic.
+- Tournament orchestration / state machine, reward-payout, free-play/energy,
+  leaderboard aggregation: mostly Prisma orchestration; partial unit value only.
+- Auth (auth.service, otp.service), guards (jwt/internal/service-identity),
+  authorization decorators: depend on JWT/Passport/Redis wiring; better covered
+  by integration tests with the Nest testing module + a Redis test double.
+- Notifications, admin control-plane, webhook signing/retry, event bus: I/O and
+  scheduling oriented; limited pure-logic surface.
+- DTO validation (class-validator): validated at the framework boundary; better
+  asserted via e2e/request-level tests than isolated unit tests.
+- No coverage report / threshold gates were added (out of scope: "do not
+  increase coverage artificially", "do not touch coverage reports").
+
+--------------------------------------------------------------------------------
+15. RECOMMENDED NEXT TESTING PHASE
+--------------------------------------------------------------------------------
+Phase T2 — INTEGRATION TESTS (recommended):
+  * Wallet ledger + payment flows against a real (test) Prisma/DB, asserting
+    idempotency, balance invariants, and TDS/GST application end-to-end.
+  * Auth/OTP/guards with @nestjs/testing + Redis double.
+  * Tournament lifecycle (registration -> stages -> elimination -> payout).
+Phase T3 — E2E / contract tests for the /api/v1 surface and webhook delivery.
+(Both are explicitly OUT OF SCOPE for T1 and were not started.)
+
+--------------------------------------------------------------------------------
+16. FINAL STATUS
+--------------------------------------------------------------------------------
+STATUS: COMPLETE (for the unit-test scope of Phase T1).
+
+Justification against the completion gate:
+  [x] Critical backend business logic covered (scoring, money/GST/TDS, age
+      verification, RNG determinism, tournament elimination, anti-cheat).
+  [x] Money calculations covered with exact assertions.
+  [x] Score calculations + verification/anti-cheat logic covered.
+  [x] Idempotency/authorization-adjacent paths asserted (TDS already-paid
+      offset; anti-cheat auto-enforcement + session/token invalidation).
+  [x] Build GREEN; 70/70 unit tests GREEN; no API or architecture changes;
+      no CI, coverage, infrastructure, integration, or E2E changes.
+
+Honesty notes:
+  * The backend had NO prior tests and NO test framework; a standard jest+ts-jest
+    toolchain was added (devDependencies + test-only config) so tests are real
+    and runnable — this is the only deviation from "reuse existing framework",
+    made because no framework existed.
+  * Prisma-heavy transactional services (wallet ledger, payments) were
+    intentionally deferred to integration testing rather than covered with
+    shallow mocks, to avoid meaningless coverage.
+================================================================================
