@@ -1,0 +1,437 @@
+================================================================================
+IMPLEMENTATION SUMMARY — PHASE T4-B
+HTTP / API / END-TO-END SCENARIO TEST IMPLEMENTATION
+================================================================================
+Project      : zubaco-platform (NestJS 11 + Prisma 7 + PostgreSQL + Redis)
+Phase        : T4-B — Real-HTTP end-to-end tests (booted application)
+Mode         : IMPLEMENTATION (code additions only; NO production code changed)
+Build        : GREEN (nest build, exit 0)
+E2E result   : 11 suites / 75 tests — ALL PASS
+Reused infra : T1 (unit), T2 (Redis integration), T3 (CI/infra), T4-A (DB)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Phase T4-B verifies the ENTIRE application through REAL HTTP requests. The real
+NestJS application is booted with Test.createTestingModule({ imports: [AppModule] })
++ createNestApplication(), configured IDENTICALLY to production main.ts (global
+prefix `api/v1`, helmet(), body limits, and the global ValidationPipe with
+whitelist + forbidNonWhitelisted + transform). Every request travels the full
+transport stack: routing, guards (JwtAuthGuard, ServiceIdentityGuard), the global
+ValidationPipe, DTO validation, controllers, the real service graph, and the
+default Nest exception filter.
+
+No service is instantiated directly. Persistence is REAL: a real PostgreSQL
+(zubaco_test, Docker) via the real PrismaService and a real Redis (Docker) via
+the real RedisService. The ONLY seam is the external SMS provider, which is
+overridden by an in-memory capture stub so the genuine OTP is observed and the
+real login flow is exercised end-to-end (the OTP is NOT bypassed — it is read
+back and submitted over HTTP like a real device would).
+
+75 HTTP tests across 11 suites cover authentication, the user surface, the
+authoritative game-session + verification lifecycle, anti-cheat enforcement, the
+wallet, tournaments, leaderboards, notifications, the signed admin control plane,
+the HTTP transport contract itself, and 5 complete multi-controller user
+journeys. All pass. The build stays GREEN and the pre-existing unit (70) and
+integration (79) suites are unaffected.
+
+
+--------------------------------------------------------------------------------
+2. EXISTING HTTP COVERAGE AUDIT (STEP 1 — before writing any test)
+--------------------------------------------------------------------------------
+Audited the booted application surface directly from source:
+
+ * Bootstrap (src/main.ts): global prefix `api/v1`; helmet(); express json +
+   urlencoded (1mb); global ValidationPipe({ whitelist:true,
+   forbidNonWhitelisted:true, transform:true,
+   transformOptions:{ enableImplicitConversion:true } }); CORS. NO Swagger.
+
+ * app.module.ts: ThrottlerModule.forRoot([{ ttl:60000, limit:100 }]) is
+   imported, but NO APP_GUARD / APP_FILTER / APP_INTERCEPTOR is registered
+   anywhere. CONSEQUENCE: `@Throttle()` decorators are INERT (no global
+   ThrottlerGuard) — there is no HTTP 429 path to test. There is likewise no
+   global exception filter or interceptor, so responses use the DEFAULT Nest
+   exception shape `{ statusCode, message, error }` (asserted in Section K).
+
+ * Authentication: JWT (JwtStrategy sets req.user = { userId }). OTP send/verify
+   is app-level; OtpService enforces a per-phone send rate-limit in code
+   (independent of the inert Throttler).
+
+ * Service-to-service surfaces (anti-cheat controller, admin control plane) are
+   protected by ServiceIdentityGuard — HMAC-SHA256 over a canonical string
+   (serviceId, METHOD, originalUrl, timestamp, nonce, sha256(body)), with nonce
+   replay protection in Redis. These are NOT JWT-protected.
+
+ * ScheduleModule.forRoot() is active — cron drainers run inside the booted app,
+   so the runner uses --forceExit to terminate cleanly after the suite.
+
+ * config/index.ts throws only for the JWT secrets (provided by the E2E env
+   bootstrap). payment-gateway.service reads RAZORPAY_* with `|| ''`, so it does
+   not throw at construction under test (money movement remains external).
+
+BEFORE T4-B there were NO booted-application HTTP tests. Coverage existed at the
+unit level (T1) and the service+DB / Redis integration level (T2, T4-A), but the
+controller/guard/pipe/transport layer had never been exercised over real HTTP.
+T4-B closes that gap.
+
+
+--------------------------------------------------------------------------------
+3. FILES MODIFIED
+--------------------------------------------------------------------------------
+ * zubaco-platform/package.json
+     - Added devDependencies: @nestjs/testing@^11, supertest, @types/supertest
+       (installed with --legacy-peer-deps).
+     - Added script: "test:e2e": "jest --config jest.e2e.config.js --runInBand
+       --forceExit".
+
+NO production/source (`src/**`) file was modified in this phase. Zero API
+changes, zero architecture changes.
+
+
+--------------------------------------------------------------------------------
+4. FILES CREATED
+--------------------------------------------------------------------------------
+Harness / configuration:
+ * zubaco-platform/jest.e2e.config.js
+     testMatch test/e2e/**/*.e2e.spec.ts; ts-jest (tsconfig.spec.json);
+     setupFiles test/e2e/setup.env.ts; maxWorkers 1; testTimeout 60000;
+     moduleNameMapper: uuid -> CJS shim (reused from T4-A), and
+     jose / jwks-rsa -> esm-noop-stub (ESM-only OAuth deps, see Section 20).
+ * zubaco-platform/test/e2e/setup.env.ts
+     Jest setupFiles env bootstrap (JWT secrets, NODE_ENV=test, DATABASE_URL to
+     zubaco_test, REDIS_HOST/PORT, SERVICE_IDENTITY_KEYS for the signed suites,
+     dummy RAZORPAY_* keys, empty SMS_API_KEY, zero webhook backoff).
+ * zubaco-platform/test/e2e/e2e-app.ts
+     The boot harness. Boots the real AppModule, overrides ONLY SmsService with
+     SmsCaptureStub, applies the production bootstrap (prefix/helmet/pipe),
+     init()s the app, and wires a real admin Prisma client + a real admin Redis
+     client (both reused from T4-A utils) for seeding/verification. Exposes
+     reset() (TRUNCATE all tables + Redis flushdb + clear captured SMS) and
+     close().
+ * zubaco-platform/test/e2e/esm-noop-stub.js
+     CJS no-op proxy substituted for the pure-ESM jose / jwks-rsa modules that
+     Jest cannot parse (pulled in transitively by the Apple OAuth strategy).
+ * zubaco-platform/test/e2e/helpers/http-auth.ts
+     API prefix constant, bearer(), uniquePhone(), and registerAndLogin()
+     (drives the REAL OTP send -> capture -> verify flow over HTTP).
+ * zubaco-platform/test/e2e/helpers/service-identity.ts
+     signServiceRequest() — produces genuine ServiceIdentityGuard signatures
+     (same canonicalisation the guard verifies) for the signed suites.
+
+Spec files (Sections A–L):
+ * test/e2e/auth.e2e.spec.ts          (A  Authentication)      — 11 tests
+ * test/e2e/user.e2e.spec.ts          (B  User)                — 10 tests
+ * test/e2e/game-session.e2e.spec.ts  (C  Session / D Verify)  —  8 tests
+ * test/e2e/anti-cheat.e2e.spec.ts    (E  Anti-Cheat)          —  5 tests
+ * test/e2e/wallet.e2e.spec.ts        (F  Wallet)              —  6 tests
+ * test/e2e/tournament.e2e.spec.ts    (G  Tournament)          —  5 tests
+ * test/e2e/leaderboard.e2e.spec.ts   (H  Leaderboard)         —  4 tests
+ * test/e2e/notification.e2e.spec.ts  (I  Notifications)       —  4 tests
+ * test/e2e/admin.e2e.spec.ts         (J  Admin Control Plane) —  8 tests
+ * test/e2e/http-layer.e2e.spec.ts    (K  HTTP Layer)          —  9 tests
+ * test/e2e/scenarios.e2e.spec.ts     (L  Scenario Journeys)   —  5 journeys
+                                                          TOTAL = 75 tests
+
+Reused UNCHANGED from T4-A / T2 (no edits):
+ * test/integration/db/prisma-test-util.ts  (getPrisma, resetDb, disconnect)
+ * test/integration/redis-test-util.ts      (redisConnectOptions)
+ * test/integration/uuid-cjs-shim.js        (uuid CJS interop for Jest runtime)
+
+
+--------------------------------------------------------------------------------
+5. SECTION A — AUTHENTICATION (11 tests, all pass)
+--------------------------------------------------------------------------------
+Real OTP flow over HTTP (send -> capture -> verify) and full JWT lifecycle:
+ * registers + logs in via the real OTP flow and returns a JWT pair
+ * grants access to a protected route with a valid access token
+ * rejects a protected route with NO token (401)
+ * rejects a structurally-invalid bearer token (401)
+ * rejects an EXPIRED but correctly-signed access token (401)
+ * rotates tokens on refresh and rejects an unknown refresh token (401)
+ * revokes the refresh token on logout (rotation cannot continue)
+ * revokes ALL sessions on logout-all
+ * rejects a wrong OTP (401)
+ * enforces the OTP send rate-limit (max 5 per phone; 6th send -> 400)
+ * returns 403 for a banned user holding an otherwise-valid token
+Verified against the REAL DB (is_banned) and REAL token store (Redis rotation).
+
+
+--------------------------------------------------------------------------------
+6. SECTION B — USER (10 tests, all pass)
+--------------------------------------------------------------------------------
+JWT-protected /users, /wallet, /social surfaces:
+ * GET /users/me returns the authenticated profile
+ * PATCH /users/me updates and PERSISTS (verified in Postgres)
+ * PATCH /users/me rejects an over-length username via DTO validation (400)
+ * GET /users/me/history (paginated)
+ * GET /users/me/stats
+ * GET /users/me/tournaments
+ * GET /users/me/achievements
+ * GET /wallet auto-provisions + returns the wallet (user_id, balance 0)
+ * GET /notifications returns the feed with total / unread_count (seeded row)
+ * GET /social/referral/code returns a referral code
+
+
+--------------------------------------------------------------------------------
+7. SECTION C/D — GAME SESSION & VERIFICATION (8 tests, all pass)
+--------------------------------------------------------------------------------
+Authoritative game lifecycle over HTTP:
+ * POST /game-session/start creates an ACTIVE session persisted in Postgres
+ * POST /:id/submit returns the AUTHORITATIVE (server-derived) score; the
+   verification verdict (_verification) is persisted onto the session and the
+   stored score equals the authoritative score (Section D)
+ * duplicate submit of a completed session (replay) -> 404
+ * another user's session on submit (ownership isolation) -> 404
+ * negative score rejected at the DTO boundary (400)
+ * implausibly short duration rejected at the DTO boundary (400)
+ * GET /:id/state returns the session state (200)
+ * start without a token -> 401
+KEY PROPERTY: the score is re-derived server-side; a client cannot inflate it
+over HTTP.
+
+
+--------------------------------------------------------------------------------
+8. SECTION E — ANTI-CHEAT (5 tests, all pass)
+--------------------------------------------------------------------------------
+Signed (ServiceIdentityGuard) service-to-service surface:
+ * UNSIGNED request -> 401
+ * ban a user via the enforcement engine (is_banned=true verified in DB)
+ * reverse a ban (unban) authoritatively (is_banned=false verified in DB)
+ * GET /anti-cheat/flags returns the flag queue (200)
+ * GET /anti-cheat/users/:id/flags returns { flags[], summary } (200)
+Tests compute genuine HMAC signatures; unsigned/malformed requests are rejected
+by the real guard. (See Section 20 for auto-DETECTION scope.)
+
+
+--------------------------------------------------------------------------------
+9. SECTION F — WALLET (6 tests, all pass)
+--------------------------------------------------------------------------------
+JWT-protected wallet surface reachable without a live payment gateway:
+ * GET /wallet reflects a seeded balance + bonus_balance (verified over HTTP)
+ * GET /wallet/transactions lists seeded settled ledger rows (total, type)
+ * POST /wallet/withdraw below the minimum -> 400 (DTO boundary)
+ * POST /wallet/withdraw with insufficient funds -> >= 400
+ * POST /wallet/deposit/create-order below the minimum -> 400 (DTO boundary)
+ * GET /wallet without a token -> 401
+Money-in/out (Razorpay order + settlement, OTP-gated payout) is EXTERNAL and is
+documented in Section 20; authoritative ledger movement is proven at the
+service+DB level in T4-A.
+
+
+--------------------------------------------------------------------------------
+10. SECTION G — TOURNAMENT (5 tests, all pass)
+--------------------------------------------------------------------------------
+JWT-protected tournament surface against a REAL season seeded in Postgres:
+ * GET /tournament/seasons lists active seasons (array)
+ * POST /seasons/:id/register registers + persists a SeasonEntry (ACTIVE)
+ * duplicate registration -> 409 (and only one entry exists)
+ * GET /seasons/:id/status returns the user's status (200)
+ * tournament routes without a token -> 401
+Prize distribution is a finance/admin action, proven via the signed admin
+control plane (Section J) and journey J2.
+
+
+--------------------------------------------------------------------------------
+11. SECTION H — LEADERBOARD (4 tests, all pass)
+--------------------------------------------------------------------------------
+JWT-protected leaderboard reads over REAL data (seeded via GameProgress, the
+authoritative DB fallback the leaderboard reads):
+ * GET /leaderboard/game/:gameType (global)
+ * GET /leaderboard/game/:gameType/me (caller's own rank)
+ * GET /leaderboard/game/:gameType/endless
+ * leaderboard routes without a token -> 401
+
+
+--------------------------------------------------------------------------------
+12. SECTION I — NOTIFICATIONS (4 tests, all pass)
+--------------------------------------------------------------------------------
+JWT-protected notification surface with read-state verified in the REAL DB:
+ * GET /notifications returns the feed with unread_count
+ * POST /notifications/:id/read marks one read (read=true verified; unread--)
+ * POST /notifications/read-all marks all read (unread_count -> 0)
+ * /notifications without a token -> 401
+
+
+--------------------------------------------------------------------------------
+13. SECTION J — ADMIN CONTROL PLANE (8 tests, all pass)
+--------------------------------------------------------------------------------
+Signed (ServiceIdentityGuard) single authoritative /admin/control-plane/execute
+route, with REAL side-effects:
+ * UNSIGNED request -> 401
+ * TAMPERED signature -> 401
+ * CREDIT_WALLET (FINANCE): real ledger credit; wallet balance = 500 in DB
+ * RBAC: READ_ONLY admin cannot CREDIT_WALLET -> 403 (balance unchanged)
+ * idempotency on requestId: second call returns duplicate:true, no double credit
+ * ENFORCE_ANTI_CHEAT (SUPER_ADMIN): target is_banned=true in DB
+ * immutable audit trail: signed GET /audit returns the entry (outcome OK,
+   adminId) for an executed command
+ * malformed command body (invalid role) -> 400 via DTO validation
+
+
+--------------------------------------------------------------------------------
+14. SECTION K — HTTP LAYER / TRANSPORT CONTRACT (9 tests, all pass)
+--------------------------------------------------------------------------------
+The transport contract itself, independent of business logic:
+ * public routes served without auth (health, app/version, legal/terms) -> 200
+ * unknown route -> 404 with the default error shape
+ * missing required field -> 400 with { statusCode, message[], error }
+ * unknown/extra property -> 400 (forbidNonWhitelisted; message names the field)
+ * helmet headers present (x-content-type-options: nosniff; no x-powered-by)
+ * JSON content-type negotiation
+ * protected route without a token -> 401 (structured body)
+ * correct success codes: @HttpCode(200) on otp/send vs default 201 on a create
+ * serialization: no otp_hash / password / refresh_token leaked in /users/me
+
+
+--------------------------------------------------------------------------------
+15. SECTION L — SCENARIO JOURNEYS (5 complete journeys, all pass)
+--------------------------------------------------------------------------------
+Each journey stitches multiple controllers/guards/services over REAL HTTP +
+REAL PostgreSQL + REAL Redis:
+ * J1  Register -> Login -> Start -> Submit -> Verification (persisted) ->
+       Leaderboard reachable & consistent.
+ * J2  Register for a tournament -> admin CREDIT_WALLET prize (1000) ->
+       user observes the credited balance over HTTP.
+ * J3  Cheater with a live session + a Redis leaderboard score (1500) ->
+       admin ENFORCE_ANTI_CHEAT { REMOVE_LEADERBOARD_SCORE, INVALIDATE_REWARDS,
+       sessionId, confirmed } -> ATOMIC outcome: user banned AND the Redis
+       leaderboard score is removed (zscore null).
+ * J4  Admin CREDIT_WALLET (300) -> wallet side-effect in DB -> immutable audit
+       entry (outcome OK, action CREDIT_WALLET) read back over a signed GET.
+ * J5  Seeded settled wallet ledger (deposit + withdrawal) -> GET /wallet balance
+       (400) and GET /wallet/transactions (total 2; types [DEPOSIT, WITHDRAWAL]).
+
+
+--------------------------------------------------------------------------------
+16. TEST DESIGN PRINCIPLES (how "real" was kept honest)
+--------------------------------------------------------------------------------
+ * REAL app: booted from AppModule via @nestjs/testing; requests via supertest
+   against app.getHttpServer(). No controller/service constructed by hand.
+ * REAL bootstrap parity: same global prefix, helmet, and ValidationPipe options
+   as main.ts, so guards/pipes/filters behave exactly as in production.
+ * REAL persistence: real PrismaService (zubaco_test) + real RedisService.
+   Seeding/verification uses a SEPARATE admin Prisma/Redis client so assertions
+   never bypass the app under test.
+ * REAL auth: JWTs are minted by the app's own login; the signed suites compute
+   genuine HMAC signatures the real guard verifies.
+ * MINIMAL seam: only SmsService is overridden (external SMS). The OTP itself is
+   captured and replayed over HTTP — the auth flow is NOT bypassed.
+ * Isolation: reset() TRUNCATEs all tables + Redis flushdb between tests.
+
+
+--------------------------------------------------------------------------------
+17. RUNTIME VERIFICATION
+--------------------------------------------------------------------------------
+ * Infra: docker-compose.test.yml -> zubaco-postgres-test + zubaco-redis-test
+   (both healthy); schema applied via `npm run test:db:push`.
+ * The booted app logs real request/response lines (pino) during the run
+   (e.g. POST /api/v1/auth/otp/verify 200, GET /api/v1/users/me 403 for a banned
+   user) — confirming requests traverse the full HTTP stack.
+ * Runner: `npm run test:e2e` (jest --config jest.e2e.config.js --runInBand
+   --forceExit). --forceExit is required because ScheduleModule cron drainers +
+   Redis clients keep the event loop alive after the assertions complete.
+
+
+--------------------------------------------------------------------------------
+18. BUILD RESULT
+--------------------------------------------------------------------------------
+ * `npm run build` (nest build) -> exit 0, GREEN.
+ * NOTE (environmental, not a code defect): an initial build failed with
+   `TS5033 ENOSPC: no space left on device` because the C: volume was full
+   (~50 MB free). This was NOT a compile error — every one of the 191 messages
+   was a file-WRITE failure. After reclaiming disposable temp space, the build
+   completed cleanly (exit 0) with zero TypeScript errors. No source change was
+   involved.
+
+
+--------------------------------------------------------------------------------
+19. TEST RESULTS (full)
+--------------------------------------------------------------------------------
+ * E2E (this phase):  Test Suites: 11 passed, 11 total
+                      Tests:       75 passed, 75 total
+ * Unit  (T1):        Test Suites:  7 passed,  7 total
+                      Tests:       70 passed, 70 total
+ * Integration (T2 Redis + T4-A DB):
+                      Test Suites: 13 passed, 13 total
+                      Tests:       79 passed, 79 total
+ * Build:             GREEN (nest build, exit 0)
+
+Everything green. Pre-existing suites unaffected by the T4-B additions.
+
+
+--------------------------------------------------------------------------------
+20. REMAINING HTTP GAPS (complete honesty — what is NOT covered over HTTP, & why)
+--------------------------------------------------------------------------------
+ 1. OAuth login (Google / Apple): the Apple strategy imports jwks-rsa -> jose,
+    which are pure-ESM and cannot be parsed by the Jest (CJS/ts-jest) runtime;
+    they are mapped to a no-op stub so the app can boot. These endpoints verify
+    tokens against EXTERNAL identity providers and cannot be exercised over HTTP
+    without a live Google/Apple IdP or a heavy forged-JWKS mock. The strategy
+    code is UNCHANGED. Not covered over HTTP by design.
+
+ 2. Money movement (Razorpay): deposit order creation + settlement webhook and
+    the OTP-gated withdrawal PAYOUT require a live Razorpay account/gateway. The
+    DTO/validation guards on these routes ARE tested over HTTP (Section F); the
+    authoritative ledger behaviour (idempotent credit/debit, balance math,
+    double-settlement protection) is proven at the service+DB level in T4-A.
+
+ 3. Outbound delivery (Email / Firebase push / SMS send): external providers.
+    SMS is captured via the stub to complete the OTP flow; actual email/push/SMS
+    DELIVERY is not asserted (nothing to observe without the provider).
+
+ 4. GeoFencingGuard (LATENT PRODUCTION BEHAVIOUR — documented, not "fixed"):
+    the guard reads `req.user?.id || req.user?.sub`, but JwtStrategy sets
+    `req.user = { userId }`. For JWT-authenticated requests neither field is
+    present, so the guard never blocks. This is honest observed behaviour; fixing
+    it would be a production change, which is OUT OF SCOPE for T4-B (no source
+    edits). Flagged here for a follow-up phase.
+
+ 5. Automatic cheat DETECTION over pure HTTP: detection runs inside the
+    authoritative completion pipeline on the SERVER-derived score, so a client
+    cannot deterministically drive a specific flag by inflating a score over
+    HTTP. The detection logic is proven deterministically at the service+DB level
+    in T4-A; the ENFORCEMENT consequences (ban + leaderboard-score removal) ARE
+    proven over HTTP via the admin control plane (Section J and journey J3).
+
+ 6. HTTP 429 / global rate limiting: ThrottlerModule is imported but no global
+    ThrottlerGuard (APP_GUARD) is registered, so `@Throttle()` is inert and there
+    is no 429 path to test. The app-level OTP send rate-limit (enforced in
+    OtpService, returning 400) IS covered in Section A.
+
+
+--------------------------------------------------------------------------------
+21. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+ * T5 (production hardening — requires product sign-off, involves source edits):
+     - Fix GeoFencingGuard to read `req.user.userId` (align with JwtStrategy).
+     - Decide whether a global ThrottlerGuard should be registered; if so, add
+       429 HTTP coverage.
+ * T4-C (external-boundary contract tests): a forged-JWKS harness for Apple/Google
+     OAuth and a Razorpay sandbox/webhook-signature harness to bring the two
+     external surfaces under automated HTTP coverage.
+ * CI: wire `npm run test:e2e` into the platform-ci pipeline behind the existing
+     Docker Postgres+Redis services (mirroring the T3 integration step).
+
+
+--------------------------------------------------------------------------------
+22. FINAL STATUS
+--------------------------------------------------------------------------------
+STATUS: COMPLETE for the in-scope HTTP/API/E2E surface.
+
+ * Real NestJS application booted; every request exercises the full transport
+   stack (routing, guards, ValidationPipe, controllers, real service graph,
+   default exception filter) against REAL PostgreSQL + REAL Redis over REAL HTTP.
+ * Controllers, JWT auth/authorization, signed service-to-service auth, DTO
+   validation, wallet, tournament, game session, verification, leaderboard,
+   notifications, admin control plane, the HTTP transport contract, and 5
+   complete user journeys are covered: 11 suites / 75 tests, ALL PASS.
+ * Build GREEN. Unit (70) and integration (79) suites unaffected.
+ * No production code changed. No API or architecture changes.
+ * All untested paths are EXTERNAL provider boundaries (OAuth IdPs, Razorpay,
+   email/push) or a documented latent guard bug — each explained honestly above,
+   with the authoritative behaviour proven at the T4-A service+DB level where a
+   live third party would otherwise be required. E2E was NOT faked, no service
+   was instantiated directly, and the app was not over-mocked.
+================================================================================
