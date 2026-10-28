@@ -95,14 +95,9 @@ function buildUrl(
   const rawBaseUrl = (
     baseUrlOverride ??
     process.env.NEXT_PUBLIC_API_BASE_URL ??
-    process.env.API_BASE_URL
+    process.env.API_BASE_URL ??
+    "http://localhost:3000"
   )?.trim();
-
-  if (!rawBaseUrl) {
-    throw new Error(
-      "API_BASE_URL or NEXT_PUBLIC_API_BASE_URL is not configured.",
-    );
-  }
 
   const baseUrl = normalizeBaseUrl(rawBaseUrl);
 
