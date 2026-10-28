@@ -102,6 +102,29 @@ export class UsersService {
         return { transactions, total, page, total_pages: Math.ceil(total / limit) };
     }
 
+    async getAllTransactions(page: number, limit: number, type?: string, status?: string) {
+        const where: Record<string, unknown> = {};
+        if (type) where.type = type.toUpperCase();
+        if (status) where.status = status.toUpperCase();
+
+        const [transactions, total] = await Promise.all([
+            this.prisma.transaction.findMany({
+                where,
+                orderBy: { created_at: 'desc' },
+                skip: (page - 1) * limit,
+                take: limit,
+                include: {
+                    user: {
+                        select: { id: true, username: true, display_name: true, email: true },
+                    },
+                },
+            }),
+            this.prisma.transaction.count({ where }),
+        ]);
+
+        return { transactions, total, page, total_pages: Math.ceil(total / limit) };
+    }
+
     async banUser(userId: string, reason: string) {
         await this.ensureUserExists(userId);
 

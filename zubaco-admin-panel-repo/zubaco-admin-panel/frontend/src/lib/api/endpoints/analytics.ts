@@ -47,29 +47,35 @@ export interface GameCompletionItem {
 }
 
 export async function fetchAnalyticsOverview(): Promise<OverviewStats | null> {
-  return get<OverviewStats>("/admin/analytics/overview");
+  const res = await get<any>("/admin/analytics/overview");
+  return res?.data ?? res ?? null;
 }
 
 export async function fetchUserGrowth(days = 30): Promise<UserGrowthItem[] | null> {
-  return get<UserGrowthItem[]>("/admin/analytics/users/growth", {
+  const res = await get<any>("/admin/analytics/users/growth", {
     query: { days },
   });
+  return res?.data ?? res ?? null;
 }
 
 export async function fetchRetention(): Promise<RetentionStats | null> {
-  return get<RetentionStats>("/admin/analytics/users/retention");
+  const res = await get<any>("/admin/analytics/users/retention");
+  return res?.data ?? res ?? null;
 }
 
 export async function fetchRevenue(days = 30): Promise<RevenueItem[] | null> {
-  return get<RevenueItem[]>("/admin/analytics/revenue", {
+  const res = await get<any>("/admin/analytics/revenue", {
     query: { days },
   });
+  return res?.data ?? res ?? null;
 }
 
 export async function fetchGamePopularity(): Promise<GamePopularityItem[] | null> {
-  return get<GamePopularityItem[]>("/admin/analytics/games/popularity");
+  const res = await get<any>("/admin/analytics/games/popularity");
+  return res?.data ?? res ?? null;
 }
 
 export async function fetchGameCompletion(): Promise<GameCompletionItem[] | null> {
-  return get<GameCompletionItem[]>("/admin/analytics/games/completion");
+  const res = await get<any>("/admin/analytics/games/completion");
+  return res?.data ?? res ?? null;
 }

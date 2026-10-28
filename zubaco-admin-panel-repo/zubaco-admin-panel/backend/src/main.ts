@@ -1,4 +1,4 @@
-﻿import { ApiExceptionFilter } from '@common/filters/api-exception.filter';
+import { ApiExceptionFilter } from '@common/filters/api-exception.filter';
 import { ApiResponseInterceptor } from '@common/interceptors/api-response.interceptor';
 import { validateMessages } from '@common/responses';
 import { config } from '@config';
@@ -19,8 +19,8 @@ async function bootstrap() {
     app.use(helmet());
 
     const allowedOrigins = process.env.ADMIN_CORS_ORIGINS
-        ? process.env.ADMIN_CORS_ORIGINS.split(',')
-        : ['http://localhost:3001'];
+        ? process.env.ADMIN_CORS_ORIGINS.split(',').map((o) => o.trim())
+        : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'];
 
     app.enableCors({
         origin: allowedOrigins,

@@ -29,6 +29,21 @@ export class UsersController {
         });
     }
 
+    @Get('transactions')
+    async listAllTransactions(
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+        @Query('type') type?: string,
+        @Query('status') status?: string,
+    ) {
+        return this.usersService.getAllTransactions(
+            page ? parseInt(page) : 1,
+            limit ? parseInt(limit) : 20,
+            type,
+            status,
+        );
+    }
+
     @Get(':userId')
     async getUser(@Param('userId') userId: string) {
         return this.usersService.getUserDetail(userId);

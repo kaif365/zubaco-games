@@ -75,7 +75,7 @@ export async function fetchFlaggedUsers(
 
   if (params.search) queryParams.set("userId", params.search);
 
-  const response = await get<BackendListResponse>(
+  const response = await get<any>(
     `/admin/cheat-flags?${queryParams.toString()}`,
   );
 
@@ -83,14 +83,27 @@ export async function fetchFlaggedUsers(
     return { data: [], total: 0, page: params.page, pageSize: params.pageSize, totalPages: 0 };
   }
 
-  const data = response.items.map(mapToFlaggedUser);
+  const payload = response?.data ?? response;
+  const rawItems: BackendCheatFlag[] = Array.isArray(payload?.items)
+    ? payload.items
+    : Array.isArray(payload)
+      ? payload
+      : [];
+
+  const pagination = payload?.pagination ?? {
+    total: rawItems.length,
+    page: params.page,
+    totalPages: Math.max(1, Math.ceil(rawItems.length / params.pageSize)),
+  };
+
+  const data = rawItems.map(mapToFlaggedUser);
 
   return {
     data,
-    total: response.pagination.total,
-    page: response.pagination.page,
+    total: pagination.total ?? data.length,
+    page: pagination.page ?? params.page,
     pageSize: params.pageSize,
-    totalPages: response.pagination.totalPages,
+    totalPages: pagination.totalPages ?? pagination.total_pages ?? 1,
   };
 }
 
