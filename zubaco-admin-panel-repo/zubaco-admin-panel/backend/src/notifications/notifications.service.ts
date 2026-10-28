@@ -49,14 +49,16 @@ export class NotificationsService {
   }
 
   async getHistory(page: number, limit: number) {
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(1, Number.isFinite(page) ? page : 1);
+    const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 20));
+    const skip = (safePage - 1) * safeLimit;
 
     // Get unique notification batches (grouped by title + created time window)
     const [notifications, total] = await Promise.all([
       this.prisma.notification.findMany({
         where: { type: 'SYSTEM' },
         orderBy: { created_at: 'desc' },
-        take: limit,
+        take: safeLimit,
         skip,
         distinct: ['title', 'body'],
         select: {
@@ -71,7 +73,7 @@ export class NotificationsService {
       this.prisma.notification.count({ where: { type: 'SYSTEM' } }),
     ]);
 
-    return { notifications, total, page, limit };
+    return { notifications, total, page: safePage, limit: safeLimit };
   }
 
   private async resolveTargetUsers(target: TargetAudience): Promise<string[]> {

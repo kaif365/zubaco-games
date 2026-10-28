@@ -39,6 +39,10 @@ export class SeasonsService {
     }
 
     async listSeasons(page: number, limit: number, status?: string) {
+        const safePage = Math.max(1, Number.isFinite(page) ? page : 1);
+        const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 20));
+        const skip = (safePage - 1) * safeLimit;
+
         const where: any = {};
         if (status) where.status = status;
 
@@ -46,8 +50,8 @@ export class SeasonsService {
             this.prisma.season.findMany({
                 where,
                 orderBy: { start_date: 'desc' },
-                skip: (page - 1) * limit,
-                take: limit,
+                skip,
+                take: safeLimit,
                 include: {
                     _count: { select: { entries: true, stages: true } },
                 },
@@ -55,7 +59,7 @@ export class SeasonsService {
             this.prisma.season.count({ where }),
         ]);
 
-        return { seasons, total, page, total_pages: Math.ceil(total / limit) };
+        return { seasons, total, page: safePage, total_pages: Math.ceil(total / safeLimit) };
     }
 
     async getSeasonDetail(seasonId: string) {
@@ -272,6 +276,10 @@ export class SeasonsService {
     // ─── PLAYER MANAGEMENT ───────────────────────────────────────
 
     async getSeasonPlayers(seasonId: string, page: number, limit: number, status?: string) {
+        const safePage = Math.max(1, Number.isFinite(page) ? page : 1);
+        const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 50));
+        const skip = (safePage - 1) * safeLimit;
+
         const where: any = { season_id: seasonId };
         if (status) where.status = status;
 
@@ -279,8 +287,8 @@ export class SeasonsService {
             this.prisma.seasonEntry.findMany({
                 where,
                 orderBy: { registered_at: 'desc' },
-                skip: (page - 1) * limit,
-                take: limit,
+                skip,
+                take: safeLimit,
                 include: {
                     user: { select: { id: true, username: true, display_name: true } },
                     stage_entries: { select: { season_stage_id: true, total_score: true, rank: true, eliminated: true } },
@@ -289,7 +297,7 @@ export class SeasonsService {
             this.prisma.seasonEntry.count({ where }),
         ]);
 
-        return { entries, total, page, total_pages: Math.ceil(total / limit) };
+        return { entries, total, page: safePage, total_pages: Math.ceil(total / safeLimit) };
     }
 
     async disqualifyPlayer(seasonId: string, userId: string, reason: string) {
