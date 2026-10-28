@@ -11,6 +11,11 @@ output "rds_endpoint" {
   sensitive = true
 }
 
+output "rds_read_replica_endpoint" {
+  value     = var.enable_read_replica ? aws_db_instance.read_replica[0].address : null
+  sensitive = true
+}
+
 output "redis_endpoint" {
   value = aws_elasticache_replication_group.main.primary_endpoint_address
 }
@@ -25,4 +30,8 @@ output "games_cdn_domain" {
 
 output "ecs_cluster_name" {
   value = aws_ecs_cluster.main.name
+}
+
+output "environment" {
+  value = var.environment
 }
