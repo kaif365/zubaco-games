@@ -7,6 +7,9 @@ export class UsersService {
 
     async listUsers(options: { page: number; limit: number; search?: string; status?: string }) {
         const { page, limit, search, status } = options;
+        const safePage = Math.max(1, Number.isFinite(page) ? page : 1);
+        const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 20));
+        const skip = (safePage - 1) * safeLimit;
         const where: any = { deleted_at: null };
 
         if (search) {
@@ -25,8 +28,8 @@ export class UsersService {
             this.prisma.user.findMany({
                 where,
                 orderBy: { created_at: 'desc' },
-                skip: (page - 1) * limit,
-                take: limit,
+                skip,
+                take: safeLimit,
                 select: {
                     id: true,
                     username: true,
@@ -44,7 +47,7 @@ export class UsersService {
             this.prisma.user.count({ where }),
         ]);
 
-        return { users, total, page, total_pages: Math.ceil(total / limit) };
+        return { users, total, page: safePage, total_pages: Math.ceil(total / safeLimit) };
     }
 
     async getUserDetail(userId: string) {
@@ -64,12 +67,16 @@ export class UsersService {
     }
 
     async getUserGameHistory(userId: string, page: number, limit: number) {
+        const safePage = Math.max(1, Number.isFinite(page) ? page : 1);
+        const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 20));
+        const skip = (safePage - 1) * safeLimit;
+
         const [sessions, total] = await Promise.all([
             this.prisma.gameSession.findMany({
                 where: { user_id: userId },
                 orderBy: { started_at: 'desc' },
-                skip: (page - 1) * limit,
-                take: limit,
+                skip,
+                take: safeLimit,
                 select: {
                     id: true,
                     game_type: true,
@@ -85,24 +92,32 @@ export class UsersService {
             this.prisma.gameSession.count({ where: { user_id: userId } }),
         ]);
 
-        return { sessions, total, page, total_pages: Math.ceil(total / limit) };
+        return { sessions, total, page: safePage, total_pages: Math.ceil(total / safeLimit) };
     }
 
     async getUserTransactions(userId: string, page: number, limit: number) {
+        const safePage = Math.max(1, Number.isFinite(page) ? page : 1);
+        const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 20));
+        const skip = (safePage - 1) * safeLimit;
+
         const [transactions, total] = await Promise.all([
             this.prisma.transaction.findMany({
                 where: { user_id: userId },
                 orderBy: { created_at: 'desc' },
-                skip: (page - 1) * limit,
-                take: limit,
+                skip,
+                take: safeLimit,
             }),
             this.prisma.transaction.count({ where: { user_id: userId } }),
         ]);
 
-        return { transactions, total, page, total_pages: Math.ceil(total / limit) };
+        return { transactions, total, page: safePage, total_pages: Math.ceil(total / safeLimit) };
     }
 
     async getAllTransactions(page: number, limit: number, type?: string, status?: string) {
+        const safePage = Math.max(1, Number.isFinite(page) ? page : 1);
+        const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 20));
+        const skip = (safePage - 1) * safeLimit;
+
         const where: Record<string, unknown> = {};
         if (type) where.type = type.toUpperCase();
         if (status) where.status = status.toUpperCase();
@@ -111,8 +126,8 @@ export class UsersService {
             this.prisma.transaction.findMany({
                 where,
                 orderBy: { created_at: 'desc' },
-                skip: (page - 1) * limit,
-                take: limit,
+                skip,
+                take: safeLimit,
                 include: {
                     user: {
                         select: { id: true, username: true, display_name: true, email: true },
@@ -122,7 +137,7 @@ export class UsersService {
             this.prisma.transaction.count({ where }),
         ]);
 
-        return { transactions, total, page, total_pages: Math.ceil(total / limit) };
+        return { transactions, total, page: safePage, total_pages: Math.ceil(total / safeLimit) };
     }
 
     async banUser(userId: string, reason: string) {
