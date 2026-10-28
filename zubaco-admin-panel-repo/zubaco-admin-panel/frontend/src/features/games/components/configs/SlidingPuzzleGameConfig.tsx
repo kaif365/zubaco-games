@@ -411,9 +411,6 @@ export function SlidingPuzzleGameConfig({
   }, [config, sortedLevels, stageId]);
 
   const values = draftValues ?? initialValues;
-  console.log(values, 'values');
-  console.log(initialValues, 'initialValues');
-  console.log(draftValues, 'draftValues');
 
   const levelNames = useMemo(
     () =>
@@ -535,8 +532,6 @@ export function SlidingPuzzleGameConfig({
       </div>
     );
   }
-
-  console.log(sortedLevels, 'sortedLevels');
 
   if (!sortedLevels.length) {
     return (
