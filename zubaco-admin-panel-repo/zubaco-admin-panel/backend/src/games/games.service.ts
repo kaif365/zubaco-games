@@ -10,8 +10,8 @@ import {
     Logger,
     NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma';
 
-import type { InputJsonValue } from '../../generated/prisma/internal/prismaNamespace';
 import { S3Service } from '../aws/s3.service';
 import { GameConfigEventType } from '../aws/sns.enum';
 import { SqsService } from '../aws/sqs.service';
@@ -59,7 +59,7 @@ export class GamesService {
             data: {
                 ...gameData,
                 ...(gameContent && { game_content: gameContent }),
-                ...(game_config && { game_config: game_config as InputJsonValue }),
+                ...(game_config && { game_config: game_config as Prisma.InputJsonValue }),
                 ...(stageLevelSections.length && {
                     content_sections: {
                         create: stageLevelSections.map((s) => ({
@@ -214,7 +214,7 @@ export class GamesService {
             if (game_config !== undefined) {
                 const currentConfig = (existing?.game_config as Record<string, unknown>) ?? {};
                 gameConfigUpdate = {
-                    game_config: { ...currentConfig, ...game_config } as InputJsonValue,
+                    game_config: { ...currentConfig, ...game_config } as Prisma.InputJsonValue,
                 };
             }
         }
@@ -315,15 +315,12 @@ export class GamesService {
             }),
         ]);
 
-        this.logger.log({
+        this.logger.debug({
             game_id: game.id,
             stage_id: query.stage_id,
             language: query.lang,
-            deleted_at: null,
         });
 
-        this.logger.log(content_section);
-        this.logger.log('CONFIGURATION');
         if (!content_section) {
             throw new NotFoundException('CONTENT_NOT_FOUND');
         }
@@ -550,7 +547,7 @@ export class GamesService {
         const nextConfig = {
             ...currentConfig,
             assets: { ...assets, [payload.category]: [...categoryAssets, asset] },
-        } as InputJsonValue;
+        } as Prisma.InputJsonValue;
 
         await this.prisma.game.update({
             where: { id: gameId },
@@ -580,7 +577,7 @@ export class GamesService {
         const nextConfig = {
             ...currentConfig,
             assets: { ...assets, [category]: filtered },
-        } as InputJsonValue;
+        } as Prisma.InputJsonValue;
 
         await this.prisma.game.update({
             where: { id: gameId },

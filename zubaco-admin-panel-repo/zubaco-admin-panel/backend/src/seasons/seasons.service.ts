@@ -14,12 +14,22 @@ export class SeasonsService {
         entry_fee?: number;
         max_players?: number;
     }) {
+        const startDate = new Date(data.start_date);
+        const endDate = new Date(data.end_date);
+
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            throw new BadRequestException('Invalid start_date or end_date format');
+        }
+        if (endDate < startDate) {
+            throw new BadRequestException('end_date must be on or after start_date');
+        }
+
         return this.prisma.season.create({
             data: {
                 name: data.name,
                 description: data.description,
-                start_date: new Date(data.start_date),
-                end_date: new Date(data.end_date),
+                start_date: startDate,
+                end_date: endDate,
                 prize_pool: data.prize_pool,
                 entry_fee: data.entry_fee,
                 max_players: data.max_players,
@@ -68,12 +78,29 @@ export class SeasonsService {
     }
 
     async updateSeason(seasonId: string, data: any) {
+        const existing = await this.prisma.season.findUnique({ where: { id: seasonId } });
+        if (!existing) throw new NotFoundException('Season not found');
+
         const allowed = ['name', 'description', 'start_date', 'end_date', 'prize_pool', 'entry_fee', 'max_players', 'status'];
         const updateData: any = {};
         for (const key of allowed) {
             if (data[key] !== undefined) {
-                updateData[key] = ['start_date', 'end_date'].includes(key) ? new Date(data[key]) : data[key];
+                if (['start_date', 'end_date'].includes(key)) {
+                    const parsed = new Date(data[key]);
+                    if (isNaN(parsed.getTime())) {
+                        throw new BadRequestException(`Invalid date format for ${key}`);
+                    }
+                    updateData[key] = parsed;
+                } else {
+                    updateData[key] = data[key];
+                }
             }
+        }
+
+        const effectiveStart = updateData.start_date || existing.start_date;
+        const effectiveEnd = updateData.end_date || existing.end_date;
+        if (effectiveStart && effectiveEnd && effectiveEnd < effectiveStart) {
+            throw new BadRequestException('end_date must be on or after start_date');
         }
 
         return this.prisma.season.update({ where: { id: seasonId }, data: updateData });
@@ -100,13 +127,26 @@ export class SeasonsService {
         close_date: string;
         elimination_pct?: number;
     }) {
+        const season = await this.prisma.season.findUnique({ where: { id: seasonId } });
+        if (!season) throw new NotFoundException('Season not found');
+
+        const openDate = new Date(data.open_date);
+        const closeDate = new Date(data.close_date);
+
+        if (isNaN(openDate.getTime()) || isNaN(closeDate.getTime())) {
+            throw new BadRequestException('Invalid open_date or close_date format');
+        }
+        if (closeDate < openDate) {
+            throw new BadRequestException('close_date must be on or after open_date');
+        }
+
         return this.prisma.seasonStage.create({
             data: {
                 season_id: seasonId,
                 stage_number: data.stage_number,
                 name: data.name || `Stage ${data.stage_number}`,
-                open_date: new Date(data.open_date),
-                close_date: new Date(data.close_date),
+                open_date: openDate,
+                close_date: closeDate,
                 elimination_pct: data.elimination_pct || 50.0,
                 status: 'LOCKED',
             },
@@ -118,7 +158,15 @@ export class SeasonsService {
         const updateData: any = {};
         for (const key of allowed) {
             if (data[key] !== undefined) {
-                updateData[key] = ['open_date', 'close_date'].includes(key) ? new Date(data[key]) : data[key];
+                if (['open_date', 'close_date'].includes(key)) {
+                    const parsed = new Date(data[key]);
+                    if (isNaN(parsed.getTime())) {
+                        throw new BadRequestException(`Invalid date format for ${key}`);
+                    }
+                    updateData[key] = parsed;
+                } else {
+                    updateData[key] = data[key];
+                }
             }
         }
         return this.prisma.seasonStage.update({ where: { id: stageId }, data: updateData });
@@ -160,6 +208,9 @@ export class SeasonsService {
         if (stage.status !== 'CLOSED') throw new BadRequestException('Stage must be closed before elimination');
 
         const entries = stage.stage_entries;
+        if (entries.length === 0) {
+            throw new BadRequestException('No players enrolled in this stage to eliminate');
+        }
         // Idempotency: do not re-run elimination once ranks have been assigned.
         if (entries.some((e) => e.rank !== null)) {
             throw new BadRequestException('Elimination already processed for this stage');
@@ -248,10 +299,16 @@ export class SeasonsService {
 
         if (!entry) throw new NotFoundException('Player not enrolled in this season');
 
-        await this.prisma.seasonEntry.update({
-            where: { id: entry.id },
-            data: { status: 'ELIMINATED' },
-        });
+        await this.prisma.$transaction([
+            this.prisma.seasonEntry.update({
+                where: { id: entry.id },
+                data: { status: 'ELIMINATED' },
+            }),
+            this.prisma.stageEntry.updateMany({
+                where: { season_entry_id: entry.id },
+                data: { eliminated: true },
+            }),
+        ]);
 
         return { success: true, message: `Player disqualified: ${reason}` };
     }
