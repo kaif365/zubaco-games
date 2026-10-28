@@ -12,12 +12,12 @@ export interface TokenPayload {
 }
 
 export function generateToken(payload: TokenPayload, expiresIn: number): string {
-    return jwt.sign(payload, config.security.jwtSecret, { expiresIn });
+    return jwt.sign(payload, config.security.jwtSecret, { expiresIn, algorithm: 'HS256' });
 }
 
 export function verifyToken(token: string): TokenPayload {
     try {
-        return jwt.verify(token, config.security.jwtSecret) as TokenPayload;
+        return jwt.verify(token, config.security.jwtSecret, { algorithms: ['HS256'] }) as TokenPayload;
     } catch (error) {
         if (error instanceof jwt.TokenExpiredError) {
             throw new Error('TOKEN_EXPIRED');

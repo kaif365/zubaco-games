@@ -1,12 +1,15 @@
 import { GAME_IDS, GAME_NAMES, SORT_ORDER } from '@common/constants';
 import { PrismaService } from '@common/prisma/prisma.service';
 import { buildPaginationMeta } from '@common/utils/pagination.util';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 
 import { SqsService } from '../aws/sqs.service';
 import type { CheatFlagEvent } from '../aws/sqs.service';
 
 import type { ListCheatFlagsPayload } from './dto/list-cheat-flags.dto';
+
+const PLATFORM_API_URL = process.env.PLATFORM_API_URL || 'http://localhost:3000';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 @Injectable()
 export class CheatFlagsService implements OnModuleInit {
@@ -91,6 +94,66 @@ export class CheatFlagsService implements OnModuleInit {
             items,
             pagination: buildPaginationMeta({ page, limit, total }),
         };
+    }
+
+    // ─── FLAG ACTIONS (Proxy to platform anti-cheat API) ─────────────
+
+    async reviewFlag(flagId: string, adminId: string, action: 'dismiss' | 'warn' | 'ban') {
+        return this.callPlatformApi(`/anti-cheat/flags/${flagId}/review`, {
+            method: 'POST',
+            body: { action, admin_id: adminId },
+        });
+    }
+
+    async unbanUser(userId: string) {
+        return this.callPlatformApi(`/anti-cheat/users/${userId}/unban`, {
+            method: 'POST',
+            body: {},
+        });
+    }
+
+    async resetRiskScore(userId: string) {
+        return this.callPlatformApi(`/anti-cheat/users/${userId}/reset-risk`, {
+            method: 'POST',
+            body: {},
+        });
+    }
+
+    async getUserRiskScore(userId: string) {
+        return this.callPlatformApi(`/anti-cheat/users/${userId}/risk-score`, {
+            method: 'GET',
+        });
+    }
+
+    // ─── PLATFORM API CLIENT ─────────────────────────────────────────
+
+    private async callPlatformApi(path: string, options: { method: string; body?: any }) {
+        if (!INTERNAL_API_KEY) {
+            // Fail closed: never call the platform anti-cheat API without a configured key.
+            throw new ServiceUnavailableException('Platform integration not configured');
+        }
+        const url = `${PLATFORM_API_URL}${path}`;
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'x-api-key': INTERNAL_API_KEY,
+        };
+
+        const fetchOptions: RequestInit = { method: options.method, headers };
+        if (options.body) {
+            fetchOptions.body = JSON.stringify(options.body);
+        }
+
+        try {
+            const response = await fetch(url, fetchOptions);
+            if (!response.ok) {
+                this.logger.error(`Platform API error: ${response.status} ${response.statusText} — ${url}`);
+                return { error: `Platform API returned ${response.status}`, status: response.status };
+            }
+            return response.json();
+        } catch (error) {
+            this.logger.error(`Platform API call failed: ${url} — ${error}`);
+            return { error: 'Platform API unreachable' };
+        }
     }
 
     private async resolveGameUuid(gameId: number): Promise<string | null> {

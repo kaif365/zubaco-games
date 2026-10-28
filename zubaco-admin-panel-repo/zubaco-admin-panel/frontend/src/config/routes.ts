@@ -13,6 +13,12 @@ export const ROUTES = {
   TOURNAMENTS: "/tournaments",
   TOURNAMENTS_NEW: "/tournaments/new",
   TOURNAMENTS_DETAIL: (id: string) => `/tournaments/${id}`,
+  SEASONS: "/seasons",
+  NOTIFICATIONS: "/notifications",
+  SETTINGS: "/settings",
+  AUDIT_LOGS: "/audit-logs",
+  ANALYTICS: "/analytics",
+  WALLETS: "/wallets",
 } as const;
 
 export const BREADCRUMB_LABELS: Record<string, string> = {
@@ -22,6 +28,12 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   users: "Users",
   flagged: "Flagged Users",
   tournaments: "Tournaments",
+  seasons: "Seasons",
+  notifications: "Notifications",
+  settings: "Settings",
+  "audit-logs": "Audit Logs",
+  analytics: "Analytics",
+  wallets: "Wallets",
   tournament_detail: "Tournament Detail",
   stage_detail: "Stage Detail",
   game_detail: "Game Detail",

@@ -1,3 +1,0 @@
-ALTER TABLE "game_sessions"
-ADD COLUMN IF NOT EXISTS "completed_rounds" INTEGER NOT NULL DEFAULT 0,
-ADD COLUMN IF NOT EXISTS "current_level_id" TEXT;

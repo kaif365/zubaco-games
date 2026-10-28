@@ -1,8 +1,0 @@
-[test]
-preload = ["reflect-metadata"]
-
-[run]
-bun = true
-
-[resolve]
-alias = { "@prisma" = "./generated/prisma/client" }

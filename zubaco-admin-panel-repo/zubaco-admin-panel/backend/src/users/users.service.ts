@@ -125,51 +125,59 @@ export class UsersService {
     async creditWallet(userId: string, amount: number, reason: string) {
         if (amount <= 0) throw new BadRequestException('Amount must be positive');
 
-        const wallet = await this.prisma.wallet.upsert({
-            where: { user_id: userId },
-            create: { user_id: userId, balance: amount },
-            update: { balance: { increment: amount } },
-        });
+        return this.prisma.$transaction(async (tx) => {
+            const wallet = await tx.wallet.upsert({
+                where: { user_id: userId },
+                create: { user_id: userId, balance: amount },
+                update: { balance: { increment: amount } },
+            });
 
-        await this.prisma.transaction.create({
-            data: {
-                user_id: userId,
-                type: 'DEPOSIT',
-                amount,
-                balance_after: wallet.balance,
-                status: 'COMPLETED',
-                description: `Admin credit: ${reason}`,
-            },
-        });
+            const balanceAfter = Number(wallet.balance) + Number(wallet.bonus_balance);
 
-        return { success: true, new_balance: wallet.balance };
+            await tx.transaction.create({
+                data: {
+                    user_id: userId,
+                    type: 'DEPOSIT',
+                    amount,
+                    balance_after: balanceAfter,
+                    status: 'COMPLETED',
+                    description: `Admin credit: ${reason}`,
+                },
+            });
+
+            return { success: true, new_balance: balanceAfter };
+        });
     }
 
     async debitWallet(userId: string, amount: number, reason: string) {
         if (amount <= 0) throw new BadRequestException('Amount must be positive');
 
-        const wallet = await this.prisma.wallet.findUnique({ where: { user_id: userId } });
-        if (!wallet || Number(wallet.balance) < amount) {
-            throw new BadRequestException('Insufficient balance');
-        }
+        return this.prisma.$transaction(async (tx) => {
+            // Atomic, race-safe debit: decrement only when sufficient cash balance exists.
+            const updated = await tx.wallet.updateMany({
+                where: { user_id: userId, balance: { gte: amount } },
+                data: { balance: { decrement: amount } },
+            });
+            if (updated.count === 0) {
+                throw new BadRequestException('Insufficient balance');
+            }
 
-        const updated = await this.prisma.wallet.update({
-            where: { user_id: userId },
-            data: { balance: { decrement: amount } },
+            const wallet = await tx.wallet.findUnique({ where: { user_id: userId } });
+            const balanceAfter = Number(wallet!.balance) + Number(wallet!.bonus_balance);
+
+            await tx.transaction.create({
+                data: {
+                    user_id: userId,
+                    type: 'WITHDRAWAL',
+                    amount,
+                    balance_after: balanceAfter,
+                    status: 'COMPLETED',
+                    description: `Admin debit: ${reason}`,
+                },
+            });
+
+            return { success: true, new_balance: balanceAfter };
         });
-
-        await this.prisma.transaction.create({
-            data: {
-                user_id: userId,
-                type: 'WITHDRAWAL',
-                amount,
-                balance_after: updated.balance,
-                status: 'COMPLETED',
-                description: `Admin debit: ${reason}`,
-            },
-        });
-
-        return { success: true, new_balance: updated.balance };
     }
 
     async updateUser(userId: string, data: any) {

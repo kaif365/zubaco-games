@@ -14,7 +14,7 @@ export interface Banner {
   created_at: Date;
 }
 
-// TODO: use Prisma when banner model is added to schema
+// In-memory banner store (no Banner model exists in the shared schema).
 @Injectable()
 export class BannersService {
   private banners: Banner[] = [];

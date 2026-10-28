@@ -12,10 +12,12 @@ import {
 } from '@nestjs/common';
 
 import type { InputJsonValue } from '../../generated/prisma/internal/prismaNamespace';
+import { S3Service } from '../aws/s3.service';
 import { GameConfigEventType } from '../aws/sns.enum';
 import { SqsService } from '../aws/sqs.service';
 
 import type { CreateGamePayload } from './dto/create-game.dto';
+import type { RegisterAssetPayload, RequestAssetUploadPayload } from './dto/game-asset.dto';
 import type { StageContentQueryPayload } from './dto/stage-content-query.dto';
 import type { UpdateGamePayload } from './dto/update-game.dto';
 
@@ -26,6 +28,7 @@ export class GamesService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly sqs: SqsService,
+        private readonly s3: S3Service,
     ) {}
 
     async createGame(payload: CreateGamePayload) {
@@ -500,6 +503,92 @@ export class GamesService {
                 event_type: { DataType: 'String', StringValue: eventType },
             },
         });
+    }
+
+    // ─── GAME ASSET IMAGES (S3) ─────────────────────────────────
+
+    /**
+     * Issue a presigned URL so an admin can upload a spot-the-difference or
+     * sliding-puzzle image straight to S3 (the API never proxies the bytes).
+     */
+    async requestAssetUpload(gameId: string, payload: RequestAssetUploadPayload) {
+        await this.findGameOrThrow(gameId);
+        return this.s3.createPresignedUpload({
+            category: payload.category,
+            gameId,
+            contentType: payload.content_type,
+            contentLength: payload.content_length,
+        });
+    }
+
+    /**
+     * Register an uploaded asset against the game's config. Assets are grouped
+     * by category under `game_config.assets` and carry the public URL so the
+     * game frontends and Base Platform can render them.
+     */
+    async registerAsset(gameId: string, payload: RegisterAssetPayload) {
+        const game = await this.prisma.game.findFirst({
+            where: { id: gameId, deleted_at: null },
+            select: { game_config: true },
+        });
+        if (!game) throw new NotFoundException('GAME_NOT_FOUND');
+
+        const currentConfig = (game.game_config as Record<string, unknown>) ?? {};
+        const assets = (currentConfig.assets as Record<string, unknown[]>) ?? {};
+        const categoryAssets = Array.isArray(assets[payload.category])
+            ? (assets[payload.category] as Record<string, unknown>[])
+            : [];
+
+        const asset = {
+            key: payload.key,
+            url: this.s3.publicUrl(payload.key),
+            label: payload.label ?? null,
+            stage_id: payload.stage_id ?? null,
+            uploaded_at: new Date().toISOString(),
+        };
+
+        const nextConfig = {
+            ...currentConfig,
+            assets: { ...assets, [payload.category]: [...categoryAssets, asset] },
+        } as InputJsonValue;
+
+        await this.prisma.game.update({
+            where: { id: gameId },
+            data: { game_config: nextConfig },
+        });
+
+        return asset;
+    }
+
+    /** Remove a previously registered asset from both S3 and the game config. */
+    async deleteAsset(gameId: string, category: string, key: string) {
+        const game = await this.prisma.game.findFirst({
+            where: { id: gameId, deleted_at: null },
+            select: { game_config: true },
+        });
+        if (!game) throw new NotFoundException('GAME_NOT_FOUND');
+
+        const currentConfig = (game.game_config as Record<string, unknown>) ?? {};
+        const assets = (currentConfig.assets as Record<string, Record<string, unknown>[]>) ?? {};
+        const categoryAssets = Array.isArray(assets[category]) ? assets[category] : [];
+        const filtered = categoryAssets.filter((a) => a.key !== key);
+
+        if (filtered.length === categoryAssets.length) {
+            throw new NotFoundException('ASSET_NOT_FOUND');
+        }
+
+        const nextConfig = {
+            ...currentConfig,
+            assets: { ...assets, [category]: filtered },
+        } as InputJsonValue;
+
+        await this.prisma.game.update({
+            where: { id: gameId },
+            data: { game_config: nextConfig },
+        });
+        await this.s3.deleteObject(key);
+
+        return { deleted: true, key };
     }
 
     private async findGameOrThrow(gameId: string) {

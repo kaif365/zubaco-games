@@ -1,8 +1,16 @@
 import { Controller, Get, Param, Query, Res } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { RequireSession, TOKEN_TYPES, USER_TYPES } from '@common/decorators/session.decorator';
 import { Response } from 'express';
 
 import { ExportsService } from './exports.service';
 
+@ApiTags('Admin Exports')
+@ApiBearerAuth('authorization')
+@RequireSession({
+  tokenTypes: [TOKEN_TYPES.LOGIN],
+  userTypes: [USER_TYPES.ADMIN],
+})
 @Controller('admin/exports')
 export class ExportsController {
   constructor(private readonly exportsService: ExportsService) {}

@@ -12,6 +12,7 @@ model Admin {
   email         String             @unique
   password      String
   access_tokens AdminAccessToken[]
+  audit_logs    AuditLog[]
   created_at    DateTime           @default(now())
   updated_at    DateTime           @updatedAt
   deleted_at    DateTime?
@@ -593,4 +594,42 @@ enum CheatSeverity {
   MEDIUM
   HIGH
   CRITICAL
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUDIT LOGS
+// ═══════════════════════════════════════════════════════════════
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  admin_id   String
+  action     String   // e.g., "POST /admin/seasons", "DELETE /admin/users/123"
+  entity     String   // e.g., "seasons", "users", "stages"
+  entity_id  String?  // ID of affected entity
+  changes    Json?    @db.JsonB // Request body / what changed
+  ip_address String?
+  created_at DateTime @default(now())
+
+  admin Admin @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+
+  @@index([admin_id])
+  @@index([entity])
+  @@index([created_at])
+  @@map("audit_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SYSTEM SETTINGS (key-value config store)
+// ═══════════════════════════════════════════════════════════════
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String?
+  category    String   @default("general")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([category])
+  @@map("system_settings")
 }

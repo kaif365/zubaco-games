@@ -125,6 +125,12 @@ export class SeasonsService {
     }
 
     async openStage(stageId: string) {
+        const stage = await this.prisma.seasonStage.findUnique({ where: { id: stageId } });
+        if (!stage) throw new NotFoundException('Stage not found');
+        if (stage.status === 'OPEN') return stage;
+        if (stage.status !== 'LOCKED') {
+            throw new BadRequestException(`Cannot open a stage in status ${stage.status}`);
+        }
         return this.prisma.seasonStage.update({
             where: { id: stageId },
             data: { status: 'OPEN' },
@@ -132,6 +138,12 @@ export class SeasonsService {
     }
 
     async closeStage(stageId: string) {
+        const stage = await this.prisma.seasonStage.findUnique({ where: { id: stageId } });
+        if (!stage) throw new NotFoundException('Stage not found');
+        if (stage.status === 'CLOSED') return stage;
+        if (stage.status !== 'OPEN') {
+            throw new BadRequestException(`Cannot close a stage in status ${stage.status}`);
+        }
         return this.prisma.seasonStage.update({
             where: { id: stageId },
             data: { status: 'CLOSED' },
@@ -148,6 +160,10 @@ export class SeasonsService {
         if (stage.status !== 'CLOSED') throw new BadRequestException('Stage must be closed before elimination');
 
         const entries = stage.stage_entries;
+        // Idempotency: do not re-run elimination once ranks have been assigned.
+        if (entries.some((e) => e.rank !== null)) {
+            throw new BadRequestException('Elimination already processed for this stage');
+        }
         const totalPlayers = entries.length;
         const eliminateCount = Math.floor(totalPlayers * (stage.elimination_pct / 100));
         const cutoffIndex = totalPlayers - eliminateCount;

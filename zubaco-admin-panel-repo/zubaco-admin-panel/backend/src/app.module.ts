@@ -3,8 +3,10 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { AdminModule } from './admin/admin.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { BannersModule } from './banners/banners.module';
 import { CheatFlagsModule } from './cheat-flags/cheat-flags.module';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { SessionGuard } from './common/guards/session.guard';
 import { TransactionInterceptor } from './common/interceptors/transaction.interceptor';
 import { LanguageMiddleware } from './common/middleware/language.middleware';
@@ -12,9 +14,11 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { ExportsModule } from './exports/exports.module';
 import { GamesModule } from './games/games.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PrizesModule } from './prizes/prizes.module';
 import { RedisModule } from './redis/redis.module';
 import { SeasonsModule } from './seasons/seasons.module';
+import { SettingsModule } from './settings/settings.module';
 import { StagesModule } from './stages/stages.module';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { UsersModule } from './users/users.module';
@@ -34,11 +38,18 @@ import { UsersModule } from './users/users.module';
         ExportsModule,
         BannersModule,
         PrizesModule,
+        NotificationsModule,
+        AuditLogsModule,
+        SettingsModule,
     ],
     providers: [
         {
             provide: APP_INTERCEPTOR,
             useClass: TransactionInterceptor,
+        },
+        {
+            provide: APP_INTERCEPTOR,
+            useClass: AuditInterceptor,
         },
         {
             provide: APP_GUARD,
