@@ -1,4 +1,4 @@
-﻿import * as path from 'path';
+import * as path from 'path';
 
 import * as dotenv from 'dotenv';
 
@@ -62,13 +62,13 @@ const getEnvVar = (key: string, defaultValue?: string): string => {
 
 export const config: Config = {
     database: {
-        url: getEnvVar('DATABASE_URL'),
+        url: getEnvVar('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/zubaco_platform'),
     },
     server: {
-        port: parseInt(getEnvVar('PORT', '3000'), 10),
+        port: parseInt(getEnvVar('PORT', '3001'), 10),
     },
     security: {
-        jwtSecret: getEnvVar('JWT_SECRET'),
+        jwtSecret: getEnvVar('JWT_SECRET', 'zubaco-admin-jwt-secret-do-not-use-in-production-12345'),
     },
     redis: {
         host: getEnvVar('REDIS_HOST', 'localhost'),
@@ -76,7 +76,7 @@ export const config: Config = {
         username: process.env['REDIS_USERNAME'] || undefined,
         password: process.env['REDIS_PASSWORD'] || undefined,
         db: parseInt(getEnvVar('REDIS_DB', '0'), 10),
-        adminProjectKey: getEnvVar('REDIS_ADMIN_PROJECT_KEY'),
+        adminProjectKey: getEnvVar('REDIS_ADMIN_PROJECT_KEY', 'zubaco:admin'),
     },
     swagger: {
         title: getEnvVar('PROJECT_NAME', 'ZUBACO Admin Service'),
@@ -90,25 +90,27 @@ export const config: Config = {
         default: getEnvVar('DEFAULT_LANGUAGE', 'en'),
     },
     aws: {
-        region: getEnvVar('AWS_REGION'),
-        accessKeyId: getEnvVar('AWS_ACCESS_KEY_ID'),
-        secretAccessKey: getEnvVar('AWS_SECRET_ACCESS_KEY'),
+        region: getEnvVar('AWS_REGION', 'ap-south-1'),
+        accessKeyId: process.env['AWS_ACCESS_KEY_ID'] || '',
+        secretAccessKey: process.env['AWS_SECRET_ACCESS_KEY'] || '',
         s3: {
             assetsBucket: getEnvVar('AWS_S3_ASSETS_BUCKET', 'zubaco-assets'),
-            // Public CDN / bucket base URL used to build asset URLs after upload.
             publicBaseUrl: process.env['AWS_S3_PUBLIC_BASE_URL'] || '',
             uploadUrlTtlSeconds: parseInt(process.env['AWS_S3_UPLOAD_URL_TTL'] || '900', 10),
         },
         sqs: {
-            cheatFlagQueueUrl: getEnvVar('AWS_SQS_CHEAT_FLAG_QUEUE_URL'),
+            cheatFlagQueueUrl: process.env['AWS_SQS_CHEAT_FLAG_QUEUE_URL'] || '',
             gameQueueUrls: {
-                ARROWS: getEnvVar('AWS_SQS_ARROWS_QUEUE_URL'),
-                SEQUENCE_RECALL: getEnvVar('AWS_SQS_SEQUENCE_RECALL_QUEUE_URL'),
-                BLOCK_FILL: getEnvVar('AWS_SQS_BLOCK_FILL_QUEUE_URL'),
-                INFINITY_LOOP: getEnvVar('AWS_SQS_INFINITY_LOOP_QUEUE_URL'),
-                MEMORY_CARD_MATCHING: getEnvVar('AWS_SQS_MEMORY_CARD_MATCHING_QUEUE_URL'),
-                SLIDING_PUZZLE: getEnvVar('AWS_SQS_SLIDING_PUZZLE_QUEUE_URL'),
+                ARROWS: process.env['AWS_SQS_ARROWS_QUEUE_URL'] || '',
+                SEQUENCE_RECALL: process.env['AWS_SQS_SEQUENCE_RECALL_QUEUE_URL'] || '',
+                BLOCK_FILL: process.env['AWS_SQS_BLOCK_FILL_QUEUE_URL'] || '',
+                INFINITY_LOOP: process.env['AWS_SQS_INFINITY_LOOP_QUEUE_URL'] || '',
+                MEMORY_CARD_MATCHING: process.env['AWS_SQS_MEMORY_CARD_MATCHING_QUEUE_URL'] || '',
+                SLIDING_PUZZLE: process.env['AWS_SQS_SLIDING_PUZZLE_QUEUE_URL'] || '',
                 SUDOKU: process.env['AWS_SQS_SUDOKU_QUEUE_URL'] || '',
+                MAZE_NAVIGATION: process.env['AWS_SQS_MAZE_NAVIGATION_QUEUE_URL'] || '',
+                SPOT_THE_DIFFERENCE: process.env['AWS_SQS_SPOT_THE_DIFFERENCE_QUEUE_URL'] || '',
+                LOGIC_REFLECTOR: process.env['AWS_SQS_LOGIC_REFLECTOR_QUEUE_URL'] || '',
             },
         },
     },
