@@ -4,11 +4,19 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'zubaco-games-repo/**'
+      - 'zubaco-games/**'
+      - '.github/workflows/games-ci.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'zubaco-games-repo/**'
+      - 'zubaco-games/**'
+      - '.github/workflows/games-ci.yml'
+  workflow_dispatch:
+    inputs:
+      game:
+        description: "Game to run CI/CD on (or 'all')"
+        required: false
+        default: "all"
 
 env:
   AWS_REGION: ap-south-1
@@ -26,13 +34,39 @@ jobs:
       - name: Detect changed games
         id: changes
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SELECTED="${{ github.event.inputs.game }}"
+            if [ "$SELECTED" = "all" ] || [ -z "$SELECTED" ]; then
+              GAMES='["arrows","block-fill","colour-sorting","flash-spot","Infinity-loop","live-route-builder","logic-reflector","maze-navigation","memory-card-matching","memory-groups","number-grid-sprint","object-placement-memory","pattern-survival","rapid-category-sort","reflex-endurance","sequence-recall","sliding-puzzle","speed-type-answer","true-false-blitz","word-unscramble"]'
+            else
+              GAMES="[\"$SELECTED\"]"
+            fi
+            echo "games=$GAMES" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           BEFORE="${{ github.event.before }}"
           if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE" ]; then
             BEFORE="${{ github.sha }}~1"
           fi
-          GAMES=$(git diff --name-only "$BEFORE" ${{ github.sha }} | \
-            grep "^zubaco-games-repo/zubaco-games/" | \
-            cut -d'/' -f3 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+
+          KNOWN_GAMES="arrows block-fill colour-sorting flash-spot Infinity-loop live-route-builder logic-reflector maze-navigation memory-card-matching memory-groups number-grid-sprint object-placement-memory pattern-survival rapid-category-sort reflex-endurance sequence-recall sliding-puzzle speed-type-answer true-false-blitz word-unscramble"
+
+          CHANGED_DIRS=$(git diff --name-only "$BEFORE" ${{ github.sha }} 2>/dev/null | \
+            grep "^zubaco-games/" | \
+            cut -d'/' -f2 | sort -u || true)
+
+          MATCHED_GAMES=()
+          for d in $CHANGED_DIRS; do
+            for g in $KNOWN_GAMES; do
+              if [ "$d" = "$g" ]; then
+                MATCHED_GAMES+=("$d")
+                break
+              fi
+            done
+          done
+
+          GAMES=$(printf '%s\n' "${MATCHED_GAMES[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
           if [ "$GAMES" = "null" ] || [ -z "$GAMES" ]; then
             GAMES="[]"
           fi
@@ -54,7 +88,7 @@ jobs:
           node-version: 22
 
       - name: Build & Test Backend
-        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        working-directory: zubaco-games/${{ matrix.game }}
         run: |
           BACKEND=$(ls -d *-backend 2>/dev/null || echo "")
           if [ -n "$BACKEND" ]; then
@@ -67,7 +101,7 @@ jobs:
           fi
 
       - name: Build & Test Frontend
-        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        working-directory: zubaco-games/${{ matrix.game }}
         run: |
           FRONTEND=$(ls -d *-frontend 2>/dev/null || echo "")
           if [ -n "$FRONTEND" ]; then
@@ -132,7 +166,7 @@ jobs:
           node-version: 22
 
       - name: Backend E2E (Postgres + Redis)
-        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        working-directory: zubaco-games/${{ matrix.game }}
         run: |
           BACKEND=$(ls -d *-backend 2>/dev/null || echo "")
           if [ -z "$BACKEND" ]; then
@@ -177,7 +211,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build & Deploy Backend
-        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        working-directory: zubaco-games/${{ matrix.game }}
         run: |
           BACKEND=$(ls -d *-backend 2>/dev/null || echo "")
           if [ -n "$BACKEND" ]; then
@@ -188,7 +222,7 @@ jobs:
           fi
 
       - name: Build & Deploy Frontend to S3/CloudFront
-        working-directory: zubaco-games-repo/zubaco-games/${{ matrix.game }}
+        working-directory: zubaco-games/${{ matrix.game }}
         run: |
           FRONTEND=$(ls -d *-frontend 2>/dev/null || echo "")
           if [ -n "$FRONTEND" ]; then

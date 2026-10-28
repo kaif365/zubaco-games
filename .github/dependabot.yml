@@ -1,0 +1,93 @@
+# Dependabot – Automated dependency updates
+# https://docs.github.com/en/code-security/dependabot
+
+version: 2
+
+updates:
+  # ─── GitHub Actions Workflows ───
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # ─── Root Monorepo Dependencies ───
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+    open-pull-requests-limit: 5
+
+  # ─── Platform Backend ───
+  - package-ecosystem: "npm"
+    directory: "/zubaco-platform"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    commit-message:
+      prefix: "deps(platform)"
+    labels:
+      - "dependencies"
+      - "platform"
+    open-pull-requests-limit: 5
+
+  # ─── Admin Backend ───
+  - package-ecosystem: "npm"
+    directory: "/zubaco-admin-panel-repo/zubaco-admin-panel/backend"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    commit-message:
+      prefix: "deps(admin-be)"
+    labels:
+      - "dependencies"
+      - "admin"
+    open-pull-requests-limit: 5
+
+  # ─── Admin Frontend ───
+  - package-ecosystem: "npm"
+    directory: "/zubaco-admin-panel-repo/zubaco-admin-panel/frontend"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    commit-message:
+      prefix: "deps(admin-fe)"
+    labels:
+      - "dependencies"
+      - "admin"
+    open-pull-requests-limit: 5
+
+  # ─── Mobile App ───
+  - package-ecosystem: "npm"
+    directory: "/zubaco-mobile"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    commit-message:
+      prefix: "deps(mobile)"
+    labels:
+      - "dependencies"
+      - "mobile"
+    open-pull-requests-limit: 5
+
+  # ─── Docker Base Images ───
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    commit-message:
+      prefix: "docker"
+    labels:
+      - "dependencies"
+      - "docker"
