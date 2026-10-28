@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'npm'
@@ -189,7 +189,7 @@ jobs:
       # new task set goes live, so schema changes are in place when the new code
       # starts. DATABASE_URL is an environment-scoped secret (staging).
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'npm'
@@ -244,7 +244,7 @@ jobs:
       # the new task set goes live. DATABASE_URL is an environment-scoped secret
       # (production).
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'npm'
