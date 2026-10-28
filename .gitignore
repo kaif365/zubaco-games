@@ -25,6 +25,7 @@ boot.err
 *.rdb
 **/dump.rdb
 redis.zip
+*.pdb
 
 # OS / editor
 .DS_Store
