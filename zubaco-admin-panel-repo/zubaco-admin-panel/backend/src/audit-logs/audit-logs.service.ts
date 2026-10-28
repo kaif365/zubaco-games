@@ -15,7 +15,9 @@ export class AuditLogsService {
 
   async getLogs(options: GetLogsOptions) {
     const { page, limit, adminId, entity, action } = options;
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(1, Number.isFinite(page) ? page : 1);
+    const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 50));
+    const skip = (safePage - 1) * safeLimit;
 
     const where: any = {};
     if (adminId) where.admin_id = adminId;
@@ -27,7 +29,7 @@ export class AuditLogsService {
         where,
         orderBy: { created_at: 'desc' },
         skip,
-        take: limit,
+        take: safeLimit,
         include: {
           admin: { select: { id: true, email: true } },
         },
@@ -35,6 +37,6 @@ export class AuditLogsService {
       this.prisma.auditLog.count({ where }),
     ]);
 
-    return { logs, total, page, limit };
+    return { logs, total, page: safePage, limit: safeLimit };
   }
 }

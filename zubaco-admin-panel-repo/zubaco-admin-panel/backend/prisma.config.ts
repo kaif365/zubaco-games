@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
-const rawUrl = process.env.DATABASE_URL!;
+const rawUrl = process.env.DATABASE_URL ?? 'postgresql://user:password@localhost:5432/zubaco_admin';
 const encodedUrl = rawUrl.replace(
   /^(postgresql:\/\/[^:]+):([^@]+)@/,
   (_, userPart, pass) => `${userPart}:${encodeURIComponent(pass)}@`,

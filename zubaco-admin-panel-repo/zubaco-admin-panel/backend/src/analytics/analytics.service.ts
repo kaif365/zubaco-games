@@ -49,7 +49,8 @@ export class AnalyticsService {
     }
 
     async getUserGrowth(days: number) {
-        const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        const safeDays = Number.isFinite(days) && days > 0 ? days : 30;
+        const startDate = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
 
         // Get daily signups for the period
         const users = await this.prisma.user.findMany({
@@ -104,7 +105,8 @@ export class AnalyticsService {
     }
 
     async getRevenue(days: number) {
-        const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        const safeDays = Number.isFinite(days) && days > 0 ? days : 30;
+        const startDate = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
 
         const transactions = await this.prisma.transaction.findMany({
             where: {
