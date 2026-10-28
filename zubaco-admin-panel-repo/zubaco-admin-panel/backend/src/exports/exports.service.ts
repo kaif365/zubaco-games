@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@common/prisma/prisma.service';
 
+function escapeCsv(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  const str = String(val);
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 @Injectable()
 export class ExportsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -25,16 +34,16 @@ export class ExportsService {
     const headers = 'id,username,display_name,email,phone,xp,level,is_banned,is_verified,created_at';
     const rows = users.map((u) =>
       [
-        u.id,
-        u.username,
-        u.display_name || '',
-        u.email || '',
-        u.phone || '',
-        u.xp,
-        u.level,
-        u.is_banned,
-        u.is_verified,
-        u.created_at?.toISOString() || '',
+        escapeCsv(u.id),
+        escapeCsv(u.username),
+        escapeCsv(u.display_name || ''),
+        escapeCsv(u.email || ''),
+        escapeCsv(u.phone || ''),
+        escapeCsv(u.xp),
+        escapeCsv(u.level),
+        escapeCsv(u.is_banned),
+        escapeCsv(u.is_verified),
+        escapeCsv(u.created_at?.toISOString() || ''),
       ].join(','),
     );
 
@@ -51,12 +60,12 @@ export class ExportsService {
     const headers = 'rank,user_id,username,display_name,score,prize_amount';
     const rows = results.map((r: any) =>
       [
-        r.rank,
-        r.user_id,
-        r.user?.username || '',
-        r.user?.display_name || '',
-        r.score,
-        r.prize_amount || 0,
+        escapeCsv(r.rank),
+        escapeCsv(r.user_id),
+        escapeCsv(r.user?.username || ''),
+        escapeCsv(r.user?.display_name || ''),
+        escapeCsv(r.score),
+        escapeCsv(r.prize_amount || 0),
       ].join(','),
     );
 
@@ -84,12 +93,12 @@ export class ExportsService {
     const headers = 'id,user_id,type,amount,status,created_at';
     const rows = transactions.map((t) =>
       [
-        t.id,
-        t.user_id,
-        t.type,
-        t.amount,
-        t.status,
-        t.created_at?.toISOString() || '',
+        escapeCsv(t.id),
+        escapeCsv(t.user_id),
+        escapeCsv(t.type),
+        escapeCsv(t.amount),
+        escapeCsv(t.status),
+        escapeCsv(t.created_at?.toISOString() || ''),
       ].join(','),
     );
 

@@ -76,6 +76,10 @@ export class SqsService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async pollLoop(): Promise<void> {
+        if (!this.queueUrl) {
+            this.logger.warn('Cheat flag SQS queue URL not configured — polling disabled');
+            return;
+        }
         while (this.running) {
             try {
                 await this.poll();

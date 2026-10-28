@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@common/prisma/prisma.service';
 
 interface PrizeDistribution {
@@ -12,6 +12,11 @@ export class PrizesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async distribute(seasonId: string, distributions: PrizeDistribution[]) {
+    const season = await this.prisma.season.findUnique({ where: { id: seasonId } });
+    if (!season) {
+      throw new NotFoundException('Season not found');
+    }
+
     const results: Array<{ user_id: string; amount: number; rank: number; wallet_balance: any; transaction_id: string; idempotent: boolean }> = [];
 
     for (const dist of distributions) {
@@ -32,9 +37,10 @@ export class PrizesService {
           return { wallet_balance: bal, transaction_id: existing.id, idempotent: true };
         }
 
-        const wallet = await tx.wallet.update({
+        const wallet = await tx.wallet.upsert({
           where: { user_id: dist.user_id },
-          data: { balance: { increment: dist.amount } },
+          create: { user_id: dist.user_id, balance: dist.amount },
+          update: { balance: { increment: dist.amount } },
         });
 
         const transaction = await tx.transaction.create({

@@ -1,6 +1,8 @@
+import { REQUEST_CONTEXT } from '@common/constants';
 import { RequireSession, TOKEN_TYPES, USER_TYPES } from '@common/decorators/session.decorator';
-import { Controller, Get, Post, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 
 import { CheatFlagsService } from './cheat-flags.service';
 import { ListCheatFlagsDto } from './dto/list-cheat-flags.dto';
@@ -20,20 +22,38 @@ export class CheatFlagsController {
 
     @Post(':id/dismiss')
     @ApiOperation({ summary: 'Dismiss a cheat flag (false positive)' })
-    dismissFlag(@Param('id') flagId: string, @Body() body: { admin_id: string }) {
-        return this.cheatFlagsService.reviewFlag(flagId, body.admin_id, 'dismiss');
+    dismissFlag(
+        @Param('id') flagId: string,
+        @Body() body: { admin_id?: string } | undefined,
+        @Req() req: Request,
+    ) {
+        const session = req[REQUEST_CONTEXT.SESSION] as { userId?: string } | undefined;
+        const adminId = body?.admin_id || session?.userId || 'admin';
+        return this.cheatFlagsService.reviewFlag(flagId, adminId, 'dismiss');
     }
 
     @Post(':id/warn')
     @ApiOperation({ summary: 'Warn user for a cheat flag' })
-    warnFlag(@Param('id') flagId: string, @Body() body: { admin_id: string }) {
-        return this.cheatFlagsService.reviewFlag(flagId, body.admin_id, 'warn');
+    warnFlag(
+        @Param('id') flagId: string,
+        @Body() body: { admin_id?: string } | undefined,
+        @Req() req: Request,
+    ) {
+        const session = req[REQUEST_CONTEXT.SESSION] as { userId?: string } | undefined;
+        const adminId = body?.admin_id || session?.userId || 'admin';
+        return this.cheatFlagsService.reviewFlag(flagId, adminId, 'warn');
     }
 
     @Post(':id/ban')
     @ApiOperation({ summary: 'Ban user for a cheat flag' })
-    banFlag(@Param('id') flagId: string, @Body() body: { admin_id: string }) {
-        return this.cheatFlagsService.reviewFlag(flagId, body.admin_id, 'ban');
+    banFlag(
+        @Param('id') flagId: string,
+        @Body() body: { admin_id?: string } | undefined,
+        @Req() req: Request,
+    ) {
+        const session = req[REQUEST_CONTEXT.SESSION] as { userId?: string } | undefined;
+        const adminId = body?.admin_id || session?.userId || 'admin';
+        return this.cheatFlagsService.reviewFlag(flagId, adminId, 'ban');
     }
 
     @Post('users/:userId/unban')

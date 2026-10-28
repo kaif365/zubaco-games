@@ -103,8 +103,7 @@ export class UsersService {
     }
 
     async banUser(userId: string, reason: string) {
-        const user = await this.prisma.user.findUnique({ where: { id: userId } });
-        if (!user) throw new NotFoundException('User not found');
+        await this.ensureUserExists(userId);
 
         await this.prisma.user.update({
             where: { id: userId },
@@ -115,6 +114,8 @@ export class UsersService {
     }
 
     async unbanUser(userId: string) {
+        await this.ensureUserExists(userId);
+
         await this.prisma.user.update({
             where: { id: userId },
             data: { is_banned: false, ban_reason: null },
@@ -124,6 +125,7 @@ export class UsersService {
 
     async creditWallet(userId: string, amount: number, reason: string) {
         if (amount <= 0) throw new BadRequestException('Amount must be positive');
+        await this.ensureUserExists(userId);
 
         return this.prisma.$transaction(async (tx) => {
             const wallet = await tx.wallet.upsert({
@@ -151,6 +153,7 @@ export class UsersService {
 
     async debitWallet(userId: string, amount: number, reason: string) {
         if (amount <= 0) throw new BadRequestException('Amount must be positive');
+        await this.ensureUserExists(userId);
 
         return this.prisma.$transaction(async (tx) => {
             // Atomic, race-safe debit: decrement only when sufficient cash balance exists.
@@ -181,6 +184,8 @@ export class UsersService {
     }
 
     async updateUser(userId: string, data: any) {
+        await this.ensureUserExists(userId);
+
         const allowed = ['display_name', 'username', 'is_verified'];
         const updateData: any = {};
         for (const key of allowed) {
@@ -188,5 +193,15 @@ export class UsersService {
         }
 
         return this.prisma.user.update({ where: { id: userId }, data: updateData });
+    }
+
+    private async ensureUserExists(userId: string) {
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId, deleted_at: null },
+            select: { id: true },
+        });
+        if (!user) {
+            throw new NotFoundException('User not found');
+        }
     }
 }

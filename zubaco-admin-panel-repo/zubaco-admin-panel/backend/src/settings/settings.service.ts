@@ -58,14 +58,13 @@ export class SettingsService implements OnModuleInit {
       }
     }
 
-    const results = await Promise.all(
-      updates.map((u) =>
-        this.prisma.systemSetting.update({
-          where: { key: u.key },
-          data: { value: u.value, updated_at: new Date() },
-        }),
-      ),
+    const operations = updates.map((u) =>
+      this.prisma.systemSetting.update({
+        where: { key: u.key },
+        data: { value: u.value, updated_at: new Date() },
+      }),
     );
+    const results = await this.prisma.$transaction(operations);
     return { updated: results.length };
   }
 
