@@ -15,8 +15,11 @@ import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { useToast } from "@/providers/ToastProvider";
 import { useAutoBackPageOnEmpty } from "@/hooks/useAutoBackPageOnEmpty";
 import { banUser, unbanUser } from "@/lib/api/endpoints/users";
+import { useQueryClient } from "@tanstack/react-query";
+import { QUERY_KEYS } from "@/config/query-keys";
 
 export function UsersTable() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -43,16 +46,26 @@ export function UsersTable() {
     }
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!userToDelete) return;
-    // Placeholder for actual delete call
-    toast({
-      title: "User deleted",
-      description: `"${userToDelete.name}" has been removed.`,
-      variant: "success",
-    });
-    setUserToDelete(null);
-    setSelectedIds((prev) => prev.filter((id) => id !== userToDelete.id));
+    try {
+      await banUser(userToDelete.id);
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.USERS.ALL });
+      toast({
+        title: "User suspended",
+        description: `"${userToDelete.name}" has been suspended.`,
+        variant: "success",
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to suspend user.",
+        variant: "destructive",
+      });
+    } finally {
+      setUserToDelete(null);
+      setSelectedIds((prev) => prev.filter((id) => id !== userToDelete.id));
+    }
   };
 
   const handleBulkDelete = () => {
@@ -60,20 +73,32 @@ export function UsersTable() {
     setUsersToDeleteBulk(selectedIds);
   };
 
-  const confirmBulkDelete = () => {
+  const confirmBulkDelete = async () => {
     if (usersToDeleteBulk.length === 0) return;
-    toast({
-      title: "Users deleted",
-      description: `Successfully removed ${usersToDeleteBulk.length} users.`,
-      variant: "success",
-    });
-    setSelectedIds([]);
-    setUsersToDeleteBulk([]);
+    try {
+      await Promise.all(usersToDeleteBulk.map((id) => banUser(id)));
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.USERS.ALL });
+      toast({
+        title: "Users suspended",
+        description: `Successfully suspended ${usersToDeleteBulk.length} users.`,
+        variant: "success",
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to suspend some users.",
+        variant: "destructive",
+      });
+    } finally {
+      setSelectedIds([]);
+      setUsersToDeleteBulk([]);
+    }
   };
 
   const handleBan = async (id: string) => {
     try {
       await banUser(id);
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.USERS.ALL });
       toast({ title: "User banned", description: "User has been suspended.", variant: "success" });
     } catch {
       toast({ title: "Error", description: "Failed to ban user.", variant: "destructive" });
@@ -83,6 +108,7 @@ export function UsersTable() {
   const handleUnban = async (id: string) => {
     try {
       await unbanUser(id);
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.USERS.ALL });
       toast({ title: "User unbanned", description: "User has been reactivated.", variant: "success" });
     } catch {
       toast({ title: "Error", description: "Failed to unban user.", variant: "destructive" });

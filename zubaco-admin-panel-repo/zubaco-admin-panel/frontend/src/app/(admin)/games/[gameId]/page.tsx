@@ -3,6 +3,10 @@ import { GameDetailPage } from "@/features/games/components/GameDetailPage";
 export const revalidate = 300;
 export const dynamicParams = true;
 
+export function generateStaticParams() {
+  return [{ gameId: '_' }];
+}
+
 export async function generateMetadata({
   params,
 }: {

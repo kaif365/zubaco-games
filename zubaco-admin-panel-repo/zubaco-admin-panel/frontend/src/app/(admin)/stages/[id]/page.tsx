@@ -4,6 +4,10 @@ import { PageContainer } from "@/components/layout/PageContainer";
 export const revalidate = 300;
 export const dynamicParams = true;
 
+export function generateStaticParams() {
+  return [{ id: '_' }];
+}
+
 interface Props {
   params: Promise<{ id: string }>;
 }

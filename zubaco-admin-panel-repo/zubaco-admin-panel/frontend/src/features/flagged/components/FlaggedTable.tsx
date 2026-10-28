@@ -45,7 +45,9 @@ export function FlaggedTable() {
 
   const confirmBulkDelete = () => {
     if (flagsToDeleteBulk.length === 0) return;
-    // Placeholder for actual delete call
+    flagsToDeleteBulk.forEach((id) => {
+      updateStatus({ id, status: "safe" });
+    });
     setSelectedIds([]);
     setFlagsToDeleteBulk([]);
   };
