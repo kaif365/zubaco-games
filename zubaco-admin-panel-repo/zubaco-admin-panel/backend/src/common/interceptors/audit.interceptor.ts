@@ -42,6 +42,11 @@ export class AuditInterceptor implements NestInterceptor {
             // No authenticated admin (e.g. rejected request) — admin_id is a required FK; skip.
             return;
           }
+          const forwarded = request.headers['x-forwarded-for'];
+          const ip =
+            request.ip ||
+            (Array.isArray(forwarded) ? forwarded[0] : forwarded) ||
+            null;
           // Fire and forget — don't block the response
           this.prisma.auditLog.create({
             data: {
@@ -50,7 +55,7 @@ export class AuditInterceptor implements NestInterceptor {
               entity,
               entity_id: entityId,
               changes: changes ? JSON.parse(JSON.stringify(changes)) : undefined,
-              ip_address: request.ip || request.headers['x-forwarded-for'] || null,
+              ip_address: ip,
             },
           }).catch(() => { /* audit failure should never crash the app */ });
         },

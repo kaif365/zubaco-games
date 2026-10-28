@@ -47,6 +47,8 @@ const PRISMA_MODEL_PROPERTIES = new Set([
     'transaction',
     'notification',
     'seasonLeaderboard',
+    'auditLog',
+    'systemSetting',
 ]);
 
 /**
