@@ -3,7 +3,7 @@
 import { motion } from "motion/react";
 
 interface GameHeaderProps {
-  readonly level: number;
+  readonly level?: number;
   readonly moves: number;
   readonly combo: number;
   readonly timeElapsed: number;
@@ -30,7 +30,7 @@ export function GameHeader({
         {/* Left: Level Badge */}
         <div className="flex items-center gap-3">
           <span className="rounded-lg bg-emerald-600/20 border border-emerald-500/30 px-2.5 py-1 text-xs font-bold text-emerald-400">
-            LVL {level}
+            {level !== undefined ? `LVL ${level}` : "DAILY"}
           </span>
           <span className="text-xs text-slate-400">
             {moves} moves

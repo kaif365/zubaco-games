@@ -60,8 +60,10 @@ export function updateStats(update: Partial<GameStats> & { addMoves?: number; ad
   if (update.perfectGames !== undefined) stats.perfectGames = update.perfectGames;
   if (update.fastCompletions !== undefined) stats.fastCompletions = update.fastCompletions;
   if (update.addTime) stats.totalTimePlayed += update.addTime;
-  if (update.highestScore !== undefined && update.highestScore > stats.highestScore) stats.highestScore = update.highestScore;
-  stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
+  if (update.highestScore !== undefined) {
+    if (update.highestScore > stats.highestScore) stats.highestScore = update.highestScore;
+    stats.recentScores = [update.highestScore, ...(stats.recentScores || [])].slice(0, 20);
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
   return stats;
 }
