@@ -21,6 +21,7 @@ const PRISMA_MODEL_PROPERTIES = new Set([
     'stageLevelConfig',
     'stageLevelBoard',
     'gameMove',
+    'cheatFlag',
 ]);
 
 /**
