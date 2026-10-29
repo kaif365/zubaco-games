@@ -7,7 +7,9 @@ import type { PlaySoundOptions, SoundCategory, VolumeState } from '@/audio/types
 export interface AudioContextValue { ready: boolean; unlocked: boolean; muted: boolean; volume: VolumeState; unlockAudio: () => Promise<void>; preloadAll: () => Promise<void>; preloadSounds: (keys: readonly SoundKey[]) => Promise<void>; preloadScene: (sceneTag: string) => Promise<void>; play: (key: SoundKey, options?: PlaySoundOptions) => Promise<string | null>; stopSound: (key: SoundKey) => void; stopByInstance: (instanceId: string) => void; stopAll: () => void; pauseAll: () => void; resumeAll: () => Promise<void>; setMuted: (muted: boolean) => void; toggleMuted: () => void; setMasterVolume: (value: number) => void; setCategoryVolume: (category: SoundCategory, value: number) => void; }
 
 const AudioCtx = createContext<AudioContextValue | null>(null);
-const isTestEnv = import.meta.env.MODE === 'test';
+const isTestEnv =
+  (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') ||
+  (typeof import.meta !== 'undefined' && Boolean((import.meta as unknown as { env?: { MODE?: string } }).env?.MODE === 'test'));
 
 export function AudioProvider({ children }: { children: ReactNode }) {
   const [mgr] = useState(() => new AudioManager<SoundKey>({ registry: soundRegistry }));
