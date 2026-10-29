@@ -41,9 +41,17 @@ const PRISMA_MODEL_PROPERTIES = new Set([
     'board',
     'arrow',
     'gameSession',
+    'gameSessionStageConfig',
+    'gameSessionStageLevelConfig',
     'gameSessionBoard',
     'gameSessionArrow',
+    'stageConfig',
+    'stageLevelConfig',
     'gameMove',
+    'cheatFlag',
+    'stageDemoLevelConfig',
+    'userStageDemoBoard',
+    'userStageDemoArrow',
 ]);
 
 const PRISMA_TRANSACTION_METHODS = new Set([
