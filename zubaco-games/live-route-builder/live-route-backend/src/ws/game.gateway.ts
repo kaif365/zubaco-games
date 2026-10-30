@@ -29,12 +29,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleConnection(client: Socket): void {
     try {
       const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.replace('Bearer ', '');
-      if (!token) {
+      const secret = process.env.JWT_SECRET || '';
+      if (!token || !secret) {
         client.disconnect();
         return;
       }
 
-      const secret = process.env.JWT_SECRET || '';
       const decoded = jwt.verify(token, secret) as { sub: string };
       const userId = decoded.sub;
 
