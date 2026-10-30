@@ -27,8 +27,8 @@
 
 | Batch | File Range | Layer / Focus Area | File Count | Lines of Code | Status |
 |:---:|:---:|---|:---:|:---:|:---:|
-| **Batch 1** | Files 1–9 | **Core Entry, Configs, Contexts & Navigation**<br>App root, dependencies, ErrorBoundary, AppUpdateModal, game constants, AuthContext, OfflineContext, and Tab/Root navigators. | 9 | 626 | 🚀 Ready |
-| **Batch 2** | Files 10–18 | **Navigation Ref, Auth Flow, Game Bridge & Discovery**<br>Navigation helpers, Splash, Onboarding, Login, OTP, Game WebView Bridge Screen, KYC verification, FreePlay and Home screens. | 9 | 936 | ⏳ Queued |
+| **Batch 1** | Files 1–9 | **Core Entry, Configs, Contexts & Navigation**<br>App root, dependencies, ErrorBoundary, AppUpdateModal, game constants, AuthContext, OfflineContext, and Tab/Root navigators. | 9 | 626 | ✅ COMPLETED (`d818b00`) |
+| **Batch 2** | Files 10–18 | **Navigation Ref, Auth Flow, Game Bridge & Discovery**<br>Navigation helpers, Splash, Onboarding, Login, OTP, Game WebView Bridge Screen, KYC verification, FreePlay and Home screens. | 9 | 936 | 🚀 Ready |
 | **Batch 3** | Files 19–27 | **Social, Economy, Tournaments & Account Screens**<br>Leaderboards, Notifications, Profile, Referral, Settings, Support, Tournament Lobby, Wallet deposit/withdrawal, and Analytics logger. | 9 | 2,864 | ⏳ Queued |
 | **Batch 4** | Files 28–36 | **Device Services, API Client, Security & Build Config**<br>Analytics events, Central API service (token refreshes, interceptors), Biometrics, Crash reporting, Global error handlers, Secure storage, Preferences, Push notifications, and tsconfig. | 9 | 1,107 | ⏳ Queued |
 
@@ -96,7 +96,7 @@ For each file across all 4 batches:
 23. [src/screens/main/SettingsScreen.tsx](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-mobile/src/screens/main/SettingsScreen.tsx) — Audio, haptics, dark/light theme, biometric toggle & privacy controls (338 lines)
 24. [src/screens/main/SupportScreen.tsx](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-mobile/src/screens/main/SupportScreen.tsx) — Customer support FAQ, ticketing & live chat launch (180 lines)
 25. [src/screens/main/TournamentScreen.tsx](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-mobile/src/screens/main/TournamentScreen.tsx) — Competitive tournament lobby, entry fees, prize pools & brackets (504 lines)
-26. [src/screens/main/WalletScreen.tsx](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-games/word-unscramble/word-unscramble-backend/src/app.module.ts) — Real-money deposit (UPI/cards), withdrawal to bank, transaction history (605 lines)
+26. [src/screens/main/WalletScreen.tsx](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-mobile/src/screens/main/WalletScreen.tsx) — Real-money deposit (UPI/cards), withdrawal to bank, transaction history (605 lines)
 27. [src/services/analytics.ts](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-mobile/src/services/analytics.ts) — Analytics tracker dispatching events to telemetry endpoints (54 lines)
 
 ### **Batch 4: Device Services, API Client, Security & Build Config (Files 28–36)**
@@ -109,3 +109,12 @@ For each file across all 4 batches:
 34. [src/services/pushNotifications.ts](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-mobile/src/services/pushNotifications.ts) — APNs/FCM token registration, channel creation & notification handler (122 lines)
 35. [src/services/secureStorage.ts](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-mobile/src/services/secureStorage.ts) — Encrypted key-value store for JWTs and sensitive user credentials (40 lines)
 36. [tsconfig.json](file:///c:/Users/Ashar/Desktop/zubaco-games/zubaco-mobile/tsconfig.json) — TypeScript compiler configuration for React Native (23 lines)
+
+---
+
+## 📜 Execution Log
+
+- **Batch 1 (Files 1–9):** ✅ Complete & committed (`d818b00`):
+  - Line-by-line inspection of `App.tsx`, `package.json`, `AppUpdateModal.tsx`, `ErrorBoundary.tsx`, `constants/games.ts`, `AuthContext.tsx`, `OfflineContext.tsx`, `MainTabs.tsx`, and `RootNavigator.tsx`.
+  - **Fix 1:** Added missing dependency `"@react-native-community/netinfo": "^11.4.1"` to `package.json` (required by `OfflineContext.tsx`).
+  - **Fix 2:** Registered missing `KycScreen` route in `RootNavigator.tsx` and added `Kyc: undefined;` to `RootStackParamList`.
