@@ -39,11 +39,18 @@ export async function resolveIPv4(hostname: string): Promise<string> {
 const PRISMA_MODEL_PROPERTIES = new Set([
     'level',
     'board',
-    'arrow',
+    'boardShuffle',
+    'stageConfig',
+    'stageLevelConfig',
+    'stageDemoLevelConfig',
     'gameSession',
+    'gameSessionStageConfig',
+    'gameSessionStageLevelConfig',
     'gameSessionBoard',
-    'gameSessionArrow',
     'gameMove',
+    'cheatFlag',
+    'userStageDemoBoard',
+    'file',
 ]);
 
 const PRISMA_TRANSACTION_METHODS = new Set([
