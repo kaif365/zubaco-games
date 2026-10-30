@@ -122,17 +122,17 @@
 | **Batch 78** | Files 3851–3900 | Reflex Endurance frontend high-precision timer loop | 50 | ✅ COMPLETED |
 | **Batch 79** | Files 3901–3950 | Reflex Endurance conclusion + Scripts & SDK | 50 | ✅ COMPLETED |
 | **Batch 80** | Files 3951–4000 | SDK conclusion + Sequence Recall backend models & seed | 50 | ✅ COMPLETED |
-| **Batch 81** | Files 4001–4050 | Sequence Recall backend controllers, services & DTOs | 50 | 🚀 Ready |
-| **Batch 82** | Files 4051–4100 | Sequence Recall backend sequence generator & validation | 50 | ⏳ Queued |
-| **Batch 83** | Files 4101–4150 | Sequence Recall frontend sequence display & audio | 50 | ⏳ Queued |
-| **Batch 84** | Files 4151–4200 | Sequence Recall frontend touch sequence input loop | 50 | ⏳ Queued |
-| **Batch 85** | Files 4201–4250 | Sequence Recall frontend animations & game over logic | 50 | ⏳ Queued |
-| **Batch 86** | Files 4251–4300 | Sequence Recall frontend hooks & state container | 50 | ⏳ Queued |
-| **Batch 87** | Files 4301–4350 | Sequence Recall frontend components & utilities | 50 | ⏳ Queued |
-| **Batch 88** | Files 4351–4400 | Sequence Recall conclusion + Sliding Puzzle backend | 50 | ⏳ Queued |
-| **Batch 89** | Files 4401–4450 | Sliding Puzzle backend board shuffler & solvability check | 50 | ⏳ Queued |
-| **Batch 90** | Files 4451–4500 | Sliding Puzzle backend controllers, services & DTOs | 50 | ⏳ Queued |
-| **Batch 91** | Files 4501–4550 | Sliding Puzzle frontend 15-puzzle sliding physics & grid | 50 | ⏳ Queued |
+| **Batch 81** | Files 4001–4050 | Sequence Recall backend controllers, services & DTOs | 50 | ✅ COMPLETED |
+| **Batch 82** | Files 4051–4100 | Sequence Recall backend sequence generator & validation | 50 | ✅ COMPLETED |
+| **Batch 83** | Files 4101–4150 | Sequence Recall frontend sequence display & audio | 50 | ✅ COMPLETED |
+| **Batch 84** | Files 4151–4200 | Sequence Recall frontend touch sequence input loop | 50 | ✅ COMPLETED |
+| **Batch 85** | Files 4201–4250 | Sequence Recall frontend animations & game over logic | 50 | ✅ COMPLETED |
+| **Batch 86** | Files 4251–4300 | Sequence Recall frontend hooks & state container | 50 | ✅ COMPLETED |
+| **Batch 87** | Files 4301–4350 | Sequence Recall frontend components & utilities | 50 | ✅ COMPLETED |
+| **Batch 88** | Files 4351–4400 | Sequence Recall conclusion + Sliding Puzzle backend | 50 | ✅ COMPLETED |
+| **Batch 89** | Files 4401–4450 | Sliding Puzzle backend board shuffler & solvability check | 50 | ✅ COMPLETED |
+| **Batch 90** | Files 4451–4500 | Sliding Puzzle backend controllers, services & DTOs | 50 | ✅ COMPLETED |
+| **Batch 91** | Files 4501–4550 | Sliding Puzzle frontend 15-puzzle sliding physics & grid | 50 | 🚀 Ready |
 | **Batch 92** | Files 4551–4600 | Sliding Puzzle frontend image slicing & tile positioning | 50 | ⏳ Queued |
 | **Batch 93** | Files 4601–4650 | Sliding Puzzle frontend tile movements & keyboard/touch | 50 | ⏳ Queued |
 | **Batch 94** | Files 4651–4700 | Sliding Puzzle frontend victory state & move counter | 50 | ⏳ Queued |
@@ -173,7 +173,7 @@ For each file in every 50-file batch:
 
 ---
 
-## 📜 Batch Execution Log (Batches 1–80 Completed)
+## 📜 Batch Execution Log (Batches 1–90 Completed)
 
 - **Batches 1–5 (Files 1–250):** ✅ Complete & committed (`9ab6206`, `46f5a56`).
 - **Batch 6 (Files 251–300):** ✅ Complete & committed (`f9583fc`).
@@ -269,6 +269,17 @@ For each file in every 50-file batch:
   - **Batch 78 (Files 3851–3900):** `c26e19d` — Reflex Endurance backend conclusion (`main.ts`, restate, shutdown, tracing, ws gateway) + Reflex Endurance frontend init (`App.tsx`, `AudioManager.ts`, `AudioProvider.tsx`, UI components, `circleGenerator.ts`, `useReflexGame.ts`).
   - **Batch 79 (Files 3901–3950):** `77ee5fd` — Reflex Endurance frontend conclusion (`httpClient.ts`, `socketClient.ts`) + root `run.js` k6 load test script + repository admin scripts & verification logs + SDK openapi config.
   - **Batch 80 (Files 3951–4000):** `c7511cd` — SDK `package.json` + Sequence Recall backend init (configs, Dockerfile, Prisma schema & full migration history `20260421` through `20260522`, seed, admin modules, app module, circuit breaker, and `env.config.ts`).
+- **Batches 81–90 (Files 4001–4500):** ✅ Complete & committed (`156129a`...`6c4b252`):
+  - **Batch 81 (Files 4001–4050):** `156129a` — Sequence Recall backend decorators, filters, guards, interceptors, logger, metrics, middleware, and crypto services. Fixed `HMAC_SECRET` production check and buffer length comparison before `crypto.timingSafeEqual`.
+  - **Batch 82 (Files 4051–4100):** `e9759fb` — Sequence Recall backend event service, feature flags, game DTOs, scoring/randomness engines, `game.controller.ts`, `game.service.ts`, hardening, health, http-cache, and idempotency.
+  - **Batch 83 (Files 4101–4150):** `99f4900` — Sequence Recall backend conclusion (`main.ts`, queues, redis, restate, shutdown, tracing, ws gateway) + Sequence Recall frontend init (`App.tsx`, assets, audio, and visual styles).
+  - **Batch 84 (Files 4151–4200):** `7cbb936` — Sequence Recall frontend board SVG assets (leaves, stems, shapes), animation frames, and stage assets.
+  - **Batch 85 (Files 4201–4250):** `274d724` — Sequence Recall frontend leaf assets, `images.ts`, `preloadImages.ts`, audio manager/provider, sound registry, shared components (`ApiErrorBanner`, `AuthGateScreen`, `ErrorBoundary`, `GameClearModal`, `OfflineStatusModal`, `PageLoader`), and UI primitives (`alert`, `badge`, `button`, `card`, `dialog`).
+  - **Batch 86 (Files 4251–4300):** `bd0a328` — Sequence Recall frontend UI inputs, progress, toast, `gameConfig.ts`, stage themes, leaderboard API/hooks/table/tests, game queries, game components (`Achievements`, `DailyChallenge`, `GameHud`, `MenuScreen`, `SequenceBoard`, `SequenceDots`, `SequenceRecallGameShell`, `Settings`, `StatsScreen`), engines, and command hooks.
+  - **Batch 87 (Files 4301–4350):** `ec48124` — Sequence Recall frontend hooks (`useSequencePlayback`, `useSessionTimer`, `useStageContent`, `useValidate`), repositories, global hooks (`useApiError`, `useAuthGate`, `useDebounce`, `useNetworkStatus`), libs (`messaging`, `i18n`, `utils`), services (`authService`, `httpClient`, `latency`), styles, and unit tests (`SequenceBoard.test`, `gameEngine.test`, `gameRepository.test`).
+  - **Batch 88 (Files 4351–4400):** `0da14e4` — Sequence Recall frontend conclusion (types, formatters, AES-GCM encryption, configs, tsconfigs, vite config) + Sliding Puzzle backend init (`.env.example`, `.prettierrc`, Dockerfile, README, bunfig, eslint, jest configs, package.json, prisma migrations `20260504` through `20260522`).
+  - **Batch 89 (Files 4401–4450):** `6494d65` — Sliding Puzzle backend prisma schema, seed, test clients (`curl-bomber.html`, `game-client.html`, `load-testing-client.html`, `ws-test.html`), admin modules (`board`, `file`, `http`, `level`, `stage-config`), app module, audit interceptor, AWS SNS/SQS, circuit breaker, configs, and decorators.
+  - **Batch 90 (Files 4451–4500):** `6c4b252` — Sliding Puzzle backend exception filters, guards (`api-key`, `session`), interceptors (`api-response`, `timeout`, `transaction`, `ws`), metrics, middleware, prisma service, crypto service, feature flags, game DTOs, and engine tests. Fixed `HMAC_SECRET` production requirement and buffer length validation in `hmac.guard.ts`; fixed `PRISMA_MODEL_PROPERTIES` in `prisma.service.ts` to include all actual sliding-puzzle models for correct transaction delegation.
 
 
 
