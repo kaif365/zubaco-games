@@ -15,6 +15,9 @@ export class HmacGuard implements CanActivate {
   private readonly maxAge: number;
 
   constructor(private readonly reflector: Reflector) {
+    if (process.env.NODE_ENV === 'production' && !process.env.HMAC_SECRET) {
+      throw new Error('HMAC_SECRET must be configured in production');
+    }
     this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';
     this.maxAge = 30000; // 30 second window
   }
@@ -47,7 +50,10 @@ export class HmacGuard implements CanActivate {
       .update(payload)
       .digest('hex');
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature as string), Buffer.from(expected))) {
+    const sigBuf = Buffer.from(signature as string);
+    const expBuf = Buffer.from(expected);
+
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
       throw new BadRequestException('Invalid signature');
     }
 
