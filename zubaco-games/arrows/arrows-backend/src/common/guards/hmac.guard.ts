@@ -15,7 +15,11 @@ export class HmacGuard implements CanActivate {
   private readonly maxAge: number;
 
   constructor(private readonly reflector: Reflector) {
-    this.secret = process.env.HMAC_SECRET || 'dev-hmac-secret';
+    const hmacSecret = process.env.HMAC_SECRET;
+    if (!hmacSecret && process.env.NODE_ENV === 'production') {
+      throw new Error('HMAC_SECRET environment variable is required in production');
+    }
+    this.secret = hmacSecret || 'dev-hmac-secret';
     this.maxAge = 30000; // 30 second window
   }
 

@@ -15,9 +15,6 @@ export class UserHttpService {
     constructor(private readonly http: HttpService) {}
 
     async checkAuthenticated(token: string): Promise<UserData> {
-        console.log('[user-http] checkAuthenticated called');
-        console.log('[user-http] token:', token);
-        console.log('[user-http] usersMicroservice.baseUrl:', config.usersMicroservice.baseUrl);
         try {
             const response = await firstValueFrom(
                 this.http.get<{ data: UserData }>('/user/auth/me', {

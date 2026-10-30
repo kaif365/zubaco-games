@@ -25,9 +25,6 @@ export class AdminHttpService {
      * The admin service validates the JWT against its own Redis internally.
      */
     async checkAuthenticated(token: string): Promise<AdminData> {
-        console.log('[admin-http] checkAuthenticated called');
-        console.log('[admin-http] token:', token);
-        console.log('[admin-http] adminMicroservice.baseUrl:', config.adminMicroservice.baseUrl);
         try {
             const response = await firstValueFrom(
                 this.http.get<{ data: AdminData }>('/admin/auth/me', {

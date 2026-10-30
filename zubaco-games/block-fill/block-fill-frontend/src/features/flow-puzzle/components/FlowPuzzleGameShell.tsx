@@ -14,7 +14,7 @@ import {
   startGameSession,
 } from '@/app/api/gameApi';
 import { createDevSession } from '@/app/api/authApi';
-import { saveAuthSession } from '@/app/authSession';
+import { clearAuthSession, saveAuthSession } from '@/app/authSession';
 import { createFlowGameTransitionHandlers } from '@/features/flow-puzzle/audio/flowGameAudioHandlers';
 import { useFlowGame } from '@/features/flow-puzzle/hooks/useFlowGame';
 import { useGameInit } from '@/features/flow-puzzle/hooks/useGameInit';
@@ -297,7 +297,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
         setIsAutoRestarting(true);
         clearActiveSessionId();
         try {
-          window.localStorage.clear();
+          clearAuthSession();
         } catch {
           /* storage unavailable */
         }

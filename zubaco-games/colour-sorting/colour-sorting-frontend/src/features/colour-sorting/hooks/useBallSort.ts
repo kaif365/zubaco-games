@@ -102,11 +102,13 @@ export function useBallSort(config: StageConfig | null, seed: number | null) {
       if (isPausedRef.current) return;
       const elapsed = Date.now() - startTimeRef.current;
       const remaining = Math.max(0, config.timeLimitMs - elapsed);
-      setState((prev) => ({ ...prev, timeRemainingMs: remaining }));
-      if (remaining <= 0 && timerRef.current) {
-        clearInterval(timerRef.current);
+      if (remaining <= 0) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setState((prev) => ({ ...prev, timeRemainingMs: 0, gameActive: false }));
+        return;
       }
-    }, 100);
+      setState((prev) => ({ ...prev, timeRemainingMs: remaining }));
+    }, 250);
   }, [config, seed]);
 
   const restartGame = useCallback(() => {

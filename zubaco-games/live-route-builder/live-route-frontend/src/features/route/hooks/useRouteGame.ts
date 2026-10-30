@@ -45,9 +45,12 @@ export function useRouteGame() {
   }, []);
 
   const connectNode = useCallback((fromId: number, toId: number) => {
-    if (status !== 'playing') return;
+    if (status !== 'playing' || fromId === toId) return;
     const edge: Edge = { from: fromId, to: toId, timestamp: Date.now() };
     setEdges((prev) => {
+      if (prev.some((e) => (e.from === fromId && e.to === toId) || (e.from === toId && e.to === fromId))) {
+        return prev;
+      }
       const next = [...prev, edge];
       const connectedNodes = new Set<number>();
       next.forEach((e) => { connectedNodes.add(e.from); connectedNodes.add(e.to); });

@@ -34,7 +34,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      const secret = process.env.JWT_SECRET || 'dev-secret';
+      const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-secret');
+      if (!secret) {
+        this.logger.error('JWT_SECRET is not configured; refusing WebSocket connection');
+        client.disconnect();
+        return;
+      }
       const decoded = jwt.verify(token, secret) as { sub: string };
       const userId = decoded.sub;
 

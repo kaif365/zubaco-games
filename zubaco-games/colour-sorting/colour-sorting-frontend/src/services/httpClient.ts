@@ -16,6 +16,10 @@ async function getOrCreateDevToken(): Promise<string> {
     return urlToken;
   }
 
+  if (import.meta.env.PROD) {
+    return '';
+  }
+
   // Auto-generate a dev JWT (only works with dev-secret backend)
   const secret = 'dev-secret-colour-sorting';
   const header = { alg: 'HS256', typ: 'JWT' };

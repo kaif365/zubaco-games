@@ -5,7 +5,7 @@ import { encryptPayload, decryptPayload, isEncryptedPayload } from './crypto';
 import { appConfig } from '@app/config/appConfig';
 
 const ENCRYPTION_ENABLED = import.meta.env.VITE_ENCRYPTION_ENABLED !== 'false';
-const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || '';
+const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || import.meta.env.VITE_PAYLOAD_AES_SECRET || '';
 
 const httpClient: AxiosInstance = axios.create({
   baseURL: appConfig.api.baseUrl,

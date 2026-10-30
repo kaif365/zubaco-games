@@ -26,8 +26,8 @@ export const appConfig = {
   },
 
   encryption: {
-    enabled: import.meta.env.VITE_ENCRYPTION_ENABLED === 'true',
-    key: import.meta.env.VITE_PAYLOAD_AES_SECRET,
+    enabled: import.meta.env.VITE_ENCRYPTION_ENABLED !== 'false',
+    key: import.meta.env.VITE_PAYLOAD_AES_SECRET || import.meta.env.VITE_ENCRYPTION_KEY,
   },
 
   embed: {

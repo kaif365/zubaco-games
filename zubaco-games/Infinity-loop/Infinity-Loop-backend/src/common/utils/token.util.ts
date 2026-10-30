@@ -17,12 +17,8 @@ export function generateToken(payload: TokenPayload, expiresIn: number): string 
 }
 
 export function verifyToken(token: string): TokenPayload {
-    console.log('[token.util] verifyToken called');
-    console.log('[token.util] token:', token);
-    console.log('[token.util] JWT_SECRET:', config.security.jwtSecret);
     try {
         const payload = jwt.verify(token, config.security.jwtSecret) as TokenPayload;
-        console.log('[token.util] token verified successfully, payload:', JSON.stringify(payload));
         return payload;
     } catch (error) {
         console.error('[token.util] token verification FAILED:', error);
