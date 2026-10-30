@@ -82,7 +82,7 @@ export function generateItemSequence(
 
 /**
  * Get the category pair for a given item (to display correct labels).
- * In practice, we cycle through pairs — each batch of items shows one pair's labels.
+ * In practice, we cycle through pairs â€” each batch of items shows one pair's labels.
  */
 export function getCategoryForItem(
   itemIndex: number,

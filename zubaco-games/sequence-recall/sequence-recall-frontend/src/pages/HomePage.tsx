@@ -15,7 +15,7 @@ import '@styles/sequence-recall.css';
 export default function HomePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
+  const [showConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
 
@@ -46,10 +46,6 @@ export default function HomePage() {
   const handleStartDaily = useCallback((_seed: number) => {
     setIsDaily(true);
     setAppPhase('game');
-  }, []);
-
-  const handlePause = useCallback(() => {
-    setIsPaused(true);
   }, []);
 
   const handleResume = useCallback(() => {

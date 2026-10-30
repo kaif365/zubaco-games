@@ -76,7 +76,7 @@ export function PlayingStageView({
         <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 sm:gap-5">
           <GameHeader
             levelLabel={levelLabel}
-            isDemoRound={meta.isDemoRound}
+            isDemoRound={meta.isDemoRound ?? false}
             sessionTimerSeconds={sessionTimerSeconds}
             stageKey={stageKey}
             onRestart={onRestart}

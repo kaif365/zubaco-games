@@ -26,7 +26,8 @@ export function saveLevel(entry: MemoryGroupsProgressEntry): void {
   const progress = readProgress();
   const idx = progress.findIndex((e) => e.levelIndex === entry.levelIndex);
   if (idx >= 0) {
-    if (entry.score > progress[idx].score) progress[idx] = entry;
+    const current = progress[idx];
+    if (current && entry.score > current.score) progress[idx] = entry;
   } else {
     progress.push(entry);
   }

@@ -18,6 +18,7 @@ export interface PlacementStats {
   fastGames: number;
   totalTimeSec: number;
   highScore: number;
+  recentScores?: number[];
 }
 
 function loadStats(): PlacementStats {
@@ -25,7 +26,18 @@ function loadStats(): PlacementStats {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { gamesPlayed: 0, gamesWon: 0, totalCorrect: 0, totalObjects: 0, perfectGames: 0, bestStreak: 0, highestLevel: 0, fastGames: 0, totalTimeSec: 0, highScore: 0     recentScores: [],
+  return {
+    gamesPlayed: 0,
+    gamesWon: 0,
+    totalCorrect: 0,
+    totalObjects: 0,
+    perfectGames: 0,
+    bestStreak: 0,
+    highestLevel: 0,
+    fastGames: 0,
+    totalTimeSec: 0,
+    highScore: 0,
+    recentScores: [],
   };
 }
 
@@ -37,7 +49,9 @@ export function updateStats(patch: Partial<PlacementStats> & { addTimeSec?: numb
   stats.highScore = Math.max(stats.highScore, rest.highScore ?? 0);
   stats.bestStreak = Math.max(stats.bestStreak, rest.bestStreak ?? 0);
   stats.highestLevel = Math.max(stats.highestLevel, rest.highestLevel ?? 0);
-  stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
+  if (rest.highScore !== undefined) {
+    stats.recentScores = [rest.highScore, ...(stats.recentScores || [])].slice(0, 20);
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
 }
 
@@ -89,13 +103,15 @@ export function StatsScreen({ onBack }: Props) {
         ))}
       </div>
     
-      {stats.recentScores && stats.recentScores.length > 1 && (
-        <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
-          <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
-          <div className="flex items-end gap-1 h-16">
-            {stats.recentScores.slice(0, 15).map((s, idx) => {
-              const max = Math.max(...stats.recentScores, 1);
-              const height = Math.max(4, (s / max) * 100);
+      {stats.recentScores && stats.recentScores.length > 1 && (() => {
+        const scores = stats.recentScores;
+        const max = Math.max(...scores, 1);
+        return (
+          <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
+            <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
+            <div className="flex items-end gap-1 h-16">
+              {scores.slice(0, 15).map((s, idx) => {
+                const height = Math.max(4, (s / max) * 100);
               return (
                 <motion.div
                   key={idx}
@@ -109,7 +125,7 @@ export function StatsScreen({ onBack }: Props) {
             })}
           </div>
         </div>
-      )}
+      ); })()}
     </div>
   );
 }

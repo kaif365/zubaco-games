@@ -15,8 +15,8 @@ export interface ScoreResult {
  *
  * Formula from requirements:
  *   Correct placement: 100 / total_objects pts per correct position
- *   Time Bonus: floor(5 × remaining_time / total_time)
- *   Final: (correct_placements / total_placements) × 100 + time_bonus
+ *   Time Bonus: floor(5 Ã— remaining_time / total_time)
+ *   Final: (correct_placements / total_placements) Ã— 100 + time_bonus
  */
 export function calculateScore(
   attempts: PlacementAttempt[],

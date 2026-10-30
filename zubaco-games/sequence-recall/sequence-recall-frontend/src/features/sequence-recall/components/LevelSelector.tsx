@@ -54,7 +54,7 @@ function saveLevels(levels: LevelData[]) {
 const DIFFICULTY_LABELS = ['Beginner', 'Easy', 'Normal', 'Medium', 'Tricky', 'Hard', 'Tough', 'Expert', 'Master', 'Legend'];
 
 export function LevelSelector({ onBack, onSelectLevel }: LevelSelectorProps) {
-  const [levels, setLevels] = useState<LevelData[]>(loadLevels);
+  const [levels] = useState<LevelData[]>(loadLevels);
 
   useEffect(() => {
     saveLevels(levels);

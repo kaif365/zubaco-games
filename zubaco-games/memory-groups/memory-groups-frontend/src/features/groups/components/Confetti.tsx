@@ -24,7 +24,7 @@ function createParticles(): Particle[] {
     vx: (Math.random() - 0.5) * 120,
     vy: -(Math.random() * 80 + 40),
     rotation: Math.random() * 360,
-    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    color: COLORS[Math.floor(Math.random() * COLORS.length)] ?? '#FFD700',
     size: Math.random() * 8 + 4,
     delay: Math.random() * 0.3,
   }));
@@ -38,7 +38,7 @@ interface ConfettiProps {
 export function Confetti({ active, duration = 3000 }: ConfettiProps) {
   const [particles, setParticles] = useState<Particle[]>([]);
   const [visible, setVisible] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (active) {

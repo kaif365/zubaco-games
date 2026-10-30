@@ -18,7 +18,7 @@ function getWeekDays(): { label: string; dateStr: string; isToday: boolean }[] {
     const d = new Date(startOfWeek);
     d.setDate(startOfWeek.getDate() + i);
     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    days.push({ label: dayNames[i], dateStr, isToday: dateStr === getDailySeed() });
+    days.push({ label: dayNames[i] ?? 'S', dateStr, isToday: dateStr === getDailySeed() });
   }
   return days;
 }

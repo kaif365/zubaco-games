@@ -10,27 +10,9 @@ interface AuthGateScreenProps {
   loaderOnly?: boolean;
 }
 
-const PHASE_COPY_KEYS: Record<
-  AuthGateLoadingPhase,
-  {
-    title: 'auth.fetchingDevUserTitle' | 'auth.fetchingConfigTitle';
-    copy: 'auth.fetchingDevUserCopy' | 'auth.fetchingConfigCopy';
-  }
-> = {
-  'dev-session': {
-    title: 'auth.fetchingDevUserTitle',
-    copy: 'auth.fetchingDevUserCopy',
-  },
-  config: {
-    title: 'auth.fetchingConfigTitle',
-    copy: 'auth.fetchingConfigCopy',
-  },
-};
-
 export function AuthGateScreen({
   gameThemeStyle,
   error,
-  phase = 'dev-session',
 }: AuthGateScreenProps) {
   const { t } = useTranslation();
 

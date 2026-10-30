@@ -80,7 +80,14 @@ interface StatsScreenProps {
   readonly onBack: () => void;
 }
 
-const STAT_DISPLAY = [
+interface StatItem {
+  key: keyof GameStats;
+  label: string;
+  icon: string;
+  format?: string;
+}
+
+const STAT_DISPLAY: readonly StatItem[] = [
   { key: 'totalGamesPlayed', label: 'Games Played', icon: '🎮' },
   { key: 'totalWins', label: 'Mazes Solved', icon: '✅' },
   { key: 'totalMoves', label: 'Total Moves', icon: '👣' },
@@ -91,7 +98,7 @@ const STAT_DISPLAY = [
   { key: 'fastCompletions', label: 'Speed Runs', icon: '⚡' },
   { key: 'totalTimeSec', label: 'Total Time', icon: '⏱️', format: 'time' },
   { key: 'highestScore', label: 'High Score', icon: '📈' },
-] as const;
+];
 
 export function StatsScreen({ onBack }: StatsScreenProps) {
   const stats = loadStats();
@@ -127,7 +134,7 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
             >
               <div className="text-xl mb-1">{stat.icon}</div>
               <p className="text-lg font-bold text-white">
-                {formatValue((stats as Record<string, number>)[stat.key] ?? 0, stat.format)}
+                {formatValue(Number(stats[stat.key] ?? 0), stat.format)}
               </p>
               <p className="text-[11px] text-slate-400">{stat.label}</p>
             </motion.div>
@@ -135,27 +142,30 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
         </div>
       </div>
     
-      {stats.recentScores && stats.recentScores.length > 1 && (
-        <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
-          <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
-          <div className="flex items-end gap-1 h-16">
-            {stats.recentScores.slice(0, 15).map((s, idx) => {
-              const max = Math.max(...stats.recentScores, 1);
-              const height = Math.max(4, (s / max) * 100);
-              return (
-                <motion.div
-                  key={idx}
-                  className="flex-1 bg-indigo-500 rounded-t"
-                  style={{ height: `${height}%` }}
-                  initial={{ height: 0 }}
-                  animate={{ height: `${height}%` }}
-                  transition={{ delay: idx * 0.05 }}
-                />
-              );
-            })}
+      {stats.recentScores && stats.recentScores.length > 1 && (() => {
+        const scores = stats.recentScores;
+        const max = Math.max(...scores, 1);
+        return (
+          <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50">
+            <div className="text-sm font-medium text-gray-300 mb-3">Recent Scores</div>
+            <div className="flex items-end gap-1 h-16">
+              {scores.slice(0, 15).map((s, idx) => {
+                const height = Math.max(4, (s / max) * 100);
+                return (
+                  <motion.div
+                    key={idx}
+                    className="flex-1 bg-indigo-500 rounded-t"
+                    style={{ height: `${height}%` }}
+                    initial={{ height: 0 }}
+                    animate={{ height: `${height}%` }}
+                    transition={{ delay: idx * 0.05 }}
+                  />
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

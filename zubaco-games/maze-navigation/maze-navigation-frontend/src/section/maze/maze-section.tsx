@@ -1,5 +1,5 @@
 import { LiveGameRouteSkeleton } from "@/components/molecules/live-game-route-skeleton";
-import { signalGameCompleted, signalGameFailed } from "../../../../../../packages/game-sdk/src/lifecycle";
+import { signalGameCompleted, signalGameFailed } from "../../../../../packages/game-sdk/src/lifecycle";
 import { MazeTemplate } from "@/components/templates/maze-template";
 import { GAME_SESSION_STATUS } from "@/constants/game-session-status";
 import { MAZE_DEMO_COMPLETE_EXIT_DELAY_MS } from "@/constants/maze";

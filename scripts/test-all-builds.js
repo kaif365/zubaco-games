@@ -27,45 +27,45 @@ const TARGETS = [
   { id: 'FE-01', name: 'Sequence Recall (FE)', group: 'games-fe', dir: 'zubaco-games/sequence-recall/sequence-recall-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-02', name: 'Memory Cards (FE)', group: 'games-fe', dir: 'zubaco-games/memory-card-matching/memory-card-matching-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-03', name: 'Flash Spot (FE)', group: 'games-fe', dir: 'zubaco-games/flash-spot/flash-spot-frontend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'FE-04', name: 'Object Placement (FE)', group: 'games-fe', dir: 'zubaco-games/object-placement/object-placement-frontend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'FE-04', name: 'Object Placement (FE)', group: 'games-fe', dir: 'zubaco-games/object-placement-memory/object-placement-memory-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-05', name: 'Memory Groups (FE)', group: 'games-fe', dir: 'zubaco-games/memory-groups/memory-groups-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-06', name: 'Sliding Puzzle (FE)', group: 'games-fe', dir: 'zubaco-games/sliding-puzzle/sliding-puzzle-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-07', name: 'Block Fill (FE)', group: 'games-fe', dir: 'zubaco-games/block-fill/block-fill-frontend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'FE-08', name: 'Colour Sort (FE)', group: 'games-fe', dir: 'zubaco-games/colour-sort/colour-sort-frontend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'FE-09', name: 'Rapid Sort (FE)', group: 'games-fe', dir: 'zubaco-games/rapid-sort/rapid-sort-frontend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'FE-08', name: 'Colour Sort (FE)', group: 'games-fe', dir: 'zubaco-games/colour-sorting/colour-sorting-frontend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'FE-09', name: 'Rapid Sort (FE)', group: 'games-fe', dir: 'zubaco-games/rapid-category-sort/rapid-sort-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-10', name: 'Maze Navigation (FE)', group: 'games-fe', dir: 'zubaco-games/maze-navigation/maze-navigation-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-11', name: 'Infinity Loop (FE)', group: 'games-fe', dir: 'zubaco-games/Infinity-loop/infinity-loop-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-12', name: 'Word Unscramble (FE)', group: 'games-fe', dir: 'zubaco-games/word-unscramble/word-unscramble-frontend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'FE-13', name: 'True / False (FE)', group: 'games-fe', dir: 'zubaco-games/true-false/true-false-frontend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'FE-13', name: 'True / False (FE)', group: 'games-fe', dir: 'zubaco-games/true-false-blitz/true-false-blitz-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-14', name: 'Arrows (FE)', group: 'games-fe', dir: 'zubaco-games/arrows/arrows-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-15', name: 'Logic Reflector (FE)', group: 'games-fe', dir: 'zubaco-games/logic-reflector/logic-reflector-frontend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'FE-16', name: 'Number Grid (FE)', group: 'games-fe', dir: 'zubaco-games/number-grid/number-grid-frontend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'FE-16', name: 'Number Grid (FE)', group: 'games-fe', dir: 'zubaco-games/number-grid-sprint/number-grid-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-17', name: 'Live Route (FE)', group: 'games-fe', dir: 'zubaco-games/live-route-builder/live-route-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-18', name: 'Reflex Endurance (FE)', group: 'games-fe', dir: 'zubaco-games/reflex-endurance/reflex-endurance-frontend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'FE-19', name: 'Pattern Survival (FE)', group: 'games-fe', dir: 'zubaco-games/pattern-survival/pattern-survival-frontend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'FE-20', name: 'Speed Typing (FE)', group: 'games-fe', dir: 'zubaco-games/speed-typing/speed-typing-frontend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'FE-20', name: 'Speed Typing (FE)', group: 'games-fe', dir: 'zubaco-games/speed-type-answer/speed-type-frontend', cmd: 'npm', args: ['run', 'build'] },
 
   // 20 Game Backends
   { id: 'BE-01', name: 'Sequence Recall (BE)', group: 'games-be', dir: 'zubaco-games/sequence-recall/sequence-recall-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-02', name: 'Memory Cards (BE)', group: 'games-be', dir: 'zubaco-games/memory-card-matching/memory-card-matching-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-03', name: 'Flash Spot (BE)', group: 'games-be', dir: 'zubaco-games/flash-spot/flash-spot-backend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'BE-04', name: 'Object Placement (BE)', group: 'games-be', dir: 'zubaco-games/object-placement/object-placement-backend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'BE-04', name: 'Object Placement (BE)', group: 'games-be', dir: 'zubaco-games/object-placement-memory/object-placement-memory-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-05', name: 'Memory Groups (BE)', group: 'games-be', dir: 'zubaco-games/memory-groups/memory-groups-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-06', name: 'Sliding Puzzle (BE)', group: 'games-be', dir: 'zubaco-games/sliding-puzzle/sliding-puzzle-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-07', name: 'Block Fill (BE)', group: 'games-be', dir: 'zubaco-games/block-fill/block-fill-backend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'BE-08', name: 'Colour Sort (BE)', group: 'games-be', dir: 'zubaco-games/colour-sort/colour-sort-backend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'BE-09', name: 'Rapid Sort (BE)', group: 'games-be', dir: 'zubaco-games/rapid-sort/rapid-sort-backend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'BE-08', name: 'Colour Sort (BE)', group: 'games-be', dir: 'zubaco-games/colour-sorting/colour-sorting-backend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'BE-09', name: 'Rapid Sort (BE)', group: 'games-be', dir: 'zubaco-games/rapid-category-sort/rapid-sort-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-10', name: 'Maze Navigation (BE)', group: 'games-be', dir: 'zubaco-games/maze-navigation/maze-navigation-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-11', name: 'Infinity Loop (BE)', group: 'games-be', dir: 'zubaco-games/Infinity-loop/Infinity-Loop-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-12', name: 'Word Unscramble (BE)', group: 'games-be', dir: 'zubaco-games/word-unscramble/word-unscramble-backend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'BE-13', name: 'True / False (BE)', group: 'games-be', dir: 'zubaco-games/true-false/true-false-backend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'BE-13', name: 'True / False (BE)', group: 'games-be', dir: 'zubaco-games/true-false-blitz/true-false-blitz-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-14', name: 'Arrows (BE)', group: 'games-be', dir: 'zubaco-games/arrows/arrows-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-15', name: 'Logic Reflector (BE)', group: 'games-be', dir: 'zubaco-games/logic-reflector/logic-reflector-backend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'BE-16', name: 'Number Grid (BE)', group: 'games-be', dir: 'zubaco-games/number-grid/number-grid-backend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'BE-16', name: 'Number Grid (BE)', group: 'games-be', dir: 'zubaco-games/number-grid-sprint/number-grid-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-17', name: 'Live Route (BE)', group: 'games-be', dir: 'zubaco-games/live-route-builder/live-route-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-18', name: 'Reflex Endurance (BE)', group: 'games-be', dir: 'zubaco-games/reflex-endurance/reflex-endurance-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-19', name: 'Pattern Survival (BE)', group: 'games-be', dir: 'zubaco-games/pattern-survival/pattern-survival-backend', cmd: 'npm', args: ['run', 'build'] },
-  { id: 'BE-20', name: 'Speed Typing (BE)', group: 'games-be', dir: 'zubaco-games/speed-typing/speed-typing-backend', cmd: 'npm', args: ['run', 'build'] },
+  { id: 'BE-20', name: 'Speed Typing (BE)', group: 'games-be', dir: 'zubaco-games/speed-type-answer/speed-type-backend', cmd: 'npm', args: ['run', 'build'] },
 ];
 
 const isWindows = process.platform === 'win32';
@@ -74,11 +74,21 @@ const isWindows = process.platform === 'win32';
 const args = process.argv.slice(2);
 const groupArg = args.find(a => a.startsWith('--group='));
 const targetArg = args.find(a => a.startsWith('--target='));
+const batchArg = args.find(a => a.startsWith('--batch='));
 const autoInstall = args.includes('--install');
 const filterGroup = groupArg ? groupArg.split('=')[1].toLowerCase() : null;
 const filterTarget = targetArg ? targetArg.split('=')[1].toUpperCase() : null;
+const filterBatch = batchArg ? batchArg.split('=')[1] : null;
 
 let selectedTargets = TARGETS;
+if (filterBatch) {
+  if (filterBatch === '1') selectedTargets = selectedTargets.filter(t => ['WL-01', 'PL-01'].includes(t.id));
+  else if (filterBatch === '2') selectedTargets = selectedTargets.filter(t => ['AP-01', 'AP-02'].includes(t.id));
+  else if (filterBatch === '3') selectedTargets = selectedTargets.filter(t => t.id >= 'FE-01' && t.id <= 'FE-10');
+  else if (filterBatch === '4') selectedTargets = selectedTargets.filter(t => t.id >= 'FE-11' && t.id <= 'FE-20');
+  else if (filterBatch === '5') selectedTargets = selectedTargets.filter(t => t.id >= 'BE-01' && t.id <= 'BE-10');
+  else if (filterBatch === '6') selectedTargets = selectedTargets.filter(t => t.id >= 'BE-11' && t.id <= 'BE-20');
+}
 if (filterGroup && filterGroup !== 'all') {
   selectedTargets = selectedTargets.filter(t => t.group === filterGroup);
 }
@@ -90,6 +100,7 @@ console.log(`===================================================================
 console.log(`       ZUBACO PLATFORM - MASTER BUILD VERIFICATION RUNNER`);
 console.log(`========================================================================`);
 console.log(`Selected Targets: ${selectedTargets.length} of ${TARGETS.length}`);
+if (filterBatch) console.log(`Batch Filter    : Batch ${filterBatch}`);
 if (filterGroup) console.log(`Group Filter    : ${filterGroup}`);
 if (filterTarget) console.log(`Target Filter   : ${filterTarget}`);
 console.log(`Auto-Install    : ${autoInstall ? 'ENABLED' : 'DISABLED (use --install if node_modules missing)'}`);
@@ -144,7 +155,24 @@ async function runTarget(target) {
   }
 
   const nodeModulesPath = path.join(fullPath, 'node_modules');
-  if (!fs.existsSync(nodeModulesPath)) {
+  const pkgJsonPath = path.join(fullPath, 'package.json');
+  let needsInstall = !fs.existsSync(nodeModulesPath);
+  if (!needsInstall && fs.existsSync(pkgJsonPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+      if (pkg.dependencies?.vite || pkg.devDependencies?.vite) {
+        if (!fs.existsSync(path.join(nodeModulesPath, 'vite'))) needsInstall = true;
+      } else if (pkg.dependencies?.['@nestjs/core'] || pkg.devDependencies?.['@nestjs/cli']) {
+        if (!fs.existsSync(path.join(nodeModulesPath, '@nestjs'))) needsInstall = true;
+      } else if (pkg.dependencies?.next) {
+        if (!fs.existsSync(path.join(nodeModulesPath, 'next'))) needsInstall = true;
+      }
+    } catch (e) {
+      // ignore parse error here
+    }
+  }
+
+  if (needsInstall) {
     if (autoInstall) {
       console.log(`  -> Installing dependencies in ${target.dir}...`);
       const installRes = await runCommand('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], fullPath, 300000);
@@ -162,7 +190,7 @@ async function runTarget(target) {
         target,
         success: false,
         durationMs: 0,
-        error: `node_modules missing. Run with --install to install automatically.`
+        error: `node_modules missing or incomplete. Run with --install to install automatically.`
       };
     }
   }

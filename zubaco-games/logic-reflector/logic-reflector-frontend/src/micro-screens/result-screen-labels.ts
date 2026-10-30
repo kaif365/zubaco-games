@@ -6,7 +6,7 @@ export const SUCCESS_RESULT_LABELS: ResultScreenLabels = {
   headingLeading: 'Every target hit.',
   headingHighlight: ' Brilliant optics.',
   headingTrailing: '',
-  subheading: 'Clean reflections — ready for a tougher grid.',
+  subheading: 'Clean reflections â€” ready for a tougher grid.',
   progressLabel: 'Journey',
   progressSuffixLabel: 'levels cleared',
   ctaLabel: 'Play Again',

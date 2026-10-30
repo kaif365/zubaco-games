@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const ACHIEVEMENTS_KEY = 'zubaco_flash_spot_achievements';

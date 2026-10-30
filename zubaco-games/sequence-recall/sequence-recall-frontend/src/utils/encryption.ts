@@ -30,10 +30,13 @@ export async function importKeyFromHex(hexKey: string): Promise<CryptoKey> {
     throw new Error('Encryption key must be a 64-character hex string (32 bytes)');
   }
 
-  const key = await crypto.subtle.importKey('raw', hexToBytes(hexKey), { name: 'AES-GCM' }, false, [
-    'encrypt',
-    'decrypt',
-  ]);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    hexToBytes(hexKey) as unknown as BufferSource,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt'],
+  );
 
   keyCache.set(hexKey, key);
   return key;
@@ -54,7 +57,7 @@ export async function encryptPayload(data: unknown, hexKey: string): Promise<Enc
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, tagLength: 128 },
     key,
-    stringToBytes(JSON.stringify(data)),
+    stringToBytes(JSON.stringify(data)) as unknown as BufferSource,
   );
 
   // Web Crypto appends the 16-byte GCM auth tag at the end of the output.
@@ -104,9 +107,9 @@ export async function decryptPayload(payload: unknown, hexKey: string): Promise<
   combined.set(tag, ciphertext.length);
 
   const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv, tagLength: 128 },
+    { name: 'AES-GCM', iv: iv as unknown as BufferSource, tagLength: 128 },
     key,
-    combined,
+    combined as unknown as BufferSource,
   );
 
   return JSON.parse(bytesToString(new Uint8Array(decrypted)));

@@ -42,7 +42,7 @@ interface ConfettiProps {
 export function Confetti({ active, duration = 3000 }: ConfettiProps) {
   const [particles, setParticles] = useState<Particle[]>([]);
   const [visible, setVisible] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (active) {

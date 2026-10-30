@@ -75,7 +75,7 @@ export function GamePage() {
   }
 
   if (appPhase === 'levels') {
-    return <LevelSelector onSelect={(level) => { setAppPhase('game'); handleStart(level); }} onBack={() => setAppPhase('menu')} />;
+    return <LevelSelector onSelect={(levelConfig) => { setAppPhase('game'); handleStart(levelConfig.level); }} onBack={() => setAppPhase('menu')} />;
   }
 
   if (appPhase === 'daily') {

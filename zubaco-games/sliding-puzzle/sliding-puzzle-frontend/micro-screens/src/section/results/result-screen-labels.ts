@@ -8,7 +8,7 @@ export const SUCCESS_RESULT_LABELS: ResultScreenLabels = {
   headingLeading: "Excellent! You reassembled",
   headingHighlight: " the image",
   headingTrailing: " flawlessly.",
-  subheading: "Speed and precision — ready for your next trial.",
+  subheading: "Speed and precision â€” ready for your next trial.",
   progressLabel: "Journey",
   progressSuffixLabel: "puzzles solved",
   ctaLabel: "Next",

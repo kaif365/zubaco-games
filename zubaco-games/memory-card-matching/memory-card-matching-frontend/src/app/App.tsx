@@ -162,7 +162,7 @@ export function App() {
     setAppState((prev) => ({ ...prev, screen: APP_SCREENS.GAME_OVER, gameOverStats: stats }));
     // Signal to host app
     if (stats.result === 'win') {
-      signalGameCompleted(stats.score ?? 0, { gameType: 'memory-card-matching' });
+      signalGameCompleted(stats.finalScore ?? 0, { gameType: 'memory-card-matching' });
     } else {
       signalGameFailed('lost', { gameType: 'memory-card-matching' });
     }

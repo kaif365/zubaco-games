@@ -46,10 +46,8 @@ import { markDailyComplete } from '@/features/flow-puzzle/components/DailyChalle
 import { setHighestLevel, getHighestLevel } from '@/features/flow-puzzle/components/LevelSelector';
 import { unlockAchievement } from '@/features/flow-puzzle/components/Achievements';
 import { useDemoLevels } from '@/hooks/useDemoLevels';
-import { AuthGateScreen } from '@/components/shared/AuthGateScreen';
 import { GameClearModal } from '@/components/shared/GameClearModal';
 import { Loader } from '@/components/ui/Loader';
-import { buildGameThemeStyle } from '@/utils/gameThemeStyle';
 import { getStageTheme } from '@/constants/stageTheme';
 import { resolveUserStageNumber } from '@/utils/resolveUserStageNumber';
 import type { FlowPathMap } from '@/features/flow-puzzle/types';
@@ -91,7 +89,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
   const [currentLevel, setCurrentLevel] = useState<number>(getHighestLevel());
   const handledWinLevelIdRef = useRef<string | null>(null);
   const restoreAttemptedRef = useRef(false);
-  const [waitingForRestore, setWaitingForRestore] = useState(() => !!getActiveSessionId());
+  const [, setWaitingForRestore] = useState(() => !!getActiveSessionId());
   const restoredInPlayingStateRef = useRef(false);
   /** Set when restoring a session whose board was already solved (outbox cleared on restore). */
   const [solvedRestoreBoardId, setSolvedRestoreBoardId] = useState<string | null>(null);
@@ -106,7 +104,7 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
   const levelCompleteBurstTimerRef = useRef<number | null>(null);
   const sessionTimerExpiredHandledRef = useRef(false);
   const statsSavedRef = useRef(false);
-  const [isAutoRestarting, setIsAutoRestarting] = useState(false);
+  const [, setIsAutoRestarting] = useState(false);
   // Holds the latest handleSessionTimerExpire so onSync can call it when remaining===0
   // without a TypeScript "used before declared" error (handler is defined later in file).
   const sessionTimerExpireCallbackRef = useRef<(() => void) | null>(null);
@@ -123,7 +121,6 @@ export function FlowPuzzleGameShell({ onExit: _onExit }: FlowPuzzleGameShellProp
   const restoreBoard = restoreBoardMutation.mutateAsync;
   const stageId = appEnv.userStageId;
   const safeStageId = resolveUserStageNumber() as StageId;
-  const gameThemeStyle = useMemo(() => buildGameThemeStyle(resolveUserStageNumber()), []);
   const { contentByStage: stageContentByStage, isLoading: isStageContentLoading } = useStageContent(
     { enabled: gameConfig !== null },
   );

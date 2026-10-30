@@ -8,7 +8,7 @@ export const SUCCESS_RESULT_LABELS: ResultScreenLabels = {
   headingLeading: "Every cell filled.",
   headingHighlight: " Perfect flow.",
   headingTrailing: "",
-  subheading: "Smooth connections — on to the next board.",
+  subheading: "Smooth connections â€” on to the next board.",
   progressLabel: "Journey",
   progressSuffixLabel: "boards cleared",
   ctaLabel: "Next",

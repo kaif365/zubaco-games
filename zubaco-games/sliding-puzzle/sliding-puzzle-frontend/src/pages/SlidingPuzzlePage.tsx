@@ -16,7 +16,7 @@ const GameContainer = lazy(() => import('@features/game/components/GameContainer
 export default function SlidingPuzzlePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
+  const [showConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {

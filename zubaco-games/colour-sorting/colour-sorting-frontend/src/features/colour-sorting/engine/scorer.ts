@@ -14,8 +14,8 @@ export interface ScoreResult {
  * Scoring from requirements:
  *   Completed: 100 pts per sorted tube
  *   Moves Efficiency: bonus for fewer moves
- *   Time Bonus: floor(10 × remaining_time / total_time)
- *   Final: sorted_tubes × 100 + efficiency_bonus + time_bonus
+ *   Time Bonus: floor(10 Ã— remaining_time / total_time)
+ *   Final: sorted_tubes Ã— 100 + efficiency_bonus + time_bonus
  */
 export function calculateScore(
   tubes: Tube[],

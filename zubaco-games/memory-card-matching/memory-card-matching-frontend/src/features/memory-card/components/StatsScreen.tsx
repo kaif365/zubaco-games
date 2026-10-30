@@ -80,7 +80,14 @@ interface StatsScreenProps {
   readonly onBack: () => void;
 }
 
-const STAT_DISPLAY = [
+interface StatItem {
+  key: keyof GameStats;
+  label: string;
+  icon: string;
+  format?: string;
+}
+
+const STAT_DISPLAY: readonly StatItem[] = [
   { key: 'totalGamesPlayed', label: 'Games Played', icon: '🎮' },
   { key: 'totalWins', label: 'Games Won', icon: '✅' },
   { key: 'totalPairsMatched', label: 'Pairs Matched', icon: '🃏' },
@@ -91,7 +98,7 @@ const STAT_DISPLAY = [
   { key: 'fastCompletions', label: 'Speed Runs', icon: '⚡' },
   { key: 'totalTimeSec', label: 'Total Time', icon: '⏱️', format: 'time' },
   { key: 'highestScore', label: 'High Score', icon: '📈' },
-] as const;
+];
 
 export function StatsScreen({ onBack }: StatsScreenProps) {
   const stats = loadStats();
@@ -134,7 +141,7 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
             >
               <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>{stat.icon}</div>
               <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
-                {formatValue((stats as Record<string, number>)[stat.key] ?? 0, stat.format)}
+                {formatValue(Number(stats[stat.key] ?? 0), stat.format)}
               </p>
               <p style={{ margin: '2px 0 0', fontSize: '0.65rem', color: '#94a3b8' }}>{stat.label}</p>
             </motion.div>

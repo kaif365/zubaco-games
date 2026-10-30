@@ -42,16 +42,16 @@ Task ID  | Sub-Task Description                                                 
 --- PART A: 20 GAME FRONTENDS (React / Vite / TypeScript) ---
 Project ID | Game Name          | Sub-Directory Path                                    | Status | Build Result / Fixes
 -----------+--------------------+-------------------------------------------------------+--------+----------------------
-FE-01      | Sequence Recall    | `zubaco-games/sequence-recall/sequence-recall-frontend`| [TODO] |
-FE-02      | Memory Cards       | `zubaco-games/memory-card-matching/memory-card-matching-frontend` | [TODO] |
-FE-03      | Flash Spot         | `zubaco-games/flash-spot/flash-spot-frontend`          | [TODO] |
-FE-04      | Object Placement   | `zubaco-games/object-placement/object-placement-frontend` | [TODO] |
-FE-05      | Memory Groups      | `zubaco-games/memory-groups/memory-groups-frontend`    | [TODO] |
-FE-06      | Sliding Puzzle     | `zubaco-games/sliding-puzzle/sliding-puzzle-frontend`  | [TODO] |
-FE-07      | Block Fill         | `zubaco-games/block-fill/block-fill-frontend`          | [TODO] |
-FE-08      | Colour Sort        | `zubaco-games/colour-sort/colour-sort-frontend`        | [TODO] |
-FE-09      | Rapid Sort         | `zubaco-games/rapid-sort/rapid-sort-frontend`          | [TODO] |
-FE-10      | Maze Navigation    | `zubaco-games/maze-navigation/maze-navigation-frontend`| [TODO] |
+FE-01      | Sequence Recall    | `zubaco-games/sequence-recall/sequence-recall-frontend`| [DONE] | Certified (36.0s)
+FE-02      | Memory Cards       | `zubaco-games/memory-card-matching/memory-card-matching-frontend` | [DONE] | Certified (15.2s)
+FE-03      | Flash Spot         | `zubaco-games/flash-spot/flash-spot-frontend`          | [DONE] | Certified (19.1s)
+FE-04      | Object Placement   | `zubaco-games/object-placement-memory/object-placement-memory-frontend` | [DONE] | Certified (17.5s)
+FE-05      | Memory Groups      | `zubaco-games/memory-groups/memory-groups-frontend`    | [DONE] | Certified (16.1s)
+FE-06      | Sliding Puzzle     | `zubaco-games/sliding-puzzle/sliding-puzzle-frontend`  | [DONE] | Certified (33.3s)
+FE-07      | Block Fill         | `zubaco-games/block-fill/block-fill-frontend`          | [DONE] | Certified (19.6s)
+FE-08      | Colour Sort        | `zubaco-games/colour-sorting/colour-sorting-frontend`  | [DONE] | Certified (18.8s)
+FE-09      | Rapid Sort         | `zubaco-games/rapid-category-sort/rapid-sort-frontend` | [DONE] | Certified (14.1s)
+FE-10      | Maze Navigation    | `zubaco-games/maze-navigation/maze-navigation-frontend`| [DONE] | Certified (19.6s)
 FE-11      | Infinity Loop      | `zubaco-games/Infinity-loop/infinity-loop-frontend`    | [TODO] |
 FE-12      | Word Unscramble    | `zubaco-games/word-unscramble/word-unscramble-frontend`| [TODO] |
 FE-13      | True / False       | `zubaco-games/true-false/true-false-frontend`          | [TODO] |
