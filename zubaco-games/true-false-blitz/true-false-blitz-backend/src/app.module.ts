@@ -67,6 +67,7 @@ import { HardeningModule } from './hardening/hardening.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
+    consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
     consumer.apply(CorrelationIdMiddleware).forRoutes('*');
     consumer.apply(DecryptionMiddleware).forRoutes('*');
   }
