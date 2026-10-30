@@ -1,7 +1,7 @@
 import { GameDetailPage } from "@/features/games/components/GameDetailPage";
 
 export const revalidate = 300;
-export const dynamicParams = true;
+export const dynamicParams = false;
 
 export function generateStaticParams() {
   return [{ id: '_', gameId: '_' }];

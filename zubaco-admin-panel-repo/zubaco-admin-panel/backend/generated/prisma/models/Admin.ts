@@ -191,6 +191,7 @@ export type AdminWhereInput = {
   updated_at?: Prisma.DateTimeFilter<"Admin"> | Date | string
   deleted_at?: Prisma.DateTimeNullableFilter<"Admin"> | Date | string | null
   access_tokens?: Prisma.AdminAccessTokenListRelationFilter
+  audit_logs?: Prisma.AuditLogListRelationFilter
 }
 
 export type AdminOrderByWithRelationInput = {
@@ -201,6 +202,7 @@ export type AdminOrderByWithRelationInput = {
   updated_at?: Prisma.SortOrder
   deleted_at?: Prisma.SortOrderInput | Prisma.SortOrder
   access_tokens?: Prisma.AdminAccessTokenOrderByRelationAggregateInput
+  audit_logs?: Prisma.AuditLogOrderByRelationAggregateInput
 }
 
 export type AdminWhereUniqueInput = Prisma.AtLeast<{
@@ -214,6 +216,7 @@ export type AdminWhereUniqueInput = Prisma.AtLeast<{
   updated_at?: Prisma.DateTimeFilter<"Admin"> | Date | string
   deleted_at?: Prisma.DateTimeNullableFilter<"Admin"> | Date | string | null
   access_tokens?: Prisma.AdminAccessTokenListRelationFilter
+  audit_logs?: Prisma.AuditLogListRelationFilter
 }, "id" | "email">
 
 export type AdminOrderByWithAggregationInput = {
@@ -248,6 +251,7 @@ export type AdminCreateInput = {
   updated_at?: Date | string
   deleted_at?: Date | string | null
   access_tokens?: Prisma.AdminAccessTokenCreateNestedManyWithoutAdminInput
+  audit_logs?: Prisma.AuditLogCreateNestedManyWithoutAdminInput
 }
 
 export type AdminUncheckedCreateInput = {
@@ -258,6 +262,7 @@ export type AdminUncheckedCreateInput = {
   updated_at?: Date | string
   deleted_at?: Date | string | null
   access_tokens?: Prisma.AdminAccessTokenUncheckedCreateNestedManyWithoutAdminInput
+  audit_logs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutAdminInput
 }
 
 export type AdminUpdateInput = {
@@ -268,6 +273,7 @@ export type AdminUpdateInput = {
   updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   deleted_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   access_tokens?: Prisma.AdminAccessTokenUpdateManyWithoutAdminNestedInput
+  audit_logs?: Prisma.AuditLogUpdateManyWithoutAdminNestedInput
 }
 
 export type AdminUncheckedUpdateInput = {
@@ -278,6 +284,7 @@ export type AdminUncheckedUpdateInput = {
   updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   deleted_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   access_tokens?: Prisma.AdminAccessTokenUncheckedUpdateManyWithoutAdminNestedInput
+  audit_logs?: Prisma.AuditLogUncheckedUpdateManyWithoutAdminNestedInput
 }
 
 export type AdminCreateManyInput = {
@@ -365,6 +372,20 @@ export type AdminUpdateOneRequiredWithoutAccess_tokensNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.AdminUpdateToOneWithWhereWithoutAccess_tokensInput, Prisma.AdminUpdateWithoutAccess_tokensInput>, Prisma.AdminUncheckedUpdateWithoutAccess_tokensInput>
 }
 
+export type AdminCreateNestedOneWithoutAudit_logsInput = {
+  create?: Prisma.XOR<Prisma.AdminCreateWithoutAudit_logsInput, Prisma.AdminUncheckedCreateWithoutAudit_logsInput>
+  connectOrCreate?: Prisma.AdminCreateOrConnectWithoutAudit_logsInput
+  connect?: Prisma.AdminWhereUniqueInput
+}
+
+export type AdminUpdateOneRequiredWithoutAudit_logsNestedInput = {
+  create?: Prisma.XOR<Prisma.AdminCreateWithoutAudit_logsInput, Prisma.AdminUncheckedCreateWithoutAudit_logsInput>
+  connectOrCreate?: Prisma.AdminCreateOrConnectWithoutAudit_logsInput
+  upsert?: Prisma.AdminUpsertWithoutAudit_logsInput
+  connect?: Prisma.AdminWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.AdminUpdateToOneWithWhereWithoutAudit_logsInput, Prisma.AdminUpdateWithoutAudit_logsInput>, Prisma.AdminUncheckedUpdateWithoutAudit_logsInput>
+}
+
 export type AdminCreateWithoutAccess_tokensInput = {
   id?: string
   email: string
@@ -372,6 +393,7 @@ export type AdminCreateWithoutAccess_tokensInput = {
   created_at?: Date | string
   updated_at?: Date | string
   deleted_at?: Date | string | null
+  audit_logs?: Prisma.AuditLogCreateNestedManyWithoutAdminInput
 }
 
 export type AdminUncheckedCreateWithoutAccess_tokensInput = {
@@ -381,6 +403,7 @@ export type AdminUncheckedCreateWithoutAccess_tokensInput = {
   created_at?: Date | string
   updated_at?: Date | string
   deleted_at?: Date | string | null
+  audit_logs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutAdminInput
 }
 
 export type AdminCreateOrConnectWithoutAccess_tokensInput = {
@@ -406,6 +429,7 @@ export type AdminUpdateWithoutAccess_tokensInput = {
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   deleted_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  audit_logs?: Prisma.AuditLogUpdateManyWithoutAdminNestedInput
 }
 
 export type AdminUncheckedUpdateWithoutAccess_tokensInput = {
@@ -415,6 +439,63 @@ export type AdminUncheckedUpdateWithoutAccess_tokensInput = {
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   deleted_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  audit_logs?: Prisma.AuditLogUncheckedUpdateManyWithoutAdminNestedInput
+}
+
+export type AdminCreateWithoutAudit_logsInput = {
+  id?: string
+  email: string
+  password: string
+  created_at?: Date | string
+  updated_at?: Date | string
+  deleted_at?: Date | string | null
+  access_tokens?: Prisma.AdminAccessTokenCreateNestedManyWithoutAdminInput
+}
+
+export type AdminUncheckedCreateWithoutAudit_logsInput = {
+  id?: string
+  email: string
+  password: string
+  created_at?: Date | string
+  updated_at?: Date | string
+  deleted_at?: Date | string | null
+  access_tokens?: Prisma.AdminAccessTokenUncheckedCreateNestedManyWithoutAdminInput
+}
+
+export type AdminCreateOrConnectWithoutAudit_logsInput = {
+  where: Prisma.AdminWhereUniqueInput
+  create: Prisma.XOR<Prisma.AdminCreateWithoutAudit_logsInput, Prisma.AdminUncheckedCreateWithoutAudit_logsInput>
+}
+
+export type AdminUpsertWithoutAudit_logsInput = {
+  update: Prisma.XOR<Prisma.AdminUpdateWithoutAudit_logsInput, Prisma.AdminUncheckedUpdateWithoutAudit_logsInput>
+  create: Prisma.XOR<Prisma.AdminCreateWithoutAudit_logsInput, Prisma.AdminUncheckedCreateWithoutAudit_logsInput>
+  where?: Prisma.AdminWhereInput
+}
+
+export type AdminUpdateToOneWithWhereWithoutAudit_logsInput = {
+  where?: Prisma.AdminWhereInput
+  data: Prisma.XOR<Prisma.AdminUpdateWithoutAudit_logsInput, Prisma.AdminUncheckedUpdateWithoutAudit_logsInput>
+}
+
+export type AdminUpdateWithoutAudit_logsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  password?: Prisma.StringFieldUpdateOperationsInput | string
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deleted_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  access_tokens?: Prisma.AdminAccessTokenUpdateManyWithoutAdminNestedInput
+}
+
+export type AdminUncheckedUpdateWithoutAudit_logsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  password?: Prisma.StringFieldUpdateOperationsInput | string
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deleted_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  access_tokens?: Prisma.AdminAccessTokenUncheckedUpdateManyWithoutAdminNestedInput
 }
 
 
@@ -424,10 +505,12 @@ export type AdminUncheckedUpdateWithoutAccess_tokensInput = {
 
 export type AdminCountOutputType = {
   access_tokens: number
+  audit_logs: number
 }
 
 export type AdminCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   access_tokens?: boolean | AdminCountOutputTypeCountAccess_tokensArgs
+  audit_logs?: boolean | AdminCountOutputTypeCountAudit_logsArgs
 }
 
 /**
@@ -447,6 +530,13 @@ export type AdminCountOutputTypeCountAccess_tokensArgs<ExtArgs extends runtime.T
   where?: Prisma.AdminAccessTokenWhereInput
 }
 
+/**
+ * AdminCountOutputType without action
+ */
+export type AdminCountOutputTypeCountAudit_logsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.AuditLogWhereInput
+}
+
 
 export type AdminSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -456,6 +546,7 @@ export type AdminSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   updated_at?: boolean
   deleted_at?: boolean
   access_tokens?: boolean | Prisma.Admin$access_tokensArgs<ExtArgs>
+  audit_logs?: boolean | Prisma.Admin$audit_logsArgs<ExtArgs>
   _count?: boolean | Prisma.AdminCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["admin"]>
 
@@ -489,6 +580,7 @@ export type AdminSelectScalar = {
 export type AdminOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "password" | "created_at" | "updated_at" | "deleted_at", ExtArgs["result"]["admin"]>
 export type AdminInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   access_tokens?: boolean | Prisma.Admin$access_tokensArgs<ExtArgs>
+  audit_logs?: boolean | Prisma.Admin$audit_logsArgs<ExtArgs>
   _count?: boolean | Prisma.AdminCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type AdminIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
@@ -498,6 +590,7 @@ export type $AdminPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   name: "Admin"
   objects: {
     access_tokens: Prisma.$AdminAccessTokenPayload<ExtArgs>[]
+    audit_logs: Prisma.$AuditLogPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -901,6 +994,7 @@ readonly fields: AdminFieldRefs;
 export interface Prisma__AdminClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   access_tokens<T extends Prisma.Admin$access_tokensArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Admin$access_tokensArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AdminAccessTokenPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  audit_logs<T extends Prisma.Admin$audit_logsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Admin$audit_logsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AuditLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1350,6 +1444,30 @@ export type Admin$access_tokensArgs<ExtArgs extends runtime.Types.Extensions.Int
   take?: number
   skip?: number
   distinct?: Prisma.AdminAccessTokenScalarFieldEnum | Prisma.AdminAccessTokenScalarFieldEnum[]
+}
+
+/**
+ * Admin.audit_logs
+ */
+export type Admin$audit_logsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AuditLog
+   */
+  select?: Prisma.AuditLogSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the AuditLog
+   */
+  omit?: Prisma.AuditLogOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.AuditLogInclude<ExtArgs> | null
+  where?: Prisma.AuditLogWhereInput
+  orderBy?: Prisma.AuditLogOrderByWithRelationInput | Prisma.AuditLogOrderByWithRelationInput[]
+  cursor?: Prisma.AuditLogWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.AuditLogScalarFieldEnum | Prisma.AuditLogScalarFieldEnum[]
 }
 
 /**

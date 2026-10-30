@@ -1,0 +1,48 @@
+========================================================================================================================
+                                    ZUBACO PLATFORM — SECTION 1.2 TRACKER
+                                    (BATCH 2: ADMIN PANEL FRONTEND & BACKEND)
+========================================================================================================================
+Document Name   : section1.2.txt
+Location        : AboutGameAndToDo/sectionone/section1.2.txt
+Parent Plan     : AboutGameAndToDo/sectionone/detailedsection1.txt
+Objective       : Build, verify, and achieve 100% clean production builds (exit code 0) for Admin Panel Backend (NestJS)
+                  and Admin Panel Frontend (Next.js).
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 1.2 SUB-TASKS
+------------------------------------------------------------------------------------------------------------------------
+Task ID  | Task Description                                                            | Status      | Notes / Artifacts
+---------+-----------------------------------------------------------------------------+-------------+-------------------
+1.2.1    | Admin Backend (`AP-02`): Dependency install and NestJS compilation check    | [DONE]      | Clean install of 985 pkgs
+1.2.2    | Admin Backend (`AP-02`): Resolve any Prisma / TypeScript build errors       | [DONE]      | Prisma client generated (931ms)
+1.2.3    | Admin Frontend (`AP-01`): Dependency install and Next.js production build    | [DONE]      | Clean install of 702 pkgs
+1.2.4    | Admin Frontend (`AP-01`): Resolve any SSR / Hydration / TypeScript errors   | [DONE]      | Fixed Tailwind & dynamicParams
+1.2.5    | Admin Panel `.env.example` audit for both backend & frontend                | [DONE]      | Environment verified
+1.2.6    | Verify both AP-01 & AP-02 pass automated runner with clean exit code 0      | [DONE]      | 2/2 Passed in 91.6s
+
+------------------------------------------------------------------------------------------------------------------------
+2. TARGET DETAILS
+------------------------------------------------------------------------------------------------------------------------
+Target AP-01:
+  - Name     : Admin Frontend
+  - Directory: `zubaco-admin-panel-repo/zubaco-admin-panel/frontend`
+  - Stack    : Next.js 16.2.4, React 19, TailwindCSS v4, Turbopack
+  - Status   : [DONE] (Prerendered all 23 routes in 68.4s)
+
+Target AP-02:
+  - Name     : Admin Backend
+  - Directory: `zubaco-admin-panel-repo/zubaco-admin-panel/backend`
+  - Stack    : NestJS 11, Prisma 7, tsc-alias, TypeScript
+  - Status   : [DONE] (Compiled dist bundle in 16.9s)
+
+------------------------------------------------------------------------------------------------------------------------
+3. EXECUTION LOG & RESULTS
+------------------------------------------------------------------------------------------------------------------------
+- Fixed missing `@tailwindcss/postcss` in frontend package.json.
+- Removed invalid root prepare husky script from frontend package.json.
+- Fixed 4 dynamic route files to declare `dynamicParams = false` matching `output: 'export'`.
+- Successfully generated Prisma Client (7.8.0) in backend.
+- Verified both targets exit with code 0 via automated runner script.
+========================================================================================================================

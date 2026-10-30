@@ -2,7 +2,7 @@ import { StageGamesTable } from "@/features/stages/components/StageGamesTable";
 import { PageContainer } from "@/components/layout/PageContainer";
 
 export const revalidate = 300;
-export const dynamicParams = true;
+export const dynamicParams = false;
 
 export function generateStaticParams() {
   return [{ id: '_' }];

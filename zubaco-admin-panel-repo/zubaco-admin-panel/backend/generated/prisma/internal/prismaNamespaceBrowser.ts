@@ -72,7 +72,9 @@ export const ModelName = {
   Notification: 'Notification',
   SeasonLeaderboard: 'SeasonLeaderboard',
   TournamentStage: 'TournamentStage',
-  CheatFlag: 'CheatFlag'
+  CheatFlag: 'CheatFlag',
+  AuditLog: 'AuditLog',
+  SystemSetting: 'SystemSetting'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -434,6 +436,32 @@ export const CheatFlagScalarFieldEnum = {
 } as const
 
 export type CheatFlagScalarFieldEnum = (typeof CheatFlagScalarFieldEnum)[keyof typeof CheatFlagScalarFieldEnum]
+
+
+export const AuditLogScalarFieldEnum = {
+  id: 'id',
+  admin_id: 'admin_id',
+  action: 'action',
+  entity: 'entity',
+  entity_id: 'entity_id',
+  changes: 'changes',
+  ip_address: 'ip_address',
+  created_at: 'created_at'
+} as const
+
+export type AuditLogScalarFieldEnum = (typeof AuditLogScalarFieldEnum)[keyof typeof AuditLogScalarFieldEnum]
+
+
+export const SystemSettingScalarFieldEnum = {
+  key: 'key',
+  value: 'value',
+  description: 'description',
+  category: 'category',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+} as const
+
+export type SystemSettingScalarFieldEnum = (typeof SystemSettingScalarFieldEnum)[keyof typeof SystemSettingScalarFieldEnum]
 
 
 export const SortOrder = {

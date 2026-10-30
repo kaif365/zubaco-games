@@ -149,3 +149,13 @@ export type TournamentStage = Prisma.TournamentStageModel
  * 
  */
 export type CheatFlag = Prisma.CheatFlagModel
+/**
+ * Model AuditLog
+ * 
+ */
+export type AuditLog = Prisma.AuditLogModel
+/**
+ * Model SystemSetting
+ * 
+ */
+export type SystemSetting = Prisma.SystemSettingModel

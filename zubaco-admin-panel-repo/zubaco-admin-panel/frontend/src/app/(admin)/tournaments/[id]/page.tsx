@@ -6,7 +6,7 @@ export const metadata = {
   description: "View tournament stages and configurations.",
 };
 export const revalidate = 300;
-export const dynamicParams = true;
+export const dynamicParams = false;
 
 export function generateStaticParams() {
   return [{ id: '_' }];

@@ -107,7 +107,7 @@ function runCommand(cmd, args, cwd, timeoutMs = 180000) {
     const child = spawn(execCmd, args, {
       cwd,
       shell: true,
-      env: { ...process.env, CI: 'true', NODE_ENV: 'production' }
+      env: { ...process.env, CI: 'true', NODE_ENV: 'production', NODE_OPTIONS: process.env.NODE_OPTIONS || '--experimental-require-module' }
     });
 
     child.stdout.on('data', d => { stdout += d.toString(); });
@@ -147,7 +147,7 @@ async function runTarget(target) {
   if (!fs.existsSync(nodeModulesPath)) {
     if (autoInstall) {
       console.log(`  -> Installing dependencies in ${target.dir}...`);
-      const installRes = await runCommand('npm', ['install', '--no-audit', '--no-fund'], fullPath, 300000);
+      const installRes = await runCommand('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], fullPath, 300000);
       if (installRes.code !== 0) {
         return {
           target,

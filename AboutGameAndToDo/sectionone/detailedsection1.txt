@@ -91,8 +91,8 @@ BE-20      | Speed Typing       | `zubaco-games/speed-typing/speed-typing-backen
 Project ID | Component Name     | Sub-Directory Path                                    | Status | Build Result / Fixes
 -----------+--------------------+-------------------------------------------------------+--------+----------------------
 PL-01      | Central Platform   | `zubaco-platform`                                     | [DONE] | NestJS core API compiled (dist/main.js)
-AP-01      | Admin Panel (FE)   | `zubaco-admin-panel-repo/zubaco-admin-panel/frontend` | [TODO] | Next.js SPA
-AP-02      | Admin Panel (BE)   | `zubaco-admin-panel-repo/zubaco-admin-panel/backend`  | [TODO] | NestJS admin API
+AP-01      | Admin Panel (FE)   | `zubaco-admin-panel-repo/zubaco-admin-panel/frontend` | [DONE] | Next.js SPA (23 routes prerendered)
+AP-02      | Admin Panel (BE)   | `zubaco-admin-panel-repo/zubaco-admin-panel/backend`  | [DONE] | NestJS admin API compiled
 WL-01      | Web Lobby          | `zubaco-web-lobby`                                    | [DONE] | Vite static bundle verified
 MB-01      | Mobile App Shell   | `zubaco-mobile`                                       | [TODO] | React Native Bundle
 
