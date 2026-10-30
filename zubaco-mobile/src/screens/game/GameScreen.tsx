@@ -36,8 +36,8 @@ export function GameScreen() {
   const injectedJavaScript = `
     (function() {
       window.__ZUBACO__ = {
-        token: "${token}",
-        gameSessionId: "${sessionId}",
+        token: ${JSON.stringify(token || '')},
+        gameSessionId: ${JSON.stringify(sessionId || '')},
         platform: "mobile"
       };
       window.postMessage = window.ReactNativeWebView.postMessage;
@@ -148,18 +148,20 @@ export function GameScreen() {
         allowsInlineMediaPlayback={true}
         mediaPlaybackRequiresUserAction={false}
         startInLoadingState={true}
-        originWhitelist={['*']}
+        originWhitelist={['https://*', 'http://localhost*', 'http://127.0.0.1*']}
         style={styles.webview}
-        // Security: only allow game domains
+        // Security: only allow verified Zubaco game domains and local dev servers
         onShouldStartLoadWithRequest={(request) => {
-          const allowed = [
-            'game.zubaco.com',
-            'localhost',
-            '127.0.0.1',
-          ];
           try {
-            const url = new URL(request.url);
-            return allowed.some((d) => url.hostname.includes(d));
+            const match = request.url.match(/^https?:\/\/([^/:]+)/i);
+            if (!match) return false;
+            const host = match[1].toLowerCase();
+            return (
+              host === 'game.zubaco.com' ||
+              host === 'localhost' ||
+              host === '127.0.0.1' ||
+              host.endsWith('.zubaco.com')
+            );
           } catch {
             return false;
           }

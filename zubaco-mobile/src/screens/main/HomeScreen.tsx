@@ -28,36 +28,59 @@ const GAME_LIST = [
   { type: 'SPEED_TYPE_ANSWER', name: 'Speed Type', stage: 5, icon: '⌨️' },
 ];
 
+import { SecureStorage } from '../../services/secureStorage';
+
 export function HomeScreen() {
   const { user } = useAuth();
   const navigation = useNavigation<any>();
+  const [loadingGame, setLoadingGame] = React.useState<string | null>(null);
 
   const { data: progress } = useQuery({
     queryKey: ['progress'],
     queryFn: () => api.getAllProgress(),
   });
 
+  const handleGamePress = async (item: typeof GAME_LIST[0], level: number) => {
+    try {
+      setLoadingGame(item.type);
+      const token = (await SecureStorage.getAccessToken()) || '';
+      const session = await api.startLevel(item.type, level);
+      navigation.navigate('Game', {
+        gameUrl: `https://game.zubaco.com/${item.type.toLowerCase().replace(/_/g, '-')}`,
+        sessionId: session.session_id,
+        token: token,
+      });
+    } catch {
+      // Fallback for offline or unauthenticated free play
+      const token = (await SecureStorage.getAccessToken()) || '';
+      navigation.navigate('Game', {
+        gameUrl: `https://game.zubaco.com/${item.type.toLowerCase().replace(/_/g, '-')}`,
+        sessionId: `offline-${Date.now()}`,
+        token: token,
+      });
+    } finally {
+      setLoadingGame(null);
+    }
+  };
+
   const renderGameCard = ({ item }: { item: typeof GAME_LIST[0] }) => {
     const gameProgress = (progress as any)?.[item.type];
     const level = gameProgress?.current_level || 1;
+    const isLoading = loadingGame === item.type;
 
     return (
       <TouchableOpacity
-        style={styles.gameCard}
-        onPress={() => {
-          // Navigate to level selection or directly start game
-          navigation.navigate('Game', {
-            gameUrl: `https://game.zubaco.com/${item.type.toLowerCase().replace(/_/g, '-')}`,
-            sessionId: 'pending', // Will be set after startLevel API call
-            token: '', // Will be injected from AsyncStorage
-          });
-        }}
+        style={[styles.gameCard, isLoading && styles.cardLoading]}
+        disabled={isLoading}
+        onPress={() => handleGamePress(item, level)}
       >
         <Text style={styles.gameIcon}>{item.icon}</Text>
         <Text style={styles.gameName}>{item.name}</Text>
         <Text style={styles.gameLevel}>Level {level}</Text>
         <View style={styles.stageBadge}>
-          <Text style={styles.stageText}>Stage {item.stage}</Text>
+          <Text style={styles.stageText}>
+            {isLoading ? 'Starting...' : `Stage ${item.stage}`}
+          </Text>
         </View>
       </TouchableOpacity>
     );
@@ -107,4 +130,5 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   stageText: { color: '#FFFFFF', fontSize: 10, fontWeight: '600' },
+  cardLoading: { opacity: 0.6 },
 });

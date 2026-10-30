@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -84,22 +85,25 @@ export function KycScreen() {
       </Text>
       <View style={styles.inputContainer}>
         <Text style={styles.inputLabel}>PAN Number</Text>
-        <View style={styles.textInput}>
-          <Text
-            style={styles.inputText}
-            onPress={() => {
-              // Would open TextInput in production
-            }}
-          >
-            {kycData.panNumber || 'ABCDE1234F'}
-          </Text>
-        </View>
+        <TextInput
+          style={styles.textInput}
+          value={kycData.panNumber}
+          onChangeText={(text) => setKycData((prev) => ({ ...prev, panNumber: text.toUpperCase() }))}
+          placeholder="ABCDE1234F"
+          placeholderTextColor="#6B7280"
+          autoCapitalize="characters"
+          maxLength={10}
+        />
       </View>
       <View style={styles.inputContainer}>
         <Text style={styles.inputLabel}>Full Name (as on PAN)</Text>
-        <View style={styles.textInput}>
-          <Text style={styles.inputText}>{kycData.fullName || 'Enter full name'}</Text>
-        </View>
+        <TextInput
+          style={styles.textInput}
+          value={kycData.fullName}
+          onChangeText={(text) => setKycData((prev) => ({ ...prev, fullName: text }))}
+          placeholder="Full Name as on PAN"
+          placeholderTextColor="#6B7280"
+        />
       </View>
       <TouchableOpacity style={styles.primaryButton} onPress={handlePanSubmit}>
         <Text style={styles.primaryButtonText}>Continue</Text>
@@ -115,9 +119,15 @@ export function KycScreen() {
       </Text>
       <View style={styles.inputContainer}>
         <Text style={styles.inputLabel}>Aadhaar Number</Text>
-        <View style={styles.textInput}>
-          <Text style={styles.inputText}>{kycData.aadhaarNumber || '0000 0000 0000'}</Text>
-        </View>
+        <TextInput
+          style={styles.textInput}
+          value={kycData.aadhaarNumber}
+          onChangeText={(text) => setKycData((prev) => ({ ...prev, aadhaarNumber: text.replace(/\D/g, '') }))}
+          placeholder="12-digit Aadhaar number"
+          placeholderTextColor="#6B7280"
+          keyboardType="number-pad"
+          maxLength={12}
+        />
       </View>
       <View style={styles.infoBox}>
         <Text style={styles.infoText}>
