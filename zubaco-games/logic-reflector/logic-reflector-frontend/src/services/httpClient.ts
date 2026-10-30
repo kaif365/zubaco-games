@@ -58,6 +58,9 @@ gameHttpClient.interceptors.response.use(
   },
   async (error: unknown) => {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
+      if (import.meta.env.PROD) {
+        return Promise.reject(error);
+      }
       const config = error.config as GameRequestConfig | undefined;
       _authToken = null;
       storage.clearLiveSession();
