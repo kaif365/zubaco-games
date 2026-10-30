@@ -1,7 +1,8 @@
+import { Platform } from 'react-native';
 import { SecureStorage } from './secureStorage';
 
 const BASE_URL = __DEV__
-  ? 'http://localhost:3000/api/v1'
+  ? (Platform.OS === 'android' ? 'http://10.0.2.2:3000/api/v1' : 'http://localhost:3000/api/v1')
   : 'https://api.zubaco.com/api/v1';
 
 // ─── Response contracts (mirror zubaco-platform DTOs) ───────────
