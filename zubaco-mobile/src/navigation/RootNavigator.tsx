@@ -21,6 +21,7 @@ import { NotificationsScreen } from '../screens/main/NotificationsScreen';
 import { SettingsScreen } from '../screens/main/SettingsScreen';
 import { ReferralScreen } from '../screens/main/ReferralScreen';
 import { SupportScreen } from '../screens/main/SupportScreen';
+import { KycScreen } from '../screens/kyc/KycScreen';
 
 export type RootStackParamList = {
   Splash: undefined;
@@ -46,6 +47,7 @@ export type RootStackParamList = {
   Settings: undefined;
   Referral: undefined;
   Support: undefined;
+  Kyc: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -79,6 +81,7 @@ export function RootNavigator() {
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="Referral" component={ReferralScreen} />
           <Stack.Screen name="Support" component={SupportScreen} />
+          <Stack.Screen name="Kyc" component={KycScreen} />
         </>
       )}
     </Stack.Navigator>
