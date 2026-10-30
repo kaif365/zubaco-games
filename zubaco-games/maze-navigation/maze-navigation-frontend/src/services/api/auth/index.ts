@@ -73,6 +73,9 @@ export async function ensureDevSessionToken(stageId: string): Promise<string> {
   if (existingToken) {
     return existingToken;
   }
+  if (import.meta.env.PROD) {
+    throw new Error('Authentication required');
+  }
 
   return refreshDevSessionToken(stageId);
 }

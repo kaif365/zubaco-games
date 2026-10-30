@@ -117,7 +117,8 @@ axiosClient.interceptors.response.use(
       status !== 401 ||
       !config ||
       config[TOKEN_RETRY_KEY] ||
-      isDevSessionRequestUrl(config.url)
+      isDevSessionRequestUrl(config.url) ||
+      import.meta.env.PROD
     ) {
       throw error;
     }
