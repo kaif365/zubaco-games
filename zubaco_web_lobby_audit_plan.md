@@ -22,7 +22,8 @@ This document establishes the line-by-line audit plan for the `zubaco-web-lobby`
 
 | Batch | File Range | Layer / Focus Area | File Count | Lines of Code | Status |
 |:---:|:---:|---|:---:|:---:|:---:|
-| **Batch 1** | Files 1–3 | **Dev Launcher, Token Generator, Game Routes & Server Setup**<br>Web launcher page (`index.html`), scripts/dependencies (`package.json`), and developer docs (`TEMPORARY_README.md`). | 3 | 247 | 🚀 Ready |
+| **Batch 1** | Files 1–3 | **Dev Launcher, Token Generator, Game Routes & Server Setup**<br>Web launcher page (`index.html`), scripts/dependencies (`package.json`), and developer docs (`TEMPORARY_README.md`). | 3 | 247 | ✅ **COMPLETED** (`d0d6a1d`) |
+| **ALL BATCHES** | **Files 1–3** | **Full zubaco-web-lobby Audited Line-by-Line** | **3** | **247** | 🏆 **100% COMPLETE** |
 
 ---
 
@@ -59,3 +60,4 @@ For each file in `zubaco-web-lobby`:
 | Date | Step | Action | Commit / Status |
 |---|---|---|---|
 | 2026-10-30 | Plan Created | Full inventory of `zubaco-web-lobby` verified (3 files, 247 lines) | 🚀 Ready to Execute |
+| 2026-10-30 | Batch 1 Verified | Audited line-by-line, hardened health probes, enriched JWT claims & port mapping | ✅ COMPLETED (`d0d6a1d`) |
