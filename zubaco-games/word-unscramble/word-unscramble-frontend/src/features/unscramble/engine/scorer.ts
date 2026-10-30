@@ -10,7 +10,7 @@ export interface ScoreResult {
 /**
  * Scoring:
  *   Solved word: +pointsPerWord (15)
- *   Time bonus: remaining seconds per word solved early × timeBonusPerSecond (1)
+ *   Time bonus: remaining seconds per word solved early * timeBonusPerSecond (1)
  */
 export function calculateScore(
   answers: WordAnswer[],

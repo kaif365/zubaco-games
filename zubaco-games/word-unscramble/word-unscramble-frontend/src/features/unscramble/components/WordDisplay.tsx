@@ -27,7 +27,7 @@ export function WordDisplay({ built, targetLength, onBackspace }: Props) {
           onClick={onBackspace}
           className="ml-2 w-10 h-10 rounded-lg bg-red-600/80 hover:bg-red-500 flex items-center justify-center text-lg"
         >
-          ?
+          ⌫
         </motion.button>
       )}
     </div>
