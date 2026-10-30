@@ -13,8 +13,11 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, WalletTransaction, TransactionType } from '../../services/api';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 // Optional native Razorpay checkout SDK. Loaded lazily so the app compiles and
 // runs even when the native module is not installed; when present it powers the
@@ -59,6 +62,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export const WalletScreen: React.FC = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const queryClient = useQueryClient();
 
   const walletQuery = useQuery({
@@ -234,9 +238,13 @@ export const WalletScreen: React.FC = () => {
       <Text style={styles.title}>Wallet</Text>
 
       {!kycVerified && (
-        <View style={styles.kycBanner}>
-          <Text style={styles.kycText}>⚠️ Complete KYC to enable withdrawals</Text>
-        </View>
+        <TouchableOpacity
+          style={styles.kycBanner}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('Kyc')}
+        >
+          <Text style={styles.kycText}>⚠️ Complete KYC to enable withdrawals ›</Text>
+        </TouchableOpacity>
       )}
 
       <View style={styles.balanceCard}>

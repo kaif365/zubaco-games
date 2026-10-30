@@ -125,7 +125,13 @@ export function ProfileScreen() {
       <View style={styles.badgeRow}>
         <Badge ok={profile.is_verified} label="Account" />
         <Badge ok={profile.age_verified} label="Age" />
-        <Badge ok={kycVerified} label="KYC" />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          disabled={kycVerified}
+          onPress={() => navigation.navigate('Kyc')}
+        >
+          <Badge ok={kycVerified} label={kycVerified ? 'KYC' : 'Verify KYC'} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.infoCard}>

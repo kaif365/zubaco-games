@@ -31,11 +31,16 @@ function getAppVersion(): string {
 }
 /* eslint-enable @typescript-eslint/no-var-requires */
 
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
+
 const TERMS_URL = 'https://zubaco.com/terms';
 const PRIVACY_URL = 'https://zubaco.com/privacy';
 const CONTACT_URL = 'mailto:support@zubaco.com';
 
 export const SettingsScreen: React.FC = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user, logout } = useAuth();
   const [prefs, setPrefs] = useState<AppPreferences>(DEFAULT_PREFERENCES);
   const [biometricSupported, setBiometricSupported] = useState(false);
@@ -190,8 +195,8 @@ export const SettingsScreen: React.FC = () => {
           <Text style={styles.chevron}>›</Text>
         </TouchableOpacity>
         <View style={styles.divider} />
-        <TouchableOpacity style={styles.settingRow} onPress={() => openLink(CONTACT_URL)}>
-          <Text style={styles.settingLabel}>Contact Support</Text>
+        <TouchableOpacity style={styles.settingRow} onPress={() => navigation.navigate('Support')}>
+          <Text style={styles.settingLabel}>Help & Support</Text>
           <Text style={styles.chevron}>›</Text>
         </TouchableOpacity>
       </View>

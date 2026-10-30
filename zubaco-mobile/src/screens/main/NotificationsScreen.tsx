@@ -71,11 +71,19 @@ export const NotificationsScreen: React.FC = () => {
     },
   });
 
+  const markAllMutation = useMutation({
+    mutationFn: () => api.markAllNotificationsRead(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
   const markAsRead = (item: AppNotification) => {
     if (!item.read) markReadMutation.mutate(item.id);
   };
 
   const notifications = notificationsQuery.data?.notifications ?? [];
+  const hasUnread = notifications.some((n) => !n.read);
 
   const renderNotification = ({ item }: { item: AppNotification }) => (
     <TouchableOpacity
@@ -104,7 +112,20 @@ export const NotificationsScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Notifications</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Notifications</Text>
+        {hasUnread && (
+          <TouchableOpacity
+            onPress={() => markAllMutation.mutate()}
+            disabled={markAllMutation.isPending}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.markAllText}>
+              {markAllMutation.isPending ? 'Marking...' : 'Mark all read'}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       <FlatList
         data={notifications}
@@ -136,12 +157,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F0F1A',
     paddingTop: 60,
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
   title: {
     fontSize: 28,
     fontWeight: '700',
     color: '#FFFFFF',
-    paddingHorizontal: 20,
-    marginBottom: 16,
+  },
+  markAllText: {
+    color: '#6C3CE1',
+    fontSize: 14,
+    fontWeight: '600',
   },
   notificationRow: {
     flexDirection: 'row',
