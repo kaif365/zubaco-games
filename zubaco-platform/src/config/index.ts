@@ -1,13 +1,25 @@
+import 'dotenv/config';
+
 export const config = {
   jwt: {
     accessSecret: (() => {
       const secret = process.env.JWT_ACCESS_SECRET;
-      if (!secret) throw new Error('FATAL: JWT_ACCESS_SECRET environment variable is required');
+      if (!secret) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('FATAL: JWT_ACCESS_SECRET environment variable is required');
+        }
+        return 'dev-jwt-access-secret-min-32-chars';
+      }
       return secret;
     })(),
     refreshSecret: (() => {
       const secret = process.env.JWT_REFRESH_SECRET;
-      if (!secret) throw new Error('FATAL: JWT_REFRESH_SECRET environment variable is required');
+      if (!secret) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('FATAL: JWT_REFRESH_SECRET environment variable is required');
+        }
+        return 'dev-jwt-refresh-secret-min-32-chars';
+      }
       return secret;
     })(),
     accessExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',

@@ -6,11 +6,16 @@ import { AppModule } from './app.module';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
   app.setGlobalPrefix('api/v1');
+
+  // Global exception filter for standardized error envelopes
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   // Security headers
   app.use(helmet());
