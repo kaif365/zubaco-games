@@ -1,0 +1,174 @@
+========================================================================================================================
+                                    ZUBACO PLATFORM — SECTION 1 TRACKER
+                    (ZERO-ERROR RUNTIME BUILD BASELINE & PRODUCTION GAP VERIFICATION)
+========================================================================================================================
+Document Name   : section1.txt
+Location        : AboutGameAndToDo/section1.txt
+Objective       : Verify, test, and achieve clean production builds (exit code 0) across all 43 sub-projects,
+                  standardize environment variables, audit dependencies, and resolve all compilation/bundling issues.
+Status Legend   : [TODO] = Not yet started | [IN PROGRESS] = Currently executing | [DONE] = Completed & Verified
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 1 MASTER OBJECTIVES & DELIVERABLES
+------------------------------------------------------------------------------------------------------------------------
+[ ] Objective 1: Create an automated bulk build verification script to test every subproject independently.
+[ ] Objective 2: Build and certify all 20 Game Frontends (Vite / React / TypeScript).
+[ ] Objective 3: Build and certify all 20 Game Backends (NestJS / TypeScript / Prisma).
+[ ] Objective 4: Build and certify Central Platform Core (`zubaco-platform`).
+[ ] Objective 5: Build and certify Admin Panel (`zubaco-admin-panel` frontend & backend).
+[ ] Objective 6: Build and certify Web Lobby (`zubaco-web-lobby`).
+[ ] Objective 7: Test bundle compilation for Mobile App (`zubaco-mobile`).
+[ ] Objective 8: Audit and standardize `.env.example` across every subproject (zero missing env vars).
+[ ] Objective 9: Audit and resolve dependency vulnerabilities and lockfile consistency.
+[ ] Objective 10: Produce master Section 1 Verification Report with 100% clean builds (`exit 0`).
+
+
+------------------------------------------------------------------------------------------------------------------------
+2. AUTOMATED MASTER BUILD SCRIPT (TOOLING & INFRASTRUCTURE)
+------------------------------------------------------------------------------------------------------------------------
+Task ID  | Sub-Task Description                                                         | Status | Notes / Output
+---------+------------------------------------------------------------------------------+--------+----------------------
+1.0.1    | Create `scripts/test-all-builds.js` node runner script                       | [TODO] | Multi-process runner
+1.0.2    | Support selective batch testing (games-fe, games-be, platform, admin, mobile)| [TODO] | Allows focused runs
+1.0.3    | Output comprehensive JSON & Markdown report of pass/fail status per project  | [TODO] | Logs stdout/stderr
+1.0.4    | Add timeout handling (stop stuck builds after 3 minutes)                     | [TODO] | Prevents hanging
+
+
+------------------------------------------------------------------------------------------------------------------------
+3. DETAILED SUB-PROJECT BUILD MATRIX (ALL 43 SUB-PROJECTS)
+------------------------------------------------------------------------------------------------------------------------
+
+--- PART A: 20 GAME FRONTENDS (React / Vite / TypeScript) ---
+Project ID | Game Name          | Sub-Directory Path                                    | Status | Build Result / Fixes
+-----------+--------------------+-------------------------------------------------------+--------+----------------------
+FE-01      | Sequence Recall    | `zubaco-games/sequence-recall/sequence-recall-frontend`| [TODO] |
+FE-02      | Memory Cards       | `zubaco-games/memory-card-matching/memory-card-matching-frontend` | [TODO] |
+FE-03      | Flash Spot         | `zubaco-games/flash-spot/flash-spot-frontend`          | [TODO] |
+FE-04      | Object Placement   | `zubaco-games/object-placement/object-placement-frontend` | [TODO] |
+FE-05      | Memory Groups      | `zubaco-games/memory-groups/memory-groups-frontend`    | [TODO] |
+FE-06      | Sliding Puzzle     | `zubaco-games/sliding-puzzle/sliding-puzzle-frontend`  | [TODO] |
+FE-07      | Block Fill         | `zubaco-games/block-fill/block-fill-frontend`          | [TODO] |
+FE-08      | Colour Sort        | `zubaco-games/colour-sort/colour-sort-frontend`        | [TODO] |
+FE-09      | Rapid Sort         | `zubaco-games/rapid-sort/rapid-sort-frontend`          | [TODO] |
+FE-10      | Maze Navigation    | `zubaco-games/maze-navigation/maze-navigation-frontend`| [TODO] |
+FE-11      | Infinity Loop      | `zubaco-games/Infinity-loop/infinity-loop-frontend`    | [TODO] |
+FE-12      | Word Unscramble    | `zubaco-games/word-unscramble/word-unscramble-frontend`| [TODO] |
+FE-13      | True / False       | `zubaco-games/true-false/true-false-frontend`          | [TODO] |
+FE-14      | Arrows             | `zubaco-games/arrows/arrows-frontend`                  | [TODO] |
+FE-15      | Logic Reflector    | `zubaco-games/logic-reflector/logic-reflector-frontend`| [TODO] |
+FE-16      | Number Grid        | `zubaco-games/number-grid/number-grid-frontend`        | [TODO] |
+FE-17      | Live Route Builder | `zubaco-games/live-route-builder/live-route-frontend`  | [TODO] |
+FE-18      | Reflex Endurance   | `zubaco-games/reflex-endurance/reflex-endurance-frontend` | [TODO] |
+FE-19      | Pattern Survival   | `zubaco-games/pattern-survival/pattern-survival-frontend` | [TODO] |
+FE-20      | Speed Typing       | `zubaco-games/speed-typing/speed-typing-frontend`      | [TODO] |
+
+--- PART B: 20 GAME BACKENDS (NestJS / TypeScript) ---
+Project ID | Game Name          | Sub-Directory Path                                    | Status | Build Result / Fixes
+-----------+--------------------+-------------------------------------------------------+--------+----------------------
+BE-01      | Sequence Recall    | `zubaco-games/sequence-recall/sequence-recall-backend` | [TODO] |
+BE-02      | Memory Cards       | `zubaco-games/memory-card-matching/memory-card-matching-backend` | [TODO] |
+BE-03      | Flash Spot         | `zubaco-games/flash-spot/flash-spot-backend`           | [TODO] |
+BE-04      | Object Placement   | `zubaco-games/object-placement/object-placement-backend` | [TODO] |
+BE-05      | Memory Groups      | `zubaco-games/memory-groups/memory-groups-backend`     | [TODO] |
+BE-06      | Sliding Puzzle     | `zubaco-games/sliding-puzzle/sliding-puzzle-backend`   | [TODO] |
+BE-07      | Block Fill         | `zubaco-games/block-fill/block-fill-backend`           | [TODO] |
+BE-08      | Colour Sort        | `zubaco-games/colour-sort/colour-sort-backend`         | [TODO] |
+BE-09      | Rapid Sort         | `zubaco-games/rapid-sort/rapid-sort-backend`           | [TODO] |
+BE-10      | Maze Navigation    | `zubaco-games/maze-navigation/maze-navigation-backend` | [TODO] |
+BE-11      | Infinity Loop      | `zubaco-games/Infinity-loop/Infinity-Loop-backend`     | [TODO] |
+BE-12      | Word Unscramble    | `zubaco-games/word-unscramble/word-unscramble-backend` | [TODO] |
+BE-13      | True / False       | `zubaco-games/true-false/true-false-backend`           | [TODO] |
+BE-14      | Arrows             | `zubaco-games/arrows/arrows-backend`                   | [TODO] |
+BE-15      | Logic Reflector    | `zubaco-games/logic-reflector/logic-reflector-backend` | [TODO] |
+BE-16      | Number Grid        | `zubaco-games/number-grid/number-grid-backend`         | [TODO] |
+BE-17      | Live Route Builder | `zubaco-games/live-route-builder/live-route-backend`   | [TODO] |
+BE-18      | Reflex Endurance   | `zubaco-games/reflex-endurance/reflex-endurance-backend` | [TODO] |
+BE-19      | Pattern Survival   | `zubaco-games/pattern-survival/pattern-survival-backend` | [TODO] |
+BE-20      | Speed Typing       | `zubaco-games/speed-typing/speed-typing-backend`       | [TODO] |
+
+--- PART C: CENTRAL PLATFORM, ADMIN PANEL, WEB LOBBY & MOBILE APP ---
+Project ID | Component Name     | Sub-Directory Path                                    | Status | Build Result / Fixes
+-----------+--------------------+-------------------------------------------------------+--------+----------------------
+PL-01      | Central Platform   | `zubaco-platform`                                     | [TODO] | NestJS core API
+AP-01      | Admin Panel (FE)   | `zubaco-admin-panel-repo/zubaco-admin-panel/frontend` | [TODO] | Next.js SPA
+AP-02      | Admin Panel (BE)   | `zubaco-admin-panel-repo/zubaco-admin-panel/backend`  | [TODO] | NestJS admin API
+WL-01      | Web Lobby          | `zubaco-web-lobby`                                    | [TODO] | Vite Dev Launcher
+MB-01      | Mobile App Shell   | `zubaco-mobile`                                       | [TODO] | React Native Bundle
+
+
+------------------------------------------------------------------------------------------------------------------------
+4. ENVIRONMENT CONFIGURATION & SECRETS AUDIT (.env.example)
+------------------------------------------------------------------------------------------------------------------------
+Task ID  | Sub-Task Description                                                         | Status | Notes / Output
+---------+------------------------------------------------------------------------------+--------+----------------------
+1.4.1    | Verify `.env.example` in `zubaco-platform` with all DB, Redis & JWT keys     | [TODO] |
+1.4.2    | Verify `.env.example` in `zubaco-admin-panel/frontend` & `backend`            | [TODO] |
+1.4.3    | Verify `.env.example` across all 20 game backends (`PORT`, `JWT_SECRET`)     | [TODO] |
+1.4.4    | Verify `.env.example` across all 20 game frontends (`VITE_API_URL`, `WS_URL`) | [TODO] |
+1.4.5    | Verify `.env.example` in `zubaco-mobile` (`API_URL`, `SOCKET_URL`)           | [TODO] |
+1.4.6    | Verify `.env.example` in `zubaco-web-lobby`                                  | [TODO] |
+
+
+------------------------------------------------------------------------------------------------------------------------
+5. COMMON BUILD ERROR TYPES & RESOLUTION PROTOCOLS
+------------------------------------------------------------------------------------------------------------------------
+Error Category          | Likely Root Cause                                      | Standard Resolution Protocol
+------------------------+--------------------------------------------------------+--------------------------------------
+TypeScript Type Errors  | Missing or mismatched interface fields in DTOs         | Update type definition in shared types
+Missing Dependencies    | Package imported in code but absent from package.json  | Add dependency to `package.json`
+Path Resolution Failure | Case-sensitive or relative import mismatch             | Fix exact path import with forward slash
+Vite Asset Resolution   | Static assets referenced outside `public/` or `src/`   | Relocate or update import URL
+Prisma Client Missing   | `prisma generate` not run before `nest build`          | Add prebuild step `prisma generate`
+Next.js SSR/Hydration   | Browser-only APIs (`window`, `localStorage`) in SSR   | Wrap in `typeof window !== 'undefined'`
+React Native Metro      | Missing native module links or polyfills               | Verify mock configurations in jest/metro
+
+
+------------------------------------------------------------------------------------------------------------------------
+6. STEP-BY-STEP EXECUTION PLAN FOR SECTION 1
+------------------------------------------------------------------------------------------------------------------------
+STEP 1: Tooling Setup
+        - Create the Node.js build runner script `scripts/test-all-builds.js`.
+        - Verify it detects all 43 directories properly.
+
+STEP 2: Batch 1 — Core Platform & Web Lobby Builds
+        - Test build `zubaco-web-lobby`
+        - Test build `zubaco-platform`
+        - Fix any compilation or dependency errors immediately.
+
+STEP 3: Batch 2 — Admin Panel (Frontend & Backend) Builds
+        - Test build `zubaco-admin-panel/backend`
+        - Test build `zubaco-admin-panel/frontend`
+        - Fix any Next.js build or NestJS compilation errors.
+
+STEP 4: Batch 3 — Game Frontends (Games 1 to 10)
+        - Run builds for FE-01 to FE-10.
+        - Fix any Vite/React build issues.
+
+STEP 5: Batch 4 — Game Frontends (Games 11 to 20)
+        - Run builds for FE-11 to FE-20.
+        - Fix any Vite/React build issues.
+
+STEP 6: Batch 5 — Game Backends (Games 1 to 10)
+        - Run builds for BE-01 to BE-10.
+        - Fix any NestJS/Prisma build issues.
+
+STEP 7: Batch 6 — Game Backends (Games 11 to 20)
+        - Run builds for BE-11 to BE-20.
+        - Fix any NestJS/Prisma build issues.
+
+STEP 8: Batch 7 — Mobile App Bundle Verification
+        - Test JavaScript bundle compilation for `zubaco-mobile`.
+
+STEP 9: Batch 8 — Environment Standardizations (.env.example)
+        - Generate and verify uniform `.env.example` for all missing locations.
+
+STEP 10: Final Section 1 Sign-Off
+        - Run `scripts/test-all-builds.js` in full verification mode.
+        - Confirm 43 / 43 projects exit with code 0.
+        - Update this `section1.txt` tracker to [DONE] for all items.
+        - Commit and push to git.
+
+========================================================================================================================
+END OF SECTION 1 TRACKER — WORK IN PROGRESS
+========================================================================================================================
