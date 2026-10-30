@@ -26,7 +26,7 @@ export function GameHeader({ timeRemainingMs, currentIndex, total, streak, answe
       <div className="flex flex-col items-end gap-0.5">
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-400">Streak</span>
-          <span className="text-lg font-bold text-yellow-400">{streak}??</span>
+          <span className="text-lg font-bold text-yellow-400">{streak}🔥</span>
         </div>
         <span className="text-xs text-gray-400">Answered: {answeredCount}</span>
       </div>

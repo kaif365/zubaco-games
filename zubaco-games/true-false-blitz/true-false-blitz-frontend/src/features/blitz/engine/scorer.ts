@@ -13,7 +13,7 @@ export interface ScoreResult {
  *   Correct: +pointsPerCorrect (10)
  *   Wrong: -penaltyPerWrong (5)
  *   Streak bonus: 3+ correct in a row = +streakBonus (5) per streak item
- *   Final: correct × 10 - wrong × 5 + streak_bonus
+ *   Final: correct * 10 - wrong * 5 + streak_bonus
  */
 export function calculateScore(
   answers: BlitzAnswer[],

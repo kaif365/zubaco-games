@@ -8,7 +8,7 @@ import { mulberry32, seededShuffle } from './random';
 const STATEMENT_BANK: [string, boolean][] = [
   // TRUE statements
   ['The Earth orbits the Sun', true],
-  ['Water boils at 100°C at sea level', true],
+  ['Water boils at 100Â°C at sea level', true],
   ['Humans have 206 bones', true],
   ['The Great Wall of China is visible from space', false],
   ['Diamonds are made of carbon', true],
@@ -44,7 +44,7 @@ const STATEMENT_BANK: [string, boolean][] = [
   ['Camels store water in their humps', false],
   ['Mars has two moons', true],
   ['Saturn could float on water', true],
-  ['Owls can turn their heads 360°', false],
+  ['Owls can turn their heads 360Â°', false],
   ['A jiffy is an actual unit of time', true],
   ['Whales are fish', false],
   ['The Nile is the longest river', true],
