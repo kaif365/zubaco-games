@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const base = 'C:\\game\\zubaco-games-repo\\zubaco-games';
+const base = path.join(__dirname, 'zubaco-games');
 
 const games = [
   { dir: 'flash-spot/flash-spot-frontend', feature: 'flash-spot', key: 'flash-spot' },
