@@ -4,6 +4,10 @@
   "private": true,
   "description": "TEMPORARY dev launcher for testing all 20 games in browser",
   "scripts": {
+    "start": "npx serve . -p 3009 -s",
     "dev": "npx serve . -p 3009 -s"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
   }
 }
