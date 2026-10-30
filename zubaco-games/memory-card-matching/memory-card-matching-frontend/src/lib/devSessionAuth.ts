@@ -1,4 +1,4 @@
-﻿/** Bearer token used by `httpClient` for game API calls. */
+/** Bearer token used by `httpClient` for game API calls. */
 export const AUTH_TOKEN_KEY = 'ZUBACO_auth_token';
 
 type DevSessionData = {
@@ -67,6 +67,7 @@ async function fetchDevSessionTokenCached(mockUserUrl: string, stageId: string):
  * Ensures a dev bearer token exists (initial app load). Reuses one in-flight fetch.
  */
 export async function ensureDevSessionAuth(): Promise<void> {
+  if (import.meta.env.PROD) return;
   const mockUserUrl = import.meta.env.VITE_MOCK_USER_URL;
   const stageId = import.meta.env.VITE_STAGE_ID;
 
@@ -87,6 +88,7 @@ export async function ensureDevSessionAuth(): Promise<void> {
  * Used after a failed game start so the retry can run as a new mock user.
  */
 export async function refreshDevSessionAuth(): Promise<void> {
+  if (import.meta.env.PROD) return;
   const mockUserUrl = import.meta.env.VITE_MOCK_USER_URL;
   const stageId = import.meta.env.VITE_STAGE_ID;
 

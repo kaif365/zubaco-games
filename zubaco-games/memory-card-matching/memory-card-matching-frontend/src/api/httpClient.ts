@@ -43,7 +43,13 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   });
 
   // TODO(temp): 401 dev-session refresh — remove when real auth is in place
-  if (response.status === 401) { try { await refreshDevSessionAuth(); } catch { /* ignore */ } window.dispatchEvent(new CustomEvent('app:unauthorized')); throw new Error('Session expired. Please try again.'); }
+  if (response.status === 401) {
+    if (!import.meta.env.PROD) {
+      try { await refreshDevSessionAuth(); } catch { /* ignore */ }
+    }
+    window.dispatchEvent(new CustomEvent('app:unauthorized'));
+    throw new Error('Session expired. Please try again.');
+  }
   // end TODO(temp)
 
   const raw = (await response.json().catch(() => null)) as unknown;
