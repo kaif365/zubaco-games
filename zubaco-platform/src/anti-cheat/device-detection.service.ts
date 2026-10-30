@@ -30,7 +30,7 @@ export class DeviceDetectionService {
     });
 
     if (sharedDevices.length > 0) {
-      const sharedUserIds = sharedDevices.map((d) => d.user_id);
+      const sharedUserIds = sharedDevices.map((d: { user_id: string }) => d.user_id);
       const totalAccounts = sharedDevices.length + 1; // shared users + current user
       // 2 accounts on one device = HIGH, 3+ accounts = CRITICAL (device farming).
       const severity: CheatSeverity = totalAccounts >= 3 ? 'CRITICAL' : 'HIGH';

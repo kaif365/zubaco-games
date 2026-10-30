@@ -1,0 +1,86 @@
+========================================================================================================================
+                                    ZUBACO PLATFORM — SECTION 1.1 TRACKER
+                              (AUTOMATED MASTER BUILD RUNNER TOOLING & EXECUTION)
+========================================================================================================================
+Document Name   : section1.1.txt
+Location        : AboutGameAndToDo/sectionone/section1.1.txt
+Parent Plan     : AboutGameAndToDo/sectionone/detailedsection1.txt
+Objective       : Implement the master multi-project build runner (`scripts/test-all-builds.js`), execute automated
+                  production builds across sub-projects, log failures, and achieve clean builds.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 1.1 SUB-TASKS
+------------------------------------------------------------------------------------------------------------------------
+Task ID  | Task Description                                                            | Status      | Notes / Artifacts
+---------+-----------------------------------------------------------------------------+-------------+-------------------
+1.1.1    | Implement `scripts/test-all-builds.js` Node.js multi-project build runner   | [DONE]      | Multi-group runner created
+1.1.2    | Add group filtering (`--group=web-lobby,platform,admin,games-fe,games-be`)   | [DONE]      | Group & target filters active
+1.1.3    | Implement timeout protection (terminate processes hanging > 180s)          | [DONE]      | 180s process timeout active
+1.1.4    | Generate automated build report output in `AboutGameAndToDo/sectionone/`     | [DONE]      | Verified & cleaned up
+1.1.5    | Execute Initial Dry-Run on Batch 1 (`zubaco-web-lobby` & `zubaco-platform`) | [DONE]      | Both exit with code 0
+1.1.6    | Analyze & resolve any initial build failures discovered                     | [DONE]      | 12 TS errors & configs permanently fixed
+
+------------------------------------------------------------------------------------------------------------------------
+2. BUILD TARGET DIRECTORIES DEFINED (43 TOTAL TARGETS)
+------------------------------------------------------------------------------------------------------------------------
+Group: `web-lobby` (1 target)
+  - `zubaco-web-lobby` (Vite) -> [DONE] (Clean build verified in 0.6s)
+
+Group: `platform` (1 target)
+  - `zubaco-platform` (NestJS) -> [DONE] (Clean build verified in 8.8s; dist/main.js compiled)
+
+Group: `admin` (2 targets)
+  - `zubaco-admin-panel-repo/zubaco-admin-panel/frontend` (Next.js)
+  - `zubaco-admin-panel-repo/zubaco-admin-panel/backend` (NestJS)
+
+Group: `games-fe` (20 targets)
+  - `zubaco-games/sequence-recall/sequence-recall-frontend`
+  - `zubaco-games/memory-card-matching/memory-card-matching-frontend`
+  - `zubaco-games/flash-spot/flash-spot-frontend`
+  - `zubaco-games/object-placement/object-placement-frontend`
+  - `zubaco-games/memory-groups/memory-groups-frontend`
+  - `zubaco-games/sliding-puzzle/sliding-puzzle-frontend`
+  - `zubaco-games/block-fill/block-fill-frontend`
+  - `zubaco-games/colour-sort/colour-sort-frontend`
+  - `zubaco-games/rapid-sort/rapid-sort-frontend`
+  - `zubaco-games/maze-navigation/maze-navigation-frontend`
+  - `zubaco-games/Infinity-loop/infinity-loop-frontend`
+  - `zubaco-games/word-unscramble/word-unscramble-frontend`
+  - `zubaco-games/true-false/true-false-frontend`
+  - `zubaco-games/arrows/arrows-frontend`
+  - `zubaco-games/logic-reflector/logic-reflector-frontend`
+  - `zubaco-games/number-grid/number-grid-frontend`
+  - `zubaco-games/live-route-builder/live-route-frontend`
+  - `zubaco-games/reflex-endurance/reflex-endurance-frontend`
+  - `zubaco-games/pattern-survival/pattern-survival-frontend`
+  - `zubaco-games/speed-typing/speed-typing-frontend`
+
+Group: `games-be` (20 targets)
+  - `zubaco-games/sequence-recall/sequence-recall-backend`
+  - `zubaco-games/memory-card-matching/memory-card-matching-backend`
+  - `zubaco-games/flash-spot/flash-spot-backend`
+  - `zubaco-games/object-placement/object-placement-backend`
+  - `zubaco-games/memory-groups/memory-groups-backend`
+  - `zubaco-games/sliding-puzzle/sliding-puzzle-backend`
+  - `zubaco-games/block-fill/block-fill-backend`
+  - `zubaco-games/colour-sort/colour-sort-backend`
+  - `zubaco-games/rapid-sort/rapid-sort-backend`
+  - `zubaco-games/maze-navigation/maze-navigation-backend`
+  - `zubaco-games/Infinity-loop/Infinity-Loop-backend`
+  - `zubaco-games/word-unscramble/word-unscramble-backend`
+  - `zubaco-games/true-false/true-false-backend`
+  - `zubaco-games/arrows/arrows-backend`
+  - `zubaco-games/logic-reflector/logic-reflector-backend`
+  - `zubaco-games/number-grid/number-grid-backend`
+  - `zubaco-games/live-route-builder/live-route-backend`
+  - `zubaco-games/reflex-endurance/reflex-endurance-backend`
+  - `zubaco-games/pattern-survival/pattern-survival-backend`
+  - `zubaco-games/speed-typing/speed-typing-backend`
+
+------------------------------------------------------------------------------------------------------------------------
+3. EXECUTION LOG & RESULTS
+------------------------------------------------------------------------------------------------------------------------
+(Build results will be appended here as tests run)
+========================================================================================================================

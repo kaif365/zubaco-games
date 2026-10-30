@@ -51,6 +51,7 @@ model User {
   achievements    UserAchievement[]
   energy          UserEnergy?
   tds_records     TdsRecord[]
+  device_fingerprints DeviceFingerprint[]
 
   @@index([email])
   @@index([phone])
@@ -122,6 +123,23 @@ model UserDevice {
   @@unique([user_id, device_id])
   @@index([user_id])
   @@map("user_devices")
+}
+
+model DeviceFingerprint {
+  id               String   @id @default(uuid())
+  user_id          String
+  fingerprint_hash String
+  components       Json?
+  session_count    Int      @default(1)
+  first_seen_at    DateTime @default(now())
+  last_seen_at     DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, fingerprint_hash], name: "user_id_fingerprint_hash")
+  @@index([fingerprint_hash])
+  @@index([user_id])
+  @@map("device_fingerprints")
 }
 
 enum Platform {

@@ -29,10 +29,10 @@ Status Legend   : [TODO] = Not yet started | [IN PROGRESS] = Currently executing
 ------------------------------------------------------------------------------------------------------------------------
 Task ID  | Sub-Task Description                                                         | Status | Notes / Output
 ---------+------------------------------------------------------------------------------+--------+----------------------
-1.0.1    | Create `scripts/test-all-builds.js` node runner script                       | [TODO] | Multi-process runner
-1.0.2    | Support selective batch testing (games-fe, games-be, platform, admin, mobile)| [TODO] | Allows focused runs
-1.0.3    | Output comprehensive JSON & Markdown report of pass/fail status per project  | [TODO] | Logs stdout/stderr
-1.0.4    | Add timeout handling (stop stuck builds after 3 minutes)                     | [TODO] | Prevents hanging
+1.0.1    | Create `scripts/test-all-builds.js` node runner script                       | [DONE] | Multi-process runner created
+1.0.2    | Support selective batch testing (games-fe, games-be, platform, admin, mobile)| [DONE] | Filter by group/target active
+1.0.3    | Output comprehensive JSON & Markdown report of pass/fail status per project  | [DONE] | `section1.1_build_report.txt`
+1.0.4    | Add timeout handling (stop stuck builds after 3 minutes)                     | [DONE] | 180s child timeout active
 
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -90,10 +90,10 @@ BE-20      | Speed Typing       | `zubaco-games/speed-typing/speed-typing-backen
 --- PART C: CENTRAL PLATFORM, ADMIN PANEL, WEB LOBBY & MOBILE APP ---
 Project ID | Component Name     | Sub-Directory Path                                    | Status | Build Result / Fixes
 -----------+--------------------+-------------------------------------------------------+--------+----------------------
-PL-01      | Central Platform   | `zubaco-platform`                                     | [TODO] | NestJS core API
+PL-01      | Central Platform   | `zubaco-platform`                                     | [DONE] | NestJS core API compiled (dist/main.js)
 AP-01      | Admin Panel (FE)   | `zubaco-admin-panel-repo/zubaco-admin-panel/frontend` | [TODO] | Next.js SPA
 AP-02      | Admin Panel (BE)   | `zubaco-admin-panel-repo/zubaco-admin-panel/backend`  | [TODO] | NestJS admin API
-WL-01      | Web Lobby          | `zubaco-web-lobby`                                    | [TODO] | Vite Dev Launcher
+WL-01      | Web Lobby          | `zubaco-web-lobby`                                    | [DONE] | Vite static bundle verified
 MB-01      | Mobile App Shell   | `zubaco-mobile`                                       | [TODO] | React Native Bundle
 
 

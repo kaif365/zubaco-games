@@ -223,4 +223,21 @@ export class WalletService {
     // Process actual withdrawal
     return this.requestWithdrawal(userId, intent.amount);
   }
+
+  /**
+   * Refund entry fee for a cancelled tournament season.
+   */
+  async refundEntryFee(userId: string, seasonId: string, amount: number) {
+    if (amount <= 0) return;
+    return this.ledger.post({
+      userId,
+      operation: FinancialOperation.REFUND,
+      amount,
+      idempotencyKey: `refund:season:${seasonId}:${userId}`,
+      reason: `Tournament season cancelled refund`,
+      bucket: 'cash',
+      source: 'tournament:cancellation',
+      tournamentRef: seasonId,
+    });
+  }
 }

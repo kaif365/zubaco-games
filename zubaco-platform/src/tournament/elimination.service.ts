@@ -134,4 +134,32 @@ export class EliminationService {
       totalPages: Math.ceil(total / limit),
     };
   }
+
+  /**
+   * Distribute prizes to the final stage survivors.
+   */
+  async distributePrizes(seasonId: string, stageId: string): Promise<void> {
+    const stage = await this.prisma.seasonStage.findUnique({
+      where: { id: stageId },
+      include: { season: true },
+    });
+    if (!stage) return;
+
+    const winners = await this.prisma.stageEntry.findMany({
+      where: {
+        season_stage_id: stageId,
+        eliminated: false,
+        completed_at: { not: null },
+      },
+      orderBy: [{ total_score: 'desc' }, { total_time_ms: 'asc' }],
+      include: { season_entry: true },
+    });
+
+    if (winners.length === 0) return;
+
+    await this.prisma.seasonEntry.updateMany({
+      where: { id: { in: winners.map((w) => w.season_entry_id) } },
+      data: { status: 'WINNER' },
+    });
+  }
 }

@@ -48,6 +48,22 @@ export class RedisService implements OnModuleDestroy {
     return (await this.client.setnx(key, value)) === 1;
   }
 
+  /**
+   * Acquire a distributed lock atomically with a TTL in seconds.
+   * Uses Redis SET key val EX ttl NX.
+   */
+  async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+    const res = await this.client.set(key, 'locked', 'EX', ttlSeconds, 'NX');
+    return res === 'OK';
+  }
+
+  /**
+   * Release a distributed lock by deleting the key.
+   */
+  async releaseLock(key: string): Promise<void> {
+    await this.client.del(key);
+  }
+
   async expire(key: string, seconds: number): Promise<void> {
     await this.client.expire(key, seconds);
   }

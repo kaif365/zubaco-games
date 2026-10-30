@@ -401,4 +401,36 @@ export class AntiCheatService {
     };
     return minTimes[gameType] || 5000;
   }
+
+  /**
+   * Sweeps and lifts expired temporary bans.
+   */
+  async reapExpiredTempBans(): Promise<number> {
+    const tempBannedUsers = await this.prisma.user.findMany({
+      where: {
+        is_banned: true,
+        ban_reason: { contains: 'TEMPORARY' },
+      },
+      select: { id: true, updated_at: true },
+    });
+
+    const now = Date.now();
+    const twentyFourHours = 24 * 60 * 60 * 1000;
+    const expiredIds: string[] = [];
+
+    for (const u of tempBannedUsers) {
+      if (now - new Date(u.updated_at).getTime() >= twentyFourHours) {
+        expiredIds.push(u.id);
+      }
+    }
+
+    if (expiredIds.length > 0) {
+      await this.prisma.user.updateMany({
+        where: { id: { in: expiredIds } },
+        data: { is_banned: false, ban_reason: null },
+      });
+    }
+
+    return expiredIds.length;
+  }
 }
