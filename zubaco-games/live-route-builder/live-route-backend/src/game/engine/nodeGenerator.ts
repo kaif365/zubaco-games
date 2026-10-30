@@ -36,8 +36,9 @@ export function calculateOptimalPath(nodes: NodePoint[]): number {
 
 export function calculateActualPath(nodes: NodePoint[], edges: { from: number; to: number }[]): number {
   let total = 0;
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   for (const e of edges) {
-    const a = nodes[e.from]; const b = nodes[e.to];
+    const a = nodeMap.get(e.from); const b = nodeMap.get(e.to);
     if (!a || !b) continue;
     total += Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
   }
