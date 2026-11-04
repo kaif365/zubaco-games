@@ -22,6 +22,7 @@ import { WebhookModule } from './webhook/webhook.module';
 import { EventsModule } from './events/events.module';
 import { AdminModule } from './admin/admin.module';
 import { WsModule } from './ws/ws.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { HealthController } from './health.controller';
 import { AppVersionController } from './app-version.controller';
 
@@ -57,6 +58,7 @@ import { AppVersionController } from './app-version.controller';
     EventsModule,
     AdminModule,
     WsModule,
+    MetricsModule,
   ],
   controllers: [HealthController, AppVersionController],
   providers: [

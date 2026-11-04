@@ -1,0 +1,58 @@
+groups:
+  - name: zubaco_platform_alerts
+    rules:
+      # 1. Error Rate Alert (> 1% 5xx responses over 5m)
+      - alert: HighHttpErrorRate
+        expr: (sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))) * 100 > 1.0
+        for: 2m
+        labels:
+          severity: critical
+          tier: platform
+        annotations:
+          summary: "Zubaco Platform 5xx Error Rate > 1%"
+          description: "HTTP 5xx error rate is currently {{ $value | printf \"%.2f\" }}% of all requests."
+
+      # 2. Database Connection Pool Saturation Alert (> 85% utilization)
+      - alert: DatabasePoolSaturationHigh
+        expr: (pgbouncer_pools_cl_active / pgbouncer_pools_cl_waiting + pgbouncer_pools_cl_active) * 100 > 85
+        for: 3m
+        labels:
+          severity: warning
+          tier: database
+        annotations:
+          summary: "PgBouncer Connection Pool Saturation > 85%"
+          description: "Database connection pool utilization has exceeded 85% for more than 3 minutes."
+
+      # 3. Payment Webhook Failure Spike Alert (> 2% failure rate)
+      - alert: PaymentWebhookFailureSpike
+        expr: (sum(rate(payment_webhook_requests_total{status="failure"}[5m])) / sum(rate(payment_webhook_requests_total[5m]))) * 100 > 2.0
+        for: 1m
+        labels:
+          severity: critical
+          tier: payments
+        annotations:
+          summary: "Payment Webhook Failure Rate > 2%"
+          description: "Payment gateway webhook failures have exceeded 2% of total incoming callbacks."
+
+      # 4. Redis Memory Usage (> 85% volatile-lru limit)
+      - alert: RedisMemoryHigh
+        expr: (redis_memory_used_bytes / redis_memory_max_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          tier: cache
+        annotations:
+          summary: "Redis Cache Usage > 85%"
+          description: "Redis instance memory utilization is {{ $value | printf \"%.2f\" }}%."
+
+      # 5. Anti-Cheat Anomaly Spike
+      - alert: AntiCheatFlagSurge
+        expr: sum(rate(anti_cheat_flags_total[1m])) * 60 > 50
+        for: 2m
+        labels:
+          severity: high
+          tier: security
+        annotations:
+          summary: "Anti-Cheat Detection Surge (>50 flags/min)"
+          description: "Anti-cheat engine has flagged {{ $value | printf \"%.0f\" }} anomalies in the past minute."
+

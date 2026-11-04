@@ -37,7 +37,7 @@ export class HealthController {
    * orchestrator (ECS/Kubernetes) kill and restart an otherwise-healthy pod.
    * Always 200 while the event loop is responsive.
    */
-  @Get('live')
+  @Get(['live', 'liveness'])
   live() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   }
@@ -48,7 +48,7 @@ export class HealthController {
    * is down so the load balancer stops routing to this instance until it
    * recovers, without the process being restarted.
    */
-  @Get('ready')
+  @Get(['ready', 'readiness'])
   async ready() {
     const checks: Record<string, boolean> = { db: false, redis: false };
 

@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - 'alerts.yml'
+
+scrape_configs:
+  - job_name: 'zubaco-platform'
+    metrics_path: '/api/v1/metrics'
+    static_configs:
+      - targets: ['platform:3000']
+        labels:
+          environment: 'production'
+          app: 'zubaco-platform'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
