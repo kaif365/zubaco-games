@@ -363,7 +363,14 @@ describe("HomePage", () => {
     await startSeededDemo();
     loadServerListener.mockClear();
 
+    jest.useFakeTimers();
     dispatchGameEvent(GAME_EVENTS.WIN);
+
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+    }
 
     await waitFor(() => {
       expect(
@@ -380,6 +387,7 @@ describe("HomePage", () => {
       GAME_EVENTS.CMD_LOAD_SERVER,
       loadServerListener as EventListener,
     );
+    jest.useRealTimers();
   });
 
   it("advances middle demo rounds without showing replay", async () => {
@@ -546,6 +554,7 @@ describe("HomePage", () => {
   });
 
   it("loads a prefetched next board while previous round submission is still pending", async () => {
+    jest.useFakeTimers();
     localStorage.setItem("arrowgame:played", JSON.stringify(true));
 
     const loadServerListener = jest.fn();
@@ -603,6 +612,10 @@ describe("HomePage", () => {
 
     dispatchGameEvent(GAME_EVENTS.WIN);
 
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+    });
+
     await waitFor(() => {
       expect(loadServerListener).toHaveBeenCalledTimes(1);
     });
@@ -623,6 +636,7 @@ describe("HomePage", () => {
       GAME_EVENTS.CMD_LOAD_SERVER,
       loadServerListener as EventListener,
     );
+    jest.useRealTimers();
   });
 
   it("flushes pending moves before ending the active round when time expires", async () => {

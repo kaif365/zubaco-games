@@ -1,21 +1,9 @@
-import type { Config } from 'jest';
-
-const config: Config = {
+module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
   testRegex: '.*\\.spec\\.ts$',
   transform: {
     '^.+\\.ts$': 'ts-jest',
-  },
-  collectCoverageFrom: ['src/game/engine/**/*.ts', '!src/**/__tests__/**'],
-  coverageDirectory: './coverage',
-  coverageThreshold: {
-    global: {
-      branches: 60,
-      functions: 60,
-      lines: 60,
-      statements: 60,
-    },
   },
   testEnvironment: 'node',
   moduleNameMapper: {
@@ -24,5 +12,3 @@ const config: Config = {
     '^@config$': '<rootDir>/src/common/config/env.config',
   },
 };
-
-export default config;

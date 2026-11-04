@@ -13,7 +13,7 @@
     "db:migrate": "npx prisma migrate deploy",
     "db:reset": "npx prisma migrate reset --force",
     "test:e2e": "jest --config jest-e2e.config.ts --forceExit --detectOpenHandles",
-    "test": "jest --config jest.config.ts --forceExit"
+    "test": "jest --config jest.config.js --runInBand --forceExit"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",

@@ -17,7 +17,7 @@ Section Status  : IN PROGRESS
 ------------------------------------------------------------------------------------------------------------------------
 [DONE] Objective 1: Audit Cluster 1 (Memory Games 1 to 5: Sequence Recall, Memory Cards, Flash Spot, Object Placement, Memory Groups).
 [DONE] Objective 2: Audit Cluster 2 (Spatial & Logic Games 6 to 10: Sliding Puzzle, Block Fill, Colour Sort, Rapid Sort, Maze Navigation).
-[ ] Objective 3: Audit Cluster 3 (Topology, Verbal & Physics Games 11 to 15: Infinity Loop, Word Unscramble, True/False, Arrows, Logic Reflector).
+[DONE] Objective 3: Audit Cluster 3 (Topology, Verbal & Physics Games 11 to 15: Infinity Loop, Word Unscramble, True/False, Arrows, Logic Reflector).
 [ ] Objective 4: Audit Cluster 4 (Reflex, Endurance & Speed Games 16 to 20: Number Grid, Live Route, Reflex Endurance, Pattern Survival, Speed Type).
 [DONE] Objective 5: Mathematical Solvability Verification (Sliding Puzzle inversion parity, Maze BFS reachability, Colour Sort tube reverse-simulation, Block Fill Hamiltonian path).
 [ ] Objective 6: Authoritative Scoring Contract Synchronization between FE and BE across all 20 games.
@@ -30,7 +30,7 @@ Cluster ID | Description / Games Included                     | Sub-Tracker File
 -----------+--------------------------------------------------+--------------------------------------+--------
 Cluster 1  | Games 1 to 5: Working Memory & Visual Sequence   | `AboutGameAndToDo/sectiontwo/section2.1.txt` | [DONE]
 Cluster 2  | Games 6 to 10: Spatial Reasoning & Maze/Puzzles  | `AboutGameAndToDo/sectiontwo/section2.2.txt` | [DONE]
-Cluster 3  | Games 11 to 15: Topology, Words & Optical Logic  | `AboutGameAndToDo/sectiontwo/section2.3.txt` | [TODO]
+Cluster 3  | Games 11 to 15: Topology, Words & Optical Logic  | `AboutGameAndToDo/sectiontwo/section2.3.txt` | [DONE]
 Cluster 4  | Games 16 to 20: Attention, Reaction & Speed Typing| `AboutGameAndToDo/sectiontwo/section2.4.txt` | [TODO]
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -48,11 +48,11 @@ GM-07 | Block Fill         | Spatial Topology & Path     | Hamiltonian Path   | 
 GM-08 | Colour Sort        | Deductive Planning & Fluid  | Reverse Pour Sim   | Tubes & Par Moves    | [DONE]
 GM-09 | Rapid Sort         | Visual Classification       | Dynamic Rules      | Combos & Jitter Filt | [DONE]
 GM-10 | Maze Navigation    | Spatial Predictive Planning | Kruskal/Prim + BFS | Path Length & Steps  | [DONE]
-GM-11 | Infinity Loop      | Topological Logic Graph     | Degree Matching    | Node Count & Time    | [TODO]
-GM-12 | Word Unscramble    | Verbal Anagrams & Fluency   | Multi-Anagram Dict | Word Length & Speed  | [TODO]
-GM-13 | True / False       | Cognitive Processing Speed  | Math Distribution  | Accuracy & Speed Mult| [TODO]
-GM-14 | Arrows             | Flanker Inhibitory Control  | Congruency Balance | RT Window & Angle    | [TODO]
-GM-15 | Logic Reflector    | Optical Physics & Rays      | Max 20 Bounces     | Targets & Reflection | [TODO]
+GM-11 | Infinity Loop      | Topological Logic Graph     | Degree Matching    | Node Count & Time    | [DONE]
+GM-12 | Word Unscramble    | Verbal Anagrams & Fluency   | Multi-Anagram Dict | Word Length & Speed  | [DONE]
+GM-13 | True / False       | Cognitive Processing Speed  | Math Distribution  | Accuracy & Speed Mult| [DONE]
+GM-14 | Arrows             | Flanker Inhibitory Control  | Congruency Balance | RT Window & Angle    | [DONE]
+GM-15 | Logic Reflector    | Optical Physics & Rays      | Max 20 Bounces     | Targets & Reflection | [DONE]
 GM-16 | Number Grid        | Schulte Table Visual Search | Cryptographic PRNG | Ascending Sequence   | [TODO]
 GM-17 | Live Route         | Continuous Spatial Tracking | Junction Lead Time | Distance & Junctions | [TODO]
 GM-18 | Reflex Endurance   | Sustained Vigilance Speed   | Lifespan & Decoys  | Hits & Hazard Avoid  | [TODO]
