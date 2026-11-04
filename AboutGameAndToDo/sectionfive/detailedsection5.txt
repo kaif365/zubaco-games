@@ -11,7 +11,7 @@ Objective       : Verify, harden, and mathematically certify the Real-Time Tourn
                   cohort matchmaking partition algorithms (50-100 player shards) with consistent hashing,
                   and Redis Sorted Set leaderboards with microsecond compound score tie-breaking.
 Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
-Section Status  : ACTIVE [IN PROGRESS]
+Section Status  : [DONE]
 ========================================================================================================================
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -22,7 +22,7 @@ Module ID | Module Name                                     | Specification Targ
 5.1       | WebSocket Gateway Resilience & Reconnection     | 5s Heartbeats, 30s Redis Reconnect Grace, Forfeit   | [DONE]
 5.2       | Automated 5-Stage Tournament State Machine      | 5-Stage Progression, Stage Tally, BullMQ Timers     | [DONE]
 5.3       | Cohort Matchmaking & Percentile Elimination     | 50-100 Player Balanced Cohorts, Consistent Hashing  | [DONE]
-5.4       | Leaderboard Precision & Compound Tie-Breakers   | Redis ZSET Compound Score (Score + Time/10000)      | [TODO]
+5.4       | Leaderboard Precision & Compound Tie-Breakers   | Redis ZSET Compound Score (Score + Time/1000000)    | [DONE]
 
 ------------------------------------------------------------------------------------------------------------------------
 2. SUB-TRACKERS & BATCH FILES
@@ -32,7 +32,7 @@ Sub-Tracker File                          | Description                         
 `AboutGameAndToDo/sectionfive/section5.1.txt` | 5.1 WebSocket Gateway Resilience & Network Reconnection| [DONE]
 `AboutGameAndToDo/sectionfive/section5.2.txt` | 5.2 Automated 5-Stage Tournament State Machine Engine   | [DONE]
 `AboutGameAndToDo/sectionfive/section5.3.txt` | 5.3 Cohort Matchmaking Algorithm & Elimination Engine   | [DONE]
-`AboutGameAndToDo/sectionfive/section5.4.txt` | 5.4 Leaderboard Precision (Redis ZSET) & Tie-Breakers   | [TODO]
+`AboutGameAndToDo/sectionfive/section5.4.txt` | 5.4 Leaderboard Precision (Redis ZSET) & Tie-Breakers   | [DONE]
 
 ------------------------------------------------------------------------------------------------------------------------
 3. DETAILED TECHNICAL AUDIT CRITERIA & INVARIANTS
