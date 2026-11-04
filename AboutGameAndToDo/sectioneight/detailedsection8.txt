@@ -20,7 +20,7 @@ Module ID | Module Name                                     | Specification Targ
 8.1       | Transactional Concurrency & Registration Rush   | 2,000 Concurrent Wallet Debits & Idempotent Locks   | [DONE]
 8.2       | High-Density WebSocket Fan-out & Broadcast      | 1,000+ Simultaneous STAGE_START Socket Broadcasts   | [DONE]
 8.3       | Cutoff Stampede & Redis Sorted Set Leaderboards | 1,000 Score Submissions / 10s Window ZADD Throughput| [DONE]
-8.4       | Database Connection Pooling & Composite Indexes | PgBouncer Config, Query Tuning & Composite Indexes  | [TODO]
+8.4       | Database Connection Pooling & Composite Indexes | PgBouncer Config, Query Tuning & Composite Indexes  | [DONE]
 8.5       | Cache Memory Sizing & Eviction Governance       | Redis Memory Footprint, Key TTL & Eviction Policies | [TODO]
 ------------------------------------------------------------------------------------------------------------------------
 2. SUB-TRACKERS & BATCH FILES
@@ -30,7 +30,7 @@ Sub-Tracker File                            | Description                       
 `AboutGameAndToDo/sectioneight/section8.1.txt` | 8.1 Transactional Concurrency & Registration Rush       | [DONE]
 `AboutGameAndToDo/sectioneight/section8.2.txt` | 8.2 High-Density WebSocket Fan-out & Broadcast          | [DONE]
 `AboutGameAndToDo/sectioneight/section8.3.txt` | 8.3 Cutoff Stampede & Redis Sorted Set Leaderboards     | [DONE]
-`AboutGameAndToDo/sectioneight/section8.4.txt` | 8.4 Database Connection Pooling & Composite Indexes     | [TODO]
+`AboutGameAndToDo/sectioneight/section8.4.txt` | 8.4 Database Connection Pooling & Composite Indexes     | [DONE]
 `AboutGameAndToDo/sectioneight/section8.5.txt` | 8.5 Cache Memory Sizing & Eviction Governance           | [TODO]
 
 ------------------------------------------------------------------------------------------------------------------------

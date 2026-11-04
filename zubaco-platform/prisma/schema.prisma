@@ -232,6 +232,7 @@ model GameSession {
   stage_entry StageEntry?  @relation(fields: [stage_entry_id], references: [id])
 
   @@index([user_id, game_type])
+  @@index([user_id, started_at])
   @@index([stage_entry_id])
   @@index([started_at])
   @@map("game_sessions")
@@ -485,6 +486,7 @@ model Transaction {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id, created_at])
+  @@index([type, status])
   @@index([status])
   @@map("transactions")
 }
