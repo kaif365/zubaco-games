@@ -1,0 +1,62 @@
+========================================================================================================================
+                                        ZUBACO PLATFORM — SECTION 8 MASTER TRACKER
+                             (LOAD TESTING, CONCURRENCY BENCHMARKING & PERFORMANCE TUNING)
+========================================================================================================================
+Document Name   : detailedsection8.txt
+Location        : AboutGameAndToDo/sectioneight/detailedsection8.txt
+Parent Plan     : AboutGameAndToDo/zubaco_production_readiness_plan.txt
+Objective       : Implement, execute, audit, and mathematically certify high-concurrency performance,
+                  load testing suites (k6 / Artillery), WebSocket broadcast fan-out, Redis sorted set
+                  leaderboard throughput, database connection pooling (PgBouncer), and composite index tuning.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Section Status  : ACTIVE [IN PROGRESS]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 8 MASTER MODULES & DELIVERABLES
+------------------------------------------------------------------------------------------------------------------------
+Module ID | Module Name                                     | Specification Target                                | Status
+----------+-------------------------------------------------+-----------------------------------------------------+-------
+8.1       | Transactional Concurrency & Registration Rush   | 2,000 Concurrent Wallet Debits & Idempotent Locks   | [TODO]
+8.2       | High-Density WebSocket Fan-out & Broadcast      | 1,000+ Simultaneous STAGE_START Socket Broadcasts   | [TODO]
+8.3       | Cutoff Stampede & Redis Sorted Set Leaderboards | 1,000 Score Submissions / 10s Window ZADD Throughput| [TODO]
+8.4       | Database Connection Pooling & Composite Indexes | PgBouncer Config, Query Tuning & Composite Indexes  | [TODO]
+8.5       | Cache Memory Sizing & Eviction Governance       | Redis Memory Footprint, Key TTL & Eviction Policies | [TODO]
+------------------------------------------------------------------------------------------------------------------------
+2. SUB-TRACKERS & BATCH FILES
+------------------------------------------------------------------------------------------------------------------------
+Sub-Tracker File                            | Description                                            | Status
+--------------------------------------------+--------------------------------------------------------+--------
+`AboutGameAndToDo/sectioneight/section8.1.txt` | 8.1 Transactional Concurrency & Registration Rush       | [TODO]
+`AboutGameAndToDo/sectioneight/section8.2.txt` | 8.2 High-Density WebSocket Fan-out & Broadcast          | [TODO]
+`AboutGameAndToDo/sectioneight/section8.3.txt` | 8.3 Cutoff Stampede & Redis Sorted Set Leaderboards     | [TODO]
+`AboutGameAndToDo/sectioneight/section8.4.txt` | 8.4 Database Connection Pooling & Composite Indexes     | [TODO]
+`AboutGameAndToDo/sectioneight/section8.5.txt` | 8.5 Cache Memory Sizing & Eviction Governance           | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+3. DETAILED TECHNICAL BENCHMARKING TARGETS & PERFORMANCE INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+- 8.1 Transactional Concurrency (Registration Rush):
+  * Simulate 2,000 concurrent tournament entry requests in the final 60-second window.
+  * Verify double-entry ledger balance check and atomic wallet debit without deadlocks or race conditions.
+  * P99 latency target < 150ms for entry fee deductions. Zero negative balance occurrences.
+
+- 8.2 WebSocket Fan-Out & Countdown Broadcast:
+  * Simulate 1,000 concurrent WebSockets receiving `STAGE_START` countdown broadcast at the exact same millisecond.
+  * Zero dropped sockets, round-trip message delivery latency < 50ms across India.
+  * Backpressure handling and non-blocking socket buffer drain.
+
+- 8.3 Cutoff Stampede & Redis Leaderboards:
+  * 1,000 game-over score submissions landing within a 10-second window.
+  * Real-time Redis `ZADD` sorted set updates with atomic rank computation (`ZREVRANK`).
+  * Tie-breaking resolution via monotonic timestamp floating-point score weighting.
+
+- 8.4 Database Connection Pooling & Index Optimization:
+  * Transaction-mode connection pooling (PgBouncer max 200 server connections).
+  * Verification of composite indexes for `user_wallets`, `game_sessions`, `stage_entries`, and `cheat_flags`.
+  * Elimination of sequential table scans on hot transaction pathways.
+
+- 8.5 Redis Memory & Cache Eviction Governance:
+  * Strict memory bounding with `volatile-lru` eviction policy.
+  * Enforced TTL on all transient keys (match tickets, anti-replay guards, fast-path ban flags).
+========================================================================================================================

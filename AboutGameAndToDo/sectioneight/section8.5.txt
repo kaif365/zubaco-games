@@ -1,0 +1,24 @@
+========================================================================================================================
+                                        ZUBACO PLATFORM — SECTION 8.5 SPECIFICATION
+                    (CACHE MEMORY SIZING, EVICTION GOVERNANCE & NETWORK BUFFER TUNING)
+========================================================================================================================
+Document Name   : section8.5.txt
+Location        : AboutGameAndToDo/sectioneight/section8.5.txt
+Parent Document : AboutGameAndToDo/sectioneight/detailedsection8.txt
+Specification   : Redis Production Memory Sizing, `volatile-lru` Eviction Governance,
+                  Key TTL Lifecycle Strictness, and Socket Network Buffer Optimization.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 8.5 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Redis MaxMemory & Eviction Policy (`volatile-lru` specification)| `docker/redis/redis.conf`          | Config audit | [TODO]
+Mandatory TTL Verification on All Transient Cache Keys          | Redis Service Audit                | Unit tests   | [TODO]
+Memory Footprint Analysis (Sorted Sets, Replay Guards, Ban Keys)| Memory Estimation Model            | Calculation  | [TODO]
+Network Socket Buffer & OS Epoll Tuning Parameters              | Kernel / Container Tuning          | Production   | [TODO]
+Comprehensive Production Readiness Benchmark Certification      | Full Load Test Evaluation Report   | Certified    | [TODO]
+========================================================================================================================
