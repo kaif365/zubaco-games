@@ -8,7 +8,7 @@ Parent Document : AboutGameAndToDo/sectioneight/detailedsection8.txt
 Specification   : Redis Production Memory Sizing, `volatile-lru` Eviction Governance,
                   Key TTL Lifecycle Strictness, and Socket Network Buffer Optimization.
 Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
-Module Status   : [TODO]
+Module Status   : [DONE]
 ========================================================================================================================
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -16,10 +16,10 @@ Module Status   : [TODO]
 ------------------------------------------------------------------------------------------------------------------------
 Target Requirement                                              | Implementation Source              | Verification | Status
 ----------------------------------------------------------------+------------------------------------+--------------+-------
-Redis MaxMemory & Eviction Policy (`volatile-lru` specification)| `docker/redis/redis.conf`          | Config audit | [TODO]
-Mandatory TTL Verification on All Transient Cache Keys          | Redis Service Audit                | Unit tests   | [TODO]
-Memory Footprint Analysis (Sorted Sets, Replay Guards, Ban Keys)| Memory Estimation Model            | Calculation  | [TODO]
-Network Socket Buffer & OS Epoll Tuning Parameters              | Kernel / Container Tuning          | Production   | [TODO]
-Comprehensive Production Readiness Benchmark Certification      | Full Load Test Evaluation Report   | Certified    | [TODO]
+Redis MaxMemory & Eviction Policy (`volatile-lru` specification)| `docker/redis/redis.conf`          | Config audit | [DONE]
+Mandatory TTL Verification on All Transient Cache Keys          | `redis-eviction-ttl.spec.ts`       | Unit tests   | [DONE]
+Memory Footprint Analysis (Sorted Sets, Replay Guards, Ban Keys)| Memory Estimation Model            | Calculation  | [DONE]
+Network Socket Buffer & OS Epoll Tuning Parameters              | Kernel / Container Tuning          | Production   | [DONE]
+Comprehensive Production Readiness Benchmark Certification      | Full Load Test Evaluation Report   | Certified    | [DONE]
 ========================================================================================================================
 

@@ -34,7 +34,7 @@ services:
         "--maxmemory",
         "512mb",
         "--maxmemory-policy",
-        "allkeys-lru",
+        "volatile-lru",
       ]
     ports:
       - "6379:6379"
