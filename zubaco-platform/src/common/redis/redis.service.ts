@@ -103,6 +103,18 @@ export class RedisService implements OnModuleDestroy {
     return this.client.zrem(key, member);
   }
 
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    return this.client.sadd(key, ...members);
+  }
+
+  async smembers(key: string): Promise<string[]> {
+    return this.client.smembers(key);
+  }
+
+  async srem(key: string, ...members: string[]): Promise<number> {
+    return this.client.srem(key, ...members);
+  }
+
   async onModuleDestroy() {
     // OPS-S2 (O1): quit() flushes pending commands and closes the connection
     // gracefully (vs disconnect() which drops it abruptly), so an in-flight

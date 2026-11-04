@@ -29,6 +29,8 @@ export const config = {
     expirySeconds: parseInt(process.env.OTP_EXPIRY_SECONDS || '300', 10),
     length: parseInt(process.env.OTP_LENGTH || '6', 10),
     maxAttempts: 5,
+    rateLimitMax: parseInt(process.env.OTP_RATE_LIMIT_MAX || '3', 10),
+    rateLimitWindowSeconds: parseInt(process.env.OTP_RATE_LIMIT_WINDOW_SECONDS || '600', 10),
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',

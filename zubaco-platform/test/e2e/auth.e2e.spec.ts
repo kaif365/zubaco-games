@@ -132,14 +132,14 @@ describe('E2E · Section A — Authentication', () => {
     expect(res.status).toBe(401);
   });
 
-  it('enforces the OTP send rate-limit (max 5 per phone per hour)', async () => {
+  it('enforces the OTP send rate-limit (max 3 per phone per 10 minutes)', async () => {
     const phone = uniquePhone();
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       const ok = await request(e2e.http).post(`${API}/auth/otp/send`).send({ phone });
       expect(ok.status).toBe(200);
     }
-    const sixth = await request(e2e.http).post(`${API}/auth/otp/send`).send({ phone });
-    expect(sixth.status).toBe(400);
+    const fourth = await request(e2e.http).post(`${API}/auth/otp/send`).send({ phone });
+    expect(fourth.status).toBe(400);
   });
 
   it('returns 403 Forbidden for a banned user holding a valid token', async () => {

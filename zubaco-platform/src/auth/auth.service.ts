@@ -19,26 +19,28 @@ export class AuthService {
   // ─── PHONE OTP FLOW ───────────────────────────────────────────
 
   async sendOtp(phone: string): Promise<{ message: string }> {
-    await this.otpService.generateAndSend(phone);
+    const normalizedPhone = this.otpService.normalizePhone(phone);
+    await this.otpService.generateAndSend(normalizedPhone);
     return { message: 'OTP sent successfully' };
   }
 
   async verifyOtpAndLogin(phone: string, otp: string, deviceId?: string) {
-    const isValid = await this.otpService.verify(phone, otp);
+    const normalizedPhone = this.otpService.normalizePhone(phone);
+    const isValid = await this.otpService.verify(normalizedPhone, otp);
     if (!isValid) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
 
-    let user = await this.prisma.user.findUnique({ where: { phone } });
+    let user = await this.prisma.user.findUnique({ where: { phone: normalizedPhone } });
 
     if (!user) {
       // Auto-register on first OTP verification
       user = await this.prisma.user.create({
         data: {
-          phone,
+          phone: normalizedPhone,
           is_verified: true,
           auth_providers: {
-            create: { provider: 'PHONE', provider_id: phone },
+            create: { provider: 'PHONE', provider_id: normalizedPhone },
           },
         },
       });
@@ -173,21 +175,15 @@ export class AuthService {
   // ─── TOKEN REFRESH ─────────────────────────────────────────────
 
   async refreshTokens(refreshToken: string) {
-    const payload = await this.tokenService.verifyRefreshToken(refreshToken);
-    if (!payload) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    const rotated = await this.tokenService.rotateRefreshToken(refreshToken);
 
-    // Invalidate old refresh token (rotation)
-    await this.tokenService.revokeRefreshToken(refreshToken);
-
-    const user = await this.prisma.user.findUnique({ where: { id: payload.userId } });
+    const user = await this.prisma.user.findUnique({ where: { id: rotated.userId } });
     if (!user || user.is_banned) {
+      await this.tokenService.revokeFamily(rotated.familyId, rotated.userId);
       throw new UnauthorizedException('Account suspended');
     }
 
-    const tokens = await this.tokenService.generateTokenPair(user.id);
-    return { user: this.sanitizeUser(user), ...tokens };
+    return { user: this.sanitizeUser(user), ...rotated };
   }
 
   // ─── LOGOUT ────────────────────────────────────────────────────
@@ -228,9 +224,10 @@ export class AuthService {
       await this.prisma.user.update({ where: { id: userId }, data: { apple_id: dto.provider_id, email: dto.email || user.email } });
     } else if (dto.provider === 'phone') {
       if (!dto.phone) throw new ConflictException('Phone number required');
-      const existing = await this.prisma.user.findFirst({ where: { phone: dto.phone, id: { not: userId } } });
+      const normalizedPhone = this.otpService.normalizePhone(dto.phone);
+      const existing = await this.prisma.user.findFirst({ where: { phone: normalizedPhone, id: { not: userId } } });
       if (existing) throw new ConflictException('This phone number is already linked to another user');
-      await this.prisma.user.update({ where: { id: userId }, data: { phone: dto.phone } });
+      await this.prisma.user.update({ where: { id: userId }, data: { phone: normalizedPhone } });
     }
 
     return { message: `${dto.provider} account linked successfully` };
