@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useAudioContextValue } from '@/audio/AudioProvider';
 import { STORAGE_KEYS } from '@/constants/storageKeys';
@@ -108,7 +108,11 @@ export function useAuthGate() {
         }
 
         setPhase('config');
-        await prefetchGameConfig();
+        try {
+          await prefetchGameConfig();
+        } catch {
+          // Gracefully continue with local defaultGameConfig when testing standalone
+        }
 
         setPhase('audio');
         await prefetchGameAudio(() => audioRef.current);
