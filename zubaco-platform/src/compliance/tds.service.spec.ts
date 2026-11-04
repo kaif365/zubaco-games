@@ -68,6 +68,52 @@ describe('TdsService', () => {
     });
   });
 
+  describe('calculateSection194BaNetWinnings (CBDT Rule 133)', () => {
+    it('calculates 30% TDS on net winnings = (A + D) - (B + C)', () => {
+      // Withdrawals (A) = 10,000, Closing (D) = 2,000 => 12,000
+      // Deposits (B) = 5,000, Opening (C) = 1,000 => 6,000
+      // Net Winnings = 12,000 - 6,000 = 6,000. 30% TDS = 1,800.
+      const res = service.calculateSection194BaNetWinnings({
+        withdrawals: 10000,
+        closingBalance: 2000,
+        deposits: 5000,
+        openingBalance: 1000,
+      });
+
+      expect(res.netWinnings).toBe(6000);
+      expect(res.tdsLiability).toBe(1800);
+      expect(res.tdsPayable).toBe(1800);
+    });
+
+    it('offsets TDS already paid in the financial year', () => {
+      const res = service.calculateSection194BaNetWinnings({
+        withdrawals: 10000,
+        closingBalance: 2000,
+        deposits: 5000,
+        openingBalance: 1000,
+        tdsAlreadyPaid: 1000,
+      });
+
+      expect(res.netWinnings).toBe(6000);
+      expect(res.tdsLiability).toBe(1800);
+      expect(res.tdsAlreadyPaid).toBe(1000);
+      expect(res.tdsPayable).toBe(800);
+    });
+
+    it('returns 0 net winnings and 0 TDS when deposits and opening balance exceed withdrawals', () => {
+      const res = service.calculateSection194BaNetWinnings({
+        withdrawals: 2000,
+        closingBalance: 1000,
+        deposits: 5000,
+        openingBalance: 1000,
+      });
+
+      expect(res.netWinnings).toBe(0);
+      expect(res.tdsLiability).toBe(0);
+      expect(res.tdsPayable).toBe(0);
+    });
+  });
+
   describe('getTdsSummary', () => {
     it('sums TDS records and reports a valid financial year', async () => {
       prisma.tdsRecord.findMany.mockResolvedValue([

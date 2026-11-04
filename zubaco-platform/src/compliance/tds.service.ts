@@ -30,6 +30,43 @@ export class TdsService {
   }
 
   /**
+   * Statutory CBDT Rule 133 / Section 194BA Net Winnings Formula:
+   * Net Winnings = (Total Withdrawals + Closing Balance) - (Total Deposits + Opening Balance)
+   * Formula: Net Winnings = (A + D) - (B + C)
+   * Where:
+   *   A = Total amount withdrawn during FY (including current withdrawal)
+   *   B = Total amount deposited during FY
+   *   C = Opening balance at the beginning of the FY
+   *   D = Closing balance in the wallet
+   */
+  calculateSection194BaNetWinnings(params: {
+    withdrawals: number;
+    closingBalance: number;
+    deposits: number;
+    openingBalance: number;
+    tdsAlreadyPaid?: number;
+  }): {
+    netWinnings: number;
+    tdsLiability: number;
+    tdsAlreadyPaid: number;
+    tdsPayable: number;
+  } {
+    const totalOut = params.withdrawals + params.closingBalance;
+    const totalIn = params.deposits + params.openingBalance;
+    const netWinnings = Math.max(0, totalOut - totalIn);
+    const tdsLiability = Math.round(netWinnings * this.TDS_RATE * 100) / 100;
+    const tdsAlreadyPaid = params.tdsAlreadyPaid || 0;
+    const tdsPayable = Math.max(0, Math.round((tdsLiability - tdsAlreadyPaid) * 100) / 100);
+
+    return {
+      netWinnings: Math.round(netWinnings * 100) / 100,
+      tdsLiability,
+      tdsAlreadyPaid,
+      tdsPayable,
+    };
+  }
+
+  /**
    * Calculate TDS applicable on a withdrawal.
    * Net winnings = Total winnings - Total entry fees paid (for the FY)
    */

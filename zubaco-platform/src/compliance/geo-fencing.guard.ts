@@ -2,19 +2,41 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { PrismaService } from '../common/prisma/prisma.service';
 
 /**
- * States where real-money gaming is PROHIBITED in India.
- * As per various High Court rulings and state gambling laws.
+ * States and territories where real-money skill gaming is PROHIBITED in India.
+ * As per state gambling enactments and High Court jurisprudence:
+ * - Assam (Assam Game and Betting Act)
+ * - Odisha (Orissa Prevention of Gambling Act)
+ * - Telangana (Telangana Gaming Act 2017)
+ * - Andhra Pradesh (AP Gaming Act amendment)
+ * - Sikkim (Sikkim On-line Gaming Regulation Act - requires local license)
+ * - Nagaland (Nagaland Prohibition of Gambling Act - requires local license)
+ * - Arunachal Pradesh
+ * - Meghalaya
  */
-const BANNED_STATES = [
-  'AP', // Andhra Pradesh
-  'AS', // Assam
-  'TG', // Telangana (Telangana Gaming Act 2017)
-  'OR', // Odisha
-  'SK', // Sikkim (requires specific license)
-  'NL', // Nagaland (requires specific license)
-  'AR', // Arunachal Pradesh
-  'MG', // Meghalaya
-];
+const BANNED_STATE_CODES = new Set([
+  'AP',       // Andhra Pradesh
+  'AS',       // Assam
+  'TG', 'TS', // Telangana (TS official ISO, TG colloquial)
+  'OR', 'OD', // Odisha (OD official ISO 3166-2:IN, OR historical)
+  'SK',       // Sikkim
+  'NL',       // Nagaland
+  'AR',       // Arunachal Pradesh
+  'MG',       // Meghalaya
+]);
+
+const BANNED_STATE_NAMES = new Set([
+  'ANDHRA PRADESH',
+  'ASSAM',
+  'TELANGANA',
+  'ODISHA',
+  'ORISSA',
+  'SIKKIM',
+  'NAGALAND',
+  'ARUNACHAL PRADESH',
+  'MEGHALAYA',
+]);
+
+const BANNED_STATES = Array.from(BANNED_STATE_CODES);
 
 @Injectable()
 export class GeoFencingGuard implements CanActivate {
@@ -22,11 +44,19 @@ export class GeoFencingGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    // SEC-S1 (F2): JwtStrategy.validate() returns `{ userId }`, so the previous
-    // `request.user?.id || request.user?.sub` read was always undefined and the
-    // geo-fencing control silently allowed every authenticated user (banned
-    // states included). Read `userId` first, keeping the legacy keys as fallback.
     const userId = request.user?.userId || request.user?.id || request.user?.sub;
+
+    // Check request header or body for real-time location telemetry first
+    const incomingState =
+      request.headers['x-user-state'] ||
+      request.headers['x-client-state'] ||
+      request.body?.state;
+
+    if (incomingState && isStateBanned(String(incomingState))) {
+      throw new ForbiddenException(
+        `Real-money gaming is not available in your state (${incomingState}) due to local regulations. You can still enjoy free-play games.`,
+      );
+    }
 
     if (!userId) {
       return true; // Let auth guards handle unauthenticated
@@ -39,11 +69,10 @@ export class GeoFencingGuard implements CanActivate {
     });
 
     if (!user?.state) {
-      // If state not set, allow access but the user should set it
       return true;
     }
 
-    if (BANNED_STATES.includes(user.state.toUpperCase())) {
+    if (isStateBanned(user.state)) {
       throw new ForbiddenException(
         `Real-money gaming is not available in your state (${user.state}) due to local regulations. You can still enjoy free-play games.`,
       );
@@ -54,10 +83,14 @@ export class GeoFencingGuard implements CanActivate {
 }
 
 /**
- * Utility: Validate state at registration/update time
+ * Utility: Validate state at registration, profile update, or geo-location check.
+ * Handles both 2-letter codes (e.g. 'AS', 'OD', 'TS') and full names (e.g. 'Assam', 'Odisha').
  */
-export function isStateBanned(stateCode: string): boolean {
-  return BANNED_STATES.includes(stateCode.toUpperCase());
+export function isStateBanned(stateInput: string): boolean {
+  if (!stateInput || typeof stateInput !== 'string') return false;
+  const normalized = stateInput.trim().toUpperCase();
+  return BANNED_STATE_CODES.has(normalized) || BANNED_STATE_NAMES.has(normalized);
 }
 
-export { BANNED_STATES };
+export { BANNED_STATES, BANNED_STATE_CODES, BANNED_STATE_NAMES };
+

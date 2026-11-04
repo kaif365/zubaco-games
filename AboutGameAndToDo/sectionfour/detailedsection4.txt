@@ -21,7 +21,7 @@ Module ID | Module Name                                     | Specification Targ
 4.1       | Authentication & Session Lifecycle              | SMS OTP, JWT, Refresh Token Rotation, Family Inval  | [DONE]
 4.2       | Concurrency-Proof Double-Entry Financial Ledger | 5 Ledger Accounts, Row-Level Locking, Race Proofing | [DONE]
 4.3       | Payment Gateway Webhook Engine & UPI Payouts    | Razorpay/Cashfree HMAC SHA256, Idempotency Events   | [DONE]
-4.4       | Indian Legal & Tax Compliance (TDS & Geo-Fence) | Section 194BA 30% Net TDS, Banned States Geo-Fence  | [TODO]
+4.4       | Indian Legal & Tax Compliance (TDS & Geo-Fence) | Section 194BA 30% Net TDS, Banned States Geo-Fence  | [DONE]
 4.5       | KYC Identity Pipeline & Document Security       | PAN/Aadhaar Verification, Presigned URLs, AES-256   | [TODO]
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -32,7 +32,7 @@ Sub-Tracker File                          | Description                         
 `AboutGameAndToDo/sectionfour/section4.1.txt` | 4.1 Auth & Session Architecture Lifecycle Audit        | [DONE]
 `AboutGameAndToDo/sectionfour/section4.2.txt` | 4.2 Financial Ledger & Anti-Double-Spend Concurrency   | [DONE]
 `AboutGameAndToDo/sectionfour/section4.3.txt` | 4.3 Payment Gateway Webhooks & Idempotency Table       | [DONE]
-`AboutGameAndToDo/sectionfour/section4.4.txt` | 4.4 Section 194BA 30% TDS & GPS State Geo-Fencing      | [TODO]
+`AboutGameAndToDo/sectionfour/section4.4.txt` | 4.4 Section 194BA 30% TDS & GPS State Geo-Fencing      | [DONE]
 `AboutGameAndToDo/sectionfour/section4.5.txt` | 4.5 KYC Identity Verification & S3 Document Security   | [TODO]
 
 ------------------------------------------------------------------------------------------------------------------------
