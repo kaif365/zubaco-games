@@ -11,6 +11,7 @@ const CREDIT_OPS = new Set<FinancialOperation>([
   FinancialOperation.REFUND,
   FinancialOperation.REFERRAL_CREDIT,
   FinancialOperation.DEPOSIT_CREDIT,
+  FinancialOperation.ADJUSTMENT,
 ]);
 
 function txType(op: FinancialOperation, amount: number): TransactionType {
@@ -73,7 +74,7 @@ export class WalletLedgerService {
         };
       }
 
-      const isCredit = CREDIT_OPS.has(req.operation) || req.amount >= 0;
+      const isCredit = CREDIT_OPS.has(req.operation);
       const bucket: WalletBucket = req.bucket ?? 'cash';
       const amt = new Prisma.Decimal(req.amount);
 

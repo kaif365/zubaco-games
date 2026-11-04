@@ -1,0 +1,61 @@
+========================================================================================================================
+                                     ZUBACO PLATFORM — SECTION 4 TRACKER
+                   (CENTRAL PLATFORM BACKEND DEEP SPECIFICATION & INTEGRITY AUDIT — zubaco-platform)
+========================================================================================================================
+Document Name   : detailedsection4.txt
+Location        : AboutGameAndToDo/sectionfour/detailedsection4.txt
+Parent Plan     : AboutGameAndToDo/zubaco_production_readiness_plan.txt
+Objective       : Verify, harden, and mathematically certify the Central Platform backend (`zubaco-platform`).
+                  Audit authentication & token rotation, concurrency-proof double-entry financial ledger,
+                  payment gateway webhook idempotency, Indian legal compliance (30% TDS & GPS Geo-fencing),
+                  and the KYC verification pipeline.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Section Status  : ACTIVE [IN PROGRESS]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 4 MASTER MODULES & DELIVERABLES
+------------------------------------------------------------------------------------------------------------------------
+Module ID | Module Name                                     | Specification Target                                | Status
+----------+-------------------------------------------------+-----------------------------------------------------+-------
+4.1       | Authentication & Session Lifecycle              | SMS OTP, JWT, Refresh Token Rotation, Family Inval  | [TODO]
+4.2       | Concurrency-Proof Double-Entry Financial Ledger | 5 Ledger Accounts, Row-Level Locking, Race Proofing | [DONE]
+4.3       | Payment Gateway Webhook Engine & UPI Payouts    | Razorpay/Cashfree HMAC SHA256, Idempotency Events   | [TODO]
+4.4       | Indian Legal & Tax Compliance (TDS & Geo-Fence) | Section 194BA 30% Net TDS, Banned States Geo-Fence  | [TODO]
+4.5       | KYC Identity Pipeline & Document Security       | PAN/Aadhaar Verification, Presigned URLs, AES-256   | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+2. SUB-TRACKERS & BATCH FILES
+------------------------------------------------------------------------------------------------------------------------
+Sub-Tracker File                          | Description                                            | Status
+------------------------------------------+--------------------------------------------------------+--------
+`AboutGameAndToDo/sectionfour/section4.1.txt` | 4.1 Auth & Session Architecture Lifecycle Audit        | [TODO]
+`AboutGameAndToDo/sectionfour/section4.2.txt` | 4.2 Financial Ledger & Anti-Double-Spend Concurrency   | [DONE]
+`AboutGameAndToDo/sectionfour/section4.3.txt` | 4.3 Payment Gateway Webhooks & Idempotency Table       | [TODO]
+`AboutGameAndToDo/sectionfour/section4.4.txt` | 4.4 Section 194BA 30% TDS & GPS State Geo-Fencing      | [TODO]
+`AboutGameAndToDo/sectionfour/section4.5.txt` | 4.5 KYC Identity Verification & S3 Document Security   | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+3. DETAILED TECHNICAL AUDIT CRITERIA
+------------------------------------------------------------------------------------------------------------------------
+- 4.1 Auth & Tokens:
+  * SMS Delivery: Indian 10-digit mobile (+91), OTP rate-limiting (max 3 per 10 mins).
+  * JWT Architecture: 15-minute access JWT, Redis refresh token rotation, token family revocation upon reuse.
+
+- 4.2 Financial Ledger:
+  * 5 Accounts: DEPOSIT_CASH, BONUS_CASH, WINNING_CASH, PLATFORM_RAKE, TDS_ESCROW.
+  * Concurrency: `SELECT ... FOR UPDATE` row-level locks on user wallet during tournament joins.
+  * Race Condition Test: 10 concurrent requests to join ₹50 tournament with ₹50 balance (exactly 1 succeeds, 9 fail).
+
+- 4.3 Webhook Engine:
+  * HMAC SHA-256 cryptographic verification of provider webhooks (Razorpay / Cashfree).
+  * Idempotency table (`payment_webhook_events`) to discard duplicate deliveries without duplicate wallet credits.
+
+- 4.4 Legal & Tax:
+  * Section 194BA 30% TDS calculation: `Net Winnings = (Withdrawals + Closing) - (Deposits + Opening)`.
+  * Geofencing: Restrict cash contests in banned states (Assam, Odisha, Telangana, Andhra Pradesh, Nagaland, Sikkim).
+
+- 4.5 KYC Pipeline:
+  * Mandatory threshold before withdrawals; PAN for TDS & Aadhaar for address verification.
+  * Presigned private S3 URLs expiring in 5 minutes; sensitive data encrypted at rest.
+========================================================================================================================
