@@ -1,0 +1,63 @@
+========================================================================================================================
+                                        ZUBACO PLATFORM — SECTION 9 MASTER TRACKER
+                              (DEVOPS, INFRASTRUCTURE, CI/CD & OBSERVABILITY SUITE)
+========================================================================================================================
+Document Name   : detailedsection9.txt
+Location        : AboutGameAndToDo/sectionnine/detailedsection9.txt
+Parent Plan     : AboutGameAndToDo/zubaco_production_readiness_plan.txt
+Objective       : Implement, audit, containerize, and certify full production DevOps infrastructure,
+                  GitHub Actions CI/CD workflows, multi-stage Docker builds, Sentry APM error tracking,
+                  Prometheus metrics endpoints, and health check/readiness probes.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Section Status  : ACTIVE [IN PROGRESS]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 9 MASTER MODULES & DELIVERABLES
+------------------------------------------------------------------------------------------------------------------------
+Module ID | Module Name                                     | Specification Target                                | Status
+----------+-------------------------------------------------+-----------------------------------------------------+-------
+9.1       | Production Cloud Topology & Multi-Stage Docker  | Dockerfiles, AWS ECS/ALB & CloudFront CDN Topology  | [TODO]
+9.2       | Automated CI/CD GitHub Actions Pipeline Matrix  | Unified Monorepo CI: Lint, Test, & Build Workflows  | [TODO]
+9.3       | APM, Sentry Exception Tracking & Error Borders  | Sentry SDK Instrumentation & Crash Telemetry        | [TODO]
+9.4       | Prometheus Metrics & Real-Time Grafana Exports  | `/metrics` Prometheus Scraping, Socket & DB Gauges  | [TODO]
+9.5       | Health Probes, Disaster Recovery & Alert Rules  | Kubernetes/ECS Liveness & Readiness Probes, Alerts  | [TODO]
+------------------------------------------------------------------------------------------------------------------------
+2. SUB-TRACKERS & BATCH FILES
+------------------------------------------------------------------------------------------------------------------------
+Sub-Tracker File                            | Description                                            | Status
+--------------------------------------------+--------------------------------------------------------+--------
+`AboutGameAndToDo/sectionnine/section9.1.txt` | 9.1 Production Cloud Topology & Multi-Stage Docker      | [TODO]
+`AboutGameAndToDo/sectionnine/section9.2.txt` | 9.2 Automated CI/CD GitHub Actions Pipeline Matrix      | [TODO]
+`AboutGameAndToDo/sectionnine/section9.3.txt` | 9.3 APM, Sentry Exception Tracking & Error Borders      | [TODO]
+`AboutGameAndToDo/sectionnine/section9.4.txt` | 9.4 Prometheus Metrics & Real-Time Grafana Exports      | [TODO]
+`AboutGameAndToDo/sectionnine/section9.5.txt` | 9.5 Health Probes, Disaster Recovery & Alert Rules      | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+3. DETAILED TECHNICAL ARCHITECTURE & DEVOPS INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+- 9.1 Docker & Cloud Topology:
+  * Multi-stage minimal production Dockerfiles (`node:20-alpine`) with non-root security user (`USER node`).
+  * CloudFront CDN caching policy with Brotli/Gzip compression and immutable cache-control for static assets.
+  * Application Load Balancer path routing (`/api` -> Platform, `/tournament` -> WS, `/admin` -> Admin).
+
+- 9.2 CI/CD GitHub Actions:
+  * Matrix testing across Node.js versions with dependency caching.
+  * Parallel job execution: linting, unit tests, E2E penetration suite, production build certification.
+  * Automated staging deployments on push to `main` with branch protection.
+
+- 9.3 Sentry APM:
+  * Sentry initialization across `zubaco-platform` and `zubaco-admin-panel`.
+  * Sensitive data scrubbing (PII, passwords, OTPs, auth tokens, bank credentials).
+  * Unhandled promise rejection and exception capture.
+
+- 9.4 Prometheus & Grafana Metrics:
+  * Prometheus exposition format at `/metrics`.
+  * Metrics: `active_websocket_connections`, `tournament_stage_transitions`, `http_request_duration_seconds`,
+    `wallet_transactions_total`, `anti_cheat_flags_total`.
+
+- 9.5 Health & Probes:
+  * HTTP GET `/health/liveness` (returns 200 OK if Node process is responsive).
+  * HTTP GET `/health/readiness` (verifies PostgreSQL connection and Redis ping before receiving traffic).
+  * Automated threshold alerting: error rate > 1%, connection pool > 85%, webhook failures > 2%.
+========================================================================================================================

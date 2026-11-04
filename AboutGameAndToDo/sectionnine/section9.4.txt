@@ -1,0 +1,24 @@
+========================================================================================================================
+                                        ZUBACO PLATFORM — SECTION 9.4 SPECIFICATION
+                     (PROMETHEUS METRICS COLLECTION & REAL-TIME GRAFANA TELEMETRY)
+========================================================================================================================
+Document Name   : section9.4.txt
+Location        : AboutGameAndToDo/sectionnine/section9.4.txt
+Parent Document : AboutGameAndToDo/sectionnine/detailedsection9.txt
+Specification   : Prometheus Metrics Scraping Endpoint (`/metrics`), High-Resolution Gauges,
+                  WebSocket Connection Gauges, Database Transaction Latency, and Grafana Dashboard Setup.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 9.4 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Prometheus Metrics Scraping Endpoint (`/metrics`)               | `src/metrics/metrics.controller.ts`| Unit tests   | [TODO]
+Real-Time WebSocket Connection Gauge & Tournament Counters      | `MetricsService`                   | Unit tests   | [TODO]
+HTTP Request Latency Histograms (p50, p95, p99)                  | Metrics Interceptor Middleware     | Integration  | [TODO]
+Database Connection Pool Saturation Gauge                       | PgBouncer / Prisma Metrics Adapter | Benchmark    | [TODO]
+Grafana Dashboard Definition & Metrics Export                   | Prometheus Exporter Config         | Config audit | [TODO]
+========================================================================================================================

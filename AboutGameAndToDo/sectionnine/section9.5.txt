@@ -1,0 +1,24 @@
+========================================================================================================================
+                                        ZUBACO PLATFORM — SECTION 9.5 SPECIFICATION
+                     (HEALTH PROBES, DISASTER RECOVERY & 24/7 PRODUCTION ALERT RULES)
+========================================================================================================================
+Document Name   : section9.5.txt
+Location        : AboutGameAndToDo/sectionnine/section9.5.txt
+Parent Document : AboutGameAndToDo/sectionnine/detailedsection9.txt
+Specification   : Container Liveness & Readiness Probes (`/health/live`, `/health/ready`),
+                  Database / Redis Ping Validation, Automated SLA Threshold Alerts, and Disaster Recovery Procedures.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 9.5 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Kubernetes/ECS Liveness Probe (`/health/live`)                   | `HealthController`                 | Unit tests   | [TODO]
+Deep Readiness Probe (`/health/ready` - Postgres + Redis Check) | `HealthService`                    | Unit tests   | [TODO]
+Automated Error Rate Alert Rule (> 1% 5xx triggers alert)       | Alerting Definition                | Config audit | [TODO]
+Database Connection Pool Saturation Alert (> 85% utilization)   | Alerting Definition                | Config audit | [TODO]
+Payment Webhook Failure Spike Alert (> 2% failure rate)         | Alerting Definition                | Config audit | [TODO]
+========================================================================================================================
