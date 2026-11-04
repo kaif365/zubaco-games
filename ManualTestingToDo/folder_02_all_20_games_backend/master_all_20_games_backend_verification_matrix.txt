@@ -38,3 +38,4 @@ Game 18| Reflex Endurance       | `zubaco-games/reflex-endurance/reflex-enduranc
 Game 19| Pattern Survival       | `zubaco-games/pattern-survival/pattern-survival-backend`| 3119     | /api/v1/server/health
 Game 20| Speed Type Answer      | `zubaco-games/speed-type-answer/speed-type-backend` | 3120         | /api/v1/server/health
 ========================================================================================================================
+
