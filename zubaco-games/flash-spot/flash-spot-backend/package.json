@@ -12,7 +12,7 @@
     "start:debug": "bun --no-network-family-autoselection --inspect --watch src/main.ts",
     "start:prod": "bun --no-network-family-autoselection src/main.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest",
+    "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",

@@ -1,6 +1,4 @@
-import type { Config } from 'jest';
-
-const config: Config = {
+module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
   testRegex: '.*\\.spec\\.ts$',
@@ -24,5 +22,3 @@ const config: Config = {
     '^@game/(.*)$': '<rootDir>/src/game/$1',
   },
 };
-
-export default config;
