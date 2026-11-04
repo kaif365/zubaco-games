@@ -54,25 +54,25 @@ export class WalletLedgerService {
     if (!req.idempotencyKey) throw new BadRequestException('idempotencyKey required');
     if (req.amount <= 0) throw new BadRequestException('amount must be positive');
 
+    // Storage-level idempotency check: prior completed transaction short-circuits.
+    const existing = await this.prisma.transaction.findFirst({
+      where: { ledger_key: req.idempotencyKey },
+    });
+    if (existing) {
+      return {
+        transactionId: existing.id,
+        applied: false,
+        duplicate: true,
+        balanceAfter: Number(existing.balance_after),
+      };
+    }
+
     const lockKey = `wallet:ledger:${req.idempotencyKey}`;
     const fresh = await this.redis.setnx(lockKey, '1');
     if (!fresh) throw new ConflictException('Operation already in progress');
     await this.redis.expire(lockKey, 86400);
 
     try {
-      // Idempotent: a prior row carrying this ledger key short-circuits. This is
-      // a storage-level guarantee (the UNIQUE ledger_key index), not only Redis.
-      const existing = await this.prisma.transaction.findFirst({
-        where: { ledger_key: req.idempotencyKey },
-      });
-      if (existing) {
-        return {
-          transactionId: existing.id,
-          applied: false,
-          duplicate: true,
-          balanceAfter: Number(existing.balance_after),
-        };
-      }
 
       const isCredit = CREDIT_OPS.has(req.operation);
       const bucket: WalletBucket = req.bucket ?? 'cash';
@@ -158,21 +158,22 @@ export class WalletLedgerService {
     if (!req.idempotencyKey) throw new BadRequestException('idempotencyKey required');
     if (req.amount <= 0) throw new BadRequestException('amount must be positive');
 
+    const existing = await this.prisma.transaction.findFirst({ where: { ledger_key: req.idempotencyKey } });
+    if (existing) {
+      return {
+        transactionId: existing.id,
+        applied: false,
+        duplicate: true,
+        balanceAfter: Number(existing.balance_after),
+      };
+    }
+
     const lockKey = `wallet:ledger:${req.idempotencyKey}`;
     const fresh = await this.redis.setnx(lockKey, '1');
     if (!fresh) throw new ConflictException('Operation already in progress');
     await this.redis.expire(lockKey, 86400);
 
     try {
-      const existing = await this.prisma.transaction.findFirst({ where: { ledger_key: req.idempotencyKey } });
-      if (existing) {
-        return {
-          transactionId: existing.id,
-          applied: false,
-          duplicate: true,
-          balanceAfter: Number(existing.balance_after),
-        };
-      }
 
       const amt = new Prisma.Decimal(req.amount);
       const result = await this.prisma.$transaction(async (tx) => {
