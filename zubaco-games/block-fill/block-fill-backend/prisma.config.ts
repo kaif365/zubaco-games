@@ -14,6 +14,6 @@ export default defineConfig({
         seed: 'ts-node -r tsconfig-paths/register --compiler-options {"module":"CommonJS"} prisma/seed.ts',
     },
     datasource: {
-        url: process.env.DATABASE_URL!,
+        url: process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/zubaco_block_fill?schema=public',
     },
 });

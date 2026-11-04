@@ -14,10 +14,15 @@ export default defineConfig({
   },
   datasource: {
     url: (() => {
-      const u = new URL(process.env.DATABASE_URL!);
-      u.searchParams.delete("channel_binding");
-      u.searchParams.delete("sslmode");
-      return u.toString();
+      const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/sequence_recall?schema=public";
+      try {
+        const u = new URL(dbUrl);
+        u.searchParams.delete("channel_binding");
+        u.searchParams.delete("sslmode");
+        return u.toString();
+      } catch {
+        return dbUrl;
+      }
     })(),
   },
 });

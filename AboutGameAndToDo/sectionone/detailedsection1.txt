@@ -66,16 +66,16 @@ FE-20      | Speed Typing       | `zubaco-games/speed-type-answer/speed-type-fro
 --- PART B: 20 GAME BACKENDS (NestJS / TypeScript) ---
 Project ID | Game Name          | Sub-Directory Path                                    | Status | Build Result / Fixes
 -----------+--------------------+-------------------------------------------------------+--------+----------------------
-BE-01      | Sequence Recall    | `zubaco-games/sequence-recall/sequence-recall-backend` | [TODO] |
-BE-02      | Memory Cards       | `zubaco-games/memory-card-matching/memory-card-matching-backend` | [TODO] |
-BE-03      | Flash Spot         | `zubaco-games/flash-spot/flash-spot-backend`           | [TODO] |
-BE-04      | Object Placement   | `zubaco-games/object-placement/object-placement-backend` | [TODO] |
-BE-05      | Memory Groups      | `zubaco-games/memory-groups/memory-groups-backend`     | [TODO] |
-BE-06      | Sliding Puzzle     | `zubaco-games/sliding-puzzle/sliding-puzzle-backend`   | [TODO] |
-BE-07      | Block Fill         | `zubaco-games/block-fill/block-fill-backend`           | [TODO] |
-BE-08      | Colour Sort        | `zubaco-games/colour-sort/colour-sort-backend`         | [TODO] |
-BE-09      | Rapid Sort         | `zubaco-games/rapid-sort/rapid-sort-backend`           | [TODO] |
-BE-10      | Maze Navigation    | `zubaco-games/maze-navigation/maze-navigation-backend` | [TODO] |
+BE-01      | Sequence Recall    | `zubaco-games/sequence-recall/sequence-recall-backend` | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-02      | Memory Cards       | `zubaco-games/memory-card-matching/memory-card-matching-backend` | [DONE] | Certified (tsc-alias + Nest build)
+BE-03      | Flash Spot         | `zubaco-games/flash-spot/flash-spot-backend`           | [DONE] | Certified (@types/pg + Nest build)
+BE-04      | Object Placement   | `zubaco-games/object-placement-memory/object-placement-memory-backend` | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-05      | Memory Groups      | `zubaco-games/memory-groups/memory-groups-backend`     | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-06      | Sliding Puzzle     | `zubaco-games/sliding-puzzle/sliding-puzzle-backend`   | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-07      | Block Fill         | `zubaco-games/block-fill/block-fill-backend`           | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-08      | Colour Sort        | `zubaco-games/colour-sorting/colour-sorting-backend`   | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-09      | Rapid Sort         | `zubaco-games/rapid-category-sort/rapid-sort-backend`  | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-10      | Maze Navigation    | `zubaco-games/maze-navigation/maze-navigation-backend` | [DONE] | Certified (Prisma 6.16.3 + Nest build)
 BE-11      | Infinity Loop      | `zubaco-games/Infinity-loop/Infinity-Loop-backend`     | [TODO] |
 BE-12      | Word Unscramble    | `zubaco-games/word-unscramble/word-unscramble-backend` | [TODO] |
 BE-13      | True / False       | `zubaco-games/true-false/true-false-backend`           | [TODO] |
