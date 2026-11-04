@@ -1,0 +1,80 @@
+========================================================================================================================
+                              ZUBACO GAME 2: MEMORY CARDS (CARD MATCHING)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_02_memory_cards_manual_test.txt
+Game Code Directory: zubaco-games/memory-card-matching/frontend
+Category: Working Memory & Visual Association
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/memory-card-matching/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173` (or displayed port)
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: GRID LAYOUT & CARD BACKS
+    - Action: Launch game on mobile screen (375x812) and tablet (768x1024).
+    - Expected Result:
+      * Grid is symmetrical (e.g. 4x3 in Level 1 = 12 cards, 6 pairs).
+      * Card backs have consistent graphics with no visual tearing.
+      * Cards are sized proportionally so none are clipped at screen edges.
+
+[ ] TC-02: INITIAL PEEK / MEMORIZATION PHASE
+    - Action: Start match. Observe initial 2-second card reveal.
+    - Expected Result:
+      * All cards flip face up for exactly 2 seconds, displaying distinct icons/symbols.
+      * Cards flip face down smoothly with 3D flip animation.
+      * Clicking during the peek phase is locked out.
+
+[ ] TC-03: MATCHING PAIR BEHAVIOR
+    - Action: Click Card A (e.g. Lion), then click Card B (Lion).
+    - Expected Result:
+      * Both cards flip face up.
+      * On match detection, a green success glow and celebratory chime sound plays.
+      * The matched pair remains face up and is permanently disabled from future clicks.
+      * Match counter increments (+1 pair matched).
+
+[ ] TC-04: MISMATCH PAIR BEHAVIOR & FLIP-BACK DELAY
+    - Action: Click Card A (Lion), then click Card C (Tiger).
+    - Expected Result:
+      * Both cards remain visible face up for exactly 800ms - 1000ms so player can memorize them.
+      * Both cards smoothly flip back face down.
+      * Move counter increments by 1.
+
+[ ] TC-05: MULTI-CLICK LOCKOUT (EDGE CASE)
+    - Action: Rapidly click 4 different cards in under 300ms.
+    - Expected Result:
+      * Engine strictly restricts visible flips to 2 cards at any one time.
+      * The 3rd and 4th clicks must NOT reveal cards while the mismatch animation is playing.
+      * No stuck face-up cards or Desync states occur.
+
+[ ] TC-06: SAME-CARD DOUBLE-CLICK
+    - Action: Click Card A once, and immediately double-click Card A again.
+    - Expected Result:
+      * Card A must NOT match with itself.
+      * The second click on an already revealed card must be ignored.
+
+[ ] TC-07: LEVEL ADVANCEMENT & BOARD SCALING
+    - Action: Complete all pairs on the board.
+    - Expected Result:
+      * Win screen triggers with remaining time bonus calculated.
+      * Next level advances to higher card count (e.g. 4x4 = 16 cards, 4x5 = 20 cards).
+      * Timer scales appropriately for the increased cognitive load.
+
+[ ] TC-08: TIMEOUT EXPIRATION
+    - Action: Let the countdown timer expire with unmatched cards remaining.
+    - Expected Result:
+      * Timer reaches 0:00. Game immediately freezes input.
+      * Game Over dialog appears with final score based on pairs cleared.
+
+========================================================================================================================
+SIGN-OFF:
+All 8 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

@@ -1,0 +1,56 @@
+========================================================================================================================
+                      ZUBACO GAME 18: REFLEX ENDURANCE (CONTINUOUS VIGILANCE)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_18_reflex_endurance_manual_test.txt
+Game Code Directory: zubaco-games/reflex-endurance/frontend
+Category: Sustained Attention, Motor Inhibition & Reaction Time
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/reflex-endurance/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: SIGNAL STIMULUS (GREEN LIGHT / GO SIGNAL)
+    - Action: Start match. Observe indicator waiting in "WAIT" (Red/Grey) state for an unpredictable duration (2.0s to 5.5s).
+    - Expected Result:
+      * Visual prompt clearly indicates waiting status.
+      * Signal unexpectedly snaps to "TAP NOW!" (Bright Neon Green).
+
+[ ] TC-02: LEGITIMATE REACTION TAP
+    - Action: Tap immediately upon seeing the green flash.
+    - Expected Result:
+      * Reaction time is measured in milliseconds (e.g. "214 ms").
+      * Visual feedback displays speed ranking (e.g., "Lightning Fast", "Great", "Good").
+      * Points awarded inversely proportional to reaction time.
+
+[ ] TC-03: FALSE START (PREMATURE TAP INHIBITION)
+    - Action: Tap the screen BEFORE the green light appears while still in the "WAIT" state.
+    - Expected Result:
+      * Immediate "FALSE START / TOO EARLY!" penalty flash.
+      * Round is marked as a fault with zero points.
+      * Prevents random spam guessing strategies.
+
+[ ] TC-04: DISTRACTOR FLASH (GO / NO-GO PARADIGM)
+    - Action: A Yellow or Blue stimulus flashes instead of Green.
+    - Expected Result:
+      * If player taps on Yellow/Blue: counts as a false commission error.
+      * If player withholds tap: stimulus clears cleanly without penalty.
+
+[ ] TC-05: ENDURANCE MULTI-ROUND FATIGUE CURVE
+    - Action: Complete 10 consecutive trials.
+    - Expected Result:
+      * Average reaction time, variance ($\sigma$), and best reaction time are computed accurately on final report screen.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

@@ -1,0 +1,49 @@
+========================================================================================================================
+                      ZUBACO PLATFORM: ANTI-CHEAT DETECTION & ENFORCEMENT ENGINE
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionfour_central_platform_backend/05_anti_cheat_detection_and_enforcement_manual_test.txt
+Component: zubaco-platform -> AntiCheatModule (`/api/v1/anti-cheat`)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: BIOMECHANICAL CADENCE HEURISTIC (SUB-50MS FLOOR)
+    - Action: Submit score telemetry containing move intervals under 50 milliseconds (impossible for human neural transmission).
+    - Expected Result:
+      * `CadenceAnalyzerService` flags submission with `SUB_HUMAN_INTERVAL_DETECTED`.
+      * Score is quarantined or rejected with HTTP 400.
+
+[ ] TC-02: SYNTHETIC ROBOTIC INTERVAL STANDARD DEVIATION ($\sigma < 5\text{ms}$)
+    - Action: Submit 20 consecutive tap intervals with identical 100ms timing (e.g. auto-clicker script).
+    - Expected Result:
+      * Standard deviation $\sigma < 5\text{ms}$ triggers `ROBOTIC_INTERVAL_CONSISTENCY`.
+      * Score flagged in Fraud Desk.
+
+[ ] TC-03: CLIENT WALL-CLOCK DRIFT & SPEEDHACK ACCELERATION
+    - Action: Client reports 60 seconds of game time elapsed while backend wall-clock recorded only 10 seconds.
+    - Expected Result:
+      * $\Delta t > 3000\text{ms}$ drift flags `SPEEDHACK_DRIFT_DETECTED`.
+      * Session marked invalid.
+
+[ ] TC-04: SINGLE-USE MATCH TICKET LOCKOUT
+    - Action: Intercept a valid cryptographic match ticket and attempt to submit scores twice using the same ticket.
+    - Expected Result:
+      * `CryptographicSessionService.acquireSingleUseLock()` rejects the 2nd attempt with HTTP 409 Conflict.
+      * Prevents score inflation and duplicate tournament submissions.
+
+[ ] TC-05: CANONICAL SHA-256 DEVICE FINGERPRINT LOCKOUT
+    - Action: Attempt to join the same tournament cohort using 2 different user accounts on the exact same physical device hardware hash.
+    - Expected Result:
+      * `DeviceDetectionService` detects collusion attempt: `COLLUSION_DEVICE_COHORT_VIOLATION`.
+      * 2nd account is blocked from joining the same table.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

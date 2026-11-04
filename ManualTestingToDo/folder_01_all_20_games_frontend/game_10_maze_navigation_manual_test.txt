@@ -1,0 +1,58 @@
+========================================================================================================================
+                          ZUBACO GAME 10: MAZE NAVIGATION (SPATIAL PATHFINDING)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_10_maze_navigation_manual_test.txt
+Game Code Directory: zubaco-games/maze-navigation/frontend
+Category: Spatial Navigation & Algorithmic Solvability
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/maze-navigation/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: BFS PATH GUARANTEE (CRITICAL P0 SOLVABILITY)
+    - Action: Generate 10 consecutive maze levels.
+    - Expected Result:
+      * Every generated maze MUST have an open, unblocked path from Start (Green node) to Exit (Gold Trophy).
+      * No walls completely seal off the player in a dead cell without an exit.
+      * Breadth-First-Search path length is within solvable time bounds for each level.
+
+[ ] TC-02: D-PAD / ARROW KEY / SWIPE CONTROLS
+    - Action: Move the player avatar using on-screen virtual joystick / D-Pad and swipe gestures.
+    - Expected Result:
+      * Avatar responds with instant velocity.
+      * Avatar stops cleanly against wall borders without tunneling or clipping through solid geometry.
+      * Breadcrumb trail (path dots) highlights the visited route smoothly.
+
+[ ] TC-03: DEAD-END BACKTRACKING
+    - Action: Move into a dead-end corridor and reverse direction.
+    - Expected Result:
+      * Avatar turns around instantly without getting stuck on corner collision boxes.
+      * Breadcrumb trail fades or changes color to indicate backtracked ground.
+
+[ ] TC-04: EXIT REACHED WIN TRIGGER
+    - Action: Navigate avatar into the Exit portal.
+    - Expected Result:
+      * Particle burst triggers at exit node.
+      * Level completion screen displays time taken, step count, and path efficiency percentage.
+      * Next level loads with expanded maze dimensions (e.g., 9x9 -> 15x15 -> 21x21).
+
+[ ] TC-05: FOG OF WAR / VISIBILITY RADIUS (IF APPLICABLE IN HARD LEVELS)
+    - Action: In advanced levels, observe dynamic lighting around the player avatar.
+    - Expected Result:
+      * Darkened regions uncover smoothly as the player moves within line of sight.
+      * Frame rate stays at solid 60 FPS without canvas redraw lag.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

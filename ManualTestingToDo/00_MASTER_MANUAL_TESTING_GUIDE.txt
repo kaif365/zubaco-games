@@ -1,134 +1,72 @@
 ========================================================================================================================
                                      ZUBACO COGNITIVE GAMING PLATFORM
-                                 MASTER MANUAL TESTING PLAYBOOK & EXECUTION GUIDE
+                            MASTER MANUAL TESTING PLAYBOOK & EXHAUSTIVE 15-TIER SUITE
 ========================================================================================================================
 Document Name   : 00_MASTER_MANUAL_TESTING_GUIDE.txt
 Location        : ManualTestingToDo/00_MASTER_MANUAL_TESTING_GUIDE.txt
 Target Audience : QA Engineers, Game Designers, Full-Stack Developers, Product Owners, Security Auditors
 Objective       : Exhaustive, zero-assumption manual testing instruction suite for the entire Zubaco Monorepo.
-                  Covers all 20 games, central backend, admin panel, mobile shell, real-time tournament engine,
-                  anti-cheat defenses, payments, and infrastructure.
+                  Treats the codebase as never having been manually run or tested. Covers every single screen,
+                  every game frontend, every game backend microservice, admin panel desks, mobile shell,
+                  financial double-entry ledger, anti-cheat penetration vectors, and disaster recovery.
 ========================================================================================================================
 
 ------------------------------------------------------------------------------------------------------------------------
-TABLE OF CONTENTS & DIRECTORY MAP
+THE 15 COMPREHENSIVE MANUAL TESTING FOLDERS (COMPLETE ROADMAP)
 ------------------------------------------------------------------------------------------------------------------------
-1. ENVIRONMENT SETUP & LOCAL PREREQUISITES (FROM ZERO)
-2. DIRECTORY STRUCTURE OF MANUAL TEST FILES
-3. GLOBAL PASS/FAIL STANDARD & CRITICAL SEVERITY CLASSIFICATION
-4. STEP-BY-STEP LOCAL REPOSITORY BOOTSTRAP INSTRUCTIONS
-5. TEST ACCOUNTS, PHONE NUMBERS, MOCK CARDS & OTP CREDENTIALS
-6. TESTING EXECUTION SEQUENCE RECOMMENDATION
-
+Folder ID  | Directory Name                                            | Focus Domain & Scope
+-----------+-----------------------------------------------------------+------------------------------------------------
+Folder 01  | `folder_01_all_20_games_frontend/`                        | All 20 Game WebViews (Levels 1-10, Inputs, Audio)
+Folder 02  | `folder_02_all_20_games_backend/`                         | All 20 Game Backend APIs (Move verification, Seeds)
+Folder 03  | `folder_03_zubaco_web_lobby/`                             | Web Lobby UI, Hero Carousel, Game Launcher
+Folder 04  | `folder_04_zubaco_mobile_app_screens/`                    | All Native Screens (Splash, Auth, Wallet, KYC)
+Folder 05  | `folder_05_mobile_hardware_and_native_bridge/`            | postMessage Bridge, Back Button, Safe Areas
+Folder 06  | `folder_06_admin_panel_frontend_all_desks/`               | Admin Frontend (Tournaments, Fraud, KYC, Finance)
+Folder 07  | `folder_07_admin_panel_backend_apis/`                     | Admin Backend APIs (All 14 NestJS Controllers)
+Folder 08  | `folder_08_central_platform_apis_and_services/`           | Central Platform Backend (All 13 Core Modules)
+Folder 09  | `folder_09_financial_ledger_payments_and_tds/`            | Double-Entry Invariants, Razorpay/Cashfree, TDS
+Folder 10  | `folder_10_anti_cheat_and_security_penetration/`          | Cadence Bot Radar, Speedhacks, Sybil Farms
+Folder 11  | `folder_11_realtime_tournaments_and_websockets/`          | 5-Stage Machine, Redis ZSet, Microsecond Ties
+Folder 12  | `folder_12_devops_docker_and_infrastructure/`             | Docker Compose, PgBouncer, Redis Persistence
+Folder 13  | `folder_13_observability_metrics_and_alerts/`             | Prometheus Scraping, Grafana Panels, 5 Alerts
+Folder 14  | `folder_14_load_testing_and_benchmarks/`                  | k6 Load Testing (2k CCU Rush, 1k WS Fanout)
+Folder 15  | `folder_15_disaster_recovery_and_backup_runbooks/`        | Postgres Dump/Restore, Redis Crash Drills
 ========================================================================================================================
-1. ENVIRONMENT SETUP & LOCAL PREREQUISITES (FROM ZERO)
-========================================================================================================================
-Before executing any manual test, you must have the following installed on your machine:
-- Node.js : v20.x or v22.x LTS (`node -v`)
-- npm     : v10.x or higher (`npm -v`)
-- Docker Desktop : Running with Linux containers enabled (`docker --version`)
-- PostgreSQL 16  : (or via Docker Compose: `docker-compose up -d postgres`)
-- Redis 7.x      : (or via Docker Compose: `docker-compose up -d redis`)
-- Git            : (`git --version`)
-- Android Studio / Xcode : For mobile app shell testing (or an Android physical device with USB debugging enabled).
 
-========================================================================================================================
-2. DIRECTORY STRUCTURE OF MANUAL TEST SUITES IN THIS FOLDER
-========================================================================================================================
-All manual test specifications are strictly categorized inside `ManualTestingToDo/`:
-
-1. `sectionone_all_20_games_frontend/`:
-   - Contains 20 separate dedicated test plans (one for each cognitive game).
-   - Covers: gameplay loop, countdown timer, scoring formula, input latency, visual polish, win/loss dialogs,
-     audio unlock/mute, difficulty progression (Levels 1 to 10), and offline outbox recovery.
-
-2. `sectiontwo_admin_panel/`:
-   - Admin authentication & 2FA/RBAC (Superadmin, Tournament Ops, KYC Officer, Financial Auditor).
-   - Tournament creation, stage timing overrides, prize pool allocation.
-   - User fraud desk, manual banning, device hardware blacklisting.
-   - KYC identity card verification desk (Approve / Reject with remarks).
-   - Double-entry ledger reconciliation desk (Bonus vs Deposit vs Winning audit).
-
-3. `sectionthree_mobile_app_and_bridge/`:
-   - React Native shell initial boot, splash screen, onboarding.
-   - Bidirectional postMessage RPC between native app and embedded WebView games.
-   - Hardware Android back button intercept (modal confirmation so players do not accidentally forfeit matches).
-   - Safe area handling on notch, dynamic island, and gesture navigation bar devices.
-   - Mid-game phone call and backgrounding interruption handling.
-
-4. `sectionfour_central_platform_backend/`:
-   - User SMS OTP authentication lifecycle and JWT refresh tokens.
-   - Wallet deposit rush, UPI gateway mock callbacks, instant withdrawals.
-   - Double-spend prevention and race conditions.
-   - Regulatory Indian compliance: Section 194BA 30% TDS net winnings deduction and GPS geo-fencing.
-   - Device fingerprinting and Sybil account farm detection.
-
-5. `sectionfive_tournaments_and_websockets/`:
-   - 5-Stage tournament state machine transitions (Registration -> Round of 16 -> Quarters -> Semis -> Finals).
-   - Real-time WebSocket connection, reconnection jitter, and broadcast fan-out.
-   - Redis sorted sets real-time leaderboard and microsecond tie-breaking.
-   - Automatic prize distribution into player wallets.
-
-6. `sectionsix_devops_and_infrastructure/`:
-   - Docker Compose full-stack startup (`docker-compose up --build`).
-   - Health probes verification (`/health/live`, `/health/ready`).
-   - Prometheus metrics scraping (`/metrics`) and Grafana dashboard visualization.
-   - Sentry exception capturing and sensitive PII/password/token redaction.
-
-========================================================================================================================
-3. GLOBAL PASS/FAIL STANDARD & CRITICAL SEVERITY CLASSIFICATION
-========================================================================================================================
-When testing, every issue found must be tagged with a severity level:
-- [BLOCKER / P0] : Financial double-spend, wallet balance leakage, crash on launch, game unsolvable, match ticket exploit.
-- [CRITICAL / P1]: Score submission failure, WebSocket disconnection without auto-reconnect, KYC upload failure, 5xx API errors.
-- [MAJOR / P2]   : Visual glitch on specific screen ratios, audio desync on iOS, level difficulty jump too steep.
-- [MINOR / P3]   : Cosmetic typo, padding alignment off by a few pixels, animation stutter under 30 FPS.
-
-A module is ONLY signed off as PASS when there are ZERO P0 and ZERO P1 bugs remaining.
-
-========================================================================================================================
-4. STEP-BY-STEP LOCAL REPOSITORY BOOTSTRAP INSTRUCTIONS
-========================================================================================================================
-Step 1: Start Databases via Docker
+------------------------------------------------------------------------------------------------------------------------
+HOW TO BOOTSTRAP THE ENTIRE PLATFORM LOCALLY (FROM SCRATCH):
+------------------------------------------------------------------------------------------------------------------------
+1. Boot Infrastructure:
    $ cd c:\Users\Ashar\Desktop\zubaco-games
    $ docker-compose up -d postgres redis
 
-Step 2: Initialize Platform Backend
-   $ cd c:\Users\Ashar\Desktop\zubaco-games\zubaco-platform
+2. Start Central Platform Core (Port 3000):
+   $ cd zubaco-platform
    $ npm install
    $ npx prisma migrate deploy
    $ npm run start:dev
-   (Backend runs at http://localhost:3000)
 
-Step 3: Initialize Admin Panel Backend & Frontend
-   $ cd c:\Users\Ashar\Desktop\zubaco-games\zubaco-admin-panel-repo\zubaco-admin-panel\backend
-   $ npm install
-   $ npm run start:dev
-   (Admin Backend runs at http://localhost:3001)
+3. Start Admin Panel (Backend: Port 3001 | Frontend: Port 3002):
+   $ cd ../zubaco-admin-panel-repo/zubaco-admin-panel/backend && npm run start:dev
+   $ cd ../frontend && npm run dev
 
-   $ cd c:\Users\Ashar\Desktop\zubaco-games\zubaco-admin-panel-repo\zubaco-admin-panel\frontend
-   $ npm install
-   $ npm run dev
-   (Admin Frontend runs at http://localhost:3002)
+4. Start Web Lobby (Port 5173):
+   $ cd ../../../zubaco-web-lobby && npm run dev
 
-Step 4: Launch Web Lobby or Individual Games
-   $ cd c:\Users\Ashar\Desktop\zubaco-games\zubaco-web-lobby
-   $ npm install
-   $ npm run dev
-   (Web Lobby runs at http://localhost:5173)
+5. Start Mobile App Shell (Android Emulator / iOS Simulator):
+   $ cd ../zubaco-mobile && npm start
 
-========================================================================================================================
-5. TEST CREDENTIALS & MOCK CONFIGURATIONS
-========================================================================================================================
-- Platform Admin User : `admin@zubaco.com` / `Admin@Zubaco2026!`
-- Test Phone Numbers  : `+919876543210`, `+919876543211`, `+919876543212`
-- Test OTP in Dev Mode: `123456`
-- Mock Razorpay VPA   : `success@razorpay` (always succeeds) / `failure@razorpay` (fails)
-- Mock Geo-Coordinates:
-  * Allowed Location (Karnataka) : Latitude `12.9716`, Longitude `77.5946` -> PASS
-  * Restricted Location (Assam)  : Latitude `26.1445`, Longitude `91.7362` -> BLOCKED
-  * Restricted Location (Odisha) : Latitude `20.2961`, Longitude `85.8245` -> BLOCKED
+6. Start Any Game Backend & Frontend (e.g. Sequence Recall):
+   $ cd ../zubaco-games/sequence-recall/sequence-recall-backend && npm run start:dev
+   $ cd ../sequence-recall-frontend && npm run dev
 
-========================================================================================================================
-Proceed to the respective subfolders to execute individual manual test suites.
+------------------------------------------------------------------------------------------------------------------------
+TEST CREDENTIALS & MOCK CONFIGURATIONS:
+------------------------------------------------------------------------------------------------------------------------
+- Super Admin Login    : `admin@zubaco.com` / `Admin@Zubaco2026!`
+- Player Phone Numbers : `+919876543210`, `+919876543211`, `+919876543212`
+- Staging Bypass OTP   : `123456`
+- Mock UPI VPAs        : `success@razorpay` (Instant success) | `failure@razorpay` (Gateway failure)
+- Allowed GPS Coords   : Lat `12.9716`, Lng `77.5946` (Bangalore, Karnataka) -> PERMITTED
+- Restricted GPS Coords: Lat `26.1445`, Lng `91.7362` (Guwahati, Assam)       -> RESTRICTED (HTTP 403)
 ========================================================================================================================

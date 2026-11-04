@@ -1,0 +1,49 @@
+========================================================================================================================
+                 ZUBACO DEVOPS: HEALTH PROBES & PROMETHEUS TELEMETRY SCRAPING
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionsix_devops_and_infrastructure/02_health_probes_and_prometheus_metrics_manual_test.txt
+Component: zubaco-platform -> HealthController & MetricsController
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: KUBERNETES/ECS LIVENESS PROBE (`GET /health/live`)
+    - Action: Send GET request to `http://localhost:3000/api/v1/health/live`.
+    - Expected Result:
+      * Returns HTTP 200 `{ "status": "ok", "timestamp": "..." }`.
+      * Does NOT query PostgreSQL or Redis (pure process event-loop responsiveness check).
+
+[ ] TC-02: DEEP READINESS PROBE (`GET /health/ready`)
+    - Action: Send GET request to `http://localhost:3000/api/v1/health/ready`.
+    - Expected Result:
+      * Executes `SELECT 1` on PostgreSQL and `SET health_check` on Redis.
+      * Returns HTTP 200 `{ "status": "ready", "checks": { "db": true, "redis": true } }`.
+
+[ ] TC-03: READINESS FAILURE (DEPENDENCY OUTAGE TEST)
+    - Action: Temporarily stop PostgreSQL (`docker stop postgres`). Call `/health/ready`.
+    - Expected Result:
+      * Returns HTTP 503 `ServiceUnavailableException`.
+      * `{ "status": "not_ready", "checks": { "db": false, "redis": true } }`.
+      * Load balancer immediately halts routing traffic to this container.
+      * Restart Postgres (`docker start postgres`) -> Probes recover to HTTP 200 automatically.
+
+[ ] TC-04: PROMETHEUS METRICS SCRAPING (`GET /metrics`)
+    - Action: Send GET request to `http://localhost:3000/api/v1/metrics`.
+    - Expected Result:
+      * Header `Content-Type: text/plain; version=0.0.4; charset=utf-8`.
+      * Body contains valid Prometheus text exposition metrics:
+        - `# TYPE active_websocket_connections gauge`
+        - `# TYPE http_requests_total counter`
+        - `# TYPE wallet_transactions_total counter`
+        - `# TYPE http_request_duration_seconds histogram`
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

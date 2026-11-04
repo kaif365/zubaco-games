@@ -1,0 +1,55 @@
+========================================================================================================================
+            MANUAL BACKEND API TESTING: GAMES 1 TO 5 (MEMORY CATEGORY BACKENDS)
+========================================================================================================================
+Location: ManualTestingToDo/folder_02_all_20_games_backend/backend_01_to_05_memory_games_manual_test.txt
+Target Microservices:
+  1. Sequence Recall Backend (`zubaco-games/sequence-recall/sequence-recall-backend`)
+  2. Memory Card Matching Backend (`zubaco-games/memory-card-matching/memory-card-matching-backend`)
+  3. Flash Spot Backend (`zubaco-games/flash-spot/flash-spot-backend`)
+  4. Object Placement Backend (`zubaco-games/object-placement-memory/object-placement-memory-backend`)
+  5. Memory Groups Backend (`zubaco-games/memory-groups/memory-groups-backend`)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+STEP-BY-STEP BACKEND API TEST MATRIX (POSTMAN / CURL / BROWSER HARNESS)
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: VISUAL TEST HARNESS LAUNCH (`game-api-tester.html`)
+    - Action: Open `file:///<path_to_game>/game-api-tester.html` in Chrome.
+    - Expected Result:
+      * UI loads interactive forms to trigger Start Session, Submit Moves, and End Session.
+      * Live console log panel displays HTTP request/response JSON in real-time.
+
+[ ] TC-02: SESSION START & SEED ISSUANCE (`POST /api/v1/game/session/start`)
+    - Payload: `{ "userId": "user-test-1", "tournamentId": "tourn-101", "stageId": "stage-1" }`
+    - Expected Result:
+      * HTTP 201 Created.
+      * Returns `{ "sessionId": "sess-xyz", "seed": 16892348, "matchTicket": "HMAC_SIG...", "startTime": 16999999 }`.
+      * Seed is deterministic so server can replay and verify client moves.
+
+[ ] TC-03: VALID MOVE STREAM VERIFICATION (`POST /api/v1/game/session/move`)
+    - Payload: `{ "sessionId": "sess-xyz", "moveIndex": 0, "action": "TAP_PAD", "data": { "padId": 2 }, "timestamp": 1200 }`
+    - Expected Result:
+      * HTTP 200 OK `{ "valid": true, "currentScore": 100 }`.
+      * Server compares move against generated sequence at `seed`.
+
+[ ] TC-04: TAMPERED / IMPOSSIBLE MOVE DETECTION (ANTI-CHEAT)
+    - Action: Submit a move for a pad that was never illuminated in the sequence.
+    - Expected Result:
+      * HTTP 400 Bad Request `{ "valid": false, "reason": "MOVE_MISMATCH_WITH_SEED" }`.
+      * Server refuses to increment score.
+
+[ ] TC-05: SESSION END & SCORE SIGNING (`POST /api/v1/game/session/end`)
+    - Payload: `{ "sessionId": "sess-xyz", "clientReportedScore": 1200, "durationMs": 45200 }`
+    - Expected Result:
+      * Server calculates authoritative score independently:
+        $\text{Server Score} \equiv \sum \text{Verified Moves}$.
+      * If client score matches server score: Returns signed score token `{ "verifiedScore": 1200, "signature": "..." }`.
+      * If client modified payload (e.g. claiming 99,999): Rejects with HTTP 403 `SCORE_TAMPERING_DETECTED`.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified for Games 1 to 5: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

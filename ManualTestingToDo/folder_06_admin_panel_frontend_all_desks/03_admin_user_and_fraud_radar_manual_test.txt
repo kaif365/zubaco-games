@@ -1,0 +1,46 @@
+========================================================================================================================
+                          ZUBACO ADMIN PANEL: USER MANAGEMENT & FRAUD RADAR DESK
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectiontwo_admin_panel/03_admin_user_and_fraud_radar_manual_test.txt
+Component: zubaco-admin-panel -> Fraud & Security Desk
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: REAL-TIME SUSPICIOUS ACTIVITY FEED
+    - Action: Navigate to Fraud Desk.
+    - Expected Result:
+      * Anti-cheat alerts populate in real-time table (Flag type: SPEEDHACK, CADENCE_BOT, MULTI_ACCOUNT).
+      * Anomaly score, device SHA-256 fingerprint, and player details are displayed.
+
+[ ] TC-02: MANUAL ACCOUNT BAN & TOKEN REVOCATION
+    - Action: Click on a flagged suspicious user -> Click "Ban User".
+    - Input: Reason: "Bot cadence violation in Sequence Recall".
+    - Expected Result:
+      * User status changes to `BANNED`.
+      * Fast-path ban key `auth:ban:{userId} = 1` is written into Redis immediately with zero delay.
+      * If user is currently playing on mobile, their active WebSocket is severed with `SESSION_TERMINATED`.
+
+[ ] TC-03: DEVICE HARDWARE FINGERPRINT BLACKLIST
+    - Action: On banned user profile, click "Blacklist Hardware Device".
+    - Expected Result:
+      * SHA-256 device fingerprint is added to permanent blacklist table.
+      * Any attempt to register a new account from that same physical device is blocked with HTTP 403 `DEVICE_BLOCKED`.
+
+[ ] TC-04: BAN REVERSAL & UNBAN WORKFLOW
+    - Action: On banned user, click "Pardon / Unban".
+    - Expected Result:
+      * Redis ban key is purged.
+      * User status returns to `ACTIVE`.
+      * Audit log registers admin email and unban timestamp.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

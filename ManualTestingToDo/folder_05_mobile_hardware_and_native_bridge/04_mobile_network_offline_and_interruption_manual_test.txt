@@ -1,0 +1,47 @@
+========================================================================================================================
+                   ZUBACO MOBILE APP: NETWORK OFFLINE & APP INTERRUPTION RESILIENCE
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionthree_mobile_app_and_bridge/04_mobile_network_offline_and_interruption_manual_test.txt
+Component: zubaco-mobile (AppState Listeners & Network Outbox Sync)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: INCOMING PHONE CALL INTERRUPTION
+    - Action: While in an active single-player or practice match, simulate an incoming cellular phone call.
+    - Expected Result:
+      * App transitions to `AppState === 'inactive'` / `'background'`.
+      * Game pauses audio and timers automatically.
+      * Dismiss the call and return to Zubaco: App presents "Game Paused - Tap to Resume" dialog.
+      * Tapping resume restores game state without crashes.
+
+[ ] TC-02: SEVERE NETWORK DROPOUT (AIRPLANE MODE)
+    - Action: In the middle of playing, toggle phone into "Airplane Mode" (disconnect Wi-Fi and 4G/5G).
+    - Expected Result:
+      * Game does NOT crash or show a generic browser "No Internet / Dinosaur" error page.
+      * Top non-intrusive banner appears: "Reconnecting... Your score is safely saved locally".
+      * On match finish, score is queued into encrypted local SQLite / AsyncStorage outbox.
+
+[ ] TC-03: AUTOMATIC OUTBOX RECONNECT FLUSH
+    - Action: Turn "Airplane Mode" OFF and reconnect to Wi-Fi.
+    - Expected Result:
+      * Network listener detects connection restoration.
+      * Outbox worker flushes pending score payload with original match timestamp.
+      * Server acknowledges score with HTTP 200 and leaderboard updates without duplicate submission.
+
+[ ] TC-04: LOW MEMORY BACKGROUND TERMINATION (OS KILL TEST)
+    - Action: Open Zubaco, start game, background app, open 5 heavy 3D apps to trigger OS memory pressure, return to Zubaco.
+    - Expected Result:
+      * If process was preserved: resumes instantly.
+      * If OS killed process: re-launches cleanly from splash screen and checks with backend if the active match ticket is still in grace period.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

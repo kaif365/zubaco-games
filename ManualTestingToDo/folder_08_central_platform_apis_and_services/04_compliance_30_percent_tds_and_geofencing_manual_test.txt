@@ -1,0 +1,54 @@
+========================================================================================================================
+                      ZUBACO PLATFORM: SECTION 194BA 30% TDS & GPS GEO-FENCING
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionfour_central_platform_backend/04_compliance_30_percent_tds_and_geofencing_manual_test.txt
+Component: zubaco-platform -> ComplianceModule (`/api/v1/compliance`)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: NET WINNINGS 30% TDS FORMULA VERIFICATION (INDIAN INCOME TAX COMPLIANCE)
+    - Action: User requests withdrawal of ₹1,000.
+      * Financial Year Total Deposits: ₹2,000
+      * Financial Year Total Withdrawals to Date: ₹1,500
+      * Net Winnings Calculation:
+        $\text{Net Winnings} = (\text{Total Withdrawals} + \text{Current Withdrawal}) - \text{Total Deposits}$
+        $\text{Net Winnings} = (₹1,500 + ₹1,000) - ₹2,000 = ₹500$
+      * TDS Due (30% on Net Winnings): $30\% \times ₹500 = ₹150$
+      * Net Payout Dispatched to Bank: $₹1,000 - ₹150 = ₹850$
+    - Expected Result:
+      * Backend computes exactly ₹150 TDS.
+      * ₹150 TDS credited to Government TDS withholding ledger account.
+      * User receives ₹850 in UPI and TDS certificate details appear in their withdrawal history.
+
+[ ] TC-02: ZERO TDS ON WITHDRAWAL BELOW NET WINNINGS
+    - Action: User deposits ₹5,000. Withdraws ₹2,000 without any tournament winnings.
+    - Expected Result:
+      * Net winnings is $\le 0$.
+      * TDS calculated is ₹0.00.
+      * User receives full ₹2,000 without tax deduction.
+
+[ ] TC-03: GPS GEO-FENCING: ALLOWED INDIAN STATES
+    - Action: User submits coordinates for Bangalore, Karnataka (Lat: 12.9716, Lng: 77.5946).
+    - Expected Result:
+      * Haversine polygon lookup resolves state as "KARNATAKA".
+      * Real-money tournament entry is permitted.
+
+[ ] TC-04: GPS GEO-FENCING: BANNED INDIAN STATES (LEGAL HARDENING)
+    - Action: User submits coordinates for Guwahati, Assam (Lat: 26.1445, Lng: 91.7362)
+      or Odisha / Telangana / Andhra Pradesh / Sikkim / Nagaland.
+    - Expected Result:
+      * Request rejected with HTTP 403 `GEO_LOCATION_RESTRICTED`.
+      * Message: "Real-money gaming is restricted in your state under state gaming regulations".
+      * Practice / Free-play modes remain available.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

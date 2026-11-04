@@ -1,0 +1,45 @@
+========================================================================================================================
+            PAYMENT GATEWAYS & SECTION 194BA 30% TDS: DEEP EDGE CASE MANUAL TESTING
+========================================================================================================================
+Location: ManualTestingToDo/folder_09_financial_ledger_payments_and_tds/02_payments_and_tds_deep_manual_test.txt
+Target: Razorpay, Cashfree, Instant UPI Payouts & Tax Withholding
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+STEP-BY-STEP PAYMENT & TAX EDGE CASE MATRIX:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: DEPOSIT DROPPED NETWORK CALLBACK RECOVERY
+    - Action: User pays ₹500 on Razorpay UPI. User closes the app BEFORE the redirect returns to the app.
+    - Expected Result:
+      * Razorpay sends background webhook to `/api/v1/webhook/razorpay`.
+      * Backend processes webhook independently of client presence.
+      * When user re-opens app 5 minutes later, wallet balance shows ₹500 added.
+
+[ ] TC-02: INSTANT UPI PAYOUT RETRY AFTER BANK DOWNTIME
+    - Action: User withdraws ₹1,000. Destination bank's UPI switch returns `SYSTEM_ERROR` or `BANK_TIMED_OUT`.
+    - Expected Result:
+      * Cashfree / Razorpay payout engine does NOT debit the user's wallet permanently.
+      * Transaction transitions to `REVERSED` or `RETRY_QUEUED`.
+      * Funds are unheld and restored to user's `winningBalance` with clear error message.
+
+[ ] TC-03: FISCAL YEAR NET WINNINGS CUMULATIVE ROLLOVER
+    - Action: Calculate TDS on March 31 vs April 1 (Financial Year rollover).
+    - Expected Result:
+      * On April 1st 00:00:00 IST:
+        - Opening Financial Year balance is reset to 0.
+        - Previous year's net winnings do not carry forward as negative tax shield into new FY.
+        - Section 194BA compliance correctly abides by Indian Income Tax Act guidelines.
+
+[ ] TC-04: FRACTIONAL PAISE ROUNDING ON TDS
+    - Action: Net winnings calculation produces fractional tax (e.g. ₹33.3333).
+    - Expected Result:
+      * Math uses standard banker's rounding (`ROUND_HALF_UP`) to nearest whole rupee or exact paise integer.
+      * Government ledger receives exact matching amount.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Payment & Tax Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

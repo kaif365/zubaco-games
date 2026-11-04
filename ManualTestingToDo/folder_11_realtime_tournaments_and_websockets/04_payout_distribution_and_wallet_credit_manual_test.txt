@@ -1,0 +1,41 @@
+========================================================================================================================
+                   ZUBACO TOURNAMENT PAYOUTS: DISTRIBUTION & WALLET CREDIT
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionfive_tournaments_and_websockets/04_payout_distribution_and_wallet_credit_manual_test.txt
+Component: zubaco-platform -> Payout Distribution Engine
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: AUTOMATED PRIZE POOL DISPATCH AT TOURNAMENT COMPLETION
+    - Action: Tournament with ₹10,000 prize pool finishes. Configured payout:
+      * 1st Place: ₹5,000 (50%)
+      * 2nd Place: ₹3,000 (30%)
+      * 3rd Place: ₹2,000 (20%)
+    - Expected Result:
+      * Payout engine reads final verified leaderboard from PostgreSQL.
+      * Creates 3 atomic financial credit entries in double-entry ledger.
+      * Credits directly to each winner's `winningBalance` bucket.
+
+[ ] TC-02: IN-APP CELEBRATORY NOTIFICATION & PUSH DISPATCH
+    - Action: Observe mobile screen for 1st place winner.
+    - Expected Result:
+      * Confetti modal triggers: "Congratulations! You won ₹5,000 in Grand Master Sequence Sprint".
+      * Wallet balance counter rolls up with an audio coin cascade chime.
+
+[ ] TC-03: ZERO-LEAKAGE IDEMPOTENT PAYOUT RUN
+    - Action: Simulate payout cron worker firing twice for the same finished tournament ID.
+    - Expected Result:
+      * Distributed Redis lock and tournament status check (`payout_status === 'COMPLETED'`) prevent duplicate execution.
+      * Winners are NEVER paid twice.
+
+========================================================================================================================
+SIGN-OFF:
+All 3 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

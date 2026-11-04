@@ -1,0 +1,57 @@
+========================================================================================================================
+     MANUAL BACKEND API TESTING: GAMES 11 TO 20 (VERBAL, PHYSICS, REFLEX & ENDURANCE BACKENDS)
+========================================================================================================================
+Location: ManualTestingToDo/folder_02_all_20_games_backend/backend_11_to_20_all_other_games_manual_test.txt
+Target Microservices:
+  11. Infinity Loop Backend (`zubaco-games/Infinity-loop/Infinity-Loop-backend`)
+  12. Word Unscramble Backend (`zubaco-games/word-unscramble/word-unscramble-backend`)
+  13. True/False Blitz Backend (`zubaco-games/true-false-blitz/true-false-blitz-backend`)
+  14. Arrows Flanker Backend (`zubaco-games/arrows/arrows-backend`)
+  15. Logic Reflector Backend (`zubaco-games/logic-reflector/logic-reflector-backend`)
+  16. Number Grid Backend (`zubaco-games/number-grid-sprint/number-grid-backend`)
+  17. Live Route Backend (`zubaco-games/live-route-builder/live-route-backend`)
+  18. Reflex Endurance Backend (`zubaco-games/reflex-endurance/reflex-endurance-backend`)
+  19. Pattern Survival Backend (`zubaco-games/pattern-survival/pattern-survival-backend`)
+  20. Speed Type Backend (`zubaco-games/speed-type-answer/speed-type-backend`)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+STEP-BY-STEP BACKEND API TEST MATRIX (POSTMAN / CURL / BROWSER HARNESS)
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: INFINITY LOOP: ROTATION STATE GRAPH
+    - Expected Result: Backend validates 2D graph topology; verifies closed-loop Euler circuit when all tiles connect.
+
+[ ] TC-02: WORD UNSCRAMBLE: DICTIONARY LOOKUP & ANAGRAM VALIDATION
+    - Expected Result: Backend checks trie / dictionary; rejects invalid words with HTTP 400 `WORD_NOT_IN_LEXICON`.
+
+[ ] TC-03: TRUE/FALSE BLITZ: DETERMINISTIC MATH EVALUATION
+    - Expected Result: Server re-evaluates expressions (e.g. `7 + 8 === 15`); verifies boolean truth value authoritatively.
+
+[ ] TC-04: ARROWS: CONGRUENCE CLASSIFICATION
+    - Expected Result: Checks center arrow target vs flanker noise; rejects wrong directional vector.
+
+[ ] TC-05: LOGIC REFLECTOR: 2D RAY-CASTING ENGINE
+    - Expected Result: Server calculates laser vector path; detects optical collision with mirrors ($i = r$) and crystal hits.
+
+[ ] TC-06: NUMBER GRID: ASCENDING TARGET SEQUENCE
+    - Expected Result: Verifies consecutive numbers strictly from 1 to $N$; rejects out-of-order numbers.
+
+[ ] TC-07: LIVE ROUTE: RAIL JUNCTION SWITCHING
+    - Expected Result: Server simulates continuous waypoint movement; collision with unswitched dead-ends triggers derailed failure.
+
+[ ] TC-08: REFLEX ENDURANCE: UNPREDICTABLE SIGNAL DELAY
+    - Expected Result: Server stores secret randomized green light timestamp; premature client taps detected as false starts.
+
+[ ] TC-09: PATTERN SURVIVAL: PROCEDURAL RULE EVALUATION
+    - Expected Result: Validates mathematical shape matrix rule; verifies selected option is the unique solution.
+
+[ ] TC-10: SPEED TYPE: LEVENSHTEIN DISTANCE & WPM CALCULATION
+    - Expected Result: Computes real-time Words Per Minute: $\text{WPM} = \frac{\text{Chars} / 5}{\text{Minutes}}$; verifies keystroke accuracy.
+
+========================================================================================================================
+SIGN-OFF:
+All 10 Test Cases Verified for Games 11 to 20: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

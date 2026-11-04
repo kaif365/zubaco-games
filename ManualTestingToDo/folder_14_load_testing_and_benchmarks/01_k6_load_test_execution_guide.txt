@@ -1,0 +1,47 @@
+========================================================================================================================
+         HIGH-CONCURRENCY LOAD TESTING & PERFORMANCE BENCHMARKING EXECUTION GUIDE
+========================================================================================================================
+Location: ManualTestingToDo/folder_14_load_testing_and_benchmarks/01_k6_load_test_execution_guide.txt
+Target: k6 Load Testing Scripts in `zubaco-games/load-tests/`
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO INSTALL K6:
+   - Windows: `choco install k6` or `winget install k6`
+   - Mac: `brew install k6`
+   - Linux: `sudo apt-get install k6`
+
+------------------------------------------------------------------------------------------------------------------------
+STEP-BY-STEP LOAD TEST EXECUTION CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: TOURNAMENT REGISTRATION RUSH BENCHMARK (2,000 CCU)
+    - Action: Run `k6 run zubaco-games/load-tests/tournament-registration-rush.k6.js`.
+    - Workload: 2,000 virtual users hitting `/wallet/debit-entry-fee` simultaneously.
+    - Expected Result:
+      * 100% of registrations succeed or reject with clean HTTP 400 (Insufficient Balance).
+      * Zero database deadlocks (`ERROR 40P01`).
+      * 99th percentile HTTP latency < 250ms.
+      * Final database check proves zero balance variance.
+
+[ ] TC-02: WEBSOCKET FAN-OUT & COUNTDOWN BROADCAST (1,000 CONCURRENT CLIENTS)
+    - Action: Run `k6 run zubaco-games/load-tests/websocket-broadcast-rush.k6.js`.
+    - Workload: 1,000 persistent WebSocket connections subscribed to active tournament room.
+    - Expected Result:
+      * All 1,000 sockets connect within 5 seconds.
+      * Instantaneous broadcast of `STAGE_START` delivers to 1,000 clients in < 50ms.
+      * Node.js event loop lag stays under 20ms.
+
+[ ] TC-03: STAGE CUTOFF STAMPEDE (1,000 SCORE SUBMISSIONS IN 10 SECONDS)
+    - Action: Run `k6 run zubaco-games/load-tests/stage-cutoff-stampede.k6.js`.
+    - Workload: 1,000 players submitting final game scores in the final 10 seconds before cutoff.
+    - Expected Result:
+      * Redis Sorted Sets (`ZADD`) ingests scores at > 3,000 ops/sec without connection dropping.
+      * Real-time leaderboard updates with microsecond tie-breaking.
+      * Scores submitted after 00:00.000 are rejected cleanly with `STAGE_ALREADY_CLOSED`.
+
+========================================================================================================================
+SIGN-OFF:
+All 3 High-Concurrency Benchmarks Certified: [ ] YES  [ ] NO
+Performance Engineer Signature: _______________________
+========================================================================================================================

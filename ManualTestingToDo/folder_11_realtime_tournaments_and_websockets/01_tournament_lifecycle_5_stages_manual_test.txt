@@ -1,0 +1,55 @@
+========================================================================================================================
+                   ZUBACO TOURNAMENT ENGINE: 5-STAGE STATE MACHINE LIFECYCLE
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionfive_tournaments_and_websockets/01_tournament_lifecycle_5_stages_manual_test.txt
+Component: zubaco-platform -> TournamentModule & BullMQ Cron
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: REGISTRATION PHASE (`REGISTRATION_OPEN`)
+    - Action: Tournament created. Multiple test players pay entry fees.
+    - Expected Result:
+      * Player count increments on tournament card in mobile app.
+      * Registrations close at configured cutoff time (e.g., 2 minutes before Stage 1 start).
+      * State transitions to `STAGE_1_PREPARATION`.
+
+[ ] TC-02: STAGE 1 (ROUND OF 16 / QUALIFIER ROUND)
+    - Action: Countdown reaches 00:00.
+    - Expected Result:
+      * Server broadcasts `STAGE_START` event via WebSocket to all enrolled players.
+      * Players launch into the game.
+      * Match duration timer (e.g. 90 seconds) ticks down synchronously across all clients.
+
+[ ] TC-03: STAGE CUTOFF & PERCENTILE ELIMINATION (CRITICAL P0)
+    - Action: Stage 1 timer expires.
+    - Expected Result:
+      * Server freezes score submissions for Stage 1.
+      * Percentile cutoff algorithm evaluates leaderboard:
+        Top 50% percentile players advance to `STAGE_2_QUARTER_FINALS`.
+        Bottom 50% percentile players receive elimination notification dialog: "Better luck next time!".
+      * No orphaned players or stuck state transitions.
+
+[ ] TC-04: STAGE 2 TO STAGE 4 CONSECUTIVE ROUNDS
+    - Action: Repeat through Quarters, Semis, and Finals.
+    - Expected Result:
+      * Cohort sizes halve each round (16 -> 8 -> 4 -> 2).
+      * Break timers (e.g. 30s rest between rounds) count down on screen.
+
+[ ] TC-05: STAGE 5 (FINALS) & TOURNAMENT COMPLETION
+    - Action: Finals round completes.
+    - Expected Result:
+      * Final leaderboard is permanently sealed in PostgreSQL.
+      * Tournament status transitions to `COMPLETED`.
+      * Podium screen displays 1st, 2nd, and 3rd place winners with crown avatars.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

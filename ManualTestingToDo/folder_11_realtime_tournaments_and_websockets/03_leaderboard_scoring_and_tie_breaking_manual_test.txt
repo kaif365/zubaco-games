@@ -1,0 +1,43 @@
+========================================================================================================================
+                   ZUBACO LEADERBOARD: REDIS SORTED SETS & MICROSECOND TIE-BREAKING
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionfive_tournaments_and_websockets/03_leaderboard_scoring_and_tie_breaking_manual_test.txt
+Component: zubaco-platform -> LeaderboardModule & Redis ZSet
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: SCORE INGESTION & REDIS ZADD
+    - Action: Player submits score of 8,500 points at timestamp $T$.
+    - Expected Result:
+      * Score is written into Redis Sorted Set key `leaderboard:{stageId}`.
+      * Redis stores score using composite floating-point:
+        $\text{Composite Score} = \text{Points} + \left(1 - \frac{T - T_0}{10^9}\right)$
+      * Instant rank query `ZREVRANK` returns player's exact live rank in $O(\log N)$ time (< 2ms).
+
+[ ] TC-02: IDENTICAL SCORE TIE-BREAKER RESOLUTION (CRITICAL P0)
+    - Action: Player A submits 10,000 points at 12:00:05.120. Player B submits 10,000 points at 12:00:08.450.
+    - Expected Result:
+      * Both players have identical integer points (10,000).
+      * The tie-breaker formula strictly awards higher rank to Player A because Player A achieved the score earlier.
+      * Leaderboard displays:
+        Rank 1: Player A (10,000 pts)
+        Rank 2: Player B (10,000 pts)
+      * No arbitrary coin-flips or rank oscillation occurs.
+
+[ ] TC-03: PAGINATED LEADERBOARD RETRIEVAL (`GET /leaderboard`)
+    - Action: Query top 100 ranks and player's own surrounding neighbor ranks (+/- 2 players).
+    - Expected Result:
+      * Response returns in under 15ms.
+      * Contains: Rank, Username, Avatar, Score, Submission timestamp.
+
+========================================================================================================================
+SIGN-OFF:
+All 3 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

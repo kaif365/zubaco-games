@@ -1,0 +1,59 @@
+========================================================================================================================
+                  ZUBACO ADMIN PANEL BACKEND: COMPLETE REST API VERIFICATION SUITE
+========================================================================================================================
+Location: ManualTestingToDo/folder_07_admin_panel_backend_apis/admin_panel_all_api_endpoints_manual_test.txt
+Component: `zubaco-admin-panel/backend` (NestJS REST API | Default Port: 3001)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-admin-panel-repo/zubaco-admin-panel/backend`
+   - Run: `npm run start:dev`
+   - Base API URL: `http://localhost:3001/api`
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL API TEST MATRIX ACROSS ALL 14 ADMIN CONTROLLERS:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: ADMIN AUTHENTICATION (`admin-auth.controller.ts`)
+    - `POST /api/auth/login` : Login with admin credentials -> Returns JWT + Admin Profile + Permissions.
+    - `POST /api/auth/logout` : Blacklists token in Redis.
+    - `GET  /api/auth/me` : Returns authenticated admin identity.
+
+[ ] TC-02: TOURNAMENTS & STAGES (`tournaments.controller.ts`, `stages.controller.ts`)
+    - `GET    /api/tournaments` : Paginated list with status, entry fee, prize pool filters.
+    - `POST   /api/tournaments` : Creates tournament with automated 5-stage schedule.
+    - `PUT    /api/tournaments/:id/cancel` : Cancels tournament and triggers automated player refunds.
+    - `POST   /api/stages/:id/force-advance` : Emergency operator force-advance to next tournament round.
+
+[ ] TC-03: CHEAT FLAGS & FRAUD RADAR (`cheat-flags.controller.ts`)
+    - `GET    /api/cheat-flags` : Live stream of high/critical anti-cheat anomalies.
+    - `POST   /api/cheat-flags/:id/resolve` : Operator resolution (Dismiss or Escalate to Ban).
+    - `GET    /api/cheat-flags/device-blacklist` : SHA-256 hardware device blacklist query.
+
+[ ] TC-04: USER DESK & BANS (`users.controller.ts`)
+    - `GET    /api/users` : Search by phone, name, wallet balance, KYC status.
+    - `PUT    /api/users/:id/ban` : Bans player, writes zero-delay fast-path Redis ban key.
+    - `PUT    /api/users/:id/unban` : Reverses ban, clears cache.
+
+[ ] TC-05: ANALYTICS & KPIS (`analytics.controller.ts`)
+    - `GET    /api/analytics/overview` : Total Active Users (DAU), Gross Gaming Revenue (GGR), Net Rake.
+    - `GET    /api/analytics/tournaments` : Fill rates, prize distribution ratio, drop-off rates.
+
+[ ] TC-06: FINANCIAL EXPORTS & AUDIT TRAILS (`exports.controller.ts`, `audit-logs.controller.ts`)
+    - `GET    /api/exports/transactions.csv` : Downloads double-entry ledger journal.
+    - `GET    /api/audit-logs` : Immutable log of all administrative actions (Who changed what, when, IP).
+
+[ ] TC-07: BANNERS & NOTIFICATIONS (`banners.controller.ts`, `notifications.controller.ts`)
+    - `POST   /api/banners` : Upload new promo hero banner for mobile/web lobby.
+    - `POST   /api/notifications/broadcast` : Send global push notification to all active players.
+
+[ ] TC-08: GAME ENGINE CONFIG & SEASONS (`games.controller.ts`, `seasons.controller.ts`, `settings.controller.ts`)
+    - `PUT    /api/games/:id/toggle` : Enable or disable any of the 20 games for maintenance.
+    - `PUT    /api/settings/maintenance` : Platform-wide maintenance lock switch.
+
+========================================================================================================================
+SIGN-OFF:
+All 8 Test Suites Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

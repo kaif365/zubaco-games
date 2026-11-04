@@ -1,0 +1,56 @@
+========================================================================================================================
+         MANUAL BACKEND API TESTING: GAMES 6 TO 10 (SPATIAL & LOGIC CATEGORY BACKENDS)
+========================================================================================================================
+Location: ManualTestingToDo/folder_02_all_20_games_backend/backend_06_to_10_spatial_and_logic_manual_test.txt
+Target Microservices:
+  6. Sliding Puzzle Backend (`zubaco-games/sliding-puzzle/sliding-puzzle-backend`)
+  7. Block Fill Backend (`zubaco-games/block-fill/block-fill-backend`)
+  8. Colour Sorting Backend (`zubaco-games/colour-sorting/colour-sorting-backend`)
+  9. Rapid Category Sort Backend (`zubaco-games/rapid-category-sort/rapid-sort-backend`)
+  10. Maze Navigation Backend (`zubaco-games/maze-navigation/maze-navigation-backend`)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+STEP-BY-STEP BACKEND API TEST MATRIX (POSTMAN / CURL / BROWSER HARNESS)
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: SLIDING PUZZLE BACKEND (PARITY & MOVE INVARIANT)
+    - Action: `POST /api/v1/game/session/start`.
+    - Expected Result:
+      * Server generates 3x3 permutation and computes inversion count $I$.
+      * Guaranteed $I \pmod 2 === 0$.
+      * Every submitted move `{ from: (x1, y1), to: (x2, y2) }` must satisfy Manhattan distance $|x1-x2| + |y1-y2| === 1$.
+      * Moving a diagonal or non-adjacent tile returns HTTP 400 `ILLEGAL_MOVE`.
+
+[ ] TC-02: BLOCK FILL BACKEND (POLYOMINO CELL COLLISION)
+    - Action: `POST /api/v1/game/session/move` with piece coordinates.
+    - Expected Result:
+      * Server maintains 2D boolean array representation of the board.
+      * Overlapping placement or out-of-bounds coordinates return HTTP 400 `GRID_COLLISION`.
+      * Board 100% full triggers completion with time bonus calculation.
+
+[ ] TC-03: COLOUR SORTING BACKEND (TUBE CAPACITY & COLOR MATCH)
+    - Action: `POST /api/v1/game/session/move` `{ sourceTube: 0, destTube: 1 }`.
+    - Expected Result:
+      * Server verifies top liquid color matches or destination tube is empty.
+      * Server verifies `destTube.length < 4`.
+      * Violating either rule returns HTTP 400 `INVALID_POUR`.
+
+[ ] TC-04: RAPID SORT BACKEND (STROOP TIMESTAMPS)
+    - Action: `POST /api/v1/game/session/move` `{ item: "ELEPHANT", chosenBin: "LIVING" }`.
+    - Expected Result:
+      * Server checks taxonomy dictionary.
+      * Inter-tap duration $\Delta t < 30\text{ms}$ flagged as bot anomaly.
+
+[ ] TC-05: MAZE NAVIGATION BACKEND (BFS REACHABILITY & WALL TUNNELING)
+    - Action: `POST /api/v1/game/session/move` `{ currentPos: [x, y], nextPos: [x+1, y] }`.
+    - Expected Result:
+      * Server checks binary wall mask matrix. Moving through a solid wall returns HTTP 400 `WALL_COLLISION_DETECTED`.
+      * Player cannot teleport directly to the exit.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified for Games 6 to 10: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

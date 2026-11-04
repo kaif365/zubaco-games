@@ -1,0 +1,44 @@
+========================================================================================================================
+         OBSERVABILITY: PROMETHEUS METRICS, GRAFANA PANELS & ALERT RULES MANUAL AUDIT
+========================================================================================================================
+Location: ManualTestingToDo/folder_13_observability_metrics_and_alerts/01_grafana_and_prometheus_manual_verification.txt
+Target: Prometheus (`docker/prometheus`), Grafana (`docker/grafana`), Sentry APM
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL OBSERVABILITY AUDIT STEPS:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: PROMETHEUS SCRAPE TARGET VERIFICATION
+    - Action: Open Prometheus Web UI (`http://localhost:9090/targets`).
+    - Expected Result:
+      * Endpoint `platform:3000/api/v1/metrics` shows state `UP` in bright green.
+      * Scrape latency is < 15ms.
+      * Error count is 0.
+
+[ ] TC-02: GRAFANA PRODUCTION DASHBOARD IMPORT
+    - Action: Open Grafana (`http://localhost:3003`). Import `docker/grafana/dashboards/platform-overview.json`.
+    - Expected Result:
+      * 5 critical panels render live time-series data:
+        1. Active WebSocket Connections (`active_websocket_connections`)
+        2. HTTP Request Throughput (`rate(http_requests_total[1m])`)
+        3. Anti-Cheat Flags Raised (`sum(anti_cheat_flags_total)`)
+        4. p95 Latency Distribution (`histogram_quantile(0.95, ...)`)
+        5. Wallet Ledger Transactions / min (`rate(wallet_transactions_total[1m]) * 60`)
+
+[ ] TC-03: ALERT TRIGGERING VALIDATION (5 CRITICAL ALERTS)
+    - Action: Manually test the 5 rules in `docker/prometheus/alerts.yml`:
+      1. `HighHttpErrorRate` (> 1% 5xx over 5m window)
+      2. `DatabasePoolSaturationHigh` (> 85% PgBouncer pool capacity)
+      3. `PaymentWebhookFailureSpike` (> 2% webhook failures)
+      4. `RedisMemoryHigh` (> 85% volatile-lru limit)
+      5. `AntiCheatFlagSurge` (> 50 flags / minute)
+    - Expected Result:
+      * When thresholds are breached, alerts transition from `Pending` to `Firing` in Alertmanager.
+
+========================================================================================================================
+SIGN-OFF:
+All 3 Observability Systems Verified: [ ] YES  [ ] NO
+DevOps Engineer Signature: _______________________
+========================================================================================================================

@@ -1,0 +1,67 @@
+========================================================================================================================
+                          ZUBACO WEB LOBBY: COMPLETE MANUAL TESTING SUITE
+========================================================================================================================
+Location: ManualTestingToDo/folder_03_zubaco_web_lobby/web_lobby_manual_test_suite.txt
+Directory: `zubaco-web-lobby` (React 18 + Vite | Default Port: 5173)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-web-lobby`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: HEADER NAVIGATION & AUTHENTICATION STATE
+    - Action: Open lobby without logging in.
+    - Expected Result:
+      * Zubaco logo displays cleanly in header.
+      * "Login / Sign Up" button is visible.
+      * Wallet bar displays "Guest" or prompts login.
+    - Action: Click "Login", enter phone `+919876543210` and OTP `123456`.
+    - Expected Result:
+      * Header transforms: shows avatar, username, and real-time wallet balance pill (e.g. "₹850.00").
+      * Clicking avatar opens dropdown: "My Profile", "Transaction History", "Settings", "Logout".
+
+[ ] TC-02: HERO PROMO BANNER CAROUSEL
+    - Action: Observe top promotional hero carousel on homepage.
+    - Expected Result:
+      * Banners highlight featured mega-tournaments (e.g. "₹50,000 Grand Cognitive Championship").
+      * Carousel auto-rotates every 5 seconds or supports touch swiping.
+      * Clicking "Play Now" on banner routes to tournament registration modal.
+
+[ ] TC-03: ALL 20 COGNITIVE SKILL GAMES GRID
+    - Action: Scroll to "Cognitive Skill Games" section.
+    - Expected Result:
+      * Filter tabs work smoothly: [All Games], [Memory], [Spatial], [Logic], [Reflex].
+      * All 20 game cards are present with high-res thumbnails, categories, and player count badges.
+      * Hovering over a game card shows animated preview and "Practice Free" / "Join Tournament" buttons.
+
+[ ] TC-04: LIVE TOURNAMENT DISCOVERY LOBBY
+    - Action: Click "Tournaments" tab in navigation.
+    - Expected Result:
+      * Active tournaments list displays: Game title, Entry fee (₹10, ₹50, ₹100), Guaranteed Prize, Player spots filled (e.g. 48/64), and Stage countdown timer.
+      * Status chips indicate: `REGISTRATION_OPEN`, `STARTING_SOON`, `LIVE_STAGE_1`.
+
+[ ] TC-05: IN-BROWSER GAME LAUNCH MODAL (IFRAME / POPUP)
+    - Action: Click "Practice Free" on any game.
+    - Expected Result:
+      * Game container opens in full-screen modal or seamless embedded frame.
+      * Frame dimensions conform to standard 9:16 mobile aspect ratio or responsive desktop canvas.
+      * Close "X" button prompts confirmation before abandoning active session.
+
+[ ] TC-06: MOBILE & TABLET RESPONSIVE VIEWPORT TESTING
+    - Action: Resize browser window or test on iPhone Safari (375x812) and iPad (768x1024).
+    - Expected Result:
+      * Navigation bar collapses into hamburger menu on mobile.
+      * Game cards stack into a 2-column grid.
+      * Touch tap targets are large (>= 48px) and easy to tap with thumb.
+
+========================================================================================================================
+SIGN-OFF:
+All 6 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

@@ -1,0 +1,57 @@
+========================================================================================================================
+                          ZUBACO GAME 11: INFINITY LOOP (TOPOLOGICAL ROTATION)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_11_infinity_loop_manual_test.txt
+Game Code Directory: zubaco-games/Infinity-loop/frontend
+Category: Logic, Visual Harmony & Topological Closure
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/Infinity-loop/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: CURVED & STRAIGHT TILE ORIENTATION
+    - Action: Start match. Observe grid of segmented pipe / wire fragments (curves, T-junctions, lines).
+    - Expected Result:
+      * Tiles are rendered with neon glowing lines against a clean dark aesthetic.
+      * Tiles are scrambled with random initial 90-degree rotations.
+      * Board is mathematically guaranteed to form a closed, leak-free continuous circuit when solved.
+
+[ ] TC-02: 90-DEGREE ROTATION ON TAP
+    - Action: Tap a tile once.
+    - Expected Result:
+      * Tile rotates clockwise by exactly 90 degrees with smooth rotational animation.
+      * Rotation click audio plays.
+      * Tapping 4 times completes a full 360-degree rotation back to the starting orientation.
+
+[ ] TC-03: CIRCUIT CLOSURE DETECTION (GLOW EXPANSION)
+    - Action: Align 2 adjacent curve endpoints.
+    - Expected Result:
+      * Connecting endpoints lock visually and glow brighter, indicating a closed sub-circuit.
+      * Haptic feedback pulses gently on successful link.
+
+[ ] TC-04: GLOBAL PUZZLE CLOSURE & WIN STATE
+    - Action: Rotate all tiles until EVERY open wire end connects into a closed loop with zero dead-end leaks.
+    - Expected Result:
+      * The entire continuous structure illuminates with a flowing pulse of light.
+      * Background glows with a peaceful completion harmony.
+      * Win summary displays elapsed time and rotation efficiency.
+
+[ ] TC-05: RAPID TAPPING OF SINGLE TILE
+    - Action: Tap a single tile 10 times in 1 second.
+    - Expected Result:
+      * Rotation transitions queue cleanly or snap smoothly without desyncing the rotation matrix.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

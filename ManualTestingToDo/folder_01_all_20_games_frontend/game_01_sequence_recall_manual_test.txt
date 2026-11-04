@@ -1,0 +1,82 @@
+========================================================================================================================
+                               ZUBACO GAME 1: SEQUENCE RECALL (WORKING MEMORY)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_01_sequence_recall_manual_test.txt
+Game Code Directory: zubaco-games/sequence-recall/frontend
+Category: Working Memory & Visual Sequencing
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/sequence-recall/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173` (or the displayed port)
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: INITIAL LOAD & UI ELEMENTS
+    - Action: Open the game in Chrome/Safari (Desktop and Mobile Viewport 375x812).
+    - Expected Result:
+      * 3x3 or 4x4 grid of pads renders centered with equal margins.
+      * "Level 1", "Score: 0", "Time / Ready" indicators are clearly legible.
+      * Start button is visible and pulsing/highlighted.
+      * No overflowing text or layout distortion on mobile view.
+
+[ ] TC-02: DEMONSTRATION PHASE INPUT LOCKOUT
+    - Action: Press "Start". Pads begin illuminating in sequence (e.g. 3 pads in Level 1).
+    - Intentionally try to click or tap pads while the playback animation is running.
+    - Expected Result:
+      * Pads MUST completely ignore all click/tap inputs during demonstration.
+      * No hover active states or false input registers occur during playback.
+      * Pad brightness transitions cleanly (e.g., flash for 600ms then dim).
+
+[ ] TC-03: PLAYER INPUT & CORRECT REPRODUCTION
+    - Action: Wait until playback finishes and "Your Turn" indicator appears. Tap the pads in the exact order.
+    - Expected Result:
+      * Each tapped pad highlights immediately with sound feedback.
+      * Input latency feels snappy (< 50ms visual response).
+      * After matching the sequence, a success animation plays, score increments, and level advances to Level 2.
+
+[ ] TC-04: INCORRECT INPUT & PENALTY HANDLING
+    - Action: During playback of sequence [A, B, C], wait for player turn and intentionally tap [A, D].
+    - Expected Result:
+      * The wrong pad [D] flashes red with error audio buzzer.
+      * Lives decrement or game ends (depending on level rules).
+      * Final score screen appears with options to "Retry" or "Submit Score".
+
+[ ] TC-05: HIGH-SPEED LEVEL PROGRESSION (LEVELS 1 TO 10)
+    - Action: Play through levels 1 through 10.
+    - Expected Result:
+      * Sequence length scales smoothly from 3 pads (Level 1) up to 10-12 pads (Level 10).
+      * Flash duration scales down proportionally (600ms at Level 1 down to 250ms at Level 10).
+      * The randomizer never repeats the identical pad more than twice in a row.
+
+[ ] TC-06: RAPID SPAM / MULTI-TOUCH TEST
+    - Action: Use 3 fingers to spam all 9 pads simultaneously when "Your Turn" starts.
+    - Expected Result:
+      * Game engine handles multi-touch gracefully without crashing or throwing JavaScript console errors.
+      * Erroneous tap triggers game over immediately and cleanly.
+
+[ ] TC-07: AUDIO UNLOCK & MUTE TOGGLE
+    - Action: Click mute button in top corner. Play a sequence. Unmute.
+    - Expected Result:
+      * Mute silences all sound effects instantly.
+      * Unmute restores sound on the next pad tap.
+      * Audio initializes cleanly without Safari/iOS autoplay blockage warnings.
+
+[ ] TC-08: OUTBOX OFFLINE DISCONNECT TEST
+    - Action: Open DevTools -> Network Tab -> Toggle to "Offline". Complete a level.
+    - Expected Result:
+      * Game does not crash.
+      * Score payload is queued in local outbox (IndexedDB/localStorage).
+      * Toggle Network back to "Online" -> Outbox flushes score cleanly without duplicates.
+
+========================================================================================================================
+SIGN-OFF:
+All 8 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

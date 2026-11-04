@@ -1,0 +1,45 @@
+========================================================================================================================
+            ANTI-CHEAT HEURISTICS: BIOMECHANICAL CADENCE & BOT DETECTION TESTING
+========================================================================================================================
+Location: ManualTestingToDo/folder_10_anti_cheat_and_security_penetration/01_cadence_and_bot_detection_manual_test.txt
+Target: `CadenceAnalyzerService`, `DeviceDetectionService`, `AntiCheatModule`
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+STEP-BY-STEP PENETRATION & EXPLOIT ATTACK VECTORS:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: AUTO-CLICKER SUB-50MS NEUROMUSCULAR ATTACK (VECTOR 1)
+    - Action: Use an auto-clicker script (or Postman script) to submit tap events with 20ms - 45ms intervals.
+    - Expected Result:
+      * Server detects sub-human reaction floor ($< 50\text{ms}$).
+      * Score is flagged with anomaly code `CADENCE_SUB_HUMAN_INTERVAL`.
+      * Score is zeroed out or quarantined; user marked for audit review.
+
+[ ] TC-02: ROBOTIC CADENCE STANDARD DEVIATION ATTACK ($\sigma < 5\text{ms}$) (VECTOR 2)
+    - Action: Script a bot that taps with a realistic delay (e.g. 150ms) but with mathematically constant intervals:
+      `[150, 150, 150, 150, 150, 150, 150, 150]`.
+    - Expected Result:
+      * Human hand tremors naturally produce standard deviation $\sigma > 15\text{ms}$.
+      * Engine calculates variance $\sigma < 5\text{ms}$.
+      * Flags `CADENCE_METRONOME_BOT_DETECTED`.
+
+[ ] TC-03: SYNTHETIC ZERO-PIXEL JITTER TOUCH COORDINATES (VECTOR 3)
+    - Action: Script clicks that land on the exact pixel coordinate $(x: 240.000, y: 512.000)$ 10 times consecutively.
+    - Expected Result:
+      * Real human fingertips contact capacitive glass with a variable contact patch radius ($r \approx 8\text{px}-20\text{px}$).
+      * Identical sub-pixel hits trigger `SYNTHETIC_COORDINATE_CLAMPING`.
+
+[ ] TC-04: SPEEDHACK CLOCK WARPING ATTACK (VECTOR 4)
+    - Action: Accelerate client system time by 300% using browser developer extensions or cheat engines.
+    - Expected Result:
+      * Backend compares client reported elapsed game duration against server wall-clock:
+        $|\Delta t_{\text{client}} - \Delta t_{\text{server}}| > 3000\text{ms}$.
+      * Session terminated with HTTP 403 `SPEEDHACK_DRIFT_DETECTED`.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Anti-Bot Exploits Blocked: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

@@ -1,0 +1,59 @@
+========================================================================================================================
+                       ZUBACO GAME 13: TRUE / FALSE BLITZ (COGNITIVE VERIFICATION)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_13_true_false_blitz_manual_test.txt
+Game Code Directory: zubaco-games/true-false-blitz/frontend
+Category: Rapid Decision Making & Arithmetic/Verbal Logic
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/true-false-blitz/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: EQUATION / STATEMENT PRESENTATION
+    - Action: Start match. Observe mathematical or factual statement (e.g. "7 + 8 = 15" or "Paris is in Spain").
+    - Expected Result:
+      * Statement is centered, bold, and high-visibility.
+      * Left button = "TRUE" (Green checkmark), Right button = "FALSE" (Red X).
+      * Rapid 3-second countdown bar shrinks continuously above the statement.
+
+[ ] TC-02: CORRECT EVALUATION TAP
+    - Action: For "7 + 8 = 15", tap "TRUE".
+    - Expected Result:
+      * Screen flashes soft green glow with instant affirmative sound.
+      * Score increases (+100 pts + streak bonus).
+      * Next statement appears immediately (< 20ms).
+
+[ ] TC-03: INCORRECT EVALUATION TAP
+    - Action: For "4 x 6 = 28", tap "TRUE".
+    - Expected Result:
+      * Screen flashes red with a buzzer sound.
+      * Streak resets to zero.
+      * Life deduction or score deduction is applied.
+
+[ ] TC-04: TIMEOUT HANDLING
+    - Action: Do not press any button; let the 3-second timer expire.
+    - Expected Result:
+      * Statement times out with timeout audio cue.
+      * Marked as incorrect.
+      * Game advances to the next question or triggers game over if out of lives.
+
+[ ] TC-05: RAPID CONSECUTIVE TAPPING
+    - Action: Answer 10 questions in under 12 seconds.
+    - Expected Result:
+      * No delayed question loading or button press lag.
+      * Combo multiplier ramps up smoothly (2x, 3x, 4x).
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

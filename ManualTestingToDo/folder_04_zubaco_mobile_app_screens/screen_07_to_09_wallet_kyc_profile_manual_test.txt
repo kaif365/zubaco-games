@@ -1,0 +1,46 @@
+========================================================================================================================
+            ZUBACO MOBILE APP: SCREENS 7 TO 9 (WALLET, KYC DOCUMENT DESK & PROFILE)
+========================================================================================================================
+Location: ManualTestingToDo/folder_04_zubaco_mobile_app_screens/screen_07_to_09_wallet_kyc_profile_manual_test.txt
+Component: `zubaco-mobile` (Wallet, KYC & Profile Management)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST MATRIX:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: WALLET SCREEN: TOP-UP CASH (ADD MONEY)
+    - Action: Open Wallet tab -> Tap "Add Cash".
+    - Input: Select quick chip ₹100, ₹250, ₹500, or type custom amount.
+    - Expected Result:
+      * Razorpay / Cashfree native SDK sheet opens (Google Pay, PhonePe, Paytm, Cards, NetBanking).
+      * Completing payment triggers success tick animation; balance reflects instantly without requiring manual pull-to-refresh.
+
+[ ] TC-02: WALLET SCREEN: INSTANT WITHDRAW TO UPI
+    - Action: Tap "Withdraw Cash" on winning balance.
+    - Input: Enter amount ₹500 and UPI VPA `user@okhdfcbank`.
+    - Expected Result:
+      * App displays 30% TDS tax deduction breakdown (if net winnings positive).
+      * Shows "Net Amount Payable: ₹..."
+      * Clicking "Confirm Withdrawal" initiates payout transfer with confirmation dialog.
+
+[ ] TC-03: KYC UPLOAD SCREEN (CAMERA / GALLERY)
+    - Action: Tap "Complete KYC" badge in Profile.
+    - Expected Result:
+      * Options: "Take Photo of PAN Card" or "Upload from Files".
+      * Native camera launches with document crop bounding box overlay.
+      * Selected image compresses (< 1.5MB) and uploads directly to presigned S3 URL.
+      * Screen updates to "KYC Under Review (Usually verified in 2 hours)".
+
+[ ] TC-04: TRANSACTION HISTORY & FILTERING
+    - Action: Tap "All Transactions" in Wallet.
+    - Expected Result:
+      * Paginated list with date, transaction type tag (ENTRY_FEE, DEPOSIT, WINNING, WITHDRAWAL, REFUND), and +/- color coding.
+      * Tap any row to open receipt modal with Transaction ID, Reference ID, and status badge.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

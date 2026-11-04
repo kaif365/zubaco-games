@@ -1,0 +1,58 @@
+========================================================================================================================
+                      ZUBACO GAME 19: PATTERN SURVIVAL (EXPONENTIAL COMPLEXITY)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_19_pattern_survival_manual_test.txt
+Game Code Directory: zubaco-games/pattern-survival/frontend
+Category: Fluid Intelligence, Working Memory Span & Pattern Completion
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/pattern-survival/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: PATTERN PROGRESSION MATRIX
+    - Action: Start match. Observe row of geometric shapes changing according to a mathematical rule (e.g. rotation, color, symmetry).
+    - Expected Result:
+      * The final slot has a question mark `?`.
+      * 4 distinct multiple-choice option tiles are presented below.
+      * Only exactly one option logically completes the pattern rule.
+
+[ ] TC-02: CORRECT SELECTION
+    - Action: Tap the correct completing shape.
+    - Expected Result:
+      * Shape locks into the `?` slot with green particle pulse.
+      * Combo meter increases.
+      * New, more complex rule pattern generates for the next wave.
+
+[ ] TC-03: INCORRECT SELECTION (SURVIVAL HEARTS)
+    - Action: Tap an incorrect distractor shape.
+    - Expected Result:
+      * Option flashes red with buzzer.
+      * 1 of 3 survival hearts breaks.
+      * Correct pattern explanation is briefly highlighted.
+
+[ ] TC-04: GAME OVER & SURVIVAL WAVE SCORE
+    - Action: Lose all 3 survival hearts.
+    - Expected Result:
+      * Survival match terminates.
+      * Total waves survived, accuracy percentage, and difficulty rating are summarized.
+
+[ ] TC-05: PROCEDURAL GENERATOR LOGIC VERIFICATION
+    - Action: Play 10 waves.
+    - Expected Result:
+      * Pattern sequences are diverse (alternating colors, shape morphing, rotational offsets).
+      * No duplicate choices in the 4 multiple-choice options.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
+

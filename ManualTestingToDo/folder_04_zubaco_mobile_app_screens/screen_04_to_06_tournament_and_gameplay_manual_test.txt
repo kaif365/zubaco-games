@@ -1,0 +1,39 @@
+========================================================================================================================
+            ZUBACO MOBILE APP: SCREENS 4 TO 6 (TOURNAMENT HUB, GAMEPLAY & RESULTS)
+========================================================================================================================
+Location: ManualTestingToDo/folder_04_zubaco_mobile_app_screens/screen_04_to_06_tournament_and_gameplay_manual_test.txt
+Component: `zubaco-mobile` (Tournament & Gameplay Flow)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST MATRIX:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: TOURNAMENT DETAILS & REGISTRATION BOTTOM SHEET
+    - Action: Tap an upcoming tournament card from the Tournaments tab.
+    - Expected Result:
+      * Detail screen loads: Prize Pool breakdown table (1st, 2nd, 3rd, top 10), Entry Fee, Stage timeline, rules.
+      * "Join Tournament - ₹50" button opens payment bottom sheet.
+      * Bottom sheet displays bucket deduction preview (e.g. "Deducting ₹10 Bonus + ₹40 Deposit").
+      * "Confirm & Pay" button executes entry fee debit; shows animated checkmark "You're In!".
+
+[ ] TC-02: ACTIVE MATCH FULL-SCREEN WEBVIEW CONTAINER
+    - Action: When stage countdown starts, app launches full-screen WebView.
+    - Expected Result:
+      * Status bar and navigation bar dim or hide cleanly.
+      * Top native overlay bar displays: Live Stage Name ("STAGE 1 - QUALIFIER"), Time Remaining ("01:28"), and Mute icon.
+      * WebView renders the cognitive game at 60 FPS without jitter.
+
+[ ] TC-03: STAGE CUTOFF / PODIUM RESULTS SCREEN
+    - Action: Match completes or player is eliminated.
+    - Expected Result:
+      * If Advanced: Green celebratory banner "QUALIFIED FOR QUARTER FINALS! Starting in 45s...".
+      * If Eliminated: "Match Concluded - Final Rank: #14. You were in the top 60%".
+      * If Winner (Finals): Golden Trophy podium screen displaying prize won, "Withdraw to UPI" button, and "Share Victory" social card generator.
+
+========================================================================================================================
+SIGN-OFF:
+All 3 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

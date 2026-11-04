@@ -1,0 +1,38 @@
+========================================================================================================================
+                  ZUBACO MOBILE APP: SCREENS 1 TO 3 (SPLASH, AUTH & MAIN LOBBY)
+========================================================================================================================
+Location: ManualTestingToDo/folder_04_zubaco_mobile_app_screens/screen_01_to_03_core_navigation_manual_test.txt
+Component: `zubaco-mobile` (React Native screens)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST MATRIX:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: SPLASH & ONBOARDING SLIDES
+    - Action: First-time launch of mobile app.
+    - Expected Result:
+      * 3 onboarding carousel slides present value proposition: "Skill-Based Cognitive Gaming", "Compete in Real-Time", "Win Real UPI Cash".
+      * "Skip" and "Get Started" buttons are responsive.
+      * Progress dot indicators animate with finger swiping.
+
+[ ] TC-02: AUTHENTICATION SCREEN (PHONE & OTP)
+    - Action: Tap "Get Started", enter 10-digit mobile number, receive OTP.
+    - Expected Result:
+      * Auto-reads SMS OTP if native SMS permission is granted (SMS Retriever API on Android).
+      * Fallback: clean 6-digit box manual input.
+      * Terms & Conditions / Responsible Gaming agreement checkbox must be checked to proceed.
+
+[ ] TC-03: MAIN BOTTOM TAB NAVIGATOR
+    - Action: Land on main app container. Observe bottom navigation bar.
+    - Expected Result:
+      * 4 primary tabs: [Home / Lobby], [Tournaments], [Wallet], [Profile].
+      * Active tab icon lights up with brand gold/cyan accent.
+      * Switching between tabs preserves scroll state and executes with instant 60 FPS transition.
+
+========================================================================================================================
+SIGN-OFF:
+All 3 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

@@ -1,0 +1,49 @@
+========================================================================================================================
+            DISASTER RECOVERY & BACKUP DRILL RUNBOOK: ZERO DATA LOSS PROTOCOLS
+========================================================================================================================
+Location: ManualTestingToDo/folder_15_disaster_recovery_and_backup_runbooks/01_disaster_recovery_and_backup_runbook.txt
+Target: PostgreSQL 16 Backup/Restore, Redis AOF/RDB Recovery, AWS Failover
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+STEP-BY-STEP DISASTER RECOVERY DRILL CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: AUTOMATED POSTGRESQL DATABASE BACKUP DRILL
+    - Action: Trigger backup snapshot via CLI:
+      ```powershell
+      docker exec -t postgres pg_dump -U postgres -d zubaco_platform -F c -b -v -f /tmp/zubaco_backup_test.dump
+      ```
+    - Expected Result:
+      * Backup completes with exit code 0.
+      * Dump file size reflects all relational schema tables, sequence numbers, and ledger entries.
+
+[ ] TC-02: FULL DATABASE RESTORE FROM SCRATCH
+    - Action: Simulate total database destruction by dropping database and restoring from dump:
+      ```powershell
+      docker exec -t postgres dropdb -U postgres zubaco_platform
+      docker exec -t postgres createdb -U postgres zubaco_platform
+      docker exec -t postgres pg_restore -U postgres -d zubaco_platform -v /tmp/zubaco_backup_test.dump
+      ```
+    - Expected Result:
+      * All tables, indexes, and double-entry balance records restore 100% intact.
+      * Platform API restarts and reconnects without errors.
+
+[ ] TC-03: REDIS CRASH & AOF PERSISTENCE RESURRECTION
+    - Action: Kill Redis container forcefully (`docker kill redis`). Start it up again (`docker start redis`).
+    - Expected Result:
+      * Redis parses `appendonly.aof`.
+      * Tournament active stage keys and leaderboard sorted sets persist with 0 data loss.
+
+[ ] TC-04: API SERVER INSTANCE CRASH DURING ACTIVE MATCH
+    - Action: Kill one Node.js platform container behind the load balancer during an active tournament match.
+    - Expected Result:
+      * Secondary container handles incoming traffic instantly without dropped requests.
+      * Mobile clients experience zero disruption because session state is held in Redis, not in memory.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Disaster Recovery Drills Certified: [ ] YES  [ ] NO
+Lead SRE Signature: _______________________
+========================================================================================================================

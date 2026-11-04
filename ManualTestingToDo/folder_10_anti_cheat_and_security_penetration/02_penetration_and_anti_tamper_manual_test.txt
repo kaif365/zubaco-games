@@ -1,0 +1,44 @@
+========================================================================================================================
+            PENETRATION & REPLAY DEFENSES: MATCH TICKETS & SYBIL DEVICE LOCKOUT
+========================================================================================================================
+Location: ManualTestingToDo/folder_10_anti_cheat_and_security_penetration/02_penetration_and_anti_tamper_manual_test.txt
+Target: `CryptographicSessionService`, `DeviceDetectionService`, `EnforcementService`
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+STEP-BY-STEP PENETRATION ATTACK VECTORS:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: SCORE TAMPERING IN FLIGHT (MAN-IN-THE-MIDDLE)
+    - Action: Intercept outgoing score submission HTTP request using Proxyman / Burp Suite.
+      Change `"score": 450` to `"score": 999999`.
+    - Expected Result:
+      * Server recomputes score from validated move sequence and seed.
+      * Signature verification fails or score discrepancy triggers `IMPOSSIBLE_SCORE_VELOCITY`.
+      * Score rejected with HTTP 400.
+
+[ ] TC-02: MATCH TICKET REPLAY & MULTI-USE ATTACK
+    - Action: Submit a valid match ticket. Copy the payload and submit it a second time.
+    - Expected Result:
+      * Single-use Redis lock `ticket:consumed:{ticketId}` already acquired.
+      * Second submission rejected with HTTP 409 Conflict "Ticket has already been consumed".
+
+[ ] TC-03: SYBIL FARM TOURNAMENT COLLUSION ATTACK
+    - Action: Use 4 different browser profiles / phones with the same hardware fingerprint to enter the same 4-player tournament table.
+    - Expected Result:
+      * Device detection engine detects fingerprint match in active cohort:
+        `COLLUSION_DEVICE_COHORT_VIOLATION`.
+      * 2nd, 3rd, and 4th accounts are assigned to separate independent cohorts so they can never collude together.
+
+[ ] TC-04: ATOMIC ENFORCEMENT & ZERO-DELAY BAN TEST
+    - Action: Admin triggers ban on player while they are actively submitting scores.
+    - Expected Result:
+      * Fast-path ban key `auth:ban:{userId}` takes effect in < 5 milliseconds.
+      * The player's active submission is immediately aborted with HTTP 403 `ACCOUNT_SUSPENDED`.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Penetration Exploits Blocked: [ ] YES  [ ] NO
+Auditor Signature: _______________________
+========================================================================================================================

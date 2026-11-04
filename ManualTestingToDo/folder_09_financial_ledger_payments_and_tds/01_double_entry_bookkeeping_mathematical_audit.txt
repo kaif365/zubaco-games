@@ -1,0 +1,54 @@
+========================================================================================================================
+             FINANCIAL LEDGER: DOUBLE-ENTRY MATHEMATICAL INTEGRITY & RECONCILIATION
+========================================================================================================================
+Location: ManualTestingToDo/folder_09_financial_ledger_payments_and_tds/01_double_entry_bookkeeping_mathematical_audit.txt
+Target: Zubaco Platform Double-Entry General Ledger (`Transaction`, `WalletLedgerEntry`, `WalletAccount`)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+FINANCIAL INVARIANT TESTS & AUDITING SCRIPTS:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: MATHEMATICAL BALANCE INVARIANT CHECK ($\sum \text{DEBITS} \equiv \sum \text{CREDITS}$)
+    - Action: Run manual database SQL query:
+      ```sql
+      SELECT 
+        SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE 0 END) AS total_debits,
+        SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE 0 END) AS total_credits,
+        SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END) AS variance
+      FROM "WalletLedgerEntry";
+      ```
+    - Expected Result:
+      * `variance` MUST BE STRICTLY `0.00` at all times.
+      * No floating-point rounding errors (amounts stored in Integer Paise: ₹10.00 = 1000 paise).
+
+[ ] TC-02: TOURNAMENT RAKE ALLOCATION VERIFICATION
+    - Action: 16 players join ₹50 tournament. Total entry pool = ₹800.
+      * Platform Rake (e.g. 15%): $₹800 \times 15\% = ₹120$
+      * Guaranteed Prize Pool: $₹800 - ₹120 = ₹680$
+    - Expected Result:
+      * Ledger records debit of ₹50 from 16 players (Total Debits: ₹800).
+      * Ledger records credit to Platform Rake Revenue Account: ₹120.
+      * Ledger records credit to Tournament Escrow Account: ₹680.
+      * Total debits (₹800) === Total credits (₹120 + ₹680 = ₹800).
+
+[ ] TC-03: BONUS BUCKET EXPIRATION / FORFEITURE TEST
+    - Action: Expire a user's ₹50 promotional bonus cash via scheduled job.
+    - Expected Result:
+      * User's `bonusBalance` decrements by ₹50.
+      * Offsetting entry credits the "Company Bonus Reserve Account".
+      * User's `depositBalance` and `winningBalance` remain 100% untouched.
+
+[ ] TC-04: CONCURRENT TOURNAMENT CANCELLATION RUSH
+    - Action: 50 players registered in a tournament. Force-cancel the tournament.
+    - Expected Result:
+      * All 50 players receive exact refund entries.
+      * Every player's original deducted buckets (e.g. ₹10 bonus + ₹40 deposit) are refunded to their original buckets.
+      * No bonus cash is accidentally converted to real withdrawable cash during refunds.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Financial Invariants Certified: [ ] YES  [ ] NO
+Auditor Signature: _______________________
+========================================================================================================================

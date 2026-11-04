@@ -1,0 +1,40 @@
+========================================================================================================================
+                      ALL 20 GAMES BACKEND MICROSERVICES: VERIFICATION ARCHITECTURE
+========================================================================================================================
+Location: ManualTestingToDo/folder_02_all_20_games_backend/master_all_20_games_backend_verification_matrix.txt
+Specification: Verification of all 20 independent NestJS Game Backend Services.
+Endpoints:
+  - `POST /api/v1/game/session/start` (Issues seed, session ID, cryptographic ticket)
+  - `POST /api/v1/game/session/move`  (Validates individual player move against server state)
+  - `POST /api/v1/game/session/end`   (Computes deterministic score, checks move integrity)
+  - `GET  /api/v1/config`             (Serves level parameters, difficulty curves, timers)
+  - `GET  /api/v1/crypto-debug`       (Seed verification and match ticket inspection)
+  - Built-in Visual Harness: `game-api-tester.html`
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+ALL 20 GAME BACKENDS DIRECTORY & PORT DIRECTORY MAP
+------------------------------------------------------------------------------------------------------------------------
+Game # | Game Name              | Directory Location                                  | Default Port | Health URL
+-------+------------------------+-----------------------------------------------------+--------------+------------------
+Game 01| Sequence Recall        | `zubaco-games/sequence-recall/sequence-recall-backend`| 3101         | /api/v1/server/health
+Game 02| Memory Card Matching   | `zubaco-games/memory-card-matching/memory-card-...`  | 3102         | /api/v1/server/health
+Game 03| Flash Spot             | `zubaco-games/flash-spot/flash-spot-backend`        | 3103         | /api/v1/server/health
+Game 04| Object Placement       | `zubaco-games/object-placement-memory/...`          | 3104         | /api/v1/server/health
+Game 05| Memory Groups          | `zubaco-games/memory-groups/memory-groups-backend`  | 3105         | /api/v1/server/health
+Game 06| Sliding Puzzle         | `zubaco-games/sliding-puzzle/sliding-puzzle-backend`| 3106         | /api/v1/server/health
+Game 07| Block Fill             | `zubaco-games/block-fill/block-fill-backend`        | 3107         | /api/v1/server/health
+Game 08| Colour Sorting         | `zubaco-games/colour-sorting/colour-sorting-backend`| 3108         | /api/v1/server/health
+Game 09| Rapid Category Sort    | `zubaco-games/rapid-category-sort/rapid-sort-backend`| 3109        | /api/v1/server/health
+Game 10| Maze Navigation        | `zubaco-games/maze-navigation/maze-navigation-backend`| 3110       | /api/v1/server/health
+Game 11| Infinity Loop          | `zubaco-games/Infinity-loop/Infinity-Loop-backend`  | 3111         | /api/v1/server/health
+Game 12| Word Unscramble        | `zubaco-games/word-unscramble/word-unscramble-backend`| 3112       | /api/v1/server/health
+Game 13| True / False Blitz     | `zubaco-games/true-false-blitz/true-false-blitz-...`| 3113         | /api/v1/server/health
+Game 14| Arrows (Flanker)       | `zubaco-games/arrows/arrows-backend`                | 3114         | /api/v1/server/health
+Game 15| Logic Reflector        | `zubaco-games/logic-reflector/logic-reflector-backend`| 3115       | /api/v1/server/health
+Game 16| Number Grid Sprint     | `zubaco-games/number-grid-sprint/number-grid-backend`| 3116        | /api/v1/server/health
+Game 17| Live Route Builder     | `zubaco-games/live-route-builder/live-route-backend`| 3117         | /api/v1/server/health
+Game 18| Reflex Endurance       | `zubaco-games/reflex-endurance/reflex-endurance-backend`| 3118     | /api/v1/server/health
+Game 19| Pattern Survival       | `zubaco-games/pattern-survival/pattern-survival-backend`| 3119     | /api/v1/server/health
+Game 20| Speed Type Answer      | `zubaco-games/speed-type-answer/speed-type-backend` | 3120         | /api/v1/server/health
+========================================================================================================================
