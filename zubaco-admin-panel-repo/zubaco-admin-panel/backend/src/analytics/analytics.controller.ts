@@ -18,6 +18,11 @@ export class AnalyticsController {
         return this.analyticsService.getOverview();
     }
 
+    @Get('telemetry/live')
+    async getLiveTelemetry() {
+        return this.analyticsService.getLiveCommandCenterTelemetry();
+    }
+
     @Get('users/growth')
     async getUserGrowth(@Query('days') days?: string) {
         return this.analyticsService.getUserGrowth(parseInt(days || '30'));

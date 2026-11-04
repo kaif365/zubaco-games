@@ -98,4 +98,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     async deleteAdmin(adminId: string): Promise<void> {
         await this.client.del(`${config.redis.adminProjectKey}:admin:${adminId}`);
     }
+
+    getClient(): Redis {
+        return this.client;
+    }
+
+    async ping(): Promise<number> {
+        if (!this.client) return -1;
+        const start = Date.now();
+        await this.client.ping();
+        return Date.now() - start;
+    }
+
+    async countKeysByPattern(pattern: string): Promise<number> {
+        if (!this.client) return 0;
+        try {
+            const keys = await this.client.keys(pattern);
+            return keys.length;
+        } catch {
+            return 0;
+        }
+    }
 }

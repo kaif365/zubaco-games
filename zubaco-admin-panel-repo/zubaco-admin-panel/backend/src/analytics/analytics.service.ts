@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@common/prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class AnalyticsService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly redis: RedisService,
+    ) {}
 
     async getOverview() {
         const now = new Date();
@@ -194,10 +198,110 @@ export class AnalyticsService {
             status: s.status,
             total_players: s._count.entries,
             stages: s.stages.map((st) => ({
-                stage_number: st.stage_number,
+                stageNumber: st.stage_number,
                 status: st.status,
                 players: st._count.stage_entries,
             })),
         }));
+    }
+
+    async getLiveCommandCenterTelemetry() {
+        const now = new Date();
+        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+        // 1. Real-time CCU via Redis active session keys
+        const ccu = await this.redis.countKeysByPattern('ws:session:*');
+
+        // 2. Active Tournaments & Stages Monitor
+        const activeSeasons = await this.prisma.season.findMany({
+            where: { status: 'ACTIVE' },
+            include: {
+                stages: {
+                    where: { status: { in: ['OPEN', 'LOCKED'] } },
+                    include: {
+                        _count: { select: { stage_entries: true } },
+                    },
+                    orderBy: { stage_number: 'asc' },
+                },
+                _count: { select: { entries: true } },
+            },
+        });
+
+        const liveTournaments = activeSeasons.map((s) => ({
+            id: s.id,
+            name: s.name,
+            totalRegistered: s._count.entries,
+            stages: s.stages.map((st) => ({
+                stageNumber: st.stage_number,
+                status: st.status,
+                activePlayers: st._count.stage_entries,
+            })),
+        }));
+
+        // 3. Deposit & Withdrawal Velocities
+        const [hourDeposits, hourWithdrawals, dayDeposits, dayWithdrawals] = await Promise.all([
+            this.prisma.transaction.aggregate({
+                where: { type: 'DEPOSIT', status: 'COMPLETED', created_at: { gte: oneHourAgo } },
+                _sum: { amount: true },
+                _count: { id: true },
+            }),
+            this.prisma.transaction.aggregate({
+                where: { type: 'WITHDRAWAL', status: 'COMPLETED', created_at: { gte: oneHourAgo } },
+                _sum: { amount: true },
+                _count: { id: true },
+            }),
+            this.prisma.transaction.aggregate({
+                where: { type: 'DEPOSIT', status: 'COMPLETED', created_at: { gte: twentyFourHoursAgo } },
+                _sum: { amount: true },
+            }),
+            this.prisma.transaction.aggregate({
+                where: { type: 'WITHDRAWAL', status: 'COMPLETED', created_at: { gte: twentyFourHoursAgo } },
+                _sum: { amount: true },
+            }),
+        ]);
+
+        const depositVelocityCurrentHour = Number(hourDeposits._sum.amount || 0);
+        const withdrawalVelocityCurrentHour = Number(hourWithdrawals._sum.amount || 0);
+
+        const avgHourlyDeposit = Number(dayDeposits._sum.amount || 0) / 24;
+        const avgHourlyWithdrawal = Number(dayWithdrawals._sum.amount || 0) / 24;
+
+        // Velocity Anomaly: current hour > 3x average and > ₹10,000 threshold
+        const depositSpike = avgHourlyDeposit > 0 && depositVelocityCurrentHour > Math.max(10000, avgHourlyDeposit * 3);
+        const withdrawalSpike = avgHourlyWithdrawal > 0 && withdrawalVelocityCurrentHour > Math.max(10000, avgHourlyWithdrawal * 3);
+
+        // 4. System Health Latencies
+        const dbStart = Date.now();
+        await this.prisma.$queryRaw`SELECT 1`;
+        const dbLatencyMs = Date.now() - dbStart;
+
+        const redisLatencyMs = await this.redis.ping();
+        const mem = process.memoryUsage();
+
+        return {
+            timestamp: now.toISOString(),
+            ccu,
+            tournaments: liveTournaments,
+            velocity: {
+                depositVelocityCurrentHour,
+                withdrawalVelocityCurrentHour,
+                depositCountLastHour: hourDeposits._count.id,
+                withdrawalCountLastHour: hourWithdrawals._count.id,
+                depositSpikeDetected: depositSpike,
+                withdrawalSpikeDetected: withdrawalSpike,
+            },
+            systemHealth: {
+                status: 'HEALTHY',
+                uptimeSeconds: Math.floor(process.uptime()),
+                dbLatencyMs,
+                redisLatencyMs: redisLatencyMs >= 0 ? redisLatencyMs : 0,
+                memory: {
+                    heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+                    heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+                    rssMB: Math.round(mem.rss / 1024 / 1024),
+                },
+            },
+        };
     }
 }
