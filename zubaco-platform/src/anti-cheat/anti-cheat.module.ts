@@ -6,6 +6,7 @@ import { EnforcementService } from './enforcement/enforcement.service';
 import { LeaderboardModule } from '../leaderboard/leaderboard.module';
 import { CryptographicSessionService } from './crypto/cryptographic-session.service';
 import { CadenceAnalyzerService } from './heuristics/cadence-analyzer.service';
+import { DeviceDetectionService } from './device-detection.service';
 
 @Global()
 @Module({
@@ -17,8 +18,14 @@ import { CadenceAnalyzerService } from './heuristics/cadence-analyzer.service';
     EnforcementService,
     CryptographicSessionService,
     CadenceAnalyzerService,
+    DeviceDetectionService,
   ],
-  exports: [AntiCheatService, EnforcementService, CryptographicSessionService, CadenceAnalyzerService],
+  exports: [
+    AntiCheatService,
+    EnforcementService,
+    CryptographicSessionService,
+    CadenceAnalyzerService,
+    DeviceDetectionService,
+  ],
 })
 export class AntiCheatModule {}
-
