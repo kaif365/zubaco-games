@@ -22,3 +22,4 @@ Composite Indexes on `game_sessions` (`user_id`, `game_type`)   | Prisma Schema 
 Composite Indexes on `wallets` & `transactions`                 | Financial Schema Tuning            | Schema audit | [TODO]
 Elimination of Sequential Scans on High-Velocity Queries        | Query Performance Audit            | Unit tests   | [TODO]
 ========================================================================================================================
+

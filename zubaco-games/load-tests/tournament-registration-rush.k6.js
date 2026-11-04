@@ -78,3 +78,4 @@ export function handleSummary(data) {
     'tournament-registration-rush-summary.json': JSON.stringify(data, null, 2),
   };
 }
+
