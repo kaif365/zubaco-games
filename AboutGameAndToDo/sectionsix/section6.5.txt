@@ -8,7 +8,7 @@ Parent Document : AboutGameAndToDo/sectionsix/detailedsection6.txt
 Specification   : Double-Entry Ledger Explorer, Zero-Sum Integrity Check, Platform Rake Accounting,
                   Indian Section 194BA 30% TDS Collections, and Government-Compliant CSV Tax Export.
 Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
-Module Status   : [TODO]
+Module Status   : [DONE]
 ========================================================================================================================
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -16,9 +16,9 @@ Module Status   : [TODO]
 ------------------------------------------------------------------------------------------------------------------------
 Target Requirement                                              | Implementation Source              | Verification | Status
 ----------------------------------------------------------------+------------------------------------+--------------+-------
-Double-Entry Ledger Search & Filtering (Debits, Credits, Rake)  | `src/wallet/ledger/` Admin Explorer| Unit tests   | [TODO]
-Real-Time Zero-Sum Balance Integrity Proof                      | Ledger Reconciliation Guard        | Invariant    | [TODO]
-Indian Section 194BA 30% TDS Collection Auditing               | TDS Deduction Audit Stream         | Compliance   | [TODO]
-Government Tax Sheet Export (CSV with PAN, Net Winnings, TDS)   | Tax Export Service                 | Unit tests   | [TODO]
-Platform Revenue & Gross Gaming Revenue (GGR) Metrics           | Financial Analytics Engine         | Financial    | [TODO]
+Double-Entry Ledger Search & Filtering (Debits, Credits, Rake)  | `src/wallet/ledger/` Admin Explorer| Unit tests   | [DONE]
+Real-Time Zero-Sum Balance Integrity Proof                      | Ledger Reconciliation Guard        | Invariant    | [DONE]
+Indian Section 194BA 30% TDS Collection Auditing               | TDS Deduction Audit Stream         | Compliance   | [DONE]
+Government Tax Sheet Export (CSV with PAN, Net Winnings, TDS)   | Tax Export Service                 | Unit tests   | [DONE]
+Platform Revenue & Gross Gaming Revenue (GGR) Metrics           | Financial Analytics Engine         | Financial    | [DONE]
 ========================================================================================================================

@@ -42,4 +42,33 @@ export class ExportsController {
     res.setHeader('Content-Disposition', 'attachment; filename="transactions.csv"');
     res.send(csv);
   }
+
+  // ─── FINANCIAL LEDGER AUDIT & TDS (Module 6.5) ─────────────────────
+
+  @Get('ledger/integrity')
+  async verifyLedgerIntegrity() {
+    return this.exportsService.verifyLedgerIntegrity();
+  }
+
+  @Get('revenue/ggr')
+  async getRevenueMetrics() {
+    return this.exportsService.getGgrAndRevenueMetrics();
+  }
+
+  @Get('tds/summary')
+  async getTdsSummary() {
+    return this.exportsService.getTdsSummaryReport();
+  }
+
+  @Get('tds/csv')
+  async exportTdsCsv(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Res() res: Response,
+  ) {
+    const csv = await this.exportsService.exportSection194BaTdsCsv(from, to);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="section_194ba_tds_report.csv"');
+    res.send(csv);
+  }
 }

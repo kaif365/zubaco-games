@@ -104,4 +104,166 @@ export class ExportsService {
 
     return [headers, ...rows].join('\n');
   }
+
+  // ─── FINANCIAL LEDGER AUDIT & TDS (Module 6.5) ─────────────────────
+
+  async verifyLedgerIntegrity(): Promise<{
+    balanced: boolean;
+    total_wallet_balance: number;
+    net_ledger_balance: number;
+    variance: number;
+    timestamp: string;
+  }> {
+    const wallets = await this.prisma.wallet.findMany({
+      select: { balance: true },
+    });
+    const totalWalletBalance = wallets.reduce((sum, w) => sum + Number(w.balance || 0), 0);
+
+    const txGroup = await this.prisma.transaction.groupBy({
+      by: ['type'],
+      where: { status: 'COMPLETED' },
+      _sum: { amount: true },
+    });
+
+    let credits = 0;
+    let debits = 0;
+
+    for (const group of txGroup) {
+      const amt = Number(group._sum.amount || 0);
+      switch (group.type) {
+        case 'DEPOSIT':
+        case 'PRIZE_WIN':
+        case 'REFUND':
+        case 'REFERRAL_BONUS':
+          credits += amt;
+          break;
+        case 'WITHDRAWAL':
+        case 'ENTRY_FEE':
+          debits += amt;
+          break;
+      }
+    }
+
+    const netLedgerBalance = credits - debits;
+    const variance = Math.abs(totalWalletBalance - netLedgerBalance);
+
+    // Invariant holds if variance is within floating-point epsilon (< 0.01)
+    const balanced = variance < 0.01;
+
+    return {
+      balanced,
+      total_wallet_balance: Math.round(totalWalletBalance * 100) / 100,
+      net_ledger_balance: Math.round(netLedgerBalance * 100) / 100,
+      variance: Math.round(variance * 100) / 100,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  async getGgrAndRevenueMetrics(): Promise<{
+    total_entry_fees: number;
+    total_prizes_distributed: number;
+    gross_gaming_revenue_ggr: number;
+    platform_rake_pct: number;
+    timestamp: string;
+  }> {
+    const txGroup = await this.prisma.transaction.groupBy({
+      by: ['type'],
+      where: { status: 'COMPLETED' },
+      _sum: { amount: true },
+    });
+
+    let entryFees = 0;
+    let prizeWins = 0;
+
+    for (const group of txGroup) {
+      const amt = Number(group._sum.amount || 0);
+      if (group.type === 'ENTRY_FEE') entryFees += amt;
+      if (group.type === 'PRIZE_WIN') prizeWins += amt;
+    }
+
+    const ggr = entryFees - prizeWins;
+    const rakePct = entryFees > 0 ? (ggr / entryFees) * 100 : 0;
+
+    return {
+      total_entry_fees: Math.round(entryFees * 100) / 100,
+      total_prizes_distributed: Math.round(prizeWins * 100) / 100,
+      gross_gaming_revenue_ggr: Math.round(ggr * 100) / 100,
+      platform_rake_pct: Math.round(rakePct * 100) / 100,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  async getTdsSummaryReport(): Promise<{
+    tax_section: string;
+    statutory_tds_rate_pct: number;
+    total_taxable_winnings: number;
+    total_tds_withheld: number;
+    payout_transactions_count: number;
+    timestamp: string;
+  }> {
+    const prizeWins = await this.prisma.transaction.findMany({
+      where: { type: 'PRIZE_WIN', status: 'COMPLETED' },
+      select: { amount: true },
+    });
+
+    const totalGross = prizeWins.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    // Indian Section 194BA specifies flat 30% TDS on net winnings
+    const statutoryRate = 30.0;
+    const totalTds = totalGross * 0.3;
+
+    return {
+      tax_section: 'Section 194BA, Income Tax Act (Online Gaming Winnings)',
+      statutory_tds_rate_pct: statutoryRate,
+      total_taxable_winnings: Math.round(totalGross * 100) / 100,
+      total_tds_withheld: Math.round(totalTds * 100) / 100,
+      payout_transactions_count: prizeWins.length,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  async exportSection194BaTdsCsv(from?: string, to?: string): Promise<string> {
+    const where: any = { type: 'PRIZE_WIN', status: 'COMPLETED' };
+    if (from) where.created_at = { ...where.created_at, gte: new Date(from) };
+    if (to) where.created_at = { ...where.created_at, lte: new Date(to) };
+
+    const prizeTxs = await this.prisma.transaction.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            display_name: true,
+            email: true,
+            phone: true,
+          },
+        },
+      },
+    });
+
+    const headers =
+      'user_id,username,display_name,email,gross_winnings,tds_rate_pct,tds_withheld,net_disbursed,reference_id,transaction_date';
+
+    const rows = prizeTxs.map((tx: any) => {
+      const gross = Number(tx.amount || 0);
+      const tds = Math.round(gross * 0.3 * 100) / 100;
+      const net = Math.round((gross - tds) * 100) / 100;
+
+      return [
+        escapeCsv(tx.user_id),
+        escapeCsv(tx.user?.username || ''),
+        escapeCsv(tx.user?.display_name || ''),
+        escapeCsv(tx.user?.email || ''),
+        escapeCsv(gross),
+        escapeCsv('30%'),
+        escapeCsv(tds),
+        escapeCsv(net),
+        escapeCsv(tx.reference_id || tx.id),
+        escapeCsv(tx.created_at?.toISOString() || ''),
+      ].join(',');
+    });
+
+    return [headers, ...rows].join('\n');
+  }
 }
