@@ -131,6 +131,7 @@ export class SessionCompletionService {
           claimedScore: req.claimedScore,
           serverScore: verdict.metadata?.server_score,
           boardTampered: tampered,
+          startedAt: session.started_at,
         },
       );
     } catch {

@@ -111,6 +111,41 @@ describe('AntiCheatService', () => {
     });
   });
 
+  describe('Module 7.3 Speedhack & Drift Defenses', () => {
+    it('flags client duration exceeding real server wallclock by > 3000ms', async () => {
+      // Server started 10,000ms ago, but client reports duration 20,000ms (drift = 10,000ms > 3000ms)
+      const startedAt = new Date(Date.now() - 10000);
+      const r = await service.analyzeGameResult('u1', 's1', 500, 20000, GAME, { startedAt });
+      expect(hasFlag(r, 'TIMING_ANOMALY', 'HIGH')).toBe(true);
+      const flag = r.details.find((f: any) => f.details?.reason === 'wallclock_drift_exceeded');
+      expect(flag).toBeDefined();
+    });
+
+    it('flags speedhack wallclock compression when real elapsed time is below physical minimum', async () => {
+      // SLIDING_PUZZLE minimum reasonable time is 10,000ms. Wall clock elapsed is only 2,000ms.
+      const startedAt = new Date(Date.now() - 2000);
+      const r = await service.analyzeGameResult('u1', 's1', 500, 15000, GAME, { startedAt });
+      expect(hasFlag(r, 'TIMING_ANOMALY', 'CRITICAL')).toBe(true);
+      const flag = r.details.find((f: any) => f.details?.reason === 'speedhack_wallclock_compression');
+      expect(flag).toBeDefined();
+    });
+
+    it('flags score velocity spike exceeding physiological ceiling (> 300 pts/sec)', async () => {
+      // 1000 points in 1500ms -> 666.7 pts/sec > 300 ceiling
+      const r = await service.analyzeGameResult('u1', 's1', 1000, 1500, GAME);
+      expect(hasFlag(r, 'SCORE_ANOMALY', 'HIGH')).toBe(true);
+      const flag = r.details.find((f: any) => f.details?.reason === 'score_velocity_ceiling_exceeded');
+      expect(flag).toBeDefined();
+    });
+
+    it('allows normal scores and natural wallclock durations without flags', async () => {
+      // Natural 25 seconds gameplay for 500 points
+      const startedAt = new Date(Date.now() - 26000);
+      const r = await service.analyzeGameResult('u1', 's1', 500, 25000, GAME, { startedAt });
+      expect(r.flags_raised).toBe(0);
+    });
+  });
+
   it('auto-enforces when the user reaches 3 critical flags', async () => {
     prisma.cheatFlag.count.mockResolvedValue(3);
     await service.analyzeGameResult('u1', 's1', 999999, 30000, GAME);

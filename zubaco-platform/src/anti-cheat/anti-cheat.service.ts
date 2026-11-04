@@ -35,6 +35,7 @@ export class AntiCheatService {
       claimedScore?: number | null;
       serverScore?: number;
       boardTampered?: boolean;
+      startedAt?: Date | string;
     } = {},
   ) {
     const flags: { type: CheatFlagType; severity: CheatSeverity; details: any }[] = [];
@@ -86,6 +87,54 @@ export class AntiCheatService {
     // 2c. Bot / superhuman input cadence from the move log.
     const inputFlag = this.analyzeInputTimings(context.metadata, gameType);
     if (inputFlag) flags.push(inputFlag);
+
+    // 2d. Wall-clock vs client reported duration drift (speedhack / simulated delay guard)
+    if (context.startedAt) {
+      const wallClockMs = Date.now() - new Date(context.startedAt).getTime();
+      // Client claims session took more time than physical existence of session (+ 3000ms network buffer)
+      if (wallClockMs > 0 && durationMs > wallClockMs + 3000) {
+        flags.push({
+          type: 'TIMING_ANOMALY',
+          severity: 'HIGH',
+          details: {
+            reason: 'wallclock_drift_exceeded',
+            duration_ms: durationMs,
+            wall_clock_ms: wallClockMs,
+            drift_ms: durationMs - wallClockMs,
+          },
+        });
+      }
+      // Speedhack compression: server wall clock duration is less than physical minimum time
+      if (wallClockMs > 0 && score > 0 && wallClockMs < minReasonableTime) {
+        flags.push({
+          type: 'TIMING_ANOMALY',
+          severity: 'CRITICAL',
+          details: {
+            reason: 'speedhack_wallclock_compression',
+            duration_ms: durationMs,
+            wall_clock_ms: wallClockMs,
+            min_reasonable_ms: minReasonableTime,
+          },
+        });
+      }
+    }
+
+    // 2e. Abrupt score velocity spike (points per second exceeding physiological/gameplay ceiling)
+    if (durationMs >= 1000 && score > 0) {
+      const pointsPerSec = (score / durationMs) * 1000;
+      if (pointsPerSec > 300) {
+        flags.push({
+          type: 'SCORE_ANOMALY',
+          severity: 'HIGH',
+          details: {
+            reason: 'score_velocity_ceiling_exceeded',
+            points_per_sec: Math.round(pointsPerSec),
+            score,
+            duration_ms: durationMs,
+          },
+        });
+      }
+    }
 
     // 3. Check for rapid progression (statistical outlier)
     const recentScores = await this.prisma.gameSession.findMany({
