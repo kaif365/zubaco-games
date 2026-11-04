@@ -82,6 +82,27 @@ export class SeasonsController {
         return this.seasonsService.closeStage(stageId);
     }
 
+    @Post(':seasonId/stages/:stageId/pause')
+    async pauseStage(@Param('stageId') stageId: string) {
+        return this.seasonsService.pauseStage(stageId);
+    }
+
+    @Post(':seasonId/stages/:stageId/extend')
+    async extendStage(
+        @Param('stageId') stageId: string,
+        @Body() body: { minutes: number },
+    ) {
+        return this.seasonsService.extendStageTimer(stageId, body.minutes);
+    }
+
+    @Post(':seasonId/cancel-refund')
+    async cancelAndRefund(
+        @Param('seasonId') seasonId: string,
+        @Body() body: { reason: string },
+    ) {
+        return this.seasonsService.cancelAndRefundSeason(seasonId, body?.reason || 'Cancelled by Admin');
+    }
+
     @Post(':seasonId/stages/:stageId/eliminate')
     async triggerElimination(@Param('stageId') stageId: string) {
         return this.seasonsService.triggerElimination(stageId);

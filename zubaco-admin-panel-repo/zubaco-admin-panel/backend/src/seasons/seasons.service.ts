@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@common/prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class SeasonsService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly redis: RedisService,
+    ) {}
 
     async createSeason(data: {
         name: string;
@@ -319,5 +323,136 @@ export class SeasonsService {
         ]);
 
         return { success: true, message: `Player disqualified: ${reason}` };
+    }
+
+    // ─── EMERGENCY CONTROLS (Module 6.2) ──────────────────────────
+
+    async pauseStage(stageId: string) {
+        const stage = await this.prisma.seasonStage.findUnique({ where: { id: stageId } });
+        if (!stage) throw new NotFoundException('Stage not found');
+        if (stage.status !== 'OPEN') {
+            throw new BadRequestException(`Cannot pause a stage in status ${stage.status}`);
+        }
+
+        const pauseKey = `stage:pause:${stageId}`;
+        await this.redis.getClient()?.set(pauseKey, JSON.stringify({ pausedAt: Date.now() }));
+
+        return {
+            success: true,
+            stage_id: stageId,
+            status: 'PAUSED',
+            paused_at: new Date().toISOString(),
+        };
+    }
+
+    async extendStageTimer(stageId: string, minutes: number) {
+        if (!minutes || minutes <= 0) {
+            throw new BadRequestException('Extension duration must be a positive number of minutes');
+        }
+
+        const stage = await this.prisma.seasonStage.findUnique({ where: { id: stageId } });
+        if (!stage) throw new NotFoundException('Stage not found');
+        if (stage.status !== 'OPEN') {
+            throw new BadRequestException(`Cannot extend timer for a stage in status ${stage.status}`);
+        }
+
+        const currentCloseDate = new Date(stage.close_date);
+        const newCloseDate = new Date(currentCloseDate.getTime() + minutes * 60 * 1000);
+
+        await this.prisma.seasonStage.update({
+            where: { id: stageId },
+            data: { close_date: newCloseDate },
+        });
+
+        return {
+            success: true,
+            stage_id: stageId,
+            extended_minutes: minutes,
+            previous_close_date: currentCloseDate.toISOString(),
+            new_close_date: newCloseDate.toISOString(),
+        };
+    }
+
+    async cancelAndRefundSeason(seasonId: string, reason: string) {
+        const season = await this.prisma.season.findUnique({
+            where: { id: seasonId },
+            include: { entries: true },
+        });
+
+        if (!season) throw new NotFoundException('Season not found');
+        if (season.status === 'CANCELLED') {
+            throw new BadRequestException('Season is already cancelled');
+        }
+        if (season.status === 'COMPLETED') {
+            throw new BadRequestException('Cannot cancel an already completed season');
+        }
+
+        const entryFee = Number(season.entry_fee || 0);
+        let refundedCount = 0;
+        let totalRefunded = 0;
+
+        await this.prisma.$transaction(async (tx) => {
+            // 1. Mark season CANCELLED
+            await tx.season.update({
+                where: { id: seasonId },
+                data: { status: 'CANCELLED' },
+            });
+
+            // 2. Mark all entries WITHDRAWN
+            await tx.seasonEntry.updateMany({
+                where: { season_id: seasonId },
+                data: { status: 'WITHDRAWN' },
+            });
+
+            // 3. Credit wallets if paid tournament
+            if (entryFee > 0 && season.entries.length > 0) {
+                for (const entry of season.entries) {
+                    const referenceId = `refund:${seasonId}:${entry.user_id}`;
+
+                    const existingRefund = await tx.transaction.findFirst({
+                        where: { reference_id: referenceId },
+                    });
+
+                    if (!existingRefund) {
+                        const updatedWallet = await tx.wallet.upsert({
+                            where: { user_id: entry.user_id },
+                            update: {
+                                balance: { increment: entryFee },
+                            },
+                            create: {
+                                user_id: entry.user_id,
+                                balance: entryFee,
+                                bonus_balance: 0,
+                                currency: 'INR',
+                            },
+                        });
+
+                        await tx.transaction.create({
+                            data: {
+                                user_id: entry.user_id,
+                                type: 'REFUND',
+                                amount: entryFee,
+                                balance_after: Number(updatedWallet.balance),
+                                status: 'COMPLETED',
+                                reference_id: referenceId,
+                                description: `Full entry fee refund for cancelled tournament: ${season.name}. Reason: ${reason}`,
+                            },
+                        });
+
+                        refundedCount++;
+                        totalRefunded += entryFee;
+                    }
+                }
+            }
+        });
+
+        return {
+            success: true,
+            season_id: seasonId,
+            status: 'CANCELLED',
+            reason,
+            refunded_players: refundedCount,
+            total_refunded_amount: totalRefunded,
+        };
     }
 }
