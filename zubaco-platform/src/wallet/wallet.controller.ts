@@ -95,6 +95,16 @@ export class WalletController {
     return this.kycService.getKycStatus(userId);
   }
 
+  @Get('kyc/presigned-url')
+  @UseGuards(JwtAuthGuard)
+  async getPresignedKycUrl(
+    @CurrentUser() userId: string,
+    @Query('doc_type') docType: any,
+    @Query('ext') ext?: string,
+  ) {
+    return this.kycService.generatePresignedUploadUrl(userId, docType, ext);
+  }
+
   @Post('kyc/submit')
   @UseGuards(JwtAuthGuard)
   async submitKycDocument(

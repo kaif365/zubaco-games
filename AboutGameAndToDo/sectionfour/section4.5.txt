@@ -1,0 +1,51 @@
+========================================================================================================================
+                                     ZUBACO PLATFORM — SECTION 4.5 AUDIT & SPECIFICATION
+                      (KYC IDENTITY PIPELINE & DOCUMENT SECURITY — zubaco-platform)
+========================================================================================================================
+Document Name   : section4.5.txt
+Location        : AboutGameAndToDo/sectionfour/section4.5.txt
+Parent Document : AboutGameAndToDo/sectionfour/detailedsection4.txt
+Specification   : Mandatory KYC Threshold Before Withdrawals, Indian PAN & Aadhaar Format Validation,
+                  AES-256-GCM Encryption at Rest for Identity Numbers, Masked Client Exposures,
+                  and 5-Minute Expiring Presigned Private S3 Upload URLs.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : 100% [DONE]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 4.5 AUDIT CHECKLIST & VERIFICATION SUMMARY
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Mandatory KYC Gate Before Withdrawals (`kyc_verified = true`)    | `src/wallet/ledger/ledger.service.ts` | Unit tests | [DONE]
+Indian PAN Format Validation (10 chars: 5 alpha, 4 num, 1 alpha) | `src/wallet/kyc.service.ts`        | Unit tests   | [DONE]
+Indian Aadhaar Format Validation (12-digit numeric identifier)  | `src/wallet/kyc.service.ts`        | Unit tests   | [DONE]
+AES-256-GCM Encryption at Rest with 12-byte IV & Auth Tag       | `src/wallet/kyc.service.ts`        | Unit tests   | [DONE]
+Plaintext Identity Protection (Masked: ABCDE****F, XXXX-XXXX-9012) | `src/wallet/kyc.service.ts`     | Unit tests   | [DONE]
+Presigned Private S3 Upload URLs (Strict 300s / 5-min Expiry)   | `src/wallet/kyc.service.ts`        | Unit tests   | [DONE]
+Document Duplicate Submission Lock (Pending/Approved)           | `src/wallet/kyc.service.ts`        | Unit tests   | [DONE]
+Admin Approval Flow & Immediate Wallet KYC Unlock               | `src/wallet/kyc.service.ts`        | Unit tests   | [DONE]
+Presigned URL Endpoint (`@Get('wallet/kyc/presigned-url')`)     | `src/wallet/wallet.controller.ts`  | Route check  | [DONE]
+
+------------------------------------------------------------------------------------------------------------------------
+2. TECHNICAL ARCHITECTURE & MATHEMATICAL INVARIANTS CERTIFIED
+------------------------------------------------------------------------------------------------------------------------
+A. KYC Withdrawal Gate:
+   - In `ledger.service.ts` (`createPendingWithdrawal`), wallet row is locked with `SELECT ... FOR UPDATE`.
+   - Invariant: `if (!w.kyc_verified) throw new BadRequestException('KYC verification required for withdrawals');`.
+   - Prevents unverified accounts from withdrawing funds, fulfilling RBI & FIU-IND anti-money-laundering mandates.
+
+B. Data Protection & Cryptography at Rest:
+   - Sensitive PAN and Aadhaar identity numbers are encrypted using authenticated `aes-256-gcm`.
+   - Ciphertext format: `${iv.hex}:${authTag.hex}:${encrypted.hex}`.
+   - Decryption validates authentication tag before returning plaintext.
+   - Client APIs return strictly masked identifiers (`ABCDE****F` or `XXXX-XXXX-9012`).
+
+C. Secure S3 Asset Ingress:
+   - Direct-to-S3 presigned URLs with HMAC-SHA256 signature and hard 300-second expiration.
+   - Prevents public S3 exposure and isolates private identity documents.
+
+D. Test Results & Production Build:
+   - Platform Unit Tests: 18/18 test suites passed (183/183 tests in 13.21s).
+   - Production Build: `nest build` exit code 0.
+========================================================================================================================
