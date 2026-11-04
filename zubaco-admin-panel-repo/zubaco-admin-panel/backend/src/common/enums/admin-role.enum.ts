@@ -1,0 +1,36 @@
+export enum AdminRole {
+    SUPER_ADMIN = 'SUPER_ADMIN',
+    OPERATIONS_MANAGER = 'OPERATIONS_MANAGER',
+    COMPLIANCE_AGENT = 'COMPLIANCE_AGENT',
+    FINANCE_CONTROLLER = 'FINANCE_CONTROLLER',
+}
+
+export const ROLE_HIERARCHY: Record<AdminRole, string[]> = {
+    [AdminRole.SUPER_ADMIN]: [
+        'ALL_PRIVILEGES',
+        'TOURNAMENT_CONTROL',
+        'KYC_MANAGEMENT',
+        'FINANCIAL_AUDIT',
+        'WITHDRAWAL_APPROVAL',
+        'SYSTEM_SETTINGS',
+        'ANTI_CHEAT_ENFORCEMENT',
+    ],
+    [AdminRole.OPERATIONS_MANAGER]: [
+        'TOURNAMENT_CONTROL',
+        'STAGE_TIMER_EXTENSION',
+        'STAGE_PAUSE',
+        'PLAYER_DISQUALIFICATION',
+    ],
+    [AdminRole.COMPLIANCE_AGENT]: [
+        'KYC_MANAGEMENT',
+        'DOCUMENT_VERIFICATION',
+        'KYC_APPROVAL',
+        'KYC_REJECTION',
+    ],
+    [AdminRole.FINANCE_CONTROLLER]: [
+        'FINANCIAL_AUDIT',
+        'WITHDRAWAL_APPROVAL',
+        'TAX_TDS_EXPORT',
+        'LEDGER_RECONCILIATION',
+    ],
+};
