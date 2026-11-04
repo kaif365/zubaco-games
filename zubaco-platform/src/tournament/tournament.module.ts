@@ -4,16 +4,18 @@ import { TournamentService } from './tournament.service';
 import { EliminationService } from './elimination.service';
 import { TournamentOrchestrator } from './orchestration/tournament.orchestrator';
 import { RewardPayoutService } from './orchestration/reward-payout.service';
+import { TournamentStageEngineService } from './orchestration/tournament-stage-engine.service';
 import { WalletModule } from '../wallet/wallet.module';
 import { ComplianceModule } from '../compliance/compliance.module';
 import { ScoringModule } from '../scoring/scoring.module';
 import { RngModule } from '../rng/rng.module';
 import { GameSessionModule } from '../game-session/game-session.module';
+import { WsModule } from '../ws/ws.module';
 
 @Module({
-  imports: [WalletModule, ComplianceModule, ScoringModule, RngModule, GameSessionModule],
+  imports: [WalletModule, ComplianceModule, ScoringModule, RngModule, GameSessionModule, WsModule],
   controllers: [TournamentController],
-  providers: [TournamentService, EliminationService, TournamentOrchestrator, RewardPayoutService],
-  exports: [TournamentService, TournamentOrchestrator, RewardPayoutService],
+  providers: [TournamentService, EliminationService, TournamentOrchestrator, RewardPayoutService, TournamentStageEngineService],
+  exports: [TournamentService, TournamentOrchestrator, RewardPayoutService, TournamentStageEngineService],
 })
 export class TournamentModule {}
