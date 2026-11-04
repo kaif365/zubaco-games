@@ -1,0 +1,24 @@
+========================================================================================================================
+                                      ZUBACO PLATFORM — SECTION 6.4 SPECIFICATION
+                   (FRAUD & ANTI-CHEAT RADAR WITH ACCOUNT ENFORCEMENT — zubaco-admin-panel)
+========================================================================================================================
+Document Name   : section6.4.txt
+Location        : AboutGameAndToDo/sectionsix/section6.4.txt
+Parent Document : AboutGameAndToDo/sectionsix/detailedsection6.txt
+Specification   : Suspicious Move Cadence Detection, Impossible Score Inspections, Replay Log Explorer,
+                  Player Penalties (Warn, Freeze Wallet, Permanent Ban via EnforcementService).
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 6.4 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Flagged Matches Feed (Biomechanics Cadence < 50ms, Score Delta) | `src/anti-cheat/` Incident Stream  | Unit tests   | [TODO]
+Move Replay Inspection Data Feed (Coordinates & Timestamps)     | Verification Telemetry Feed        | Protocol     | [TODO]
+Action: Warn Player (Push Notification & In-App Alert)          | Notification Event Relay           | Unit tests   | [TODO]
+Action: Freeze Wallet (Disable Withdrawals & Contests)          | `EnforcementService.freezeWallet`  | Unit tests   | [TODO]
+Action: Permanent Ban (Authoritative `is_banned = true`)        | `EnforcementService.banUser`       | Unit tests   | [TODO]
+========================================================================================================================

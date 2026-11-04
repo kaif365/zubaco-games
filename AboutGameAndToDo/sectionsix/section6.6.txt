@@ -1,0 +1,25 @@
+========================================================================================================================
+                                      ZUBACO PLATFORM — SECTION 6.6 SPECIFICATION
+                   (ROLE-BASED ACCESS CONTROL RBAC & ROUTE SECURITY — zubaco-admin-panel)
+========================================================================================================================
+Document Name   : section6.6.txt
+Location        : AboutGameAndToDo/sectionsix/section6.6.txt
+Parent Document : AboutGameAndToDo/sectionsix/detailedsection6.txt
+Specification   : Granular Role-Based Access Control (`SUPER_ADMIN`, `OPERATIONS_MANAGER`, `COMPLIANCE_AGENT`,
+                  `FINANCE_CONTROLLER`), Route Guards, and Tamper-Proof Audit Logging of Administrative Actions.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 6.6 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+4-Tier RBAC Role Architecture                                   | `src/admin/guards/roles.guard.ts`  | Unit tests   | [TODO]
+SuperAdmin Unrestricted Execution Gate                          | Admin Access Guard                 | Security     | [TODO]
+Operations Manager Scope Restriction (No Financial Approvals)   | Operations Policy Guard            | Security     | [TODO]
+Compliance Agent Scope Restriction (KYC Desk Only, No Ledger)   | Compliance Policy Guard            | Security     | [TODO]
+Finance Controller Scope (Withdrawals > ₹10,000, Tax Export)    | Finance Policy Guard               | Security     | [TODO]
+Immutable Administrative Audit Log Stream                       | Admin Audit Logger                 | Audit Trail  | [TODO]
+========================================================================================================================

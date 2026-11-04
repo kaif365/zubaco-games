@@ -1,0 +1,24 @@
+========================================================================================================================
+                                      ZUBACO PLATFORM — SECTION 6.5 SPECIFICATION
+                    (FINANCIAL LEDGER AUDIT & INDIAN TAX TDS REPORTING — zubaco-admin-panel)
+========================================================================================================================
+Document Name   : section6.5.txt
+Location        : AboutGameAndToDo/sectionsix/section6.5.txt
+Parent Document : AboutGameAndToDo/sectionsix/detailedsection6.txt
+Specification   : Double-Entry Ledger Explorer, Zero-Sum Integrity Check, Platform Rake Accounting,
+                  Indian Section 194BA 30% TDS Collections, and Government-Compliant CSV Tax Export.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 6.5 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Double-Entry Ledger Search & Filtering (Debits, Credits, Rake)  | `src/wallet/ledger/` Admin Explorer| Unit tests   | [TODO]
+Real-Time Zero-Sum Balance Integrity Proof                      | Ledger Reconciliation Guard        | Invariant    | [TODO]
+Indian Section 194BA 30% TDS Collection Auditing               | TDS Deduction Audit Stream         | Compliance   | [TODO]
+Government Tax Sheet Export (CSV with PAN, Net Winnings, TDS)   | Tax Export Service                 | Unit tests   | [TODO]
+Platform Revenue & Gross Gaming Revenue (GGR) Metrics           | Financial Analytics Engine         | Financial    | [TODO]
+========================================================================================================================

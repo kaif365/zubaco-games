@@ -1,0 +1,24 @@
+========================================================================================================================
+                                      ZUBACO PLATFORM — SECTION 6.3 SPECIFICATION
+                    (KYC VERIFICATION DESK & DOCUMENT INSPECTION — zubaco-admin-panel)
+========================================================================================================================
+Document Name   : section6.3.txt
+Location        : AboutGameAndToDo/sectionsix/section6.3.txt
+Parent Document : AboutGameAndToDo/sectionsix/detailedsection6.txt
+Specification   : Split-Screen Review Desk, Private Presigned S3 Image Loading,
+                  Approve KYC Workflow with User Notification, Reject KYC with Structured Reason Codes.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 6.3 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Split-Screen Review Queue (Pending Verification Requests)       | Admin KYC Queue API                | Unit tests   | [TODO]
+5-Minute Expiring Private S3 Presigned Document Preview URL     | KYC Presigned S3 Generator         | Security     | [TODO]
+Approve KYC Action & Immediate Ledger Withdrawal Unlock         | `approveKyc()` Pipeline            | Unit tests   | [TODO]
+Reject KYC Action & Mandatory Reason Code                       | `rejectKyc()` Pipeline             | Unit tests   | [TODO]
+Audit Trail Logging of Agent Decisions                          | KYC Decision Ledger                | Compliance   | [TODO]
+========================================================================================================================

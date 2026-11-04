@@ -1,0 +1,76 @@
+========================================================================================================================
+                                       ZUBACO PLATFORM — SECTION 6 MASTER TRACKER
+                        (ADMIN PANEL FULL-STACK OPERATIONS SUITE — zubaco-admin-panel-repo)
+========================================================================================================================
+Document Name   : detailedsection6.txt
+Location        : AboutGameAndToDo/sectionsix/detailedsection6.txt
+Parent Plan     : AboutGameAndToDo/zubaco_production_readiness_plan.txt
+Objective       : Audit, verify, harden, and mathematically certify the Admin Panel Full-Stack Operations Suite.
+                  Audit Live Command Center telemetry, Tournament Creation & Emergency Controls (Pause/Extend/Refund),
+                  KYC Verification Desk with document preview and approval workflows,
+                  Fraud & Anti-Cheat Radar with match inspection and player penalties,
+                  Financial Accounting & Ledger Tax Export (CSV), and Role-Based Access Control (RBAC).
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Section Status  : ACTIVE [IN PROGRESS]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 6 MASTER MODULES & DELIVERABLES
+------------------------------------------------------------------------------------------------------------------------
+Module ID | Module Name                                     | Specification Target                                | Status
+----------+-------------------------------------------------+-----------------------------------------------------+-------
+6.1       | Live Operations Command Center & Telemetry      | Real-Time Metrics, CCU, Server Health, Velocities   | [TODO]
+6.2       | Tournament Orchestration & Emergency Controls   | Create Tournaments, Pause, Extend, Cancel & Refund  | [TODO]
+6.3       | KYC Verification Desk & Document Inspection     | Split-Screen Review, Secure S3 Presigned URL, Action| [TODO]
+6.4       | Fraud & Anti-Cheat Radar with Player Penalties  | Flagged Matches, Cadence Analysis, Freeze/Ban Action| [TODO]
+6.5       | Financial Ledger Audit & Indian Tax (TDS) Export| Rake Accounting, Balance Verification, CSV Tax Sheet| [TODO]
+6.6       | Role-Based Access Control (RBAC) Governance     | SuperAdmin, Operations, Compliance, Finance Roles   | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+2. SUB-TRACKERS & BATCH FILES
+------------------------------------------------------------------------------------------------------------------------
+Sub-Tracker File                          | Description                                            | Status
+------------------------------------------+--------------------------------------------------------+--------
+`AboutGameAndToDo/sectionsix/section6.1.txt` | 6.1 Live Operations Command Center & Telemetry Metrics | [TODO]
+`AboutGameAndToDo/sectionsix/section6.2.txt` | 6.2 Tournament Orchestrator & Emergency Admin Controls | [TODO]
+`AboutGameAndToDo/sectionsix/section6.3.txt` | 6.3 KYC Verification Desk & Document Approval Workflow| [TODO]
+`AboutGameAndToDo/sectionsix/section6.4.txt` | 6.4 Fraud & Anti-Cheat Radar with Account Enforcement  | [TODO]
+`AboutGameAndToDo/sectionsix/section6.5.txt` | 6.5 Financial Ledger Audit & Indian TDS Tax Reporting   | [TODO]
+`AboutGameAndToDo/sectionsix/section6.6.txt` | 6.6 Role-Based Access Control (RBAC) & Route Security  | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+3. DETAILED TECHNICAL AUDIT CRITERIA & INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+- 6.1 Live Command Center & Telemetry:
+  * Concurrent Active Users (CCU) real-time counter via Redis session scans.
+  * Live tournament stage monitor tracking active participant counts and stage progress.
+  * Deposit and withdrawal velocity trackers flagging abnormal volume spikes.
+  * System health telemetry: CPU, memory, database connection pool, Redis latency.
+
+- 6.2 Tournament Orchestration & Emergency Controls:
+  * Full tournament creation wizard: Title, entry fee, prize pool, registration window, game assignments per stage (1 to 5),
+    elimination percentages, and cohort size.
+  * Emergency interventions: "Pause Stage", "Extend Timer by X Minutes", "Cancel & Refund All Participants" with transactional
+    rollback and automatic entry-fee credit to player wallets.
+
+- 6.3 KYC Verification Desk:
+  * Split-screen UI: Document image preview on the left (via private presigned S3 URLs), player details on the right.
+  * Action controls: "Approve KYC" (notifies user via SMS/event) and "Reject KYC" (mandatory structured rejection reason).
+  * Strict PAN & Aadhaar validation, encryption verification at rest, and masking enforcement.
+
+- 6.4 Fraud & Anti-Cheat Radar:
+  * Flagged matches list displaying suspicious move cadences, impossible route timings, or score mismatches.
+  * Replay viewer: Visual inspection of player coordinates, timestamp deltas, and standard deviation < 5ms.
+  * Account action desk: "Warn Player", "Freeze Wallet", or "Permanent Hardware/Phone Ban" via EnforcementService.
+
+- 6.5 Financial Accounting & Ledger Audit:
+  * Complete double-entry ledger explorer verifying zero sum invariants.
+  * Breakdown of deposits, withdrawals, platform rake (entry fee - prize pool), and 30% Section 194BA TDS withheld.
+  * "Export Tax Sheet (CSV)" generating government-compliant quarterly withholding filings.
+
+- 6.6 Role-Based Access Control (RBAC):
+  * `SUPER_ADMIN`: Unlimited system-wide administrative control.
+  * `OPERATIONS_MANAGER`: Tournament creation, scheduling, and stage control.
+  * `COMPLIANCE_AGENT`: KYC review, document verification, approval/rejection (strictly no withdrawal access).
+  * `FINANCE_CONTROLLER`: Manual withdrawal approvals over ₹10,000, ledger audit, and tax exports.
+========================================================================================================================

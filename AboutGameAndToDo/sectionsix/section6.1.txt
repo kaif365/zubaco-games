@@ -1,0 +1,24 @@
+========================================================================================================================
+                                      ZUBACO PLATFORM — SECTION 6.1 SPECIFICATION
+                     (LIVE OPERATIONS COMMAND CENTER & TELEMETRY — zubaco-admin-panel)
+========================================================================================================================
+Document Name   : section6.1.txt
+Location        : AboutGameAndToDo/sectionsix/section6.1.txt
+Parent Document : AboutGameAndToDo/sectionsix/detailedsection6.txt
+Specification   : Real-Time CCU Telemetry, Concurrent Match Monitors, Deposit/Withdrawal Velocity Trackers,
+                  Database Connection Pool Monitoring, and Redis Latency Health Checks.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 6.1 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Real-Time Concurrent Active Users (CCU) Gauge                   | `src/admin/` & Redis Active Keys   | Telemetry    | [TODO]
+Live Tournament Stage Monitor (Active Participants per Stage)   | Tournament Monitoring Gateway      | Unit tests   | [TODO]
+Deposit & Withdrawal Velocity Spikes Detector                   | Wallet Transaction Stream          | Unit tests   | [TODO]
+System Health Endpoint (CPU, Memory, PgPool, Redis)             | Health Service Controller          | Endpoint     | [TODO]
+WebSocket Live Telemetry Broadcast to Admin Dashboard           | Admin Event Stream                 | Unit tests   | [TODO]
+========================================================================================================================
