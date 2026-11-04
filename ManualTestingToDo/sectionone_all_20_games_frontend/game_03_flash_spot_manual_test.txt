@@ -1,0 +1,71 @@
+========================================================================================================================
+                               ZUBACO GAME 3: FLASH SPOT (SPATIAL MEMORY)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_03_flash_spot_manual_test.txt
+Game Code Directory: zubaco-games/flash-spot/frontend
+Category: Spatial Working Memory & Quick Reflexes
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/flash-spot/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: BOARD SETUP & FLASH DURATION
+    - Action: Start match. Observe target spots illuminating briefly across the grid.
+    - Expected Result:
+      * Grid renders crisp circular or square nodes.
+      * Target nodes flash with high contrast color (e.g. bright amber or cyan).
+      * Flash duration is exactly as specified (e.g., 750ms in Level 1 -> 350ms in Level 10).
+      * Nodes return to blank state after flash.
+
+[ ] TC-02: CORRECT NODE RECALL & HIGHLIGHTING
+    - Action: Tap the exact nodes that flashed.
+    - Expected Result:
+      * Tapping a correct node turns it green with positive audio click.
+      * Tapped node locks into selected state.
+      * When all flashed nodes are tapped, stage clears with celebration animation.
+
+[ ] TC-03: INCORRECT NODE TAP
+    - Action: Intentionally tap a node that did NOT flash.
+    - Expected Result:
+      * Tapped node turns red with error buzz.
+      * The correct nodes that were missed are highlighted in gentle outline to show the answer.
+      * Penalty points or life deduction is accurately computed.
+
+[ ] TC-04: TAP OUTSIDE THE GRID
+    - Action: Click rapidly in the white space around the grid and in the margins.
+    - Expected Result:
+      * No ghost hits or errors in the console.
+      * Game state remains stable.
+
+[ ] TC-05: LEVEL COMPLEXITY SCALING (LEVELS 1 TO 10)
+    - Action: Advance through 5 consecutive levels.
+    - Expected Result:
+      * Level 1: 3x3 grid, 3 target spots.
+      * Level 5: 4x4 grid, 5 target spots.
+      * Level 10: 5x5 grid, 7-8 target spots with faster flash speed.
+      * Node positions are uniformly distributed (never clustered solely in one corner).
+
+[ ] TC-06: ACCIDENTAL DRAG GESTURE
+    - Action: Touch a node and drag finger across to another node without lifting.
+    - Expected Result:
+      * Only the initially touched node or the released node triggers input (no continuous swipe painting of all nodes).
+
+[ ] TC-07: SOUND AND HAPTIC VERIFICATION
+    - Action: Play with sound on mobile device.
+    - Expected Result:
+      * Flash cue audio, tap audio, and round completion sound play cleanly without latency.
+      * Haptic vibration triggers on correct and incorrect selections.
+
+========================================================================================================================
+SIGN-OFF:
+All 7 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

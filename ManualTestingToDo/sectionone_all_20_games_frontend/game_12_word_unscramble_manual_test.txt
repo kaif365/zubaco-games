@@ -1,0 +1,62 @@
+========================================================================================================================
+                         ZUBACO GAME 12: WORD UNSCRAMBLE (VERBAL LOGIC & ANAGRAMS)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_12_word_unscramble_manual_test.txt
+Game Code Directory: zubaco-games/word-unscramble/frontend
+Category: Verbal Agility & Lexical Retrieval
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/word-unscramble/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: LETTER TILE DISPLAY & HINT CLUE
+    - Action: Start match. Observe jumbled letter tiles and category clue (e.g. "ANIMAL: T - I - G - E - R").
+    - Expected Result:
+      * Letter tiles are uppercase, large, and contrast well with the card background.
+      * Category or definition hint is visible at the top.
+      * Empty answer slots correspond to the exact word length.
+
+[ ] TC-02: LETTER SELECTION & ANSWER FILL
+    - Action: Tap letters in order: T -> I -> G -> E -> R.
+    - Expected Result:
+      * Tapped letter animates from the pool up into the first available answer slot.
+      * Letter in the pool dims or disappears.
+      * Letter tap sound effects play with slight pitch increment per letter.
+
+[ ] TC-03: LETTER DESELECTION & BACKSPACE
+    - Action: Tap the letter "G" in the answer slot to remove it, or press "Backspace".
+    - Expected Result:
+      * Tapped letter slides back into the letter pool tray.
+      * Subsequent answer letters shift left or remain in their slots accurately.
+
+[ ] TC-04: CORRECT WORD SUBMISSION & DICTIONARY VALIDATION
+    - Action: Complete the correct word "TIGER".
+    - Expected Result:
+      * Answer row turns bright green with a victory chime.
+      * Score awards points based on remaining time and word difficulty.
+      * Next word anagram loads instantly.
+
+[ ] TC-05: INCORRECT WORD GUESS
+    - Action: Assemble an invalid combination: T -> G -> I -> E -> R and submit.
+    - Expected Result:
+      * Answer slots shake horizontally in red with an error sound.
+      * Letters return to pool or remain selected for player correction.
+
+[ ] TC-06: ALTERNATE VALID ANAGRAMS
+    - Action: For words with multiple valid anagrams (e.g. "CARE" vs "RACE"), test submitting either.
+    - Expected Result:
+      * Recognized dictionary words must be accepted or rejected according to the specific category hint.
+
+========================================================================================================================
+SIGN-OFF:
+All 6 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

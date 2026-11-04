@@ -1,0 +1,43 @@
+========================================================================================================================
+                   ZUBACO WEBSOCKET ENGINE: REAL-TIME EVENTS & RECONNECTION RESILIENCE
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionfive_tournaments_and_websockets/02_websocket_realtime_events_and_reconnection_manual_test.txt
+Component: zubaco-platform -> WsModule (`/ws` Socket.io gateway)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: WEBSOCKET AUTHENTICATION HANDSHAKE
+    - Action: Connect WebSocket client with query parameter `?token=VALID_JWT`.
+    - Expected Result:
+      * Gateway authenticates user, extracts `userId`, and assigns client to private user room `user:{userId}`.
+      * Client receives `CONNECTED` event with server timestamp synchronization.
+
+[ ] TC-02: TOURNAMENT ROOM SUBSCRIPTION (`tournament:join`)
+    - Action: Emit `tournament:join` with `{ "tournamentId": "tourn-123" }`.
+    - Expected Result:
+      * Socket joins Redis channel / room `tournament:tourn-123`.
+      * Client receives current state snapshot: active stage, time remaining, live leaderboard snippet.
+
+[ ] TC-03: SUDDEN CLIENT DISCONNECTION & AUTOMATIC EXPONENTIAL BACKOFF
+    - Action: Disconnect client abruptly (kill browser tab or disconnect Wi-Fi) during an active stage.
+    - Expected Result:
+      * Server detects disconnect and retains player's reservation slot for a 60-second grace window.
+      * Upon reconnection, client re-establishes socket with exponential backoff jitter ($2^n \times \text{jitter}$).
+      * Server emits `STATE_SYNC` restoring player immediately into their active match without forfeit.
+
+[ ] TC-04: MASS BROADCAST FAN-OUT (LATENCY CHECK)
+    - Action: Connect 50 browser windows to the same tournament. Server fires `STAGE_START`.
+    - Expected Result:
+      * All 50 clients receive the event within < 100 milliseconds.
+      * Countdown starts in lockstep across all devices.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

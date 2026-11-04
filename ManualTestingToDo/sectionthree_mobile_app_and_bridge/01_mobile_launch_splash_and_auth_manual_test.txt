@@ -1,0 +1,58 @@
+========================================================================================================================
+                      ZUBACO MOBILE APP: LAUNCH, SPLASH & PHONE OTP AUTHENTICATION
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionthree_mobile_app_and_bridge/01_mobile_launch_splash_and_auth_manual_test.txt
+Component: zubaco-mobile (React Native shell on Android & iOS)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Run Metro Bundler: `cd zubaco-mobile && npm start`
+   - Android Emulator / Device: `npm run android`
+   - iOS Simulator / Device: `npm run ios`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: COLD START & SPLASH SCREEN
+    - Action: Launch the app from cold state (killed from app switcher).
+    - Expected Result:
+      * Splash screen with Zubaco animated logo displays immediately (< 500ms).
+      * No white flash or layout jump between native splash and React Native container.
+      * Status bar color matches brand navy theme.
+
+[ ] TC-02: PHONE NUMBER ENTRY & VALIDATION
+    - Action: On login screen, test input validation:
+      * Enter 9 digits: Verify "Send OTP" button remains disabled.
+      * Enter invalid characters: Verify keyboard is restricted to numeric phone pad.
+      * Enter 10 digits (`9876543210`): Verify "Send OTP" button enables with haptic feedback.
+
+[ ] TC-03: OTP DISPATCH & 60-SECOND RESEND TIMER
+    - Action: Tap "Send OTP".
+    - Expected Result:
+      * Backend dispatches OTP (mock `123456` in staging / real SMS in prod).
+      * UI transitions to 6-box OTP entry screen with cursor auto-focused on box 1.
+      * "Resend OTP in 59s..." countdown ticks down accurately.
+      * Resend button remains strictly disabled until timer reaches 00:00.
+
+[ ] TC-04: INVALID OTP ENTRY (PENALTY INVARIANT)
+    - Action: Enter wrong OTP (`000000`).
+    - Expected Result:
+      * Input boxes shake in red.
+      * Error toast displays: "Invalid OTP, 2 attempts remaining".
+      * Third wrong attempt triggers 5-minute lockout.
+
+[ ] TC-05: SUCCESSFUL LOGIN & JWT REFRESH PERSISTENCE
+    - Action: Enter valid OTP (`123456`).
+    - Expected Result:
+      * App logs in, stores Access Token & Refresh Token in encrypted Keychain / Keystore (`react-native-keychain`).
+      * Navigates to main Game Lobby screen.
+      * Kill and restart the app: User must remain logged in without re-entering phone number.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

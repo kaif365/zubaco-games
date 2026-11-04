@@ -1,0 +1,52 @@
+========================================================================================================================
+                      ZUBACO PLATFORM: SMS OTP AUTHENTICATION & JWT LIFECYCLE
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionfour_central_platform_backend/01_auth_sms_otp_and_session_manual_test.txt
+Component: zubaco-platform -> AuthModule (`/api/v1/auth`)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO TEST (VIA POSTMAN / CURL / FRONTEND):
+   - Backend URL: `http://localhost:3000/api/v1`
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: REQUEST OTP (`POST /auth/send-otp`)
+    - Action: Send payload `{ "phone": "+919876543210" }`.
+    - Expected Result:
+      * Returns HTTP 200 `{ "success": true, "message": "OTP sent successfully", "retryAfter": 60 }`.
+      * OTP record generated in Redis with 300s TTL.
+
+[ ] TC-02: RATE LIMITING ON OTP DISPATCH (ANTI-SPAM)
+    - Action: Fire 5 consecutive requests to `/auth/send-otp` within 10 seconds.
+    - Expected Result:
+      * 2nd through 5th requests fail with HTTP 429 "Too Many Requests, please wait 60s".
+      * Protects third-party SMS budget and prevents SMS flooding attacks.
+
+[ ] TC-03: VERIFY OTP & ISSUE TOKENS (`POST /auth/verify-otp`)
+    - Action: Send payload `{ "phone": "+919876543210", "otp": "123456" }`.
+    - Expected Result:
+      * Returns HTTP 200 with `{ accessToken, refreshToken, user: { id, phone, kycStatus } }`.
+      * Access Token valid for 15 minutes, Refresh Token valid for 7 days.
+      * OTP in Redis is immediately invalidated (single-use only).
+
+[ ] TC-04: REPLAY VERIFY OTP ATTACK
+    - Action: Immediately send the exact same OTP payload again.
+    - Expected Result:
+      * Returns HTTP 400 "Invalid or expired OTP".
+      * Prevents replay attacks.
+
+[ ] TC-05: TOKEN REFRESH FLOW (`POST /auth/refresh`)
+    - Action: Send valid `refreshToken`.
+    - Expected Result:
+      * Returns new `accessToken` and rotated `refreshToken`.
+      * Old `refreshToken` is invalidated in Redis (Refresh Token Rotation pattern).
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

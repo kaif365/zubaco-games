@@ -1,0 +1,69 @@
+========================================================================================================================
+                           ZUBACO GAME 8: COLOUR SORT (LIQUID TUBE LOGIC)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_08_colour_sort_manual_test.txt
+Game Code Directory: zubaco-games/colour-sorting/frontend
+Category: Logic, Planning & Deductive Reasoning
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/colour-sorting/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: TUBE CAPACITY & COLOR DISTRIBUTION
+    - Action: Launch game. Observe glass test tubes containing layered color blocks/liquids.
+    - Expected Result:
+      * Standard tubes have exactly 4 segments capacity.
+      * At least 2 empty buffer tubes are present to allow valid transfer moves.
+      * Every color present on the board has exactly 4 segments total across all tubes.
+      * The initial board is mathematically proven solvable.
+
+[ ] TC-02: SELECT TUBE & POUR ANIMATION
+    - Action: Tap Tube A (source), then tap Tube B (destination with matching top color or empty).
+    - Expected Result:
+      * Tube A elevates slightly or tilts to indicate selection.
+      * Top matching liquid block pours smoothly from Tube A into Tube B with a liquid pouring sound effect.
+      * Tube A drops back down to the baseline.
+
+[ ] TC-03: ILLEGAL POUR REJECTION (COLOR MISMATCH)
+    - Action: Select Tube A with Red on top, and tap Tube B with Blue on top.
+    - Expected Result:
+      * Pour is rejected.
+      * Tube B shakes horizontally with a dull refusal thud.
+      * Tube A remains selected or deselects cleanly.
+
+[ ] TC-04: ILLEGAL POUR REJECTION (FULL TUBE)
+    - Action: Select Tube A and try to pour into Tube B which already has 4 segments (full).
+    - Expected Result:
+      * Pour is strictly rejected.
+      * No overflow graphic or liquid clipping outside tube glass.
+
+[ ] TC-05: CONSECUTIVE SAME-COLOR TRANSFER
+    - Action: Pour from a tube having 2 consecutive segments of Green into an empty tube.
+    - Expected Result:
+      * Both consecutive segments of the same color pour together or sequentially without requiring 2 taps.
+
+[ ] TC-06: TUBE COMPLETION LOCK
+    - Action: Fill a tube with 4 identical color segments (e.g., 4 Yellow).
+    - Expected Result:
+      * Tube caps off with a cork or golden sparkler effect.
+      * Tube is sealed and cannot be selected as source anymore.
+
+[ ] TC-07: LEVEL COMPLETE TRIGGER
+    - Action: Complete all tubes so every tube is either full of a single color or completely empty.
+    - Expected Result:
+      * Win fanfare plays, fireworks or confetti trigger on canvas.
+      * Move count and timer bonus display on summary screen.
+
+========================================================================================================================
+SIGN-OFF:
+All 7 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

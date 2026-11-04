@@ -1,0 +1,38 @@
+========================================================================================================================
+                 ZUBACO DEVOPS: SENTRY APM EXCEPTION TRACKING & SENSITIVE DATA SCRUBBING
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionsix_devops_and_infrastructure/03_sentry_error_scrubbing_and_logs_manual_test.txt
+Component: zubaco-platform -> SentryService & SensitiveScrubber
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: UNHANDLED EXCEPTION CAPTURE IN SENTRY
+    - Action: Trigger an unhandled error endpoint or pass an invalid payload.
+    - Expected Result:
+      * Sentry receives event with stack trace, request method, route, and environment tag (`production` / `staging`).
+      * HTTP client receives sanitized 500 error message without database schema exposure.
+
+[ ] TC-02: SENSITIVE PII & FINANCIAL TOKEN SCRUBBING (CRITICAL SECURITY P0)
+    - Action: Submit a request with sensitive fields:
+      `{ "password": "SuperSecretPassword123!", "otp": "998877", "token": "jwt_secret_token", "pan": "ABCDE1234F" }`
+      and trigger an error.
+    - Expected Result:
+      * Sentry event payload MUST have all sensitive values replaced by `"[REDACTED]"`.
+      * Neither Sentry dashboard nor application log files store plaintext passwords, OTPs, or PAN cards.
+
+[ ] TC-03: PRODUCTION STRUCTURED JSON LOGGING
+    - Action: Inspect stdout logs in Docker (`docker logs -f platform`).
+    - Expected Result:
+      * Logs are formatted in single-line structured JSON with: `timestamp`, `level`, `context`, `traceId`, `message`.
+      * Easy ingestion into Datadog, CloudWatch, or Grafana Loki.
+
+========================================================================================================================
+SIGN-OFF:
+All 3 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

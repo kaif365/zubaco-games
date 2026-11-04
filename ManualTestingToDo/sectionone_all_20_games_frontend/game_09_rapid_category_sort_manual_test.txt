@@ -1,0 +1,57 @@
+========================================================================================================================
+                       ZUBACO GAME 9: RAPID CATEGORY SORT (SPEED CLASSIFIER)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_09_rapid_category_sort_manual_test.txt
+Game Code Directory: zubaco-games/rapid-category-sort/frontend
+Category: Psychomotor Speed & Dual-Category Discrimination
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/rapid-category-sort/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: CONVEYOR / CENTRAL CARD FLOW
+    - Action: Start match. Observe central card stream (e.g., Left = Even / Right = Odd, or Left = Living / Right = Non-Living).
+    - Expected Result:
+      * Left and Right bins/buttons are labeled clearly with large readable font.
+      * Center card displays item with zero rendering lag.
+      * Countdown bar ticks down with urgency.
+
+[ ] TC-02: CORRECT CLASSIFICATION SWIPE / TAP
+    - Action: Tap Left button or swipe Left for an item that belongs to the Left category.
+    - Expected Result:
+      * Card flies smoothly into Left bin.
+      * Streak combo multiplier increases (1x -> 2x -> 3x).
+      * Immediate next card pops up without hesitation (< 16ms frame turnaround).
+
+[ ] TC-03: INCORRECT CLASSIFICATION PENALTY
+    - Action: Intentionally swipe Right for a Left item.
+    - Expected Result:
+      * Card flashes red, error buzzer sounds.
+      * Combo streak resets back to 1x.
+      * Time penalty or score deduction is visibly displayed (e.g., -50 pts).
+
+[ ] TC-04: RAPID FIRE INPUT (SUB-100MS CADENCE)
+    - Action: Alternately spam Left and Right buttons as fast as humanly possible.
+    - Expected Result:
+      * Game does not skip cards or hang up animations.
+      * Anti-cheat cadence analyzer remains within legitimate bounds unless an automated script is used.
+
+[ ] TC-05: CATEGORY RULE SHIFT (STROOP EFFECT)
+    - Action: In higher stages (e.g. Stage 3), observe rule reversals (e.g., buttons swap positions).
+    - Expected Result:
+      * Clear visual cue flashes warning of category swap (e.g. "REVERSE!").
+      * Correctly enforces new orientation without persisting old mappings.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

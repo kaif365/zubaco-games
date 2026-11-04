@@ -1,0 +1,45 @@
+========================================================================================================================
+                          ZUBACO ADMIN PANEL: KYC DOCUMENT VERIFICATION DESK
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectiontwo_admin_panel/04_admin_kyc_document_desk_manual_test.txt
+Component: zubaco-admin-panel -> KYC Desk
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: PENDING KYC SUBMISSIONS QUEUE
+    - Action: Navigate to KYC Verification tab.
+    - Expected Result:
+      * Table lists users awaiting identity approval with: Name, Phone, Aadhaar / PAN number, submission time.
+      * Status indicator shows `PENDING_REVIEW`.
+
+[ ] TC-02: SECURE S3 PRESIGNED IMAGE PREVIEW
+    - Action: Click "View Document" for a pending submission.
+    - Expected Result:
+      * Document loads inside a modal viewer using an ephemeral presigned S3 URL (expires in 15 minutes).
+      * Raw permanent S3 bucket URLs are never exposed in DOM or console.
+      * Zoom in / Rotate controls work smoothly for reading small text.
+
+[ ] TC-03: KYC APPROVAL FLOW
+    - Action: Review valid PAN card matching user name. Click "Approve KYC".
+    - Expected Result:
+      * User `is_kyc_verified` updates to `true` in database.
+      * User's withdrawal limits increase automatically to ₹50,000/day.
+      * Push notification / SMS is dispatched to user: "Your Zubaco KYC has been verified successfully".
+
+[ ] TC-04: KYC REJECTION WITH AUDIT REMARKS
+    - Action: Review blurred or fraudulent document. Click "Reject KYC".
+    - Input: Select reason: "Document blurry / Name mismatch on PAN card".
+    - Expected Result:
+      * User KYC status updates to `REJECTED`.
+      * Reason is saved to user profile and displayed in mobile app asking them to re-upload.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

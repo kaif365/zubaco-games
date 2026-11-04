@@ -1,0 +1,40 @@
+========================================================================================================================
+                 ZUBACO DEVOPS: DOCKER COMPOSE & DATABASE INFRASTRUCTURE BOOTSTRAP
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionsix_devops_and_infrastructure/01_docker_compose_and_database_setup_manual_test.txt
+Component: Docker Compose, PostgreSQL 16, Redis 7, PgBouncer
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: CLEAN CONTAINER SPIN-UP (`docker-compose up -d`)
+    - Action: Run `docker-compose up -d` from the root directory.
+    - Expected Result:
+      * PostgreSQL container boots and passes `pg_isready` healthcheck.
+      * Redis container boots with `volatile-lru` eviction policy and `maxmemory 512mb`.
+      * Zubaco Platform API container compiles and starts on port 3000.
+      * Admin Backend (port 3001) and Admin Frontend (port 3002) start cleanly.
+      * `docker ps` shows all containers in `healthy` status.
+
+[ ] TC-02: PRISMA DATABASE MIGRATIONS DEPLOYMENT
+    - Action: Inside `zubaco-platform`, run `npx prisma migrate deploy`.
+    - Expected Result:
+      * All migration SQL files apply successfully.
+      * Tables created: `User`, `Wallet`, `Transaction`, `Tournament`, `Stage`, `LeaderboardEntry`, `GameSession`, `KYCDocument`, `DeviceFingerprint`.
+      * Composite indexes `@@index([user_id, started_at])` and `@@index([type, status])` exist.
+
+[ ] TC-03: REDIS PERSISTENCE REBOOT SURVIVAL (AOF TEST)
+    - Action: Set a test key in Redis (`SET test_key "persistent_value"`). Restart Redis container (`docker restart redis`).
+    - Expected Result:
+      * Redis starts up and reads Append-Only-File (AOF).
+      * `GET test_key` returns `"persistent_value"` without data loss.
+
+========================================================================================================================
+SIGN-OFF:
+All 3 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

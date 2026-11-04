@@ -1,0 +1,64 @@
+========================================================================================================================
+                      ZUBACO GAME 20: SPEED TYPE ANSWER (PSYCHOMOTOR KEYBOARDING)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_20_speed_type_answer_manual_test.txt
+Game Code Directory: zubaco-games/speed-type-answer/frontend
+Category: Psychomotor Typing, Lexical Processing & Fine Finger Dexterity
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/speed-type-answer/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: FALLING / STREAMING WORDS & ON-SCREEN KEYBOARD
+    - Action: Start match. Words appear and drift down or across the screen toward a cutoff baseline.
+    - Expected Result:
+      * Words are spelled correctly with high-legibility sans-serif typography.
+      * Active input field is auto-focused.
+      * On mobile devices, virtual keyboard opens smoothly or customized on-screen alphanumeric keypad appears.
+
+[ ] TC-02: REAL-TIME KEYSTROKE MATCHING
+    - Action: Type the letters of the targeted word one by one.
+    - Expected Result:
+      * Typed letters in the word turn green in real-time.
+      * Un-typed letters remain white/neutral.
+      * Keystroke typing click audio triggers on every valid character.
+
+[ ] TC-03: MISTYPED KEYSTROKE HANDLING
+    - Action: Type an incorrect letter midway through a word.
+    - Expected Result:
+      * The mistyped letter glows red or causes a slight shake.
+      * Cursor does not advance until corrected, or penalty points are deducted.
+      * Backspace clears the error cleanly.
+
+[ ] TC-04: WORD COMPLETION & DESTRUCTION
+    - Action: Complete typing the final letter of the word.
+    - Expected Result:
+      * The completed word explodes or vaporizes in a burst of particles.
+      * Word destruction sound effect plays.
+      * Points awarded based on Word Per Minute (WPM) speed and accuracy.
+
+[ ] TC-05: WORD REACHES CUTOFF LINE (DAMAGE TAKEN)
+    - Action: Let a word drift past the bottom deadline without typing it.
+    - Expected Result:
+      * Base shield takes damage.
+      * Screen shakes with impact sound.
+      * When base HP reaches 0, match terminates with final WPM and Net Accuracy stats.
+
+[ ] TC-06: MOBILE KEYBOARD RESIZE TEST
+    - Action: On mobile shell, test soft keyboard opening and closing.
+    - Expected Result:
+      * Viewport scales or scrolls automatically so the active typing target and input box remain 100% visible above the keyboard.
+
+========================================================================================================================
+SIGN-OFF:
+All 6 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

@@ -1,0 +1,48 @@
+========================================================================================================================
+                      ZUBACO PLATFORM: DOUBLE-ENTRY LEDGER & WALLET TRANSACTIONS
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionfour_central_platform_backend/02_wallet_deposit_withdraw_and_ledger_manual_test.txt
+Component: zubaco-platform -> WalletModule (`/api/v1/wallet`)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: GET WALLET BALANCE (`GET /wallet/balance`)
+    - Action: Send GET request with Bearer token.
+    - Expected Result:
+      * Returns `{ depositBalance: 500, bonusBalance: 100, winningBalance: 250, totalBalance: 850 }`.
+      * Individual bucket sums equal total.
+
+[ ] TC-02: TOURNAMENT ENTRY FEE DEDUCTION PRECEDENCE (CRITICAL P0)
+    - Action: User has ₹20 Bonus, ₹30 Deposit, ₹50 Winnings. Enters ₹50 Tournament.
+    - Expected Result:
+      * Bucket precedence algorithm strictly deducts:
+        1st: ₹20 Bonus (Max allowable bonus per tournament e.g. 10%-20%)
+        2nd: ₹30 Deposit
+        3rd: ₹0 Winnings
+      * User's remaining balances are accurate: Deposit = ₹0, Bonus = ₹0, Winnings = ₹50.
+      * Winnings bucket is preserved for withdrawal.
+
+[ ] TC-03: DOUBLE-SPEND CONCURRENCY ATTACK (CRITICAL P0)
+    - Action: User has ₹50 total balance. Send TWO simultaneous requests to join two ₹50 tournaments at the exact same millisecond.
+    - Expected Result:
+      * The database row lock (`SELECT ... FOR UPDATE`) and Redis idempotency lock allow exactly ONE tournament entry to succeed.
+      * The second request FAILS with HTTP 400 "Insufficient balance".
+      * Wallet balance NEVER goes negative (balance >= 0 invariant strictly maintained).
+
+[ ] TC-04: WITHDRAWAL REQUEST INITIATION (`POST /wallet/withdraw`)
+    - Action: Request to withdraw ₹500 to UPI VPA `player@upi`.
+    - Expected Result:
+      * Only `winningBalance` is eligible for withdrawal (Deposit and Bonus cannot be withdrawn).
+      * Withdrawal amount must be <= `winningBalance`.
+      * Transaction record created with status `PENDING` and amount is reserved in `in_flight_hold`.
+
+========================================================================================================================
+SIGN-OFF:
+All 4 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

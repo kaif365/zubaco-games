@@ -1,0 +1,51 @@
+========================================================================================================================
+                      ZUBACO MOBILE APP: NATIVE WEBVIEW BIDIRECTIONAL BRIDGE
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionthree_mobile_app_and_bridge/02_mobile_webview_postmessage_bridge_manual_test.txt
+Component: zubaco-mobile -> Native WebView Bridge (`postMessage` protocol)
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: HANDSHAKE PROTOCOL (`ZUBACO_INIT`)
+    - Action: Tap any game tile from the lobby (e.g. Sequence Recall).
+    - Expected Result:
+      * WebView loads the game bundle locally (`file://` or fast CDN).
+      * Native shell injects `ZUBACO_INIT` message with:
+        `{ type: 'ZUBACO_INIT', payload: { userId, sessionToken, matchTicket, hapticsEnabled: true } }`.
+      * Game responds with `{ type: 'ZUBACO_READY' }` in under 300ms.
+      * Loading spinner disappears and game countdown begins.
+
+[ ] TC-02: NATIVE HAPTIC FEEDBACK TRIGGER
+    - Action: Inside the game, tap a correct tile or cause an error.
+    - Expected Result:
+      * Game posts `{ type: 'ZUBACO_HAPTIC', payload: { style: 'LIGHT' | 'HEAVY' | 'ERROR' } }`.
+      * Native phone vibration motor triggers instant tactile click/buzz.
+
+[ ] TC-03: SOUND TOGGLE FROM NATIVE HEADER
+    - Action: Tap native header Mute button.
+    - Expected Result:
+      * Native shell posts `{ type: 'ZUBACO_SET_AUDIO', payload: { muted: true } }`.
+      * Game immediately mutes its Web Audio context.
+
+[ ] TC-04: SCORE SUBMISSION RPC & CRYPTOGRAPHIC MATCH TICKET
+    - Action: Complete game match and submit final score.
+    - Expected Result:
+      * Game posts `{ type: 'ZUBACO_SUBMIT_SCORE', payload: { score, moves, durationMs, matchTicket } }`.
+      * Native bridge intercepts payload, validates ticket signature, and routes to `/api/v1/game-session/complete`.
+      * Result screen displays ranking and awards.
+
+[ ] TC-05: HIGH-FREQUENCY MESSAGE SPAM (RESILIENCE)
+    - Action: Play a high-speed game (e.g. Arrows or Rapid Sort) generating 10 taps/sec.
+    - Expected Result:
+      * Bridge handles all messages sequentially without dropping events or crashing the WebView JavaScript thread.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================

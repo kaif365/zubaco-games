@@ -1,0 +1,57 @@
+========================================================================================================================
+                         ZUBACO GAME 15: LOGIC REFLECTOR (LASER OPTICS & MIRRORS)
+                                       MANUAL TESTING CHECKLIST & VERIFICATION
+========================================================================================================================
+Location: ManualTestingToDo/sectionone_all_20_games_frontend/game_15_logic_reflector_manual_test.txt
+Game Code Directory: zubaco-games/logic-reflector/frontend
+Category: Spatial Physics, Ray Optics & Deductive Planning
+Tested By: [Name] | Date: [YYYY-MM-DD] | Result: [PASS / FAIL]
+========================================================================================================================
+
+1. HOW TO LAUNCH LOCALLY:
+   - Navigate to: `cd zubaco-games/logic-reflector/frontend`
+   - Run: `npm run dev`
+   - Open browser at: `http://localhost:5173`
+
+------------------------------------------------------------------------------------------------------------------------
+2. MANUAL TEST SUITE & STEP-BY-STEP CHECKLIST:
+------------------------------------------------------------------------------------------------------------------------
+
+[ ] TC-01: LASER EMITTER, MIRRORS & TARGET CRYSTALS
+    - Action: Start match. Observe laser diode emitting a colored beam, adjustable 45-degree angled mirrors, and target crystals.
+    - Expected Result:
+      * Laser beam renders with smooth glowing vector line (using HTML5 Canvas or SVG).
+      * Target crystals have distinct target colors.
+      * Unplaced or rotatable mirrors are positioned in the grid.
+
+[ ] TC-02: MIRROR ROTATION & RAY BOUNCE REFLECTION
+    - Action: Tap a mirror tile to rotate it (0° -> 45° -> 90° -> 135°).
+    - Expected Result:
+      * The mirror turns smoothly.
+      * Laser beam instantly recalculates ray-trace reflections using Snell's Law ($i = r$).
+      * Laser path bends at a 90-degree angle upon striking the reflective surface.
+      * Laser audio hum updates in pitch with each reflection.
+
+[ ] TC-03: BEAM INTERCEPTION & OBSTACLE ABSORPTION
+    - Action: Direct the laser beam into a solid black rock / absorbent wall.
+    - Expected Result:
+      * Laser beam terminates cleanly at the obstacle with a spark impact animation.
+      * No beam bleed-through or ghosting beyond the barrier.
+
+[ ] TC-04: TARGET CRYSTAL ACTIVATION & WIN STATE
+    - Action: Route the beam through all necessary mirrors so it strikes the primary target crystal.
+    - Expected Result:
+      * Target crystal illuminates brilliantly with particle explosion sound effect.
+      * If multiple crystals exist, all must be struck (or in color sequence) to trigger stage clear.
+      * Summary screen displays time taken and mirror move efficiency.
+
+[ ] TC-05: SOLVABILITY GUARANTEE
+    - Action: Generate 5 consecutive procedural levels.
+    - Expected Result:
+      * Every level has a deterministic, valid optical ray solution without impossible angles.
+
+========================================================================================================================
+SIGN-OFF:
+All 5 Test Cases Verified: [ ] YES  [ ] NO
+Tester Signature: _______________________
+========================================================================================================================
