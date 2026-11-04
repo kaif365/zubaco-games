@@ -68,9 +68,58 @@ export class CheatFlagsController {
         return this.cheatFlagsService.resetRiskScore(userId);
     }
 
+    @Get(':id/detail')
+    @ApiOperation({ summary: 'Get detailed flagged match investigation report' })
+    getFlagDetail(@Param('id') flagId: string) {
+        return this.cheatFlagsService.getFlaggedMatchDetail(flagId);
+    }
+
+    @Get('replay/:sessionId')
+    @ApiOperation({ summary: 'Get move replay telemetry feed with biomechanics cadence analysis' })
+    getReplayFeed(@Param('sessionId') sessionId: string) {
+        return this.cheatFlagsService.getMatchReplayFeed(sessionId);
+    }
+
+    @Post('users/:userId/warn')
+    @ApiOperation({ summary: 'Issue authoritative fair-play warning to player' })
+    warnPlayer(
+        @Param('userId') userId: string,
+        @Body() body: { message: string },
+        @Req() req: Request,
+    ) {
+        const session = req[REQUEST_CONTEXT.SESSION] as { userId?: string } | undefined;
+        const adminId = session?.userId || 'admin';
+        return this.cheatFlagsService.warnPlayer(userId, body?.message, adminId);
+    }
+
+    @Post('users/:userId/freeze-wallet')
+    @ApiOperation({ summary: 'Freeze user wallet and lock real-money withdrawals' })
+    freezeWallet(
+        @Param('userId') userId: string,
+        @Body() body: { reason: string },
+        @Req() req: Request,
+    ) {
+        const session = req[REQUEST_CONTEXT.SESSION] as { userId?: string } | undefined;
+        const adminId = session?.userId || 'admin';
+        return this.cheatFlagsService.freezeWallet(userId, body?.reason, adminId);
+    }
+
+    @Post('users/:userId/ban')
+    @ApiOperation({ summary: 'Authoritative permanent account ban' })
+    banUser(
+        @Param('userId') userId: string,
+        @Body() body: { reason: string },
+        @Req() req: Request,
+    ) {
+        const session = req[REQUEST_CONTEXT.SESSION] as { userId?: string } | undefined;
+        const adminId = session?.userId || 'admin';
+        return this.cheatFlagsService.banUser(userId, body?.reason, adminId);
+    }
+
     @Get('users/:userId/risk-score')
     @ApiOperation({ summary: 'Get user risk score and penalty tier' })
     getUserRiskScore(@Param('userId') userId: string) {
         return this.cheatFlagsService.getUserRiskScore(userId);
     }
 }
+
