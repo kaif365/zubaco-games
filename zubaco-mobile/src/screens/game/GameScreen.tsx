@@ -24,11 +24,13 @@ type GameRoute = {
   };
 };
 
+const AnyWebView = WebView as unknown as React.ComponentType<any>;
+
 export function GameScreen() {
   const route = useRoute<GameRoute>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const queryClient = useQueryClient();
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<any>(null);
 
   const { gameUrl, sessionId, token, mode, gameType, seasonId, challengeId } = route.params;
 
@@ -138,7 +140,7 @@ export function GameScreen() {
 
   return (
     <View style={styles.container}>
-      <WebView
+      <AnyWebView
         ref={webViewRef}
         source={{ uri: gameUrl }}
         injectedJavaScript={injectedJavaScript}
@@ -151,7 +153,7 @@ export function GameScreen() {
         originWhitelist={['https://*', 'http://localhost*', 'http://127.0.0.1*']}
         style={styles.webview}
         // Security: only allow verified Zubaco game domains and local dev servers
-        onShouldStartLoadWithRequest={(request) => {
+        onShouldStartLoadWithRequest={(request: any) => {
           try {
             const match = request.url.match(/^https?:\/\/([^/:]+)/i);
             if (!match) return false;

@@ -66,6 +66,9 @@ const TARGETS = [
   { id: 'BE-18', name: 'Reflex Endurance (BE)', group: 'games-be', dir: 'zubaco-games/reflex-endurance/reflex-endurance-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-19', name: 'Pattern Survival (BE)', group: 'games-be', dir: 'zubaco-games/pattern-survival/pattern-survival-backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'BE-20', name: 'Speed Typing (BE)', group: 'games-be', dir: 'zubaco-games/speed-type-answer/speed-type-backend', cmd: 'npm', args: ['run', 'build'] },
+
+  // Mobile App
+  { id: 'MB-01', name: 'Mobile App', group: 'mobile', dir: 'zubaco-mobile', cmd: 'npm', args: ['run', 'build'] },
 ];
 
 const isWindows = process.platform === 'win32';
@@ -88,6 +91,7 @@ if (filterBatch) {
   else if (filterBatch === '4') selectedTargets = selectedTargets.filter(t => t.id >= 'FE-11' && t.id <= 'FE-20');
   else if (filterBatch === '5') selectedTargets = selectedTargets.filter(t => t.id >= 'BE-01' && t.id <= 'BE-10');
   else if (filterBatch === '6') selectedTargets = selectedTargets.filter(t => t.id >= 'BE-11' && t.id <= 'BE-20');
+  else if (filterBatch === '7') selectedTargets = selectedTargets.filter(t => t.id === 'MB-01');
 }
 if (filterGroup && filterGroup !== 'all') {
   selectedTargets = selectedTargets.filter(t => t.group === filterGroup);

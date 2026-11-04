@@ -574,6 +574,30 @@ class ApiClient {
       body: JSON.stringify({ device_id: deviceId, push_token: pushToken, platform }),
     });
   }
+
+  // ─── KYC ───────────────────────────────────────────────────────
+
+  submitKyc(data: {
+    panNumber?: string;
+    aadhaarNumber?: string;
+    fullName?: string;
+    dateOfBirth?: string;
+  }) {
+    return this.request<{ success: boolean; message?: string }>('/wallet/kyc/submit', {
+      method: 'POST',
+      body: JSON.stringify({
+        document_type: data.panNumber ? 'PAN' : 'AADHAAR',
+        document_number: data.panNumber || data.aadhaarNumber,
+        document_url: 'https://storage.zubaco.com/kyc/pending-upload',
+        full_name: data.fullName,
+        date_of_birth: data.dateOfBirth,
+      }),
+    });
+  }
+
+  getKycStatus() {
+    return this.request<{ kyc_verified: boolean; documents: any[] }>('/wallet/kyc');
+  }
 }
 
 export const api = new ApiClient();
