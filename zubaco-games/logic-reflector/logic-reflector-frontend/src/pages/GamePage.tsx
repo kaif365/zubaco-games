@@ -2,12 +2,11 @@ import { lazy, Suspense, useState, useCallback } from 'react';
 import { PageLoader } from '@/components/shared/PageLoader';
 import { resolveStage } from '@/utils/stage-config';
 import { MenuScreen } from '@/features/game/components/MenuScreen';
-import { LevelSelector, getHighestLevel, setHighestLevel, getLevelStars, setLevelStars, LEVELS, type LevelConfig } from '@/features/game/components/LevelSelector';
+import { LevelSelector, type LevelConfig } from '@/features/game/components/LevelSelector';
 import { Settings } from '@/features/game/components/Settings';
-import { StatsScreen, updateStats } from '@/features/game/components/StatsScreen';
-import { Achievements, AchievementPopup, checkAchievements, type AchievementId } from '@/features/game/components/Achievements';
-import { DailyChallenge, isDailyCompleted, completeDailyChallenge, getDailyLevel } from '@/features/game/components/DailyChallenge';
-import { PauseDialog } from '@/features/game/components/PauseDialog';
+import { StatsScreen } from '@/features/game/components/StatsScreen';
+import { Achievements, AchievementPopup, type AchievementId } from '@/features/game/components/Achievements';
+import { DailyChallenge } from '@/features/game/components/DailyChallenge';
 import { Confetti } from '@/features/game/components/Confetti';
 
 const GameContainer = lazy(
@@ -32,7 +31,7 @@ export default function GamePage() {
     return localStorage.getItem('logic-reflector-tutorial-seen') === 'true' ? 'menu' : 'menu';
   });
   const [unlockedAchievement, setUnlockedAchievement] = useState<AchievementId | null>(null);
-  const [showConfetti, setShowConfetti] = useState(false);
+  const [showConfetti] = useState(false);
 
   const handlePlay = useCallback(() => {
     // Mark tutorial as seen (the existing GameContainer has its own demo flow)
@@ -49,10 +48,6 @@ export default function GamePage() {
   const handleDailyPlay = useCallback(() => {
     localStorage.setItem('logic-reflector-tutorial-seen', 'true');
     setPhase('playing');
-  }, []);
-
-  const handleExitToMenu = useCallback(() => {
-    setPhase('menu');
   }, []);
 
   return (

@@ -52,16 +52,16 @@ FE-07      | Block Fill         | `zubaco-games/block-fill/block-fill-frontend` 
 FE-08      | Colour Sort        | `zubaco-games/colour-sorting/colour-sorting-frontend`  | [DONE] | Certified (18.8s)
 FE-09      | Rapid Sort         | `zubaco-games/rapid-category-sort/rapid-sort-frontend` | [DONE] | Certified (14.1s)
 FE-10      | Maze Navigation    | `zubaco-games/maze-navigation/maze-navigation-frontend`| [DONE] | Certified (19.6s)
-FE-11      | Infinity Loop      | `zubaco-games/Infinity-loop/infinity-loop-frontend`    | [TODO] |
-FE-12      | Word Unscramble    | `zubaco-games/word-unscramble/word-unscramble-frontend`| [TODO] |
-FE-13      | True / False       | `zubaco-games/true-false/true-false-frontend`          | [TODO] |
-FE-14      | Arrows             | `zubaco-games/arrows/arrows-frontend`                  | [TODO] |
-FE-15      | Logic Reflector    | `zubaco-games/logic-reflector/logic-reflector-frontend`| [TODO] |
-FE-16      | Number Grid        | `zubaco-games/number-grid/number-grid-frontend`        | [TODO] |
-FE-17      | Live Route Builder | `zubaco-games/live-route-builder/live-route-frontend`  | [TODO] |
-FE-18      | Reflex Endurance   | `zubaco-games/reflex-endurance/reflex-endurance-frontend` | [TODO] |
-FE-19      | Pattern Survival   | `zubaco-games/pattern-survival/pattern-survival-frontend` | [TODO] |
-FE-20      | Speed Typing       | `zubaco-games/speed-typing/speed-typing-frontend`      | [TODO] |
+FE-11      | Infinity Loop      | `zubaco-games/Infinity-loop/infinity-loop-frontend`    | [DONE] | Certified (97.9s)
+FE-12      | Word Unscramble    | `zubaco-games/word-unscramble/word-unscramble-frontend`| [DONE] | Certified (27.3s)
+FE-13      | True / False       | `zubaco-games/true-false-blitz/true-false-blitz-frontend`| [DONE] | Certified (23.2s)
+FE-14      | Arrows             | `zubaco-games/arrows/arrows-frontend`                  | [DONE] | Certified (58.3s)
+FE-15      | Logic Reflector    | `zubaco-games/logic-reflector/logic-reflector-frontend`| [DONE] | Certified (25.8s)
+FE-16      | Number Grid        | `zubaco-games/number-grid-sprint/number-grid-frontend` | [DONE] | Certified (24.9s)
+FE-17      | Live Route Builder | `zubaco-games/live-route-builder/live-route-frontend`  | [DONE] | Certified (23.7s)
+FE-18      | Reflex Endurance   | `zubaco-games/reflex-endurance/reflex-endurance-frontend` | [DONE] | Certified (19.5s)
+FE-19      | Pattern Survival   | `zubaco-games/pattern-survival/pattern-survival-frontend` | [DONE] | Certified (20.1s)
+FE-20      | Speed Typing       | `zubaco-games/speed-type-answer/speed-type-frontend`   | [DONE] | Certified (25.8s)
 
 --- PART B: 20 GAME BACKENDS (NestJS / TypeScript) ---
 Project ID | Game Name          | Sub-Directory Path                                    | Status | Build Result / Fixes

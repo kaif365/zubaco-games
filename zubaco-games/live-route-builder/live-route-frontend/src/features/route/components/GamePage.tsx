@@ -8,7 +8,7 @@ import { LevelSelector, LEVELS, getHighestLevel, setHighestLevel, getLevelStars,
 import { Settings } from './Settings';
 import { StatsScreen, updateStats } from './StatsScreen';
 import { Achievements, AchievementPopup, checkAchievements, type AchievementId } from './Achievements';
-import { DailyChallenge, isDailyCompleted, completeDailyChallenge, getDailyLevel } from './DailyChallenge';
+import { DailyChallenge, completeDailyChallenge, getDailyLevel } from './DailyChallenge';
 import { Confetti } from './Confetti';
 import { PauseDialog } from './PauseDialog';
 import { useRouteGame } from '../hooks/useRouteGame';
@@ -38,7 +38,7 @@ export function GamePage() {
   });
 
   // Game state
-  const [currentLevel, setCurrentLevel] = useState<LevelConfig>(LEVELS[0]);
+  const [currentLevel, setCurrentLevel] = useState<LevelConfig>(LEVELS[0] ?? { level: 1, nodeCount: 5, timeLimitMs: 60000, scoreMultiplier: 1.0, label: 'Starter' });
   const [combo, setCombo] = useState(0);
   const [maxCombo, setMaxCombo] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -131,7 +131,7 @@ export function GamePage() {
 
   const handlePlay = useCallback(() => {
     const highest = getHighestLevel();
-    const config = LEVELS[Math.min(highest - 1, LEVELS.length - 1)];
+    const config = LEVELS[Math.min(highest - 1, LEVELS.length - 1)] ?? LEVELS[0]!;
     startLevel(config, false);
   }, []);
 
@@ -141,7 +141,7 @@ export function GamePage() {
 
   const handleDailyPlay = useCallback(() => {
     const dailyLevel = getDailyLevel();
-    const config = LEVELS[Math.min(dailyLevel - 1, LEVELS.length - 1)];
+    const config = LEVELS[Math.min(dailyLevel - 1, LEVELS.length - 1)] ?? LEVELS[0]!;
     startLevel(config, true);
   }, []);
 
@@ -201,7 +201,7 @@ export function GamePage() {
       highestScore: score,
     });
 
-    if (newAchievements.length > 0) {
+    if (newAchievements.length > 0 && newAchievements[0]) {
       setUnlockedAchievement(newAchievements[0]);
     }
 
@@ -222,7 +222,7 @@ export function GamePage() {
 
   const handleNextLevel = useCallback(() => {
     const nextIdx = Math.min(currentLevel.level, LEVELS.length - 1);
-    startLevel(LEVELS[nextIdx], false);
+    startLevel(LEVELS[nextIdx] ?? LEVELS[0]!, false);
   }, [currentLevel]);
 
   const handleExitToMenu = useCallback(() => {

@@ -80,7 +80,14 @@ interface StatsScreenProps {
   readonly onBack: () => void;
 }
 
-const STAT_DISPLAY = [
+interface StatItem {
+  key: keyof GameStats;
+  label: string;
+  icon: string;
+  format?: string;
+}
+
+const STAT_DISPLAY: StatItem[] = [
   { key: 'totalGamesPlayed', label: 'Games Played', icon: '🎮' },
   { key: 'totalWins', label: 'Puzzles Solved', icon: '✅' },
   { key: 'totalMoves', label: 'Total Moves', icon: '🪞' },
@@ -91,12 +98,12 @@ const STAT_DISPLAY = [
   { key: 'fastCompletions', label: 'Speed Solves', icon: '⚡' },
   { key: 'totalTimeSec', label: 'Total Time', icon: '⏱️', format: 'time' },
   { key: 'highestScore', label: 'High Score', icon: '📈' },
-] as const;
+];
 
 export function StatsScreen({ onBack }: StatsScreenProps) {
   const stats = loadStats();
 
-  function formatValue(key: string, value: number, format?: string): string {
+  function formatValue(value: number, format?: string): string {
     if (format === 'time') {
       const h = Math.floor(value / 3600);
       const m = Math.floor((value % 3600) / 60);
@@ -117,21 +124,25 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
 
       <div className="flex-1 overflow-y-auto">
         <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto">
-          {STAT_DISPLAY.map((stat, i) => (
-            <motion.div
-              key={stat.key}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04 }}
-              className="rounded-xl border border-slate-700/40 bg-slate-800/60 p-4 text-center"
-            >
-              <div className="text-xl mb-1">{stat.icon}</div>
-              <p className="text-lg font-bold text-white">
-                {formatValue(stat.key, (stats as Record<string, number>)[stat.key] ?? 0, stat.format)}
-              </p>
-              <p className="text-[11px] text-slate-400">{stat.label}</p>
-            </motion.div>
-          ))}
+          {STAT_DISPLAY.map((stat, i) => {
+            const rawVal = stats[stat.key];
+            const numVal = typeof rawVal === 'number' ? rawVal : 0;
+            return (
+              <motion.div
+                key={stat.key}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.04 }}
+                className="rounded-xl border border-slate-700/40 bg-slate-800/60 p-4 text-center"
+              >
+                <div className="text-xl mb-1">{stat.icon}</div>
+                <p className="text-lg font-bold text-white">
+                  {formatValue(numVal, stat.format)}
+                </p>
+                <p className="text-[11px] text-slate-400">{stat.label}</p>
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     

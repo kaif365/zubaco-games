@@ -25,7 +25,7 @@ function createParticle(id: number): Particle {
     id,
     x: Math.random() * 100,
     y: -10 - Math.random() * 20,
-    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    color: COLORS[Math.floor(Math.random() * COLORS.length)] ?? '#6366f1',
     size: 6 + Math.random() * 6,
     velocityX: (Math.random() - 0.5) * 3,
     velocityY: 2 + Math.random() * 3,

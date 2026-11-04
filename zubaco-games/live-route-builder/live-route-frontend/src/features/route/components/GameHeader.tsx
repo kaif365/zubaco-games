@@ -5,7 +5,7 @@ interface Props {
   timeLeft: number;
   nodesVisible: number;
   totalNodes: number;
-  level: number;
+  level?: number;
   combo: number;
   onPause: () => void;
   onMute: () => void;
@@ -21,7 +21,7 @@ export function GameHeader({ score, timeLeft, nodesVisible, totalNodes, level, c
         {/* Left: Level + Score */}
         <div className="flex items-center gap-3">
           <span className="rounded-lg bg-blue-600/20 border border-blue-500/30 px-2.5 py-1 text-xs font-bold text-blue-400">
-            LVL {level}
+            {level ? `LVL ${level}` : 'DAILY'}
           </span>
           <span className="text-sm font-bold text-white">{score}</span>
         </div>

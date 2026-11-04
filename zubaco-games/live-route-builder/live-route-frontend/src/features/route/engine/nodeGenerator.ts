@@ -15,10 +15,11 @@ export function generateNodes(seed: number, config: GameConfig): NodePoint[] {
 
 export function calculateOptimalPath(nodes: NodePoint[]): number {
   // Greedy nearest-neighbor for optimal path estimate
-  if (nodes.length < 2) return 0;
+  if (nodes.length < 2 || !nodes[0]) return 0;
   let total = 0;
-  const visited = new Set<number>([nodes[0].id]);
-  let currentNode = nodes[0];
+  const firstNode = nodes[0];
+  const visited = new Set<number>([firstNode.id]);
+  let currentNode: NodePoint = firstNode;
   while (visited.size < nodes.length) {
     let minDist = Infinity;
     let nearestNode: NodePoint | null = null;

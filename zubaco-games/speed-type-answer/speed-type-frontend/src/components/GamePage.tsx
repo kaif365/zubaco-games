@@ -4,7 +4,7 @@ import { LevelSelector } from '../features/typing/components/LevelSelector';
 import { Settings } from '../features/typing/components/Settings';
 import { StatsScreen } from '../features/typing/components/StatsScreen';
 import { Achievements } from '../features/typing/components/Achievements';
-import { DailyChallenge, markDailyComplete } from '../features/typing/components/DailyChallenge';
+import { DailyChallenge } from '../features/typing/components/DailyChallenge';
 import { PauseDialog } from '../features/typing/components/PauseDialog';
 import { Confetti } from '../features/typing/components/Confetti';
 import { GameBoard } from '../features/typing/components/GameBoard';
@@ -13,7 +13,7 @@ export function GamePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [currentLevel, setCurrentLevel] = useState(1);
   const [isDaily, setIsDaily] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
+  const [showConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
   const handleNavigate = useCallback((phase: AppPhase) => {

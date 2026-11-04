@@ -47,7 +47,7 @@ export function updateStats(update: Partial<GameStats> & { addEdges?: number; ad
   if (update.totalGamesPlayed !== undefined) stats.totalGamesPlayed = update.totalGamesPlayed;
   if (update.totalWins !== undefined) stats.totalWins = update.totalWins;
   if (update.addEdges) stats.totalEdges += update.addEdges;
-  if (update.bestEfficiency !== undefined && (stats.bestEfficiency === null || update.bestEfficiency > stats.bestEfficiency)) {
+  if (update.bestEfficiency !== undefined && update.bestEfficiency !== null && (stats.bestEfficiency === null || update.bestEfficiency > stats.bestEfficiency)) {
     stats.bestEfficiency = update.bestEfficiency;
   }
   if (update.maxStreak !== undefined && update.maxStreak > stats.maxStreak) stats.maxStreak = update.maxStreak;
@@ -55,8 +55,10 @@ export function updateStats(update: Partial<GameStats> & { addEdges?: number; ad
   if (update.perfectGames !== undefined) stats.perfectGames = update.perfectGames;
   if (update.fastCompletions !== undefined) stats.fastCompletions = update.fastCompletions;
   if (update.addTime) stats.totalTimePlayed += update.addTime;
-  if (update.highestScore !== undefined && update.highestScore > stats.highestScore) stats.highestScore = update.highestScore;
-  stats.recentScores = [score, ...(stats.recentScores || [])].slice(0, 20);
+  if (update.highestScore !== undefined) {
+    if (update.highestScore > stats.highestScore) stats.highestScore = update.highestScore;
+    stats.recentScores = [update.highestScore, ...(stats.recentScores || [])].slice(0, 20);
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
   return stats;
 }

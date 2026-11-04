@@ -52,7 +52,7 @@ export function updateStats(update: Partial<GameStats> & { addMoves?: number; ad
   if (update.totalGamesPlayed !== undefined) stats.totalGamesPlayed = update.totalGamesPlayed;
   if (update.totalWins !== undefined) stats.totalWins = update.totalWins;
   if (update.addMoves) stats.totalMoves += update.addMoves;
-  if (update.bestMoves !== undefined && (stats.bestMoves === null || update.bestMoves < stats.bestMoves)) {
+  if (update.bestMoves !== undefined && update.bestMoves !== null && (stats.bestMoves === null || update.bestMoves < stats.bestMoves)) {
     stats.bestMoves = update.bestMoves;
   }
   if (update.maxStreak !== undefined && update.maxStreak > stats.maxStreak) stats.maxStreak = update.maxStreak;

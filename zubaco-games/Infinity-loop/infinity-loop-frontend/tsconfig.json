@@ -19,7 +19,10 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@zubaco/game-sdk/bootstrap": ["../../packages/game-sdk/src/bootstrap.ts"],
+      "@zubaco/game-sdk/lifecycle": ["../../packages/game-sdk/src/lifecycle.ts"],
+      "@zubaco/game-sdk": ["../../packages/game-sdk/src/index.ts"]
     }
   },
   "include": [

@@ -52,13 +52,13 @@ function getWeekDays(): { date: Date; dateStr: string; label: string }[] {
   for (let i = 0; i < 7; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
-    days.push({ date: d, dateStr: getDateStr(d), label: labels[i] });
+    days.push({ date: d, dateStr: getDateStr(d), label: labels[i] ?? '' });
   }
   return days;
 }
 
 export function DailyChallenge({ onBack, onStartDaily }: DailyChallengeProps) {
-  const [daily, setDaily] = useState<DailyState>(loadDaily);
+  const [daily] = useState<DailyState>(loadDaily);
   const today = getDateStr();
   const isCompletedToday = daily.completedDays.includes(today);
   const weekDays = useMemo(getWeekDays, []);

@@ -26,7 +26,8 @@ export function saveLevel(entry: SpeedTypeProgressEntry): void {
   const progress = readProgress();
   const idx = progress.findIndex((e) => e.levelIndex === entry.levelIndex);
   if (idx >= 0) {
-    if (entry.score > progress[idx].score) progress[idx] = entry;
+    const existing = progress[idx];
+    if (existing && entry.score > existing.score) progress[idx] = entry;
   } else {
     progress.push(entry);
   }

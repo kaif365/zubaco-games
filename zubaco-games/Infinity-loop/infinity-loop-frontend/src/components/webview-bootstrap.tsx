@@ -8,7 +8,7 @@ import { useEffect } from 'react';
 export function WebViewBootstrap() {
   useEffect(() => {
     // Dynamic import of bootstrap (runs once on client mount)
-    import('../../../../packages/game-sdk/src/bootstrap');
+    import('@zubaco/game-sdk/bootstrap');
   }, []);
 
   return null;

@@ -11,7 +11,9 @@
     "./api": "./src/api/index.ts",
     "./timer": "./src/timer/index.ts",
     "./moves": "./src/moves/index.ts",
-    "./shell": "./src/shell/index.ts"
+    "./shell": "./src/shell/index.ts",
+    "./bootstrap": "./src/bootstrap.ts",
+    "./lifecycle": "./src/lifecycle.ts"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

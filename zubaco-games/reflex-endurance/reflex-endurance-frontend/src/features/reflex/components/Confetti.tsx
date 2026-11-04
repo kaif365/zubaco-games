@@ -23,7 +23,7 @@ function generateParticles(count: number): Particle[] {
     id: i,
     x: (Math.random() - 0.5) * 400,
     y: -(Math.random() * 300 + 100),
-    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    color: COLORS[Math.floor(Math.random() * COLORS.length)] ?? '#f43f5e',
     rotation: Math.random() * 720 - 360,
     scale: Math.random() * 0.5 + 0.5,
     shape: Math.random() > 0.5 ? 'circle' : 'rect',

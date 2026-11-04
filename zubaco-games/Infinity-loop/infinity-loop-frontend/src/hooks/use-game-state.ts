@@ -1,7 +1,7 @@
 // /modules/game/hooks/use-game-state.ts
 "use client";
 
-import { signalGameCompleted } from "../../../../packages/game-sdk/src/lifecycle";
+import { signalGameCompleted } from "@zubaco/game-sdk/lifecycle";
 import { logger } from "@/lib/default-logger";
 import {
   checkWinCondition,

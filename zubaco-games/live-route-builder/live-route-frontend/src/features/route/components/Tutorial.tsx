@@ -45,7 +45,7 @@ export function Tutorial({ onComplete }: TutorialProps) {
   };
 
   const skip = () => onComplete();
-  const current = STEPS[step];
+  const current = STEPS[step] ?? STEPS[0]!;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 p-6">

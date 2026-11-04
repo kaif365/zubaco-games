@@ -1,6 +1,6 @@
 import { useReducer, useEffect, useRef, useCallback } from 'react';
 import { LEVELS } from '@/lib/game/levels';
-import { Board, ArrowPiece, Level } from '@/lib/game/types';
+import { Board, Level } from '@/lib/game/types';
 import { buildBoard, canMove, removeArrow, isWon } from '@/lib/game/logic';
 
 export const MAX_LIVES = 6;

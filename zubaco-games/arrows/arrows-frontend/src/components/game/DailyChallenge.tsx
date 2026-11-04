@@ -80,4 +80,4 @@ export function DailyChallenge({ onPlay, onClose }: DailyChallengeProps) {
   );
 }
 
-export { getDailyLevel, hasDoneToday, markDailyDone };
+export { getDailySeed, getDailyLevel, hasDoneToday, markDailyDone };

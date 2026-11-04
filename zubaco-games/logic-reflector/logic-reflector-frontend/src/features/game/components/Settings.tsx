@@ -30,7 +30,7 @@ interface SettingsProps {
 }
 
 export function Settings({ onBack }: SettingsProps) {
-  const [settings, setSettings] = useState<SettingsData>(loadSettings);
+  const [settings] = useState<SettingsData>(loadSettings);
 
   useEffect(() => {
     saveSettings(settings);

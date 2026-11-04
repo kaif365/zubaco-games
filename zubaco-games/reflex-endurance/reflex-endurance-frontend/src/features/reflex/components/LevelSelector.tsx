@@ -55,7 +55,7 @@ function saveLevels(levels: LevelData[]) {
 const DIFFICULTY_LABELS = ['Beginner', 'Easy', 'Normal', 'Medium', 'Tricky', 'Hard', 'Tough', 'Expert', 'Master', 'Legend'];
 
 export function LevelSelector({ onBack, onSelectLevel }: LevelSelectorProps) {
-  const [levels, setLevels] = useState<LevelData[]>(loadLevels);
+  const [levels] = useState<LevelData[]>(loadLevels);
 
   useEffect(() => {
     saveLevels(levels);
@@ -75,7 +75,7 @@ export function LevelSelector({ onBack, onSelectLevel }: LevelSelectorProps) {
       <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
         {levels.map((lvl, idx) => {
           const isCurrent = lvl.level === currentLevel;
-          const config = LEVEL_CONFIGS[idx];
+          const config = LEVEL_CONFIGS[idx] ?? LEVEL_CONFIGS[0]!;
           return (
             <motion.button
               key={lvl.level}
@@ -142,16 +142,18 @@ export function LevelSelector({ onBack, onSelectLevel }: LevelSelectorProps) {
 export function updateLevelProgress(level: number, score: number, wrongTaps: number, totalGreens: number) {
   const levels = loadLevels();
   const idx = level - 1;
-  if (idx < 0 || idx >= levels.length) return;
+  const currentLvl = levels[idx];
+  if (!currentLvl) return;
 
   const accuracy = totalGreens > 0 ? (score / totalGreens) : 0;
   const stars = wrongTaps === 0 ? 3 : accuracy >= 0.8 ? 2 : score > 0 ? 1 : 0;
 
-  levels[idx].stars = Math.max(levels[idx].stars, stars);
-  levels[idx].highScore = Math.max(levels[idx].highScore, score);
+  currentLvl.stars = Math.max(currentLvl.stars, stars);
+  currentLvl.highScore = Math.max(currentLvl.highScore, score);
 
-  if (idx + 1 < levels.length && stars >= 1) {
-    levels[idx + 1].unlocked = true;
+  const nextLvl = levels[idx + 1];
+  if (nextLvl && stars >= 1) {
+    nextLvl.unlocked = true;
   }
 
   saveLevels(levels);

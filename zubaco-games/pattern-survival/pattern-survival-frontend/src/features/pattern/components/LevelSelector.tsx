@@ -23,9 +23,11 @@ function loadLevels(): LevelData[] {
 
 export function unlockLevel(level: number, stars: number) {
   const levels = loadLevels();
-  if (level <= 10) {
-    levels[level - 1].stars = Math.max(levels[level - 1].stars, stars);
-    if (level < 10) levels[level].unlocked = true;
+  const currentLvl = levels[level - 1];
+  if (currentLvl) {
+    currentLvl.stars = Math.max(currentLvl.stars, stars);
+    const nextLvl = levels[level];
+    if (nextLvl) nextLvl.unlocked = true;
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(levels));
 }

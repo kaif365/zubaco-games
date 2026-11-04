@@ -41,7 +41,7 @@ function loadStats(): GameStats {
   };
 }
 
-export function updateStats(update: { score: number; wordsSolved: number; wordsAttempted: number; perfect: boolean }) {
+export function updateStats(update: { score: number; wordsSolved: number; wordsAttempted: number; perfect: boolean; timeMs?: number }) {
   const stats = loadStats();
   stats.gamesPlayed++;
   stats.wordsSolved += update.wordsSolved;

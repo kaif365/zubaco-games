@@ -12,7 +12,6 @@ import { Settings } from './Settings';
 import { StatsScreen } from './StatsScreen';
 import { Achievements } from './Achievements';
 import { DailyChallenge, markDailyComplete } from './DailyChallenge';
-import { PauseDialog } from './PauseDialog';
 import { Confetti } from './Confetti';
 import type { GameConfig } from '../../../types/game';
 
@@ -54,7 +53,7 @@ export function GamePage() {
 
   // Countdown sound in last 30 seconds
   useEffect(() => {
-    if (status !== 'running') return;
+    if (status !== 'playing') return;
     const secs = Math.ceil(timeLeft / 1000);
     if (secs <= 10 && secs > 0) play('countdown');
   }, [status, Math.ceil(timeLeft / 1000), play]);

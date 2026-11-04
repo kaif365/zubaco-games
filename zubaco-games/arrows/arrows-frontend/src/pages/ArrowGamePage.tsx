@@ -38,7 +38,7 @@ export default function ArrowGamePage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [achievementPopup, setAchievementPopup] = useState<string | null>(null);
 
-  const { state, removeArrow, wrongMove, undo, resetLevel, nextLevel, gotoLevel, loadBoard, useHint } = useArrowGame(currentLevel);
+  const { state, removeArrow, wrongMove, undo, resetLevel, gotoLevel, loadBoard, useHint } = useArrowGame(currentLevel);
   const { session, startSession, recordMove, endBoard, endGame } = useArrowGameSession();
   const { play } = useAudio();
 
@@ -288,6 +288,7 @@ export default function ArrowGamePage() {
             solved={false}
             onUndo={handleUndo}
             onRestart={handleRestart}
+            onHint={handleHint}
             level={state.levelIndex + 1}
           />
           <div className="mt-6">

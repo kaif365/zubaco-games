@@ -10,7 +10,7 @@
     "start:test": "dotenv -e .env.test -- next dev",
     "start:staging": "dotenv -e .env.staging -- next dev",
     "start:production": "dotenv -e .env.production -- next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "build:test": "dotenv -e .env.test -- next build",
     "build:staging": "dotenv -e .env.staging -- next build",
     "build:production": "dotenv -e .env.production -- next build",
@@ -24,6 +24,7 @@
   "dependencies": {
     "@base-ui/react": "^1.4.1",
     "@tanstack/react-query": "^5.99.2",
+    "@zubaco/game-sdk": "file:../../packages/game-sdk",
     "axios": "^1.15.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
