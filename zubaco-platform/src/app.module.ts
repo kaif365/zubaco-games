@@ -21,6 +21,7 @@ import { ComplianceModule } from './compliance/compliance.module';
 import { WebhookModule } from './webhook/webhook.module';
 import { EventsModule } from './events/events.module';
 import { AdminModule } from './admin/admin.module';
+import { WsModule } from './ws/ws.module';
 import { HealthController } from './health.controller';
 import { AppVersionController } from './app-version.controller';
 
@@ -55,6 +56,7 @@ import { AppVersionController } from './app-version.controller';
     WebhookModule,
     EventsModule,
     AdminModule,
+    WsModule,
   ],
   controllers: [HealthController, AppVersionController],
   providers: [

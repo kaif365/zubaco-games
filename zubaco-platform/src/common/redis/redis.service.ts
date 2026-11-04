@@ -48,6 +48,10 @@ export class RedisService implements OnModuleDestroy {
     return (await this.client.setnx(key, value)) === 1;
   }
 
+  async publish(channel: string, message: string): Promise<number> {
+    return this.client.publish(channel, message);
+  }
+
   /**
    * Acquire a distributed lock atomically with a TTL in seconds.
    * Uses Redis SET key val EX ttl NX.
