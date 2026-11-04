@@ -1,0 +1,65 @@
+========================================================================================================================
+                                        ZUBACO PLATFORM — SECTION 7 MASTER TRACKER
+                                   (ANTI-CHEAT, HEURISTIC SECURITY & PENETRATION AUDITING)
+========================================================================================================================
+Document Name   : detailedsection7.txt
+Location        : AboutGameAndToDo/sectionseven/detailedsection7.txt
+Parent Plan     : AboutGameAndToDo/zubaco_production_readiness_plan.txt
+Objective       : Audit, mathematically certify, implement, and dynamically penetration test the Anti-Cheat Engine.
+                  Enforce provably fair cryptographic sessions (HMAC-SHA256, seeds, monotonic nonces),
+                  Biomechanics cadence heuristics (< 50ms tap intervals, robotic zero-variance std dev),
+                  Memory tampering & speedhack defenses (wall-clock drift, impossible completion times, score ceilings),
+                  Device fingerprinting & Sybil multi-accounting radar, and authoritative real-time penalty enforcement.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Section Status  : ACTIVE [IN PROGRESS]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 7 MASTER MODULES & DELIVERABLES
+------------------------------------------------------------------------------------------------------------------------
+Module ID | Module Name                                     | Specification Target                                | Status
+----------+-------------------------------------------------+-----------------------------------------------------+-------
+7.1       | Cryptographic Game Sessions & Ticket Verify     | HMAC-SHA256 Session Tickets, Seed Pairs, Nonces     | [TODO]
+7.2       | Biomechanics & Cadence Heuristics (Anti-Bot)   | Sub-50ms Tap Cadence, Robotic StdDev (< 5ms) Guard  | [TODO]
+7.3       | Memory Tampering & Speedhack Defense            | Wall-Clock Drift Delta, Impossible Score Ceilings   | [TODO]
+7.4       | Device Fingerprinting & Multi-Accounting Radar  | Device Hash Clustering, Cohort Sybil Separation     | [TODO]
+7.5       | Enforcement Engine & Penetration Test Suite     | Authoritative Enforcement, Reversal, Pen-Test Suite | [TODO]
+------------------------------------------------------------------------------------------------------------------------
+2. SUB-TRACKERS & BATCH FILES
+------------------------------------------------------------------------------------------------------------------------
+Sub-Tracker File                            | Description                                            | Status
+--------------------------------------------+--------------------------------------------------------+--------
+`AboutGameAndToDo/sectionseven/section7.1.txt` | 7.1 Cryptographic Game Sessions & Ticket Verification   | [TODO]
+`AboutGameAndToDo/sectionseven/section7.2.txt` | 7.2 Biomechanics & Cadence Heuristics (Anti-Bot)       | [TODO]
+`AboutGameAndToDo/sectionseven/section7.3.txt` | 7.3 Memory Tampering & Speedhack Defense               | [TODO]
+`AboutGameAndToDo/sectionseven/section7.4.txt` | 7.4 Device Fingerprinting & Multi-Accounting Radar     | [TODO]
+`AboutGameAndToDo/sectionseven/section7.5.txt` | 7.5 Enforcement Engine & Penetration Test Suite        | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+3. DETAILED TECHNICAL AUDIT CRITERIA & INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+- 7.1 Cryptographic Game Sessions:
+  * Provably fair session creation with HMAC-SHA256 server seed commitment, client seed pair, and monotonic nonce.
+  * Tamper-proof session completion verification: client cannot forge scores without matching server verification token.
+  * Replay attack prevention: single-use session tokens locked in Redis with 1-hour expiration.
+
+- 7.2 Biomechanics & Cadence Heuristics:
+  * Minimum human neuromuscular reaction threshold: reject or flag click cadences < 50ms.
+  * Robotic regularity check: standard deviation of event intervals $\sigma < 5\text{ms}$ over $\ge 10$ events triggers BOT flag.
+  * Spatial trajectory jitter: synthetic zero-jitter click coordinates (exact identical pixel coordinates across multiple clicks).
+
+- 7.3 Memory Tampering & Speedhack Defense:
+  * Timestamp monotonic verification: client event timestamp delta must strictly correlate with server wall-clock duration ($\pm 3000\text{ms}$ network jitter tolerance).
+  * Mathematical maximum score validation per game: rejecting scores exceeding theoretical maximum possible given game duration and rule constraints.
+  * Impossible completion timing: rejecting completion before minimum physical level traversal time.
+
+- 7.4 Device Fingerprinting & Multi-Accounting Radar:
+  * SHA-256 hardware fingerprint extraction (IMEI / Android ID / iOS IDFV / Screen / Hardware specs).
+  * Anti-Sybil tournament cohort constraint: identical device fingerprints prohibited from sharing the same tournament cohort.
+  * Rapid IP velocity clustering detection: flagging > 3 accounts actively playing simultaneously from identical residential / VPN IPs.
+
+- 7.5 Authoritative Enforcement & Penetration Test Suite:
+  * Atomic transactional execution: `DISQUALIFY_SESSION`, `REMOVE_LEADERBOARD_SCORE`, `FREEZE_WALLET`, `BAN_USER`.
+  * Proactive Redis ban cache update (`auth:ban:${userId} = 1`) for zero-delay JWT request termination.
+  * Automated penetration test suite simulating real-world bot injection, forged payloads, and replay exploits.
+========================================================================================================================

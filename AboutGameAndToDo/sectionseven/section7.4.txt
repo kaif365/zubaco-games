@@ -1,0 +1,24 @@
+========================================================================================================================
+                                       ZUBACO PLATFORM — SECTION 7.4 SPECIFICATION
+                    (DEVICE FINGERPRINTING, SYBIL & MULTI-ACCOUNT COLLUSION RADAR)
+========================================================================================================================
+Document Name   : section7.4.txt
+Location        : AboutGameAndToDo/sectionseven/section7.4.txt
+Parent Document : AboutGameAndToDo/sectionseven/detailedsection7.txt
+Specification   : Hardware Fingerprint Hashing, Multi-Account Cohort Collusion Prevention,
+                  IP Velocity Clustering, and Device Duplicate Restrictions in Real-Money Tournaments.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 7.4 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Hardware Device Fingerprint Hashing & Normalization             | Device Identity Engine             | Unit tests   | [TODO]
+Anti-Sybil Tournament Cohort Constraint (No Shared Device)      | Matchmaking Device Isolation Guard | Invariant    | [TODO]
+IP Velocity Clustering & Proxy / VPN Anomaly Detection          | Network Velocity Analyzer          | Security     | [TODO]
+Simultaneous Multi-Session Device Lockout Guard                 | Active Hardware Session Limiter    | Unit tests   | [TODO]
+Device Risk Scoring & Fraud Radar Flagging                      | Fraud Intelligence Pipeline        | Unit tests   | [TODO]
+========================================================================================================================
