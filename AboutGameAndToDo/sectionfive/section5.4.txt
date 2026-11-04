@@ -1,0 +1,42 @@
+========================================================================================================================
+                                     ZUBACO PLATFORM — SECTION 5.4 SPECIFICATION
+                 (LEADERBOARD PRECISION & COMPOUND MICROSECOND TIE-BREAKERS — zubaco-platform)
+========================================================================================================================
+Document Name   : section5.4.txt
+Location        : AboutGameAndToDo/sectionfive/section5.4.txt
+Parent Document : AboutGameAndToDo/sectionfive/detailedsection5.txt
+Specification   : High-Throughput Redis Sorted Sets (`ZADD`), Compound Score Mathematical Formula,
+                  Microsecond Deterministic Tie-Breaking, and O(log N) Real-Time Rank Retrieval.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 5.4 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Redis Sorted Set Integration (`ZADD`, `ZREVRANK`, `ZREVRANGE`)   | `src/common/redis/redis.service.ts`| Unit tests   | [TODO]
+Compound Score Mathematical Formula: Score + (TimeBonus/10000)  | Leaderboard Service                | Math Proof   | [TODO]
+Deterministic Microsecond Tie-Breaking                          | Score Calculator                   | Unit tests   | [TODO]
+Idempotent Score Updates (Only Higher Score Replaces)           | Redis `ZADD GT` / Service Guard    | Concurrency  | [TODO]
+Real-Time Rank & Percentile Retrieval in O(log N)               | Leaderboard Service                | Benchmarks   | [TODO]
+Cohort-Scoped Leaderboards vs Global Final Stage Leaderboards   | Redis Key Architecture             | Architecture | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+2. TECHNICAL ARCHITECTURE & MATHEMATICAL INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+A. Compound Score Formula:
+   - Base game score: `S` (integer).
+   - Time elapsed in milliseconds: `T_ms` (0 to 180,000ms for 3-minute max matches).
+   - Maximum allowed time: `T_max`. Remaining time: `T_rem = Math.max(0, T_max - T_ms)`.
+   - Microsecond decimal component: `D = T_rem / 1,000,000`.
+   - `CompoundScore = S + D`.
+   - Invariant: A player with higher score ALWAYS beats a lower score (`S1 > S2 => CompoundScore1 > CompoundScore2`).
+     If two players have identical base scores (`S1 == S2`), the player who finished faster has higher `T_rem`,
+     thus higher `D`, definitively breaking the tie with microsecond precision.
+
+B. Redis Sorted Set Storage:
+   - Key: `leaderboard:tournament:${tournamentId}:stage:${stageNumber}:cohort:${cohortId}`
+   - Member: `userId`, Score: `CompoundScore`.
+========================================================================================================================

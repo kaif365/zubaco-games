@@ -1,0 +1,43 @@
+========================================================================================================================
+                                     ZUBACO PLATFORM — SECTION 5.2 SPECIFICATION
+                    (AUTOMATED 5-STAGE TOURNAMENT STATE MACHINE ENGINE — zubaco-platform)
+========================================================================================================================
+Document Name   : section5.2.txt
+Location        : AboutGameAndToDo/sectionfive/section5.2.txt
+Parent Document : AboutGameAndToDo/sectionfive/detailedsection5.txt
+Specification   : 5-Stage Tournament Progression, BullMQ Millisecond Queue/Timer Precision,
+                  Automated Stage Tally Execution, Rest Period Countdowns, and Prize Distribution Settlement.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 5.2 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Sequential State Transitions (15 State Lifecycle Graph)         | `src/tournament/orchestration/`    | Unit tests   | [TODO]
+Millisecond Precision Timer / Queue Engine                      | Scheduler / BullMQ Job             | Unit tests   | [TODO]
+Stage Tally Cut-Off Execution (`eliminated = true`)             | `src/tournament/elimination.service`| Unit tests | [TODO]
+WebSocket Broadcast of `STAGE_RESULTS` to Cohort Rooms          | Gateway Event Emitter              | Unit tests   | [TODO]
+Mandatory 60-Second Intermission / Rest Period Countdown       | State Timer Engine                 | Unit tests   | [TODO]
+Prize Calculation & Automated Settlement Execution              | `src/tournament/settlement`        | Unit tests   | [TODO]
+Zero Manual Intervention Guarantee                              | Automation End-to-End Runner       | Unit tests   | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+2. TECHNICAL ARCHITECTURE & MATHEMATICAL INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+A. State Machine Transition Graph:
+   `DRAFT` -> `REGISTRATION_OPEN` -> `REGISTRATION_CLOSED`
+   -> `STAGE_1_LIVE` -> `STAGE_1_TALLY`
+   -> `STAGE_2_LIVE` -> `STAGE_2_TALLY`
+   -> `STAGE_3_LIVE` -> `STAGE_3_TALLY`
+   -> `STAGE_4_LIVE` -> `STAGE_4_TALLY`
+   -> `STAGE_5_LIVE` -> `STAGE_5_TALLY`
+   -> `PRIZE_CALCULATION` -> `PRIZE_DISTRIBUTED` -> `ARCHIVED`.
+
+B. Stage Tally Cut-off:
+   - Rank all active cohort/tournament participants by compound score descending.
+   - Elimination threshold: bottom `EliminationPct%` flagged as `is_eliminated = true`.
+   - Remaining top `(100 - EliminationPct)%` advance to next stage bracket.
+========================================================================================================================

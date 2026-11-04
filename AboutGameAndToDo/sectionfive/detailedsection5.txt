@@ -1,0 +1,74 @@
+========================================================================================================================
+                                      ZUBACO PLATFORM — SECTION 5 MASTER TRACKER
+                       (REAL-TIME TOURNAMENT & WEBSOCKET ENGINE SPECIFICATION — zubaco-platform)
+========================================================================================================================
+Document Name   : detailedsection5.txt
+Location        : AboutGameAndToDo/sectionfive/detailedsection5.txt
+Parent Plan     : AboutGameAndToDo/zubaco_production_readiness_plan.txt
+Objective       : Verify, harden, and mathematically certify the Real-Time Tournament Orchestration and WebSocket Engine.
+                  Audit WebSocket gateway resilience and 30-second network reconnection grace period,
+                  the automated 5-stage tournament state machine with BullMQ timers,
+                  cohort matchmaking partition algorithms (50-100 player shards) with consistent hashing,
+                  and Redis Sorted Set leaderboards with microsecond compound score tie-breaking.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Section Status  : ACTIVE [IN PROGRESS]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SECTION 5 MASTER MODULES & DELIVERABLES
+------------------------------------------------------------------------------------------------------------------------
+Module ID | Module Name                                     | Specification Target                                | Status
+----------+-------------------------------------------------+-----------------------------------------------------+-------
+5.1       | WebSocket Gateway Resilience & Reconnection     | 5s Heartbeats, 30s Redis Reconnect Grace, Forfeit   | [TODO]
+5.2       | Automated 5-Stage Tournament State Machine      | 5-Stage Progression, Stage Tally, BullMQ Timers     | [TODO]
+5.3       | Cohort Matchmaking & Percentile Elimination     | 50-100 Player Balanced Cohorts, Consistent Hashing  | [TODO]
+5.4       | Leaderboard Precision & Compound Tie-Breakers   | Redis ZSET Compound Score (Score + Time/10000)      | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+2. SUB-TRACKERS & BATCH FILES
+------------------------------------------------------------------------------------------------------------------------
+Sub-Tracker File                          | Description                                            | Status
+------------------------------------------+--------------------------------------------------------+--------
+`AboutGameAndToDo/sectionfive/section5.1.txt` | 5.1 WebSocket Gateway Resilience & Network Reconnection| [TODO]
+`AboutGameAndToDo/sectionfive/section5.2.txt` | 5.2 Automated 5-Stage Tournament State Machine Engine   | [TODO]
+`AboutGameAndToDo/sectionfive/section5.3.txt` | 5.3 Cohort Matchmaking Algorithm & Elimination Engine   | [TODO]
+`AboutGameAndToDo/sectionfive/section5.4.txt` | 5.4 Leaderboard Precision (Redis ZSET) & Tie-Breakers   | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+3. DETAILED TECHNICAL AUDIT CRITERIA & INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+- 5.1 WebSocket Gateway Resilience & Reconnection:
+  * Gateway: NestJS WebSocket Gateway (Socket.IO with Redis Adapter for multi-node clustering).
+  * Heartbeat: Active ping/pong heartbeats every 5 seconds; client disconnect detection.
+  * Flaky Network Reconnection Grace Period:
+    - On mobile Wi-Fi to 4G handover or transient disconnect, reserve match slot in Redis for 30 seconds.
+    - If player reconnects within 30 seconds presenting valid `matchTicket`, resume active level and score state.
+    - If 30-second window expires, transition match state to `FORFEIT` and lock final score.
+
+- 5.2 Automated 5-Stage Tournament State Machine:
+  * Strict Sequential State Machine:
+    [DRAFT] -> [REGISTRATION_OPEN] -> [REGISTRATION_CLOSED] ->
+    [STAGE_1_LIVE] -> [STAGE_1_TALLY] ->
+    [STAGE_2_LIVE] -> [STAGE_2_TALLY] ->
+    [STAGE_3_LIVE] -> [STAGE_3_TALLY] ->
+    [STAGE_4_LIVE] -> [STAGE_4_TALLY] ->
+    [STAGE_5_LIVE] -> [STAGE_5_TALLY] ->
+    [PRIZE_CALCULATION] -> [PRIZE_DISTRIBUTED] -> [ARCHIVED].
+  * Automated Stage Tally Execution:
+    - Millisecond precision queue / cron timer monitors stage transitions.
+    - Cut-off calculation: rank participants and mark `eliminated = true` for lower percentile.
+    - Broadcast `STAGE_RESULTS` WebSocket event to all connected room participants.
+    - Enforce mandatory 60-second rest/intermission timer before advancing to next stage.
+
+- 5.3 Cohort Matchmaking & Percentile Elimination:
+  * Scale Invariant: Large tournaments (e.g., 2,000+ players) partitioned into balanced cohorts of 50 to 100 players.
+  * Consistent Hashing: Assign cohorts deterministically via hash of `userId + tournamentId` to eliminate DB hot-spots.
+  * Elimination Gating: Percentile cut-offs applied per cohort or globally, advancing only the top qualifying tier.
+  * Anti-Orphan Protection: Bracket consolidation ensures odd-count cohorts merge gracefully without orphaned players.
+
+- 5.4 Leaderboard Precision & Microsecond Tie-Breakers:
+  * Compound Score Formula: `CompoundScore = BaseScore + (TimeBonus / 10000)`.
+  * Deterministic Tie-Breaking: When two players achieve the identical base score, the player with the faster
+    completion timestamp / lower elapsed milliseconds mathematically ranks higher in Redis `ZADD`.
+  * High-Throughput Read: Live ranking queries (`zrevrank`, `zrevrange`, `zscore`) execute in O(log N) in Redis.
+========================================================================================================================

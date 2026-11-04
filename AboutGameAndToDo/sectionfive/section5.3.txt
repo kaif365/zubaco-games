@@ -1,0 +1,39 @@
+========================================================================================================================
+                                     ZUBACO PLATFORM — SECTION 5.3 SPECIFICATION
+                    (COHORT MATCHMAKING ALGORITHM & ELIMINATION ENGINE — zubaco-platform)
+========================================================================================================================
+Document Name   : section5.3.txt
+Location        : AboutGameAndToDo/sectionfive/section5.3.txt
+Parent Document : AboutGameAndToDo/sectionfive/detailedsection5.txt
+Specification   : Balanced 50 to 100 Player Cohort Partitioning, Consistent Hashing Matchmaking,
+                  Percentile Cut-Offs, Anti-Hot-Spot Database Distribution, and Bracket Consolidation.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 5.3 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Balanced Cohort Partitioning (50 to 100 Players per Cohort)     | `src/tournament/cohort/`           | Math/Unit    | [TODO]
+Consistent Hashing on `userId + tournamentId`                   | `src/tournament/matchmaking/`      | Distribution | [TODO]
+Database Hot-Spot Prevention (Sharded Cohort Query Paths)       | Prisma Cohort Indexes              | Architecture | [TODO]
+Percentile Elimination Calculation (e.g. Top 50% Advance)       | `src/tournament/elimination/`      | Unit tests   | [TODO]
+Anti-Orphan Cohort Merging & Bracket Consolidation             | Cohort Consolidation Handler       | Boundary tests| [TODO]
+Odd-Count Handling (Floor/Ceil Invariant Verification)          | Mathematical Specification         | Invariant    | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+2. TECHNICAL ARCHITECTURE & MATHEMATICAL INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+A. Cohort Partition Formula:
+   - Total registered participants: `N`. Target cohort size: `C = 50 .. 100`.
+   - Number of cohorts: `K = Math.max(1, Math.ceil(N / C))`.
+   - Assignment: Consistent hash `hash(userId + ":" + tournamentId) % K`.
+   - Balanced distribution ensures no cohort exceeds 100 players or drops below 25 players.
+
+B. Percentile Elimination Cut-Off:
+   - Given cohort size `M` and advancement rate `P%`:
+   - Advancing count: `A = Math.max(1, Math.ceil(M * (P / 100)))`.
+   - Bottom `M - A` players are eliminated.
+========================================================================================================================

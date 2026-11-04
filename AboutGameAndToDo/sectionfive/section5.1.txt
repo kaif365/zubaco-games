@@ -1,0 +1,39 @@
+========================================================================================================================
+                                     ZUBACO PLATFORM — SECTION 5.1 SPECIFICATION
+                      (WEBSOCKET GATEWAY RESILIENCE & NETWORK RECONNECTION — zubaco-platform)
+========================================================================================================================
+Document Name   : section5.1.txt
+Location        : AboutGameAndToDo/sectionfive/section5.1.txt
+Parent Document : AboutGameAndToDo/sectionfive/detailedsection5.txt
+Specification   : WebSocket Gateway Architecture, 5-Second Heartbeats, Multi-Node Redis Adapter,
+                  30-Second Network Reconnection Grace Period, Match State Preservation, and Forfeit Handling.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [TODO]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 5.1 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+NestJS WebSocket Gateway (Socket.IO + Redis Adapter)            | `src/ws/` & `src/tournament/`      | Unit/Int     | [TODO]
+Active Ping/Pong Heartbeat Interval (5 Seconds)                 | Gateway Configuration              | Protocol     | [TODO]
+Client Connection State Preservation in Redis                   | `src/ws/` Session Registry         | Unit tests   | [TODO]
+30-Second Flaky Network Reconnection Grace Period               | Redis Match Ticket TTL             | Simulation   | [TODO]
+Session Resumption on Valid Ticket (Level/Score Unchanged)      | Match Handover Handler             | Unit tests   | [TODO]
+Auto-Forfeit & Score Finalization on 30s Grace Expiry           | Grace Timeout Scheduler           | Unit tests   | [TODO]
+Multi-Node Clustering Event Synchronization                     | Redis Pub/Sub Adapter              | Architecture | [TODO]
+
+------------------------------------------------------------------------------------------------------------------------
+2. TECHNICAL ARCHITECTURE & MATHEMATICAL INVARIANTS
+------------------------------------------------------------------------------------------------------------------------
+A. Heartbeat Invariant:
+   - Ping/pong interval strictly enforced at 5,000ms.
+   - 2 missed pings (10 seconds) flags socket as `DISCONNECTED_TRANSIENT`.
+
+B. Reconnection Grace Window:
+   - Key: `ws:grace:${matchId}:${userId}` with TTL = 30 seconds.
+   - Value: Serialized session snapshot `{ matchId, userId, level, currentScore, lastSeq, disconnectedAt }`.
+   - On reconnect within 30s: Client sends `RESUME_SESSION` with `matchTicket`; snapshot restored, timer resumes.
+   - On expiration: Worker triggers `FORFEIT_MATCH`, sets `status = 'FORFEITED'`, locks final score in leaderboard.
+========================================================================================================================
