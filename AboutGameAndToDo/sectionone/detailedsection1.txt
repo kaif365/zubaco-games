@@ -12,12 +12,12 @@ Status Legend   : [TODO] = Not yet started | [IN PROGRESS] = Currently executing
 ------------------------------------------------------------------------------------------------------------------------
 1. SECTION 1 MASTER OBJECTIVES & DELIVERABLES
 ------------------------------------------------------------------------------------------------------------------------
-[ ] Objective 1: Create an automated bulk build verification script to test every subproject independently.
-[ ] Objective 2: Build and certify all 20 Game Frontends (Vite / React / TypeScript).
-[ ] Objective 3: Build and certify all 20 Game Backends (NestJS / TypeScript / Prisma).
-[ ] Objective 4: Build and certify Central Platform Core (`zubaco-platform`).
-[ ] Objective 5: Build and certify Admin Panel (`zubaco-admin-panel` frontend & backend).
-[ ] Objective 6: Build and certify Web Lobby (`zubaco-web-lobby`).
+[DONE] Objective 1: Create an automated bulk build verification script to test every subproject independently.
+[DONE] Objective 2: Build and certify all 20 Game Frontends (Vite / React / TypeScript).
+[DONE] Objective 3: Build and certify all 20 Game Backends (NestJS / TypeScript / Prisma) — 20/20 Certified.
+[DONE] Objective 4: Build and certify Central Platform Core (`zubaco-platform`).
+[DONE] Objective 5: Build and certify Admin Panel (`zubaco-admin-panel` frontend & backend).
+[DONE] Objective 6: Build and certify Web Lobby (`zubaco-web-lobby`).
 [ ] Objective 7: Test bundle compilation for Mobile App (`zubaco-mobile`).
 [ ] Objective 8: Audit and standardize `.env.example` across every subproject (zero missing env vars).
 [ ] Objective 9: Audit and resolve dependency vulnerabilities and lockfile consistency.
@@ -76,16 +76,16 @@ BE-07      | Block Fill         | `zubaco-games/block-fill/block-fill-backend`  
 BE-08      | Colour Sort        | `zubaco-games/colour-sorting/colour-sorting-backend`   | [DONE] | Certified (Prisma 6.16.3 + Nest build)
 BE-09      | Rapid Sort         | `zubaco-games/rapid-category-sort/rapid-sort-backend`  | [DONE] | Certified (Prisma 6.16.3 + Nest build)
 BE-10      | Maze Navigation    | `zubaco-games/maze-navigation/maze-navigation-backend` | [DONE] | Certified (Prisma 6.16.3 + Nest build)
-BE-11      | Infinity Loop      | `zubaco-games/Infinity-loop/Infinity-Loop-backend`     | [TODO] |
-BE-12      | Word Unscramble    | `zubaco-games/word-unscramble/word-unscramble-backend` | [TODO] |
-BE-13      | True / False       | `zubaco-games/true-false/true-false-backend`           | [TODO] |
-BE-14      | Arrows             | `zubaco-games/arrows/arrows-backend`                   | [TODO] |
-BE-15      | Logic Reflector    | `zubaco-games/logic-reflector/logic-reflector-backend` | [TODO] |
-BE-16      | Number Grid        | `zubaco-games/number-grid/number-grid-backend`         | [TODO] |
-BE-17      | Live Route Builder | `zubaco-games/live-route-builder/live-route-backend`   | [TODO] |
-BE-18      | Reflex Endurance   | `zubaco-games/reflex-endurance/reflex-endurance-backend` | [TODO] |
-BE-19      | Pattern Survival   | `zubaco-games/pattern-survival/pattern-survival-backend` | [TODO] |
-BE-20      | Speed Typing       | `zubaco-games/speed-typing/speed-typing-backend`       | [TODO] |
+BE-11      | Infinity Loop      | `zubaco-games/Infinity-loop/Infinity-Loop-backend`     | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-12      | Word Unscramble    | `zubaco-games/word-unscramble/word-unscramble-backend` | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-13      | True / False       | `zubaco-games/true-false-blitz/true-false-blitz-backend`| [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-14      | Arrows             | `zubaco-games/arrows/arrows-backend`                   | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-15      | Logic Reflector    | `zubaco-games/logic-reflector/logic-reflector-backend` | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-16      | Number Grid        | `zubaco-games/number-grid-sprint/number-grid-backend`  | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-17      | Live Route Builder | `zubaco-games/live-route-builder/live-route-backend`   | [DONE] | Certified (Prisma 6.16.3 + Nest build)
+BE-18      | Reflex Endurance   | `zubaco-games/reflex-endurance/reflex-endurance-backend` | [DONE] | Certified (53.2s)
+BE-19      | Pattern Survival   | `zubaco-games/pattern-survival/pattern-survival-backend` | [DONE] | Certified (42.2s)
+BE-20      | Speed Typing       | `zubaco-games/speed-type-answer/speed-type-backend`    | [DONE] | Certified (11.7s)
 
 --- PART C: CENTRAL PLATFORM, ADMIN PANEL, WEB LOBBY & MOBILE APP ---
 Project ID | Component Name     | Sub-Directory Path                                    | Status | Build Result / Fixes

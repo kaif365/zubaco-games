@@ -6,7 +6,7 @@ import { ServerOptions } from 'socket.io';
 
 export class RedisIoAdapter extends IoAdapter {
   private adapterConstructor: ReturnType<typeof createAdapter> | null = null;
-  private readonly logger = new Logger(RedisIoAdapter.name);
+  private readonly redisLogger = new Logger(RedisIoAdapter.name);
 
   constructor(app: INestApplication) {
     super(app);
@@ -18,12 +18,12 @@ export class RedisIoAdapter extends IoAdapter {
     const pubClient = createClient({ url: redisUrl });
     const subClient = pubClient.duplicate();
 
-    pubClient.on('error', (err) => this.logger.error('Redis Pub error', err));
-    subClient.on('error', (err) => this.logger.error('Redis Sub error', err));
+    pubClient.on('error', (err) => this.redisLogger.error('Redis Pub error', err));
+    subClient.on('error', (err) => this.redisLogger.error('Redis Sub error', err));
 
     await Promise.all([pubClient.connect(), subClient.connect()]);
     this.adapterConstructor = createAdapter(pubClient, subClient);
-    this.logger.log('Redis IO adapter connected');
+    this.redisLogger.log('Redis IO adapter connected');
   }
 
   createIOServer(port: number, options?: Partial<ServerOptions>) {

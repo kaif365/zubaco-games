@@ -6,7 +6,7 @@ import { ServerOptions } from 'socket.io';
 
 export class RedisIoAdapter extends IoAdapter {
   private adapterConstructor: ReturnType<typeof createAdapter> | null = null;
-  private readonly logger = new Logger(RedisIoAdapter.name);
+  protected override readonly logger = new Logger(RedisIoAdapter.name);
 
   constructor(private app: INestApplication) {
     super(app);
