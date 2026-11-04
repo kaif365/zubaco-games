@@ -22,3 +22,4 @@ Automated Error Rate Alert Rule (> 1% 5xx triggers alert)       | Alerting Defin
 Database Connection Pool Saturation Alert (> 85% utilization)   | Alerting Definition                | Config audit | [TODO]
 Payment Webhook Failure Spike Alert (> 2% failure rate)         | Alerting Definition                | Config audit | [TODO]
 ========================================================================================================================
+

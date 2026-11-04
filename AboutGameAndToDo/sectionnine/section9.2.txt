@@ -22,3 +22,4 @@ Games CI Workflow (`.github/workflows/games-ci.yml`)            | GitHub Actions
 Dependency Caching (`actions/setup-node` + npm cache)           | CI Workflow Optimization           | Invariant    | [TODO]
 Automated Pull Request Quality Gate & Branch Protection         | CI Branch Rules                    | Architecture | [TODO]
 ========================================================================================================================
+
