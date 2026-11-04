@@ -1,81 +1,36 @@
-========================================================================================================================
-                               ZUBACO GAME 1: SEQUENCE RECALL (WORKING MEMORY)
-                          ULTRA-DETAILED END-TO-END MANUAL TESTING SPECIFICATION & RUNBOOK
-========================================================================================================================
-Document Name   : game_01_sequence_recall_manual_test.txt
-Location        : ManualTestingToDo/folder_01_all_20_games_frontend/game_01_sequence_recall_manual_test.txt
-Target Codebase : `zubaco-games/sequence-recall/sequence-recall-frontend` (React 19, Vite, Tailwind, Framer Motion)
-Category        : Cognitive Working Memory, Visual Span & Sequential Pattern Reproduction
-Tested By       : [Tester Name]
-Test Date       : [YYYY-MM-DD]
-Test Device / OS: [e.g. Chrome 130 Windows Desktop / Pixel 8 Android 14 / iPhone 15 iOS 17]
-Overall Status  : [PENDING / PASS / FAIL]
-========================================================================================================================
-
-------------------------------------------------------------------------------------------------------------------------
-SECTION 1: HOW TO BOOT AND RUN THIS GAME LOCALLY (STEP-BY-STEP)
-------------------------------------------------------------------------------------------------------------------------
-Step 1: Open a terminal in the root directory:
-   $ cd c:\Users\Ashar\Desktop\zubaco-games\zubaco-games\sequence-recall\sequence-recall-frontend
-
-Step 2: Ensure all node modules are installed:
-   $ npm install
-
-Step 3: Launch the local development server:
-   $ npm run start:development
-   (or run: npx vite --port 3005 if port 3000 is occupied)
-
-Step 4: Open your web browser (Desktop Chrome or Mobile Device Emulator):
-   URL: http://localhost:3000 (or http://localhost:3005)
-   Tip: Press F12 -> Toggle Device Toolbar (Ctrl + Shift + M) -> Select "iPhone 14 Pro" or "Pixel 7" (390 x 844 px).
-
-========================================================================================================================
-SECTION 2: PHASE-BY-PHASE TEST MATRIX (EVERY SCREEN, BUTTON & MODAL)
-========================================================================================================================
-
-PHASE 1: MAIN MENU SCREEN (`MenuScreen.tsx`)
-------------------------------------------------------------------------------------------------------------------------
 [ ] TC-01: MENU TITLE & BRAND GRAPHICS
-    - Action: Open http://localhost:3000.
+    - Action: Open the game in browser.
     - Expected Result:
       * Sequence Recall title logo renders sharply with gradient text and subtle floating animation.
-      * Background ambient glow (`gradient-layer-top`) renders without pixelation.
-      * FPS stays at solid 60 FPS without frame drops.
+      * Background ambient glow renders without pixelation.
+      * Smooth 60 FPS animation without visual stutter or frame drops.
 
 [ ] TC-02: MENU BUTTON NAVIGATION
     - Action: Click each primary menu button:
       1. "Play Now" -> Transitions to Instructions Lobby / Level 1.
-      2. "Select Level" -> Opens `LevelSelector` screen with levels 1 to 10.
-      3. "Daily Challenge" -> Opens `DailyChallenge` calendar with calendar streak.
-      4. "Stats" -> Opens `StatsScreen` (Total Games, Best Streak, Average Recall Speed).
-      5. "Achievements" -> Opens `Achievements` screen showing unlocked badges.
-      6. "Settings" -> Opens `Settings` modal.
+      2. "Select Level" -> Opens LevelSelector screen with levels 1 to 10.
+      3. "Daily Challenge" -> Opens DailyChallenge calendar with calendar streak.
+      4. "Stats" -> Opens StatsScreen (Total Games, Best Streak, Average Recall Speed).
+      5. "Achievements" -> Opens Achievements screen showing unlocked badges.
+      6. "Settings" -> Opens Settings modal.
     - Expected Result:
       * Every button responds with snappy tap feedback and soft audio click.
-      * Back button on each sub-screen returns cleanly to `MenuScreen`.
+      * Back button on each sub-screen returns cleanly to MenuScreen.
 
----
-
-PHASE 2: SETTINGS MODAL (`Settings.tsx`)
-------------------------------------------------------------------------------------------------------------------------
-[ ] TC-03: AUDIO & HAPTIC TOGGLES
+[ ] TC-03: AUDIO & HAPTIC TOGGLES (SETTINGS)
     - Action: In Settings, toggle:
       * Sound Effects: Toggle OFF -> Tap pads (no audio). Toggle ON -> Tap pads (audio chimes restore).
       * Music / Ambience: Toggle OFF / ON.
       * Haptics: Toggle OFF / ON.
     - Expected Result:
-      * Preferences persist in `localStorage` across page reloads.
+      * Preferences persist in localStorage across page reloads.
 
-[ ] TC-04: LANGUAGE & LOCALIZATION (i18n)
+[ ] TC-04: LANGUAGE & LOCALIZATION (SETTINGS)
     - Action: Switch language dropdown (e.g. English to Hindi / Spanish).
     - Expected Result:
       * Menu titles, buttons, and countdown text translate instantly without page reload.
 
----
-
-PHASE 3: LEVEL SELECTOR (`LevelSelector.tsx`)
-------------------------------------------------------------------------------------------------------------------------
-[ ] TC-05: LEVEL LOCK / UNLOCK PROGRESSION
+[ ] TC-05: LEVEL SELECTOR PROGRESSION
     - Action: Open Level Selector.
     - Expected Result:
       * Level 1 is unlocked with bright active border.
@@ -83,10 +38,6 @@ PHASE 3: LEVEL SELECTOR (`LevelSelector.tsx`)
       * Tapping Level 1 loads game with 3-pad sequence.
       * Completing Level 1 unlocks Level 2 permanently.
 
----
-
-PHASE 4: INSTRUCTIONS & TUTORIAL OVERLAY (`InstructionsLobbyScreen.tsx`, `TutorialOverlay.tsx`)
-------------------------------------------------------------------------------------------------------------------------
 [ ] TC-06: FIRST-TIME TUTORIAL DEMONSTRATION
     - Action: Tap "How to Play" or start game for the first time.
     - Expected Result:
@@ -94,59 +45,48 @@ PHASE 4: INSTRUCTIONS & TUTORIAL OVERLAY (`InstructionsLobbyScreen.tsx`, `Tutori
       * Visual prompt: "1. Watch the illuminated sequence. 2. Memorize the order. 3. Tap the pads in sequence."
       * "Got it! Start Game" button dismisses overlay cleanly.
 
----
-
-PHASE 5: CORE GAMEPLAY & SEQUENCE PLAYBACK (`SequenceBoard.tsx`, `SequenceDots.tsx`, `GameHud.tsx`)
-------------------------------------------------------------------------------------------------------------------------
 [ ] TC-07: HUD ELEMENTS & SESSION TIMER BAR
     - Action: Game starts. Inspect Game HUD at the top.
     - Expected Result:
-      * Level indicator: "Level 1" (or active level).
-      * Score counter: "Score: 0" with smooth rolling numbers (`useAnimatedNumber`).
-      * Session Timer Bar: Horizontal progress bar starts full (e.g. 60s) and shrinks continuously.
+      * Level indicator displays active level (e.g. "Level 1").
+      * Score counter displays "Score: 0" with smooth rolling numbers.
+      * Session Timer Bar starts full (e.g. 60s) and shrinks continuously.
       * Pause button (top right) is responsive and visible.
-      * Sequence dots indicator (e.g. 3 empty dots) indicates target sequence length.
+      * Sequence dots indicator displays empty dots matching target sequence length.
 
 [ ] TC-08: DEMONSTRATION PHASE: ABSOLUTE INPUT LOCKOUT (CRITICAL P0)
-    - Action: Round begins. Pads begin lighting up (e.g. Pad 2 flashes cyan, Pad 5 flashes cyan, Pad 1 flashes cyan).
-    - Intentionally tap, click, or drag all 9 pads rapidly while playback is running.
+    - Action: Round begins. Pads begin lighting up in sequence.
+    - Intentionally tap, click, or drag all pads rapidly while playback is running.
     - Expected Result:
       * The game MUST COMPLETELY IGNORE all player inputs during demonstration.
-      * Cursor remains in `default` or `not-allowed` state.
+      * Cursor remains in default or not-allowed state.
       * No pads light up or register premature clicks.
       * Playback flashes for exact configured duration (600ms in Level 1 down to 250ms in Level 10).
 
 [ ] TC-09: PLAYER INPUT PHASE: CORRECT REPRODUCTION
-    - Action: Playback ends. Prompt switches to "Your Turn!".
-    - Tap Pad 2 -> Tap Pad 5 -> Tap Pad 1.
+    - Action: Playback ends. Prompt switches to "Your Turn!". Tap the pads in the exact order shown.
     - Expected Result:
-      * Pad 2 lights up with chime sound on touch down.
-      * Dot 1 in SequenceDots turns green.
-      * Pad 5 lights up -> Dot 2 turns green.
-      * Pad 1 lights up -> Dot 3 turns green.
-      * Positive success chime plays; green particle burst or checkmark appears (`RoundFeedback.tsx`).
+      * Each tapped pad lights up with chime sound on touch down.
+      * Corresponding dot in SequenceDots turns green.
+      * Positive success chime plays; green particle burst or checkmark appears.
       * Score increases (+100 base + speed bonus).
-      * Level advances to Level 2 (sequence length expands to 4 pads).
+      * Level advances to next level (sequence length increases by 1 pad).
 
 [ ] TC-10: PLAYER INPUT PHASE: WRONG TAP & PENALTY
-    - Action: Sequence is [3, 7, 1]. Player taps [3, 4].
+    - Action: During "Your Turn", intentionally tap the wrong pad.
     - Expected Result:
-      * Pad 4 immediately flashes red with error buzzer sound.
+      * Wrong pad immediately flashes red with error buzzer sound.
       * Sequence dots shake with error animation.
-      * Life count drops by 1 (e.g. from 3 hearts to 2 hearts).
+      * Life count drops by 1 (e.g. 1 heart lost).
       * Sequence resets to replay or advances with penalty.
 
 [ ] TC-11: MULTI-TOUCH SPAM STRESS TEST
     - Action: During "Your Turn", use 4 fingers to spam touch 4 different pads simultaneously.
     - Expected Result:
-      * JavaScript engine does not throw unhandled TypeError or freeze.
+      * JavaScript engine does not throw unhandled error or freeze.
       * Evaluates the first registered touch accurately.
 
----
-
-PHASE 6: IN-GAME PAUSE DIALOG (`PauseDialog.tsx`)
-------------------------------------------------------------------------------------------------------------------------
-[ ] TC-12: PAUSE INTERRUPT & TIMER FREEZE
+[ ] TC-12: IN-GAME PAUSE INTERRUPT & RESUME
     - Action: While timer is running, tap Pause button.
     - Expected Result:
       * Screen dims with backdrop blur.
@@ -157,59 +97,31 @@ PHASE 6: IN-GAME PAUSE DIALOG (`PauseDialog.tsx`)
       * Dialog closes, timer resumes from exact saved second without penalty.
     - Action: Tap "Quit to Menu".
     - Expected Result:
-      * Returns safely to `MenuScreen`.
+      * Returns safely to MenuScreen.
 
----
-
-PHASE 7: ORIENTATION WARNING (TILT DETECTED)
-------------------------------------------------------------------------------------------------------------------------
-[ ] TC-13: COMPACT LANDSCAPE ROTATION INTERCEPT
+[ ] TC-13: ORIENTATION WARNING (TILT DETECTED)
     - Action: Rotate browser or device to landscape with height < 610px.
     - Expected Result:
       * "Tilt detected! Please rotate your device back to Portrait" overlay appears with animated rotating phone icon.
       * Gameplay is paused until device is restored to vertical portrait orientation.
 
----
-
-PHASE 8: GAME OVER & SUMMARY OVERLAY (`GameResultOverlay.tsx`, `Confetti.tsx`)
-------------------------------------------------------------------------------------------------------------------------
 [ ] TC-14: TIMEOUT & GAME OVER TRIGGER
     - Action: Let the session timer bar drain down to 00:00.
     - Expected Result:
       * Timer reaches 0. Input immediately freezes.
-      * Final score overlay animates into view.
-      * Displays:
-        - "Final Score: X,XXX"
-        - "Highest Level Cleared: Level X"
-        - "Sequence Recall Accuracy: XX%"
-        - "Best Reaction Time: XXX ms"
+      * Final score overlay animates into view showing:
+        - Final Score
+        - Highest Level Cleared
+        - Sequence Recall Accuracy percentage
+        - Best Reaction Time in milliseconds
       * Buttons: [Play Again], [View Leaderboard], [Return to Menu].
-      * If player beats high score: Confetti explosion triggers (`Confetti.tsx`).
+      * If player beats high score, celebratory confetti triggers.
 
----
-
-PHASE 9: OFFLINE OUTBOX & PROGRESS STORAGE (`saveProgressOutbox.ts`)
-------------------------------------------------------------------------------------------------------------------------
 [ ] TC-15: OFFLINE NETWORK DROP & OUTBOX FLUSH
-    - Action: Open DevTools -> Network -> Switch to "Offline". Complete a level.
+    - Action: In DevTools Network tab, switch to "Offline". Complete a level.
     - Expected Result:
       * Game does not crash.
-      * `saveProgressOutbox.ts` stores score record in `localStorage` under `sequence_recall_outbox`.
+      * Score record is saved locally in localStorage under sequence_recall_outbox.
     - Action: Switch Network back to "Online".
     - Expected Result:
-      * Outbox detects online event and flushes queued scores to server without duplicates.
-
-========================================================================================================================
-SECTION 3: PASS / FAIL SIGN-OFF FORM
-========================================================================================================================
-[ ] Total Test Cases Executed : 15 / 15
-[ ] Blocker (P0) Bugs Found   : [ 0 ]
-[ ] Critical (P1) Bugs Found  : [ 0 ]
-[ ] Final Game Sign-off       : [ PASS / FAIL ]
-
-Notes / Observations:
-________________________________________________________________________________________________________________________
-________________________________________________________________________________________________________________________
-
-Tester Signature: _______________________ Date: _______________
-========================================================================================================================
+      * Outbox detects online connection and flushes queued scores to server without duplicates.
