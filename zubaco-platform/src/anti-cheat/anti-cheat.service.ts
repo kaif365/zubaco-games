@@ -4,11 +4,14 @@ import { GameType, CheatFlagType, CheatSeverity } from '.prisma/client';
 import { EnforcementService } from './enforcement/enforcement.service';
 import { EnforcementAction } from './enforcement/enforcement.types';
 
+import { CadenceAnalyzerService } from './heuristics/cadence-analyzer.service';
+
 @Injectable()
 export class AntiCheatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly enforcement: EnforcementService,
+    private readonly cadenceAnalyzer: CadenceAnalyzerService = new CadenceAnalyzerService(),
   ) {}
 
   // ─── SCORE ANOMALY DETECTION ───────────────────────────────────
@@ -165,68 +168,26 @@ export class AntiCheatService {
 
   /**
    * Inspect the per-input move log for non-human cadence.
-   *
-   * The client may submit `metadata.input_log` (or `move_log`) as an array of
-   * monotonically increasing millisecond timestamps (or `{ t }` objects). We
-   * flag two signals:
-   *  - Repeated sub-100ms intervals (faster than human reaction/motor limits).
-   *  - Near-zero variance across many inputs (macro / replay bot signature).
+   * Delegates to CadenceAnalyzerService for neuromuscular floor (<50ms),
+   * robotic zero-variance (stdDev < 5ms), and synthetic coordinate clamping checks.
    */
   private analyzeInputTimings(
     metadata: any,
     gameType: GameType,
   ): { type: CheatFlagType; severity: CheatSeverity; details: any } | null {
-    const raw = metadata?.input_log ?? metadata?.move_log;
-    if (!Array.isArray(raw) || raw.length < 4) return null;
-
-    const times = raw
-      .map((m: any) => (typeof m === 'number' ? m : typeof m?.t === 'number' ? m.t : null))
-      .filter((t: any): t is number => t !== null);
-    if (times.length < 4) return null;
-
-    const intervals: number[] = [];
-    for (let i = 1; i < times.length; i++) {
-      const d = times[i] - times[i - 1];
-      if (d >= 0) intervals.push(d);
+    const analysis = this.cadenceAnalyzer.analyze(metadata, gameType);
+    if (!analysis.isCheat || !analysis.flagType || !analysis.severity) {
+      return null;
     }
-    if (intervals.length < 3) return null;
-
-    const SUB_HUMAN_MS = 100;
-    const subHuman = intervals.filter((d) => d < SUB_HUMAN_MS).length;
-
-    // Coefficient of variation — machine-precise consistency is suspicious.
-    const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-    const variance =
-      intervals.reduce((s, d) => s + Math.pow(d - mean, 2), 0) / intervals.length;
-    const cv = mean > 0 ? Math.sqrt(variance) / mean : 0;
-
-    if (subHuman >= 3) {
-      return {
-        type: 'INPUT_BOT_PATTERN',
-        severity: subHuman >= 6 ? 'CRITICAL' : 'HIGH',
-        details: {
-          reason: 'sub_100ms_inputs',
-          sub_human_inputs: subHuman,
-          total_inputs: intervals.length,
-          game_type: gameType,
-        },
-      };
-    }
-
-    if (intervals.length >= 10 && cv < 0.02) {
-      return {
-        type: 'INPUT_BOT_PATTERN',
-        severity: 'HIGH',
-        details: {
-          reason: 'zero_variance_cadence',
-          coefficient_of_variation: Number(cv.toFixed(4)),
-          mean_interval_ms: Math.round(mean),
-          total_inputs: intervals.length,
-        },
-      };
-    }
-
-    return null;
+    return {
+      type: analysis.flagType,
+      severity: analysis.severity,
+      details: {
+        reason: analysis.reason,
+        metrics: analysis.metrics,
+        game_type: gameType,
+      },
+    };
   }
 
   /**
