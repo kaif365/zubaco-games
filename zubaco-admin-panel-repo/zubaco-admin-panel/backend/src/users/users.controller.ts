@@ -44,6 +44,43 @@ export class UsersController {
         );
     }
 
+    // ─── KYC VERIFICATION DESK (Module 6.3) ───────────────────────
+
+    @Get('kyc/queue')
+    async getKycQueue(
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+    ) {
+        return this.usersService.getKycReviewQueue(
+            page ? parseInt(page, 10) : 1,
+            limit ? parseInt(limit, 10) : 20,
+        );
+    }
+
+    @Get('kyc/preview-url')
+    async getKycPreviewUrl(
+        @Query('key') key: string,
+        @Query('expires_in') expiresIn?: string,
+    ) {
+        return this.usersService.getKycDocumentPreviewUrl(
+            key,
+            expiresIn ? parseInt(expiresIn, 10) : 300,
+        );
+    }
+
+    @Post(':userId/kyc/approve')
+    async approveKyc(@Param('userId') userId: string) {
+        return this.usersService.approveKyc(userId);
+    }
+
+    @Post(':userId/kyc/reject')
+    async rejectKyc(
+        @Param('userId') userId: string,
+        @Body() body: { reason_code: string; reason_message: string },
+    ) {
+        return this.usersService.rejectKyc(userId, body?.reason_code, body?.reason_message);
+    }
+
     @Get(':userId')
     async getUser(@Param('userId') userId: string) {
         return this.usersService.getUserDetail(userId);
