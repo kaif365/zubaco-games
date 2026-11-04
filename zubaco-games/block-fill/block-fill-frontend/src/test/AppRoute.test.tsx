@@ -28,13 +28,17 @@ function renderWithQueryClient(node: React.ReactElement) {
 }
 
 describe('App stage flow', () => {
-  it('shows stage start screen and begins on Play Now click', async () => {
+  beforeEach(() => {
+    localStorage.setItem('zubaco_block_fill_tutorial_done', 'true');
+  });
+
+  it('shows stage start screen and begins on Play click', async () => {
     renderWithQueryClient(<App />);
 
-    expect(
-      await screen.findByRole('region', { name: /game instructions screen/i }),
-    ).toBeInTheDocument();
-    await userEvent.click(await screen.findByRole('button', { name: /play now/i }));
+    expect(await screen.findByRole('heading', { name: /block fill/i })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: /play/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /1.*easy/i }));
     expect(await screen.findByTestId('phaser-flow-board-mock')).toBeInTheDocument();
   });
 });
+

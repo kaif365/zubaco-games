@@ -24,12 +24,7 @@ const config = {
     '\\.(jpg|jpeg|png|gif|svg|webp)$': '<rootDir>/src/test/fileMock.ts',
   },
   transform: {
-    '^.+\\.tsx?$': [
-      'ts-jest',
-      {
-        tsconfig: '<rootDir>/tsconfig.jest.json',
-      },
-    ],
+    '^.+\\.(ts|tsx)$': '<rootDir>/src/test/jestImportMetaTransformer.cjs',
   },
   coverageDirectory: 'coverage',
   collectCoverageFrom: [

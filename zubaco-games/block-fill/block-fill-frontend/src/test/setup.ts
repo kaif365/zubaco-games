@@ -6,6 +6,10 @@ vi.stubEnv('VITE_USER_STAGE_ID', '11111111-1111-1111-1111-111111111111');
 vi.stubEnv('VITE_USER_SERVICE_BASE_URL', 'http://localhost:8001/');
 vi.stubEnv('VITE_GAME_SERVICE_BASE_URL', 'http://localhost:8000');
 
+// Mark tutorial as completed by default so tests target the gameplay and menu screens
+localStorage.setItem('zubaco_block_fill_tutorial_done', 'true');
+
+
 import '@testing-library/jest-dom/vitest';
 
 /** jsdom has no `matchMedia`; `useCompactLandscape` and similar hooks need it. */
@@ -23,6 +27,22 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: vi.fn(),
   })),
 });
+
+/** happy-dom Animation.cancel() rejects with unhandled AbortError in framer-motion tests */
+if (typeof Element !== 'undefined') {
+  Element.prototype.animate = vi.fn().mockImplementation(() => ({
+    finished: Promise.resolve(),
+    cancel: vi.fn(),
+    play: vi.fn(),
+    pause: vi.fn(),
+    reverse: vi.fn(),
+    finish: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 
 /** jsdom has no `IntersectionObserver`; embla-carousel needs it for slides-in-view. */
 class MockIntersectionObserver {

@@ -31,6 +31,10 @@ function renderWithQueryClient(node: React.ReactElement) {
 }
 
 describe('FlowPuzzleGameShell', () => {
+  beforeEach(() => {
+    localStorage.setItem('zubaco_block_fill_tutorial_done', 'true');
+  });
+
   afterEach(() => {
     localStorage.clear();
     clearSecureStorageCache();
@@ -39,16 +43,15 @@ describe('FlowPuzzleGameShell', () => {
   it('renders start screen by default', async () => {
     renderWithQueryClient(<FlowPuzzleGameShell onExit={() => undefined} />);
 
-    expect(
-      await screen.findByRole('region', { name: /game instructions screen/i }),
-    ).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /play now/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /block fill/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /play/i })).toBeInTheDocument();
   });
 
   it('starts gameplay after tapping start', async () => {
     renderWithQueryClient(<FlowPuzzleGameShell onExit={() => undefined} />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /play now/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /play/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /1.*easy/i }));
     expect(await screen.findByTestId('phaser-flow-board-mock')).toBeInTheDocument();
   });
 
@@ -56,7 +59,8 @@ describe('FlowPuzzleGameShell', () => {
     const onExit = vi.fn();
     renderWithQueryClient(<FlowPuzzleGameShell onExit={onExit} />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /play now/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /play/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /1.*easy/i }));
     expect(await screen.findByTestId('phaser-flow-board-mock')).toBeInTheDocument();
   });
 });
@@ -65,6 +69,7 @@ describe('FlowPuzzleGameShell — restore flow', () => {
   beforeEach(() => {
     localStorage.clear();
     clearSecureStorageCache();
+    localStorage.setItem('zubaco_block_fill_tutorial_done', 'true');
   });
 
   afterEach(() => {
@@ -130,8 +135,8 @@ describe('FlowPuzzleGameShell — restore flow', () => {
 
     renderWithQueryClient(<FlowPuzzleGameShell onExit={() => undefined} />);
 
-    // End screen should appear with the continue button
-    expect(await screen.findByRole('button', { name: /continue/i })).toBeInTheDocument();
+    // End screen should appear with try again or menu button
+    expect(await screen.findByRole('button', { name: /try again/i })).toBeInTheDocument();
 
     globalThis.fetch = originalFetch;
   });
@@ -140,7 +145,7 @@ describe('FlowPuzzleGameShell — restore flow', () => {
     // No session id → should show the normal start screen
     renderWithQueryClient(<FlowPuzzleGameShell onExit={() => undefined} />);
 
-    expect(await screen.findByRole('button', { name: /play now/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /play/i })).toBeInTheDocument();
     expect(screen.queryByTestId('phaser-flow-board-mock')).not.toBeInTheDocument();
   });
 });

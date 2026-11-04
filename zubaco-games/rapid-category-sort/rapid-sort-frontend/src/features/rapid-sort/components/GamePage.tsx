@@ -104,6 +104,28 @@ export function GamePage() {
     return () => window.removeEventListener('keydown', handler);
   }, [phase, swipe]);
 
+  // Touch swipe controls with 30px minimum vector threshold against jitter
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current || phase !== 'playing') return;
+    const dx = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const dy = e.changedTouches[0].clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
+
+    // Minimum 30px vector filter against jitter, horizontal dominant
+    if (Math.abs(dx) >= 30 && Math.abs(dx) > Math.abs(dy)) {
+      swipe(dx > 0 ? 'right' : 'left');
+    }
+  };
+
   // --- App Phase Screens ---
   if (appPhase === 'menu') return <MenuScreen onNavigate={setAppPhase} />;
   if (appPhase === 'levels') return <LevelSelector onBack={() => setAppPhase('menu')} onSelectLevel={(level) => { setAppPhase('game'); handleStart(level); }} />;
@@ -113,7 +135,11 @@ export function GamePage() {
   if (appPhase === 'settings') return <Settings onBack={() => setAppPhase('menu')} />;
 
   return (
-    <div className="h-screen w-screen bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950 relative overflow-hidden select-none">
+    <div
+      className="h-screen w-screen bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950 relative overflow-hidden select-none"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {error && (
         <div className="absolute top-4 left-4 right-4 z-50 text-red-400 text-sm text-center p-2 bg-red-500/10 rounded-lg">
           {error}
