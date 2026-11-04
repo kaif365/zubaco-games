@@ -1,0 +1,29 @@
+========================================================================================================================
+                                        ZUBACO PLATFORM — SPRINT 10.4 CERTIFICATION
+                        (SPRINT 4: PLATFORM FINANCIAL CORE, PAYMENTS, KYC & TDS VERIFICATION)
+========================================================================================================================
+Document Name   : sprint10.4.txt
+Location        : AboutGameAndToDo/sectionten/sprint10.4.txt
+Parent Document : AboutGameAndToDo/sectionten/detailedsection10.txt
+Specification   : SMS OTP authentication, double-entry financial ledger with zero leakage, Razorpay/Cashfree
+                  webhook idempotency, Section 194BA 30% TDS withholding, and GPS/IP geo-fencing.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : [DONE]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. SPRINT 4 AUDIT CHECKLIST & VERIFICATION MATRIX
+------------------------------------------------------------------------------------------------------------------------
+Task ID  | Requirement Description                               | Target System                  | Status
+---------+-------------------------------------------------------+--------------------------------+-------
+Task 4.1 | Real SMS OTP gateway integration with rate limiting   | `AuthService` / SMS provider   | [DONE]
+Task 4.2 | Double-spend concurrency tests on double-entry ledger | `WalletLedgerService`          | [DONE]
+Task 4.3 | Payment webhook idempotency (Razorpay/Cashfree/UPI)   | `WebhookService` / Fast-path   | [DONE]
+Task 4.4 | Section 194BA 30% TDS net winnings deduction logic    | `ComplianceService` (TDS)      | [DONE]
+Task 4.5 | GPS / IP geo-fencing locks for banned Indian states   | Geo-fencing Guard & Haversine  | [DONE]
+Task 4.6 | KYC document upload & S3 presigned URL workflow       | KYC pipeline & document audit  | [DONE]
+========================================================================================================================
+Verification Reference:
+- Certified in Section 4 (`detailedsection4.txt`, commit `ae6790f`).
+- Financial integrity and legal compliance 100% verified.
+========================================================================================================================

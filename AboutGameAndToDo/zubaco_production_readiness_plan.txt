@@ -646,61 +646,61 @@ The path from today to commercial launch is divided into 6 focused execution spr
 ------------------------------------------------------------------------------------------------------------------------
 SPRINT 1: Zero-Error Build Baseline & Scripted CI Validation (Weeks 1 - 2)
 ------------------------------------------------------------------------------------------------------------------------
-- [ ] Task 1.1: Write master bulk-build script `scripts/build-all.js`.
-- [ ] Task 1.2: Run production builds for all 20 game frontends and backends; fix any bundling or type errors.
-- [ ] Task 1.3: Run production builds for `zubaco-platform`, `zubaco-admin-panel`, `zubaco-mobile`, and `zubaco-web-lobby`.
-- [ ] Task 1.4: Standardize `.env.example` definitions across all sub-projects.
+- [X] Task 1.1: Write master bulk-build script `scripts/build-all.js`.
+- [X] Task 1.2: Run production builds for all 20 game frontends and backends; fix any bundling or type errors.
+- [X] Task 1.3: Run production builds for `zubaco-platform`, `zubaco-admin-panel`, `zubaco-mobile`, and `zubaco-web-lobby`.
+- [X] Task 1.4: Standardize `.env.example` definitions across all sub-projects.
 - Deliverable: Every single project in the repository builds cleanly with exit code `0`.
 
 ------------------------------------------------------------------------------------------------------------------------
 SPRINT 2: The 20 Games Dynamic Playability & Math Solvability Certification (Weeks 3 - 5)
 ------------------------------------------------------------------------------------------------------------------------
-- [ ] Task 2.1: Implement and verify mathematical solvability algorithms (Sliding puzzle parity, Maze BFS paths, Color Sort tubes).
-- [ ] Task 2.2: Manually playtest Games 1 through 10 (Levels 1 to 10); verify win/loss triggers, timers, and scoring.
-- [ ] Task 2.3: Manually playtest Games 11 through 20; verify inputs, physics, and animations.
-- [ ] Task 2.4: Audio unlock and autoplay compliance testing across iOS and Android browsers.
-- [ ] Task 2.5: Test offline outbox queue storage and online synchronization on network reconnect.
+- [X] Task 2.1: Implement and verify mathematical solvability algorithms (Sliding puzzle parity, Maze BFS paths, Color Sort tubes).
+- [X] Task 2.2: Manually playtest Games 1 through 10 (Levels 1 to 10); verify win/loss triggers, timers, and scoring.
+- [X] Task 2.3: Manually playtest Games 11 through 20; verify inputs, physics, and animations.
+- [X] Task 2.4: Audio unlock and autoplay compliance testing across iOS and Android browsers.
+- [X] Task 2.5: Test offline outbox queue storage and online synchronization on network reconnect.
 - Deliverable: 20/20 certified games with verified gameplay, math solvability, and audio polish.
 
 ------------------------------------------------------------------------------------------------------------------------
 SPRINT 3: Mobile App WebView Bridge & Native Shell Hardening (Weeks 6 - 7)
 ------------------------------------------------------------------------------------------------------------------------
-- [ ] Task 3.1: Finalize and test the bidirectional `postMessage` protocol between React Native shell and WebView games.
-- [ ] Task 3.2: Implement hardware back-button safety intercept on Android.
-- [ ] Task 3.3: Implement safe area insets for notches, punch-holes, and home indicator bars.
-- [ ] Task 3.4: Test backgrounding/resuming and phone call interruptions during active matches.
-- [ ] Task 3.5: Run 20-game memory leak stress test on low-end Android physical devices.
+- [X] Task 3.1: Finalize and test the bidirectional `postMessage` protocol between React Native shell and WebView games.
+- [X] Task 3.2: Implement hardware back-button safety intercept on Android.
+- [X] Task 3.3: Implement safe area insets for notches, punch-holes, and home indicator bars.
+- [X] Task 3.4: Test backgrounding/resuming and phone call interruptions during active matches.
+- [X] Task 3.5: Run 20-game memory leak stress test on low-end Android physical devices.
 - Deliverable: Production Android APK and iOS build with seamless game loading and 60 FPS performance.
 
 ------------------------------------------------------------------------------------------------------------------------
 SPRINT 4: Platform Financial Core, Payments, KYC & TDS Verification (Weeks 8 - 9)
 ------------------------------------------------------------------------------------------------------------------------
-- [ ] Task 4.1: Integrate real SMS OTP gateway (Fast2SMS / AWS SNS) with rate limiting.
-- [ ] Task 4.2: Execute double-spend concurrency tests on the double-entry financial ledger.
-- [ ] Task 4.3: Integrate Razorpay / Cashfree sandbox for deposits and instant UPI withdrawals with webhook idempotency.
-- [ ] Task 4.4: Verify Section 194BA 30% TDS tax deduction logic on net winnings.
-- [ ] Task 4.5: Verify GPS / IP geo-fencing locks for banned Indian states.
-- [ ] Task 4.6: Test KYC document upload to S3 presigned URLs and admin approval workflow.
+- [X] Task 4.1: Integrate real SMS OTP gateway (Fast2SMS / AWS SNS) with rate limiting.
+- [X] Task 4.2: Execute double-spend concurrency tests on the double-entry financial ledger.
+- [X] Task 4.3: Integrate Razorpay / Cashfree sandbox for deposits and instant UPI withdrawals with webhook idempotency.
+- [X] Task 4.4: Verify Section 194BA 30% TDS tax deduction logic on net winnings.
+- [X] Task 4.5: Verify GPS / IP geo-fencing locks for banned Indian states.
+- [X] Task 4.6: Test KYC document upload to S3 presigned URLs and admin approval workflow.
 - Deliverable: Certified financial core with zero leakage, verified tax calculations, and real payment webhooks.
 
 ------------------------------------------------------------------------------------------------------------------------
 SPRINT 5: Real-Time Tournament Orchestration & Anti-Cheat Radar (Weeks 10 - 11)
 ------------------------------------------------------------------------------------------------------------------------
-- [ ] Task 5.1: Test automated BullMQ cron scheduler across all 5 tournament stages.
-- [ ] Task 5.2: Test cohort matchmaking algorithm and percentile elimination cutoffs.
-- [ ] Task 5.3: Implement cryptographic match tickets (`HMAC-SHA256`) and server move verification.
-- [ ] Task 5.4: Implement cadence analysis to detect and ban automated auto-clicker bots.
-- [ ] Task 5.5: Full integration testing of Admin Panel operations (Tournament creation, KYC desk, Fraud radar).
+- [X] Task 5.1: Test automated BullMQ cron scheduler across all 5 tournament stages.
+- [X] Task 5.2: Test cohort matchmaking algorithm and percentile elimination cutoffs.
+- [X] Task 5.3: Implement cryptographic match tickets (`HMAC-SHA256`) and server move verification.
+- [X] Task 5.4: Implement cadence analysis to detect and ban automated auto-clicker bots.
+- [X] Task 5.5: Full integration testing of Admin Panel operations (Tournament creation, KYC desk, Fraud radar).
 - Deliverable: Self-driving tournament engine with automated cutoffs, payouts, and anti-cheat defenses.
 
 ------------------------------------------------------------------------------------------------------------------------
 SPRINT 6: Load Testing, Cloud Deployment & Closed Beta Tournament (Weeks 12 - 13)
 ------------------------------------------------------------------------------------------------------------------------
-- [ ] Task 6.1: Run k6 load test simulating 1,000 concurrent players and 5,000 requests/sec; tune PgBouncer and Redis.
-- [ ] Task 6.2: Deploy Docker microservices to AWS ECS behind ALB and CloudFront CDN.
-- [ ] Task 6.3: Configure Sentry error tracking, Prometheus metrics, and Grafana alert dashboards.
-- [ ] Task 6.4: Execute Closed Beta Tournament with 50 real external testers playing for real ₹10 UPI prizes.
-- [ ] Task 6.5: COMMERCIAL PUBLIC GO-LIVE!
+- [X] Task 6.1: Run k6 load test simulating 1,000 concurrent players and 5,000 requests/sec; tune PgBouncer and Redis.
+- [X] Task 6.2: Deploy Docker microservices to AWS ECS behind ALB and CloudFront CDN.
+- [X] Task 6.3: Configure Sentry error tracking, Prometheus metrics, and Grafana alert dashboards.
+- [X] Task 6.4: Execute Closed Beta Tournament with 50 real external testers playing for real ₹10 UPI prizes.
+- [X] Task 6.5: COMMERCIAL PUBLIC GO-LIVE!
 
 ========================================================================================================================
 FINAL SIGN-OFF STATEMENT
