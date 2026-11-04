@@ -18,6 +18,9 @@ export class PaymentGatewayService {
   private readonly keyId: string;
   private readonly keySecret: string;
   private readonly webhookSecret: string;
+  private readonly cashfreeAppId: string;
+  private readonly cashfreeSecretKey: string;
+  private readonly cashfreeWebhookSecret: string;
 
   // M10 — checkout/idempotency window for deposit orders. A retried deposit intent
   // within this window reuses the same OPEN order; after it the order is cleaned
@@ -33,6 +36,9 @@ export class PaymentGatewayService {
     this.keyId = process.env.RAZORPAY_KEY_ID || '';
     this.keySecret = process.env.RAZORPAY_KEY_SECRET || '';
     this.webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
+    this.cashfreeAppId = process.env.CASHFREE_APP_ID || '';
+    this.cashfreeSecretKey = process.env.CASHFREE_SECRET_KEY || '';
+    this.cashfreeWebhookSecret = process.env.CASHFREE_WEBHOOK_SECRET || process.env.CASHFREE_SECRET_KEY || '';
   }
 
   // ─── CREATE ORDER ─────────────────────────────────────────────
@@ -213,7 +219,52 @@ export class PaymentGatewayService {
 
   // ─── WEBHOOK HANDLER ───────────────────────────────────────────
 
-  async handleWebhook(body: any, signature: string) {
+  // ─── IDEMPOTENCY ENGINE (payment_webhook_events) ───────────────
+
+  /**
+   * Check and record webhook event in the payment_webhook_events deduplication table/store.
+   * Discards duplicate event deliveries before any ledger or balance operations occur.
+   */
+  async recordWebhookEventIdempotent(
+    provider: 'RAZORPAY' | 'CASHFREE',
+    eventId: string,
+    eventType: string,
+    payloadSummary: Record<string, unknown>,
+  ): Promise<{ isDuplicate: boolean }> {
+    const eventKey = `payment_webhook_events:${provider}:${eventId}`;
+    const lockKey = `${eventKey}:lock`;
+
+    // Fast check: if event is already processed in the 30-day idempotency window
+    const existing = await this.redis.get(eventKey);
+    if (existing) {
+      return { isDuplicate: true };
+    }
+
+    // Atomic concurrency lock for in-flight duplicate webhook deliveries
+    const acquired = await this.redis.setnx(lockKey, '1');
+    if (!acquired) {
+      // Another concurrent worker is processing this identical event right now
+      return { isDuplicate: true };
+    }
+    await this.redis.expire(lockKey, 60);
+
+    // Persist event record in Redis (30 days = 2,592,000s)
+    const eventRecord = {
+      provider,
+      eventId,
+      eventType,
+      receivedAt: new Date().toISOString(),
+      ...payloadSummary,
+    };
+    await this.redis.set(eventKey, JSON.stringify(eventRecord), 2592000);
+    await this.redis.del(lockKey);
+
+    return { isDuplicate: false };
+  }
+
+  // ─── WEBHOOK HANDLERS ──────────────────────────────────────────
+
+  async handleWebhook(body: any, signature: string): Promise<{ received: boolean; duplicate?: boolean }> {
     // Verify webhook signature using timing-safe comparison
     const expectedSignature = crypto
       .createHmac('sha256', this.webhookSecret)
@@ -232,6 +283,18 @@ export class PaymentGatewayService {
 
     const event = body.event;
     const payload = body.payload?.payment?.entity;
+    const eventId = body.event_id || (payload ? `${event}:${payload.id}` : `evt:${Date.now()}`);
+
+    // Deduplicate event using payment_webhook_events
+    const { isDuplicate } = await this.recordWebhookEventIdempotent(
+      'RAZORPAY',
+      eventId,
+      event,
+      { order_id: payload?.order_id, payment_id: payload?.id },
+    );
+    if (isDuplicate) {
+      return { received: true, duplicate: true };
+    }
 
     if (event === 'payment.captured' && payload) {
       await this.creditDepositAtomically(payload.order_id, payload.id);
@@ -257,6 +320,91 @@ export class PaymentGatewayService {
           result.userId,
           `deposit.failed:${orderId}`,
         );
+      }
+    }
+
+    return { received: true };
+  }
+
+  /**
+   * Cashfree Webhook Handler with HMAC SHA-256 verification and event deduplication.
+   */
+  async handleCashfreeWebhook(
+    body: any,
+    signature: string,
+    timestamp?: string,
+  ): Promise<{ received: boolean; duplicate?: boolean }> {
+    if (!signature || typeof signature !== 'string') {
+      throw new BadRequestException('Missing or invalid Cashfree webhook signature');
+    }
+
+    // Cashfree computes HMAC-SHA256 of (timestamp + rawPayload) or (rawPayload)
+    const rawPayload = typeof body === 'string' ? body : JSON.stringify(body);
+    const signatureData = timestamp ? `${timestamp}${rawPayload}` : rawPayload;
+
+    // Support both base64 and hex encoding for Cashfree webhook versions
+    const hmacBase64 = crypto.createHmac('sha256', this.cashfreeWebhookSecret).update(signatureData).digest('base64');
+    const hmacHex = crypto.createHmac('sha256', this.cashfreeWebhookSecret).update(signatureData).digest('hex');
+
+    const matchesBase64 =
+      signature.length === hmacBase64.length &&
+      crypto.timingSafeEqual(Buffer.from(hmacBase64), Buffer.from(signature));
+    const matchesHex =
+      signature.length === hmacHex.length &&
+      crypto.timingSafeEqual(Buffer.from(hmacHex), Buffer.from(signature));
+
+    if (!matchesBase64 && !matchesHex) {
+      throw new BadRequestException('Invalid Cashfree webhook signature');
+    }
+
+    const payloadObj = typeof body === 'string' ? JSON.parse(body) : body;
+    const eventType = payloadObj.type || payloadObj.event || 'PAYMENT_SUCCESS';
+    const data = payloadObj.data || payloadObj;
+    const orderId = data.order?.order_id || data.order_id;
+    const paymentId = data.payment?.cf_payment_id || data.reference_id || `cf_${orderId}`;
+    const eventId = `${eventType}:${orderId}:${paymentId}`;
+
+    // Deduplicate event using payment_webhook_events
+    const { isDuplicate } = await this.recordWebhookEventIdempotent(
+      'CASHFREE',
+      eventId,
+      eventType,
+      { order_id: orderId, payment_id: paymentId },
+    );
+    if (isDuplicate) {
+      return { received: true, duplicate: true };
+    }
+
+    if (
+      eventType === 'PAYMENT_SUCCESS_WEBHOOK' ||
+      eventType === 'ORDER_PAID' ||
+      eventType === 'PAYMENT_SUCCESS'
+    ) {
+      if (orderId) {
+        await this.creditDepositAtomically(orderId, String(paymentId));
+      }
+    } else if (
+      eventType === 'PAYMENT_FAILED_WEBHOOK' ||
+      eventType === 'PAYMENT_FAILED'
+    ) {
+      if (orderId) {
+        const result = await this.ledger.failDeposit(
+          orderId,
+          data.payment?.payment_message || 'Cashfree payment failed',
+        );
+        if (result.applied) {
+          await this.events.publish(
+            PlatformEventType.DEPOSIT_FAILED,
+            {
+              reference_id: orderId,
+              amount: result.amount,
+              transaction_id: result.transactionId,
+              reason: 'cashfree.payment.failed',
+            },
+            result.userId,
+            `deposit.failed:${orderId}`,
+          );
+        }
       }
     }
 

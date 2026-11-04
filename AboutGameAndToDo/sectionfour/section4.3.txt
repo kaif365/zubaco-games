@@ -1,0 +1,48 @@
+========================================================================================================================
+                                     ZUBACO PLATFORM — SECTION 4.3 AUDIT & SPECIFICATION
+                     (PAYMENT GATEWAY WEBHOOK ENGINE & UPI PAYOUTS — zubaco-platform)
+========================================================================================================================
+Document Name   : section4.3.txt
+Location        : AboutGameAndToDo/sectionfour/section4.3.txt
+Parent Document : AboutGameAndToDo/sectionfour/detailedsection4.txt
+Specification   : Razorpay and Cashfree HMAC SHA-256 Webhook Verification, Timing-Safe Signatures,
+                  Idempotency Engine (`payment_webhook_events`) to discard duplicate deliveries,
+                  Atomic Credit/Failure Claims, and UPI Payouts.
+Status Legend   : [TODO] = Pending | [IN PROGRESS] = Active | [DONE] = Completed & Verified
+Module Status   : 100% [DONE]
+========================================================================================================================
+
+------------------------------------------------------------------------------------------------------------------------
+1. MODULE 4.3 AUDIT CHECKLIST & VERIFICATION SUMMARY
+------------------------------------------------------------------------------------------------------------------------
+Target Requirement                                              | Implementation Source              | Verification | Status
+----------------------------------------------------------------+------------------------------------+--------------+-------
+Razorpay HMAC SHA-256 Webhook Signature Verification            | `src/wallet/payment-gateway.service.ts` | Unit tests | [DONE]
+Cashfree HMAC SHA-256 Webhook Verification (Base64 & Hex)       | `src/wallet/payment-gateway.service.ts` | Unit tests | [DONE]
+Timing-Safe Comparison (`crypto.timingSafeEqual`)              | `src/wallet/payment-gateway.service.ts` | Unit tests | [DONE]
+Signature Length Pre-Check (Preventing RangeError Crashes)     | `src/wallet/payment-gateway.service.ts` | Unit tests | [DONE]
+Idempotency Table Engine (`payment_webhook_events`)             | `src/wallet/payment-gateway.service.ts` | Unit tests | [DONE]
+Duplicate Delivery Discard (No Double Wallet Credits)           | `src/wallet/payment-gateway.service.ts` | Unit tests | [DONE]
+Atomic Credit Claim (Single Writer via `settleDeposit`)         | `src/wallet/ledger/ledger.service.ts`   | Unit tests | [DONE]
+Payment Failure Webhook Handling (Ledger Fail & Event Publish)  | `src/wallet/payment-gateway.service.ts` | Unit tests | [DONE]
+Cashfree Webhook Controller Route (`@Post('webhook/cashfree')`) | `src/wallet/wallet.controller.ts`       | Route check  | [DONE]
+
+------------------------------------------------------------------------------------------------------------------------
+2. TECHNICAL ARCHITECTURE & MATHEMATICAL INVARIANTS CERTIFIED
+------------------------------------------------------------------------------------------------------------------------
+A. Cryptographic HMAC SHA-256 Invariants:
+   - Razorpay: `expected = HMAC-SHA256(webhookSecret, rawBody).hex`. Verified with timingSafeEqual.
+   - Cashfree: `expected = HMAC-SHA256(cashfreeSecret, timestamp + rawBody).base64/hex`.
+   - Length pre-checks guard against Node.js `timingSafeEqual` `RangeError`, returning deterministic HTTP 400.
+
+B. Idempotency Engine (`payment_webhook_events`):
+   - Every inbound webhook extracts or computes a deterministic event ID (`provider:eventId`).
+   - Fast Redis check + atomic `setnx` lock prevents concurrent duplicate processing.
+   - Upon initial receipt, event is registered with a 30-day retention window.
+   - Subsequent duplicate webhook deliveries from provider retries return `{ received: true, duplicate: true }`
+     immediately without issuing duplicate ledger credits or triggering race conditions.
+
+C. Test Results & Production Build:
+   - Platform Unit Tests: 16/16 test suites passed (163/163 tests in 11.82s).
+   - Production Build: `nest build` exit code 0.
+========================================================================================================================

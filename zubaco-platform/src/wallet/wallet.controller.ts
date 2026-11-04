@@ -78,6 +78,15 @@ export class WalletController {
     return this.paymentGateway.handleWebhook(body, signature);
   }
 
+  @Post('webhook/cashfree')
+  async cashfreeWebhook(
+    @Body() body: any,
+    @Headers('x-webhook-signature') signature: string,
+    @Headers('x-webhook-timestamp') timestamp?: string,
+  ) {
+    return this.paymentGateway.handleCashfreeWebhook(body, signature, timestamp);
+  }
+
   // ─── KYC ENDPOINTS ─────────────────────────────────────────────
 
   @Get('kyc')
