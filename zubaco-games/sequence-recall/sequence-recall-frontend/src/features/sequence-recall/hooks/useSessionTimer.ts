@@ -85,7 +85,8 @@ export function useSessionTimer({
   }, [endTime]);
 
   useEffect(() => {
-    if (!state || sessionTimerSeconds <= 0) return;
+    const duration = typeof sessionTimerSeconds === 'number' && sessionTimerSeconds > 0 ? sessionTimerSeconds : 60;
+    if (!state || duration <= 0) return;
 
     if (!enabled && sessionTimerActiveRef.current) {
       sessionTimerActiveRef.current = false;
@@ -106,7 +107,7 @@ export function useSessionTimer({
       if (!sessionEndTimeRef.current) {
         sessionEndTimeRef.current = endTime
           ? new Date(endTime).getTime()
-          : Date.now() + sessionTimerSeconds * 1_000;
+          : Date.now() + (typeof sessionTimerSeconds === 'number' && sessionTimerSeconds > 0 ? sessionTimerSeconds : 60) * 1_000;
       }
 
       /**

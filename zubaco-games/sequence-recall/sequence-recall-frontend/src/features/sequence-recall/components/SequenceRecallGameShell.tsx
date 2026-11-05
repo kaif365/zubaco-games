@@ -1030,6 +1030,21 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
       });
   }, [socketSession, state?.phase, gameOverMutation, clearPendingFinalization, showApiError]);
 
+  // Standalone/practice mode terminal handler: populate gameOverData locally so GameResultOverlay displays results immediately
+  useEffect(() => {
+    if (socketSession) return;
+    if (state?.phase !== GAME_PHASE.GAME_OVER && state?.phase !== GAME_PHASE.SESSION_COMPLETE) {
+      return;
+    }
+
+    setGameOverData({
+      finalScore: state.score,
+      successfulRounds: Math.max(1, state.round - (state.phase === GAME_PHASE.GAME_OVER ? 1 : 0)),
+      bonus: 0,
+      reason: state.phase === GAME_PHASE.SESSION_COMPLETE ? 'COMPLETED' : 'TIME_UP',
+    });
+  }, [socketSession, state?.phase, state?.score, state?.round]);
+
   useEffect(() => {
     if (!socketSession) return;
     if (isTerminalPhase) {
