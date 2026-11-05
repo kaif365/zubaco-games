@@ -24,6 +24,7 @@ interface MenuButtonConfig {
   color: string;
   icon: ElementType;
   badge?: string;
+  badgeClass?: string;
   disabled?: boolean;
 }
 
@@ -39,6 +40,7 @@ const MENU_BUTTONS: MenuButtonConfig[] = [
     label: 'Play Campaign Mode',
     subtitle: '10 Levels • Progression & Stars',
     badge: 'Coming Soon',
+    badgeClass: 'bg-indigo-500/25 border-indigo-400/40 text-indigo-300',
     disabled: true,
     color: 'from-indigo-950/80 to-slate-900/80 border-indigo-500/20',
     icon: Layers,
@@ -46,8 +48,10 @@ const MENU_BUTTONS: MenuButtonConfig[] = [
   {
     label: 'Daily Challenge',
     subtitle: 'New Daily Pattern',
-    phase: 'daily',
-    color: 'from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600',
+    badge: 'Coming Soon',
+    badgeClass: 'bg-amber-500/25 border-amber-400/40 text-amber-300',
+    disabled: true,
+    color: 'from-amber-950/80 to-slate-900/80 border-amber-500/20',
     icon: Calendar,
   },
   {
@@ -117,7 +121,11 @@ export function MenuScreen({ onNavigate }: MenuScreenProps) {
                       {btn.label}
                     </span>
                     {btn.badge && (
-                      <span className="rounded-full bg-indigo-500/30 border border-indigo-400/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                          btn.badgeClass ?? 'bg-white/10 border-white/20 text-white/90'
+                        }`}
+                      >
                         {btn.badge}
                       </span>
                     )}
