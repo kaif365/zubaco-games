@@ -147,9 +147,34 @@ button {
   -webkit-touch-callout: default;
 }
 
-/* Modern arcade pad grid */
-.leaf-parent {
-  position: relative;
+.leaf-parent > * {
+  background: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.leaf-parent > div:first-child,
+.leaf-parent > button:first-child {
+  transform: rotate(-1deg) !important;
+  margin-right: -7px;
+}
+
+.leaf-parent > div:nth-child(2),
+.leaf-parent > button:nth-child(2) {
+  transform: rotate(2deg) !important;
+  margin-left: -7px;
+}
+
+.leaf-parent > div:nth-child(3),
+.leaf-parent > button:nth-child(3) {
+  transform: rotate(2deg) !important;
+  margin-right: -7px;
+}
+
+.leaf-parent > div:nth-child(4),
+.leaf-parent > button:nth-child(4) {
+  transform: rotate(-2deg) !important;
+  margin-left: -7px;
 }
 
 .gradient-text {

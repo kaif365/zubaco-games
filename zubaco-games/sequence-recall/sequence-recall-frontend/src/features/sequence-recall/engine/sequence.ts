@@ -13,13 +13,12 @@ import type { TileId } from '@/types/game';
 export function generateSequence(length: number, boxCount: number = 4, rng?: Rng): TileId[] {
   const sequence: TileId[] = [];
   let prev: TileId | null = null;
-  let prevPrev: TileId | null = null;
 
   while (sequence.length < length) {
     const next = randomTileId(boxCount, rng);
-    if (next !== prev || next !== prevPrev) {
+    // Disallow consecutive duplicate tiles so each step is a distinct button flash
+    if (boxCount <= 1 || next !== prev) {
       sequence.push(next);
-      prevPrev = prev;
       prev = next;
     }
   }

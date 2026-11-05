@@ -1745,7 +1745,7 @@ export function SequenceRecallGameShell({
         className={`game-shell relative !border-0 overflow-hidden rounded-[8px] bg-transparent ${wrongCueActive ? 'game-shell-wrong-glow' : ''} ${levelCompleteBurst ? 'game-shell--level-complete' : ''}`}
         // style={{ cursor: `url('${IMAGES.handCursor}') 8 4, auto` }}
       >
-        <div className="background-layer bg-gradient-to-b from-[#0b0f19] via-[#0d1322] to-[#070a12]" />
+        <div className="background-layer" style={{ backgroundImage: `url('${IMAGES.brownBg}')` }} />
         {levelCompleteBurst && <div className="level-complete-burst" aria-hidden="true" />}
         <div className="pointer-events-none absolute inset-0" />
         <div className="sequence-gameplay-screen relative z-10 flex min-h-[100dvh] flex-col items-center">
