@@ -3,17 +3,13 @@
  * The path should be relative to the 'overlays' folder content.
  * 
  * @param path - Relative path (e.g., "stage-1/Stage_1.png" or "end_overlay.png")
- * @returns Full CloudFront URL
+ * @returns Full CloudFront URL or empty string if not configured
  */
 export const getCloudFrontAssetUrl = (path: string): string => {
   const baseUrl = import.meta.env.VITE_CLOUDFRONT_URL;
   
   if (!baseUrl) {
-    // Fallback or warning if URL is not configured
-    if (import.meta.env.DEV) {
-      console.warn('VITE_CLOUDFRONT_URL is not defined in environment variables.');
-    }
-    return path; 
+    return '';
   }
 
   // Ensure there's a trailing slash on baseUrl and no leading slash on path

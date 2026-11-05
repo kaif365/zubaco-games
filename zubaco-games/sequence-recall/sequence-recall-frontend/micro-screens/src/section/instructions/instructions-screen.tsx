@@ -248,7 +248,17 @@ export function GameInstructionsScreen({
         }
         aria-label="Game instructions screen"
       >
-        <img src={overlay} alt="" aria-hidden className="overlay" />
+        {overlay ? (
+          <img
+            src={overlay}
+            alt=""
+            aria-hidden
+            className="overlay"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        ) : null}
 
         <div
           className="eclipse"

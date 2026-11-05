@@ -153,22 +153,32 @@ function GameResultScreen({
           style={{ '--result-eclipse-color': theme.eclipse } as CSSProperties}
         />
         <div className="result-assets">
-          <img
-            src={topOverlay}
-            alt=""
-            aria-hidden
-            className="resultTopOverlay"
-            width={390}
-            height={270}
-          />
-          <img
-            src={lowerOverlay}
-            alt=""
-            aria-hidden
-            className="resultBottomOverlay"
-            width={418}
-            height={279}
-          />
+          {topOverlay ? (
+            <img
+              src={topOverlay}
+              alt=""
+              aria-hidden
+              className="resultTopOverlay"
+              width={390}
+              height={270}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          ) : null}
+          {lowerOverlay ? (
+            <img
+              src={lowerOverlay}
+              alt=""
+              aria-hidden
+              className="resultBottomOverlay"
+              width={418}
+              height={279}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          ) : null}
         </div>
 
         <div className="resultContent">
