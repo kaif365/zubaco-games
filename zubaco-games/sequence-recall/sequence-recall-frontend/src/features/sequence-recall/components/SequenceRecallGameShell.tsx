@@ -253,9 +253,9 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
     if (!baseConfig) return null;
     return {
       ...baseConfig,
-      turnLimit: 3,
-      sessionTimerSeconds: 0,
-      initialSequenceLength: 2,
+      turnLimit: baseConfig.turnLimit || 10,
+      sessionTimerSeconds: baseConfig.sessionTimerSeconds || 60,
+      initialSequenceLength: baseConfig.initialSequenceLength || 2,
     };
   }, [baseConfig]);
   const config: GameConfig | null = playMode === 'practice' ? practiceConfig : baseConfig;
@@ -1446,7 +1446,23 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
           // fall through to show error if retry also fails
         }
       }
-      // end TODO(temp)
+      // Standalone & offline resilience: If backend server is unreachable or offline,
+      // seamlessly fallback to the local game engine so manual testing & gameplay continue uninterrupted.
+      const isNetworkErr =
+        (err instanceof Error &&
+          (err.message.includes('Network Error') ||
+            err.message.includes('Failed to fetch') ||
+            err.message.includes('NetworkError'))) ||
+        (err instanceof ApiRequestError &&
+          (err.statusCode === 0 || err.statusCode === 503 || err.statusCode === 404));
+
+      if (isNetworkErr) {
+        setPlayMode('practice');
+        const localState = await startGame.mutateAsync();
+        queryClient.setQueryData<GameState>(GAME_STATE_QUERY_KEY, localState);
+        return;
+      }
+
       showApiError({
         title: t('errors.startFailed'),
         description: getApiErrorMessage(err, t('game.toast.somethingWrong')),
