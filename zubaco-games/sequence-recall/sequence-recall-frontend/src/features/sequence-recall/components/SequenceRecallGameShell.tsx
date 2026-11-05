@@ -11,8 +11,9 @@ import { AuthGateScreen } from '@/components/shared/AuthGateScreen';
 import { ConfirmationDialog } from '@/components/shared/ConfirmationDialog';
 import { GameClearModal } from '@/components/shared/GameClearModal';
 import { Card, CardContent } from '@/components/ui/card';
-import { updateLevelProgress } from './LevelSelector';
+import { LEVEL_CONFIGS, updateLevelProgress } from './LevelSelector';
 import { updateStats } from './StatsScreen';
+import { resetGameRepository } from '@/store/gameRepositoryStore';
 import { getStageTheme } from '@/constants/stageTheme';
 import { STORAGE_KEYS } from '@/constants/storageKeys';
 import { gameApi } from '@/features/sequence-recall/api/game.api';
@@ -198,8 +199,10 @@ export function SequenceRecallGameShell({
   const [wrongTileId, setWrongTileId] = useState<number | null>(null);
   const [audioType] = useState<'piano' | 'retro'>('piano');
   const [endGameConfirmOpen, setEndGameConfirmOpen] = useState(false);
-  const [playMode, setPlayMode] = useState<'socket' | 'practice'>('socket');
-  const [isRestoringSession, setIsRestoringSession] = useState(true);
+  const [playMode, setPlayMode] = useState<'socket' | 'practice'>(
+    mode === 'campaign' ? 'practice' : 'socket',
+  );
+  const [isRestoringSession, setIsRestoringSession] = useState(mode !== 'campaign');
   const [isFrontendDemo, setIsFrontendDemo] = useState(false);
   const [demoCurrentLength, setDemoCurrentLength] = useState(FALLBACK_DEMO_MIN_SEQUENCE);
   const [showDemoCompleteModal, setShowDemoCompleteModal] = useState(false);
@@ -263,21 +266,49 @@ export function SequenceRecallGameShell({
     { enabled: hasRawConfig || rawConfigQuery.isSuccess },
   );
   const baseConfig: GameConfig | null = configQuery.data ?? null;
+
+  const campaignLvlConfig = useMemo(() => {
+    if (mode !== 'campaign') return null;
+    const idx = Math.max(0, Math.min(LEVEL_CONFIGS.length - 1, (initialLevel ?? 1) - 1));
+    return LEVEL_CONFIGS[idx] ?? LEVEL_CONFIGS[0];
+  }, [mode, initialLevel]);
+
   const practiceConfig = useMemo(() => {
     if (!baseConfig) return null;
+    if (mode === 'campaign' && campaignLvlConfig) {
+      return {
+        ...baseConfig,
+        turnLimit: 10,
+        sessionTimerSeconds: campaignLvlConfig.timerSeconds,
+        initialSequenceLength: campaignLvlConfig.sequenceLength,
+      };
+    }
     return {
       ...baseConfig,
       turnLimit: baseConfig.turnLimit || 10,
       sessionTimerSeconds: baseConfig.sessionTimerSeconds || 60,
       initialSequenceLength: baseConfig.initialSequenceLength || 2,
     };
-  }, [baseConfig]);
+  }, [baseConfig, mode, campaignLvlConfig]);
   const config: GameConfig | null = playMode === 'practice' ? practiceConfig : baseConfig;
 
   const gameStateQuery = useGameStateQuery(config, Boolean(config));
   const startGame = useStartGame(config);
 
   const freshResetBaseGame = useFreshResetGame(baseConfig);
+
+  useEffect(() => {
+    if (mode === 'campaign' && config && campaignLvlConfig) {
+      const repo = resetGameRepository(
+        config,
+        campaignLvlConfig.sequenceLength,
+        initialLevel ?? 1,
+      );
+      void repo.startGame().then((startedState) => {
+        queryClient.setQueryData<GameState>(GAME_STATE_QUERY_KEY, startedState);
+      });
+    }
+  }, [mode, config, campaignLvlConfig, initialLevel, queryClient]);
 
   const finishPlayback = useFinishPlayback(config);
   const submitMove = useSubmitMove(config);
@@ -442,6 +473,7 @@ export function SequenceRecallGameShell({
   );
 
   useEffect(() => {
+    if (mode === 'campaign') return;
     void (async () => {
       const persisted = await storage.getSecure<PersistedActiveSession>(ACTIVE_GAME_SESSION_KEY);
       if (persisted?.sessionId && persisted.stageId === appConfig.socket.stageId) {
@@ -453,6 +485,7 @@ export function SequenceRecallGameShell({
   }, []);
 
   useEffect(() => {
+    if (mode === 'campaign') return;
     if (hasAttemptedRestoreRef.current) return;
     if (socketSession) return;
     if (!hasRawConfig || !gameStateQuery.data) return;
@@ -1382,6 +1415,16 @@ export function SequenceRecallGameShell({
     gameOverSubmitKeyRef.current = null;
     prefetchedSequenceRef.current = null;
     resetTimer();
+    if (mode === 'campaign' && config && campaignLvlConfig) {
+      const repo = resetGameRepository(
+        config,
+        campaignLvlConfig.sequenceLength,
+        initialLevel ?? 1,
+      );
+      const started = await repo.startGame();
+      queryClient.setQueryData<GameState>(GAME_STATE_QUERY_KEY, started);
+      return;
+    }
     await restartGame.mutateAsync();
   };
 
@@ -1609,6 +1652,7 @@ export function SequenceRecallGameShell({
   const isStarting = gameStart.isPending || startGame.isPending;
 
   const isLobbyPhase =
+    mode !== 'campaign' &&
     hasRawConfig &&
     !socketSession &&
     !isRestoringSession &&
@@ -1721,7 +1765,7 @@ export function SequenceRecallGameShell({
   }
 
   const practiceCompleteOpen =
-    playMode === 'practice' && state.phase === GAME_PHASE.SESSION_COMPLETE;
+    mode !== 'campaign' && playMode === 'practice' && state.phase === GAME_PHASE.SESSION_COMPLETE;
   const instructionText =
     getRoundTransitionInstruction() ??
     (isDemoRound || isFrontendDemo ? (BOARD_INSTRUCTION[boardMode] ?? null) : null);
@@ -1840,14 +1884,18 @@ export function SequenceRecallGameShell({
           <GameResultOverlay
             open={
               state.phase === GAME_PHASE.GAME_OVER ||
-              (state.phase === GAME_PHASE.SESSION_COMPLETE && playMode !== 'practice')
+              (state.phase === GAME_PHASE.SESSION_COMPLETE && (playMode !== 'practice' || mode === 'campaign'))
             }
             isSuccess={state.phase === GAME_PHASE.SESSION_COMPLETE}
             stage={appConfig.socket.stageNumber}
             gameOverData={gameOverData}
             totalRounds={rawConfigQuery.data?.totalRounds ?? 0}
             onContinue={() => {
-              window.location.reload();
+              if (onBackToMenu) {
+                onBackToMenu();
+              } else {
+                window.location.reload();
+              }
             }}
           />
         </div>

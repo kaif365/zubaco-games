@@ -86,6 +86,7 @@ export default function HomePage() {
       case 'game':
         return (
           <SequenceRecallGameShell
+            key={`game-${campaignLevel !== null ? `campaign-${campaignLevel}` : 'survival'}`}
             isDaily={isDaily}
             initialLevel={campaignLevel ?? 1}
             mode={campaignLevel !== null ? 'campaign' : 'survival'}

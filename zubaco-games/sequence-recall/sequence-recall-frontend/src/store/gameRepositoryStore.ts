@@ -7,11 +7,15 @@ let repository: GameRepository | null = null;
  * Gets game repository.
  *
  * @param {GameConfig} config - The config.
+ * @param {number} [startLen] - Initial sequence length.
+ * @param {number} [initialLevel] - Initial level.
  *
  * @returns {GameRepository} The result of getGameRepository.
  */
-export function getGameRepository(config: GameConfig) {
-  if (!repository) repository = new GameRepository(config);
+export function getGameRepository(config: GameConfig, startLen?: number, initialLevel = 1) {
+  if (!repository) {
+    repository = new GameRepository(config, startLen ?? config.initialSequenceLength, initialLevel);
+  }
   return repository;
 }
 
@@ -19,10 +23,12 @@ export function getGameRepository(config: GameConfig) {
  * Reset game repository.
  *
  * @param {GameConfig} config - The config.
+ * @param {number} [startLen] - Initial sequence length.
+ * @param {number} [initialLevel] - Initial level.
  *
  * @returns {GameRepository} The result of resetGameRepository.
  */
 export function resetGameRepository(config: GameConfig, startLen?: number, initialLevel = 1) {
-  repository = new GameRepository(config, startLen, initialLevel);
+  repository = new GameRepository(config, startLen ?? config.initialSequenceLength, initialLevel);
   return repository;
 }
