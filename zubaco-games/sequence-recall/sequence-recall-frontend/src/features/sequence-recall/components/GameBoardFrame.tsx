@@ -1,4 +1,13 @@
 import { motion } from 'framer-motion';
+import {
+  AudioWaveform,
+  Disc,
+  Music,
+  Music2,
+  Music3,
+  Music4,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { IMAGES } from '@/assets/images';
 import { cn } from '@/lib/utils';
@@ -18,11 +27,16 @@ export type TileLabel =
   | { src: string; alt: string; className?: string }
   | { number?: string; symbol?: string; label?: string };
 
-export const DEFAULT_TILE_LABELS: Record<number, { number: string; symbol: string; label: string }> = {
-  1: { number: '1', symbol: '▲', label: '1' },
-  2: { number: '2', symbol: '●', label: '2' },
-  3: { number: '3', symbol: '■', label: '3' },
-  4: { number: '4', symbol: '◆', label: '4' },
+export const DEFAULT_TILE_LABELS: Record<
+  number,
+  { key: string; note: string; icon: LucideIcon }
+> = {
+  1: { key: '1', note: '♪', icon: Music2 },
+  2: { key: '2', note: '♫', icon: Music },
+  3: { key: '3', note: '♬', icon: Music3 },
+  4: { key: '4', note: '♩', icon: Music4 },
+  5: { key: '5', note: '≋', icon: AudioWaveform },
+  6: { key: '6', note: '◎', icon: Disc },
 };
 
 interface TileTheme {
@@ -140,11 +154,8 @@ function InteractiveTile({
 }: InteractiveTileProps) {
   const theme = getTileTheme(tileId);
   const isActive = isPlaybackActive || isInputActive;
-  const tileLabel = DEFAULT_TILE_LABELS[tileId] ?? {
-    number: String(tileId),
-    symbol: '●',
-    label: String(tileId),
-  };
+  const tileConfig = DEFAULT_TILE_LABELS[tileId] ?? DEFAULT_TILE_LABELS[1];
+  const IconComponent = tileConfig.icon;
 
   return (
     <motion.button
@@ -165,7 +176,7 @@ function InteractiveTile({
       className={cn(
         'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 transition-colors duration-75 select-none',
         isWrong
-          ? `bg-gradient-to-br ${theme.wrongBg} border-rose-300 text-white `
+          ? `bg-gradient-to-br ${theme.wrongBg} border-rose-300 text-white`
           : isActive
             ? `bg-gradient-to-br ${theme.activeBg} ${theme.activeBorderColor} ${theme.activeTextColor}`
             : `bg-gradient-to-br ${theme.idleBg} ${theme.borderColor} ${theme.textColor} backdrop-blur-md`,
@@ -176,25 +187,40 @@ function InteractiveTile({
       {/* Ambient glass reflection */}
       <div className="pointer-events-none absolute inset-0 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/15 via-transparent to-black/20" />
 
-      {/* Subtle geometric symbol in top corner */}
+      {/* Subtle keyboard shortcut hint in top corner */}
       <span
         className={cn(
-          'pointer-events-none absolute top-2.5 left-3 text-[11px] sm:text-xs font-bold transition-opacity',
-          isActive ? 'opacity-80' : 'opacity-40',
+          'pointer-events-none absolute top-2.5 right-3 text-[10px] sm:text-xs font-mono font-bold px-1.5 py-0.5 rounded-md border transition-colors',
+          isActive
+            ? 'bg-black/25 border-black/20 text-current'
+            : 'bg-white/5 border-white/10 text-white/40',
         )}
-      >
-        {tileLabel.symbol}
-      </span>
-
-      {/* Large, bold, dead-center number (fully visible, no clipping) */}
-      <span
-        className={cn(
-          'pointer-events-none text-5xl sm:text-6xl font-black leading-none tracking-tight drop-shadow-sm select-none transition-colors',
-          isActive ? theme.activeTextColor : theme.textColor,
-        )}
+        title={`Press ${tileId} on keyboard`}
       >
         {tileId}
       </span>
+
+      {/* Center: Large, glowing Musical Rhythm icon and note symbol */}
+      <div className="pointer-events-none flex flex-col items-center justify-center gap-1.5">
+        <IconComponent
+          size={42}
+          strokeWidth={2.3}
+          className={cn(
+            'transition-transform duration-100 drop-shadow-md',
+            isActive ? 'scale-110' : 'scale-100',
+            isActive ? theme.activeTextColor : theme.textColor,
+          )}
+        />
+        <span
+          className={cn(
+            'text-xs sm:text-sm font-semibold tracking-widest transition-opacity',
+            isActive ? 'opacity-90 font-bold' : 'opacity-40',
+            isActive ? theme.activeTextColor : theme.textColor,
+          )}
+        >
+          {tileConfig.note}
+        </span>
+      </div>
     </motion.button>
   );
 }
@@ -209,11 +235,8 @@ interface DecorativeTileProps {
 
 function DecorativeTile({ tileId, index }: DecorativeTileProps) {
   const theme = getTileTheme(tileId);
-  const tileLabel = DEFAULT_TILE_LABELS[tileId] ?? {
-    number: String(tileId),
-    symbol: '●',
-    label: String(tileId),
-  };
+  const tileConfig = DEFAULT_TILE_LABELS[tileId] ?? DEFAULT_TILE_LABELS[1];
+  const IconComponent = tileConfig.icon;
 
   return (
     <motion.div
@@ -231,12 +254,13 @@ function DecorativeTile({ tileId, index }: DecorativeTileProps) {
       transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut', delay: index * 0.35 }}
     >
       <div className="pointer-events-none absolute inset-0 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/10 via-transparent to-black/20" />
-      <span className="pointer-events-none absolute top-2.5 left-3 text-[11px] sm:text-xs font-bold opacity-40">
-        {tileLabel.symbol}
-      </span>
-      <span className="pointer-events-none text-5xl sm:text-6xl font-black leading-none tracking-tight select-none">
+      <span className="pointer-events-none absolute top-2.5 right-3 text-[10px] font-mono font-bold opacity-30">
         {tileId}
       </span>
+      <div className="flex flex-col items-center justify-center gap-1.5">
+        <IconComponent size={40} strokeWidth={2.3} className="drop-shadow-md" />
+        <span className="text-xs font-semibold opacity-40">{tileConfig.note}</span>
+      </div>
     </motion.div>
   );
 }
