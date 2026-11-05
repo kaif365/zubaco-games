@@ -337,26 +337,6 @@ export function GameInstructionsScreen({
             </div>
 
             <div className="dots" aria-label="Instruction slide indicators">
-              <button
-                type="button"
-                aria-label="Previous slide"
-                onClick={() => emblaApi?.scrollPrev()}
-                disabled={currentSlide === 0}
-                className="carouselNavArrow"
-                style={{
-                  opacity: currentSlide === 0 ? 0.3 : 1,
-                  cursor: currentSlide === 0 ? 'default' : 'pointer',
-                  background: 'none',
-                  border: 'none',
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  padding: '4px 8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                ◀
-              </button>
               {content.slides.map((slide, index) => (
                 <button
                   key={slide.id}
@@ -367,26 +347,6 @@ export function GameInstructionsScreen({
                   className={`dot ${index === currentSlide ? 'dotActive' : ''}`.trim()}
                 />
               ))}
-              <button
-                type="button"
-                aria-label="Next slide"
-                onClick={() => emblaApi?.scrollNext()}
-                disabled={currentSlide === content.slides.length - 1}
-                className="carouselNavArrow"
-                style={{
-                  opacity: currentSlide === content.slides.length - 1 ? 0.3 : 1,
-                  cursor: currentSlide === content.slides.length - 1 ? 'default' : 'pointer',
-                  background: 'none',
-                  border: 'none',
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  padding: '4px 8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                ▶
-              </button>
             </div>
           </div>
 
