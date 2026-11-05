@@ -1,7 +1,6 @@
 import { motion } from 'framer-motion';
 import {
   Zap,
-  Layers,
   Calendar,
   Trophy,
   BarChart3,
@@ -10,7 +9,7 @@ import {
 } from 'lucide-react';
 import type { ElementType } from 'react';
 
-export type AppPhase = 'menu' | 'levels' | 'daily' | 'achievements' | 'stats' | 'settings' | 'game';
+export type AppPhase = 'menu' | 'daily' | 'achievements' | 'stats' | 'settings' | 'game';
 
 interface MenuScreenProps {
   onNavigate: (phase: AppPhase) => void;
@@ -31,13 +30,6 @@ const MENU_BUTTONS: MenuButtonConfig[] = [
     phase: 'game',
     color: 'from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600',
     icon: Zap,
-  },
-  {
-    label: 'Play Campaign Mode',
-    subtitle: '10 Levels • Progression & Stars',
-    phase: 'levels',
-    color: 'from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600',
-    icon: Layers,
   },
   {
     label: 'Daily Challenge',

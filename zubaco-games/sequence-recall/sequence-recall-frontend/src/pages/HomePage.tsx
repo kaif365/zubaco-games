@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { IMAGES } from '@/assets/images';
 import { SequenceRecallGameShell } from '@features/sequence-recall/components/SequenceRecallGameShell';
 import { MenuScreen, type AppPhase } from '@features/sequence-recall/components/MenuScreen';
-import { LevelSelector } from '@features/sequence-recall/components/LevelSelector';
 import { Settings } from '@features/sequence-recall/components/Settings';
 import { StatsScreen } from '@features/sequence-recall/components/StatsScreen';
 import { Achievements } from '@features/sequence-recall/components/Achievements';
@@ -15,7 +14,6 @@ import '@styles/sequence-recall.css';
 export default function HomePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
-  const [campaignLevel, setCampaignLevel] = useState<number | null>(null);
   const [showConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
@@ -34,7 +32,6 @@ export default function HomePage() {
 
   const handleNavigate = useCallback((phase: AppPhase) => {
     if (phase === 'game') {
-      setCampaignLevel(null);
       setIsDaily(false);
     }
     setAppPhase(phase);
@@ -42,12 +39,6 @@ export default function HomePage() {
 
   const handleBackToMenu = useCallback(() => {
     setAppPhase('menu');
-  }, []);
-
-  const handleSelectLevel = useCallback((level: number) => {
-    setCampaignLevel(level);
-    setIsDaily(false);
-    setAppPhase('game');
   }, []);
 
   const handleStartDaily = useCallback((_seed: number) => {
@@ -73,8 +64,6 @@ export default function HomePage() {
     switch (appPhase) {
       case 'menu':
         return <MenuScreen onNavigate={handleNavigate} />;
-      case 'levels':
-        return <LevelSelector onBack={handleBackToMenu} onSelectLevel={handleSelectLevel} />;
       case 'settings':
         return <Settings onBack={handleBackToMenu} />;
       case 'stats':
@@ -86,10 +75,10 @@ export default function HomePage() {
       case 'game':
         return (
           <SequenceRecallGameShell
-            key={`game-${campaignLevel !== null ? `campaign-${campaignLevel}` : 'survival'}`}
+            key={isDaily ? 'game-daily' : 'game-survival'}
             isDaily={isDaily}
-            initialLevel={campaignLevel ?? 1}
-            mode={campaignLevel !== null ? 'campaign' : 'survival'}
+            initialLevel={1}
+            mode="survival"
             onBackToMenu={handleBackToMenu}
           />
         );
