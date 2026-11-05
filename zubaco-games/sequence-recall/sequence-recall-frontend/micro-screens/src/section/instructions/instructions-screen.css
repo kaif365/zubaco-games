@@ -408,10 +408,26 @@
 
 .dot {
   border: 0;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s ease;
+}
+
+.viewport {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.slidePeeked {
+  cursor: pointer;
+}
+
+.carouselNavArrow:hover {
+  transform: scale(1.15);
 }
 
 .dotActive {
