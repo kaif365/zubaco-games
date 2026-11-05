@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { Music } from 'lucide-react';
 
 interface SettingsProps {
   onBack: () => void;
@@ -13,25 +14,22 @@ export function Settings({ onBack }: SettingsProps) {
     >
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-white">Settings</h2>
-        <button onClick={onBack} className="text-gray-400 hover:text-white text-sm">
-          Done
-        </button>
       </div>
 
       {/* Music (coming soon) */}
-      <div className="flex items-center justify-between p-4 bg-gray-800/60 rounded-xl opacity-50">
+      <div className="flex items-center justify-between p-4 bg-gray-800/60 rounded-xl border border-white/5 opacity-60">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-pink-500/20 flex items-center justify-center">
-            <svg className="w-5 h-5 text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-            </svg>
+          <div className="w-9 h-9 rounded-lg bg-pink-500/20 flex items-center justify-center text-pink-400">
+            <Music size={18} />
           </div>
           <div>
             <div className="text-sm font-medium text-white">Background Music</div>
             <div className="text-xs text-gray-400">Ambient gameplay music</div>
           </div>
         </div>
-        <span className="text-xs text-gray-500">Soon</span>
+        <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-gray-400 uppercase">
+          Coming Soon
+        </span>
       </div>
 
       <button

@@ -75,8 +75,10 @@ const MENU_BUTTONS: MenuButtonConfig[] = [
   {
     label: 'Settings',
     subtitle: 'Audio, Language & Controls',
-    phase: 'settings',
-    color: 'from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700',
+    badge: 'Coming Soon',
+    badgeClass: 'bg-slate-500/25 border-slate-400/40 text-slate-300',
+    disabled: true,
+    color: 'from-slate-900/80 to-slate-950/80 border-slate-700/30',
     icon: SettingsIcon,
   },
 ];
