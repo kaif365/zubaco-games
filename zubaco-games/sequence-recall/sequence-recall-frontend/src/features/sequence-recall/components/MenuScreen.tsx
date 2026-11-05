@@ -66,8 +66,10 @@ const MENU_BUTTONS: MenuButtonConfig[] = [
   {
     label: 'Statistics',
     subtitle: 'Performance & History',
-    phase: 'stats',
-    color: 'from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600',
+    badge: 'Coming Soon',
+    badgeClass: 'bg-cyan-500/25 border-cyan-400/40 text-cyan-300',
+    disabled: true,
+    color: 'from-cyan-950/80 to-slate-900/80 border-cyan-500/20',
     icon: BarChart3,
   },
   {
