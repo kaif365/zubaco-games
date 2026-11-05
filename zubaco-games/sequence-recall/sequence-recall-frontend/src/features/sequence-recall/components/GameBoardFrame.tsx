@@ -163,9 +163,9 @@ function InteractiveTile({
       }}
       transition={{ duration: 0.12 }}
       className={cn(
-        'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 transition-all select-none',
+        'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 transition-colors duration-150 select-none',
         isWrong
-          ? `bg-gradient-to-br ${theme.wrongBg} border-rose-300 text-white animate-pulse`
+          ? `bg-gradient-to-br ${theme.wrongBg} border-rose-300 text-white`
           : isActive
             ? `bg-gradient-to-br ${theme.activeBg} ${theme.activeBorderColor} ${theme.activeTextColor}`
             : `bg-gradient-to-br ${theme.idleBg} ${theme.borderColor} ${theme.textColor} backdrop-blur-md`,

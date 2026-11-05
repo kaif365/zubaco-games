@@ -41,6 +41,9 @@ export function useSequencePlayback({
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
+  // Use a string key of sequence items so superficial array reference changes don't re-trigger playback
+  const sequenceKey = sequence.join(',');
+
   useEffect(() => {
     if (!enabled || sequence.length === 0) {
       setActiveTile(null);
@@ -48,16 +51,13 @@ export function useSequencePlayback({
     }
 
     let cancelled = false;
-    /**
-     * Run.
-     *
-     * @returns {Promise<void>} A promise that resolves when the operation completes.
-     */
+
     const run = async () => {
       for (const tile of sequence) {
         if (cancelled) return;
         setActiveTile(tile);
         await new Promise((resolve) => setTimeout(resolve, playbackMs));
+        if (cancelled) return;
         setActiveTile(null);
         await new Promise((resolve) => setTimeout(resolve, gapMs));
       }
@@ -71,7 +71,7 @@ export function useSequencePlayback({
       cancelled = true;
       setActiveTile(null);
     };
-  }, [enabled, gapMs, playbackMs, playbackKey, sequence]);
+  }, [enabled, gapMs, playbackMs, playbackKey, sequenceKey]);
 
   return activeTile;
 }

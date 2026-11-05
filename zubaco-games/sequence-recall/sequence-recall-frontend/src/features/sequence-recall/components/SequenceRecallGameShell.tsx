@@ -747,6 +747,7 @@ export function SequenceRecallGameShell({
   const replayCurrentSequence = useCallback(() => {
     skipNextPrefetchRef.current = true;
     tapEventsRef.current = [];
+    setPlaybackKey((k) => k + 1);
     queryClient.setQueryData<GameState>(GAME_STATE_QUERY_KEY, (prev) => {
       if (!prev) return prev;
       return {
@@ -1025,10 +1026,9 @@ export function SequenceRecallGameShell({
     showApiError,
   ]);
 
-  // Increment playbackKey and reset tap-event buffer every time a new sequence starts.
+  // Reset tap-event buffer every time a new sequence starts.
   useEffect(() => {
     if (state?.phase === GAME_PHASE.SHOWING_SEQUENCE) {
-      setPlaybackKey((k) => k + 1);
       tapEventsRef.current = [];
     }
   }, [state?.phase]);
