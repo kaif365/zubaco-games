@@ -747,7 +747,6 @@ export function SequenceRecallGameShell({
   const replayCurrentSequence = useCallback(() => {
     skipNextPrefetchRef.current = true;
     tapEventsRef.current = [];
-    setPlaybackKey((k) => k + 1);
     queryClient.setQueryData<GameState>(GAME_STATE_QUERY_KEY, (prev) => {
       if (!prev) return prev;
       return {
@@ -1026,9 +1025,10 @@ export function SequenceRecallGameShell({
     showApiError,
   ]);
 
-  // Reset tap-event buffer every time a new sequence starts.
+  // Increment playbackKey and reset tap-event buffer every time a new sequence starts.
   useEffect(() => {
     if (state?.phase === GAME_PHASE.SHOWING_SEQUENCE) {
+      setPlaybackKey((k) => k + 1);
       tapEventsRef.current = [];
     }
   }, [state?.phase]);
@@ -1745,7 +1745,7 @@ export function SequenceRecallGameShell({
         className={`game-shell relative !border-0 overflow-hidden rounded-[8px] bg-transparent ${wrongCueActive ? 'game-shell-wrong-glow' : ''} ${levelCompleteBurst ? 'game-shell--level-complete' : ''}`}
         // style={{ cursor: `url('${IMAGES.handCursor}') 8 4, auto` }}
       >
-        <div className="background-layer" style={{ backgroundImage: `url('${IMAGES.brownBg}')` }} />
+        <div className="background-layer bg-gradient-to-b from-[#0b0f19] via-[#0d1322] to-[#070a12]" />
         {levelCompleteBurst && <div className="level-complete-burst" aria-hidden="true" />}
         <div className="pointer-events-none absolute inset-0" />
         <div className="sequence-gameplay-screen relative z-10 flex min-h-[100dvh] flex-col items-center">

@@ -103,8 +103,7 @@ export default function HomePage() {
       {isCompactLandscape ? (
         <div className="w-full  flex flex-col items-center justify-center px-4 text-center backdrop-blur">
           <div
-            className="pointer-events-none absolute inset-0 scale-150 bg-contain bg-center bg-no-repeat opacity-20 h-full md:h-[80vh] top-1/2 -translate-y-1/2"
-            style={{ backgroundImage: `url('${IMAGES.brownBg}')` }}
+            className="pointer-events-none absolute inset-0 scale-150 bg-gradient-to-b from-indigo-950/20 via-slate-900/40 to-slate-950/80 opacity-40 h-full md:h-[80vh] top-1/2 -translate-y-1/2"
           />
           <div className="phone" />
           <div className="message">

@@ -2,22 +2,22 @@ import { cn } from '@/lib/utils';
 import { BOARD_MODE, type BoardMode, type TileId } from '@/types/game';
 
 const dotColorClassByTile: Record<number, string> = {
-  // Match board leaf palette: blue, gold, maroon, green.
-  1: 'bg-[#3249A7]',
-  2: 'bg-[#A57912]',
-  3: 'bg-[#91233A]',
-  4: 'bg-[#2F7B3C]',
-  5: 'bg-[#3249A7]',
-  6: 'bg-[#A57912]',
+  // Matches modern neon arcade pad palette: Cyan, Amber, Magenta, Emerald
+  1: 'bg-cyan-400',
+  2: 'bg-amber-400',
+  3: 'bg-fuchsia-400',
+  4: 'bg-emerald-400',
+  5: 'bg-orange-400',
+  6: 'bg-indigo-400',
 };
 
 const dotBorderColorClassByTile: Record<number, string> = {
-  1: 'border-[#0077FF]',
-  2: 'border-[#FEE605]',
-  3: 'border-[#FA9494]',
-  4: 'border-[#B6FA2A]',
-  5: 'border-[#0077FF]',
-  6: 'border-[#FEE605]',
+  1: 'border-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.8)]',
+  2: 'border-amber-200 shadow-[0_0_8px_rgba(245,158,11,0.8)]',
+  3: 'border-fuchsia-300 shadow-[0_0_8px_rgba(217,70,239,0.8)]',
+  4: 'border-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.8)]',
+  5: 'border-orange-300 shadow-[0_0_8px_rgba(249,115,22,0.8)]',
+  6: 'border-indigo-300 shadow-[0_0_8px_rgba(99,102,241,0.8)]',
 };
 
 interface SequenceDotsProps {
@@ -41,21 +41,21 @@ export function SequenceDots({ mode, sequenceLength, clickedSequence }: Sequence
   const shouldShow = mode === BOARD_MODE.INPUT || clickedSequence.length > 0;
 
   return (
-    <div className={cn('z-10 flex items-center justify-center gap-1', !shouldShow && 'invisible')}>
+    <div className={cn('z-10 flex items-center justify-center gap-1.5', !shouldShow && 'invisible')}>
       {Array.from({ length: sequenceLength }).map((_, idx) => {
         const isFilled = idx < clickedSequence.length;
         const clickedTile = clickedSequence[idx] ?? 1;
-        const fillClass = isFilled ? dotColorClassByTile[clickedTile] : 'bg-[#323038]';
-        const borderClass = isFilled ? dotBorderColorClassByTile[clickedTile] : 'border-[#323038]';
+        const fillClass = isFilled ? dotColorClassByTile[clickedTile] : 'bg-slate-800/80';
+        const borderClass = isFilled ? dotBorderColorClassByTile[clickedTile] : 'border-slate-700/60';
 
         return (
-          <span
-            key={`seq-dot-${String(idx)}`}
+          <div
+            key={idx}
             className={cn(
-              'h-[10px] w-[10px] md:h-[14px] md:w-[14px] rounded-full border',
-              borderClass,
+              'h-2.5 w-2.5 rounded-full border transition-all duration-150',
               fillClass,
-              isFilled && 'shadow-[0_0_7px_rgba(247,223,110,0.35)]',
+              borderClass,
+              isFilled && 'scale-110',
             )}
           />
         );

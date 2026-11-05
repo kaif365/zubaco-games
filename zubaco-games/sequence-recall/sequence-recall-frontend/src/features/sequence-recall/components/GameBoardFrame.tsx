@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { IMAGES } from '@/assets/images';
 import { cn } from '@/lib/utils';
 
-// Tile 1 top-left (blue), 2 top-right (gold), 3 bottom-left (maroon), 4 bottom-right (green)
+// Backward compatibility export if imported elsewhere
 export const LEAF_ASSET_MAP: Record<number, { idle: string; active: string; wrong: string }> = {
   1: { idle: IMAGES.leafBlue, active: IMAGES.leafBlueActive, wrong: IMAGES.leafBlueWrong },
   2: { idle: IMAGES.leafGold, active: IMAGES.leafGoldActive, wrong: IMAGES.leafGoldWrong },
@@ -13,25 +13,103 @@ export const LEAF_ASSET_MAP: Record<number, { idle: string; active: string; wron
   6: { idle: IMAGES.leafGold, active: IMAGES.leafGoldActive, wrong: IMAGES.leafGoldWrong },
 };
 
-const WRONG_MOVE_LABEL_ICON_FILTER =
-  'brightness(0) saturate(100%) invert(33%) sepia(98%) saturate(2559%) hue-rotate(340deg) brightness(101%) contrast(103%)';
+export type TileLabel =
+  | string
+  | { src: string; alt: string; className?: string }
+  | { number?: string; symbol?: string; label?: string };
 
-type TileLabel = string | { src: string; alt: string; className?: string };
-
-export const DEFAULT_TILE_LABELS: Record<number, TileLabel> = {
-  1: '1',
-  2: '2',
-  3: '3',
-  4: '4',
+export const DEFAULT_TILE_LABELS: Record<number, { number: string; symbol: string; label: string }> = {
+  1: { number: '1', symbol: '▲', label: '1' },
+  2: { number: '2', symbol: '●', label: '2' },
+  3: { number: '3', symbol: '■', label: '3' },
+  4: { number: '4', symbol: '◆', label: '4' },
 };
 
-/**
- * Gets grid cols.
- *
- * @param {number} count - The count.
- *
- * @returns {string} The result of getGridCols.
- */
+interface TileTheme {
+  name: string;
+  idleBg: string;
+  activeBg: string;
+  activeGlow: string;
+  wrongBg: string;
+  textColor: string;
+  activeTextColor: string;
+  borderColor: string;
+  activeBorderColor: string;
+}
+
+const TILE_THEMES: Record<number, TileTheme> = {
+  1: {
+    name: 'Cyan / Electric Blue',
+    idleBg: 'from-cyan-950/70 via-blue-950/80 to-slate-900/90',
+    activeBg: 'from-cyan-400 via-sky-400 to-blue-500',
+    activeGlow: 'rgba(6, 182, 212, 0.95)',
+    wrongBg: 'from-rose-600 to-red-700',
+    textColor: 'text-cyan-300',
+    activeTextColor: 'text-slate-950',
+    borderColor: 'border-cyan-500/40 hover:border-cyan-400/80',
+    activeBorderColor: 'border-white',
+  },
+  2: {
+    name: 'Amber / Neon Gold',
+    idleBg: 'from-amber-950/70 via-yellow-950/80 to-slate-900/90',
+    activeBg: 'from-amber-300 via-yellow-400 to-amber-500',
+    activeGlow: 'rgba(245, 158, 11, 0.95)',
+    wrongBg: 'from-rose-600 to-red-700',
+    textColor: 'text-amber-300',
+    activeTextColor: 'text-slate-950',
+    borderColor: 'border-amber-500/40 hover:border-amber-400/80',
+    activeBorderColor: 'border-white',
+  },
+  3: {
+    name: 'Magenta / Neon Purple',
+    idleBg: 'from-purple-950/70 via-fuchsia-950/80 to-slate-900/90',
+    activeBg: 'from-fuchsia-400 via-pink-500 to-purple-600',
+    activeGlow: 'rgba(217, 70, 239, 0.95)',
+    wrongBg: 'from-rose-600 to-red-700',
+    textColor: 'text-purple-300',
+    activeTextColor: 'text-white',
+    borderColor: 'border-purple-500/40 hover:border-purple-400/80',
+    activeBorderColor: 'border-white',
+  },
+  4: {
+    name: 'Emerald / Neon Mint',
+    idleBg: 'from-emerald-950/70 via-teal-950/80 to-slate-900/90',
+    activeBg: 'from-emerald-400 via-teal-400 to-emerald-500',
+    activeGlow: 'rgba(16, 185, 129, 0.95)',
+    wrongBg: 'from-rose-600 to-red-700',
+    textColor: 'text-emerald-300',
+    activeTextColor: 'text-slate-950',
+    borderColor: 'border-emerald-500/40 hover:border-emerald-400/80',
+    activeBorderColor: 'border-white',
+  },
+  5: {
+    name: 'Sunset Orange',
+    idleBg: 'from-orange-950/70 via-amber-950/80 to-slate-900/90',
+    activeBg: 'from-orange-400 via-amber-400 to-red-500',
+    activeGlow: 'rgba(249, 115, 22, 0.95)',
+    wrongBg: 'from-rose-600 to-red-700',
+    textColor: 'text-orange-300',
+    activeTextColor: 'text-slate-950',
+    borderColor: 'border-orange-500/40 hover:border-orange-400/80',
+    activeBorderColor: 'border-white',
+  },
+  6: {
+    name: 'Electric Indigo',
+    idleBg: 'from-indigo-950/70 via-blue-950/80 to-slate-900/90',
+    activeBg: 'from-indigo-400 via-blue-400 to-violet-500',
+    activeGlow: 'rgba(99, 102, 241, 0.95)',
+    wrongBg: 'from-rose-600 to-red-700',
+    textColor: 'text-indigo-300',
+    activeTextColor: 'text-white',
+    borderColor: 'border-indigo-500/40 hover:border-indigo-400/80',
+    activeBorderColor: 'border-white',
+  },
+};
+
+function getTileTheme(tileId: number): TileTheme {
+  return TILE_THEMES[tileId] ?? TILE_THEMES[((tileId - 1) % 4) + 1];
+}
+
 export function getGridCols(count: number): string {
   if (count <= 2) return 'grid-cols-2';
   if (count <= 3) return 'grid-cols-3';
@@ -52,98 +130,71 @@ interface InteractiveTileProps {
   onClick: (tileId: number) => void;
 }
 
-/**
- * Interactive tile.
- *
- * @param {InteractiveTileProps} props - Component props.
- * @param {number} props.tileId - The tile id.
- * @param {boolean} props.isPlaybackActive - The is playback active.
- * @param {boolean} props.isInputActive - The is input active.
- * @param {boolean} props.isWrong - The is wrong.
- * @param {boolean} props.disabled - The disabled.
- * @param {TileLabel | undefined} [props.label] - The label.
- * @param {(tileId: number) => void} props.onClick - The on click.
- *
- * @returns {JSX.Element} The rendered element.
- */
 function InteractiveTile({
   tileId,
   isPlaybackActive,
   isInputActive,
   isWrong,
   disabled,
-  label,
   onClick,
 }: InteractiveTileProps) {
-  const leafAsset = LEAF_ASSET_MAP[tileId] ?? LEAF_ASSET_MAP[((tileId - 1) % 4) + 1];
+  const theme = getTileTheme(tileId);
   const isActive = isPlaybackActive || isInputActive;
-  const imageLayerClass =
-    'pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition-opacity duration-100';
+  const tileLabel = DEFAULT_TILE_LABELS[tileId] ?? {
+    number: String(tileId),
+    symbol: '●',
+    label: String(tileId),
+  };
 
   return (
     <motion.button
       type="button"
-      onClick={() => {
-        onClick(tileId);
-      }}
+      onClick={() => onClick(tileId)}
       disabled={disabled}
-      whileTap={{ scale: 0.96 }}
+      whileHover={!disabled ? { scale: 1.02 } : undefined}
+      whileTap={!disabled ? { scale: 0.95 } : undefined}
+      animate={{
+        scale: isActive ? 1.04 : 1,
+        boxShadow: isWrong
+          ? '0 0 35px rgba(244, 63, 94, 0.95)'
+          : isActive
+            ? `0 0 35px ${theme.activeGlow}, inset 0 0 15px rgba(255, 255, 255, 0.4)`
+            : '0 4px 15px rgba(0, 0, 0, 0.35)',
+      }}
+      transition={{ duration: 0.12 }}
       className={cn(
-        'tile-card relative aspect-square min-h-[126px] overflow-visible transition-all duration-200',
-        !disabled && 'hover:-translate-y-[1px]',
-        disabled && 'opacity-90',
-        isPlaybackActive && 'scale-[1.025]',
-        isInputActive && 'scale-[1.02]',
+        'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 transition-colors duration-150 select-none',
+        isWrong
+          ? `bg-gradient-to-br ${theme.wrongBg} border-rose-300 text-white `
+          : isActive
+            ? `bg-gradient-to-br ${theme.activeBg} ${theme.activeBorderColor} ${theme.activeTextColor}`
+            : `bg-gradient-to-br ${theme.idleBg} ${theme.borderColor} ${theme.textColor} backdrop-blur-md`,
+        disabled ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:brightness-110',
       )}
       aria-label={`Tile ${String(tileId)}`}
     >
-      <img
-        src={leafAsset.idle}
-        alt=""
-        draggable={false}
-        className={cn(imageLayerClass, !isActive && !isWrong ? 'opacity-100' : 'opacity-0')}
-      />
-      <img
-        src={leafAsset.active}
-        alt=""
-        draggable={false}
+      {/* Ambient glass reflection */}
+      <div className="pointer-events-none absolute inset-0 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/15 via-transparent to-black/20" />
+
+      {/* Subtle geometric symbol in top corner */}
+      <span
         className={cn(
-          imageLayerClass,
-          isActive && !isWrong ? 'opacity-100' : 'opacity-0',
-          isPlaybackActive && 'drop-shadow-[0_0_7px_rgba(247,223,110,0.42)]',
-          isInputActive && 'drop-shadow-[0_0_7px_rgba(255,255,255,0.3)]',
+          'pointer-events-none absolute top-2.5 left-3 text-[11px] sm:text-xs font-bold transition-opacity',
+          isActive ? 'opacity-80' : 'opacity-40',
         )}
-      />
-      <img
-        src={leafAsset.wrong}
-        alt=""
-        draggable={false}
+      >
+        {tileLabel.symbol}
+      </span>
+
+      {/* Large, bold, dead-center number (fully visible, no clipping) */}
+      <span
         className={cn(
-          imageLayerClass,
-          isWrong ? 'opacity-100' : 'opacity-0',
-          isWrong && 'drop-shadow-[0_0_18px_rgba(240,69,69,1)]',
+          'pointer-events-none text-5xl sm:text-6xl font-black leading-none tracking-tight drop-shadow-sm select-none transition-colors',
+          isActive ? theme.activeTextColor : theme.textColor,
         )}
-      />
-      {label &&
-        (typeof label === 'string' ? (
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[42px] font-bold text-amber-300 drop-shadow-[0_2px_6px_rgba(0,0,0,0.7)]">
-            {label}
-          </span>
-        ) : (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <img
-              src={label.src}
-              alt={label.alt}
-              style={isWrong ? { filter: WRONG_MOVE_LABEL_ICON_FILTER } : undefined}
-              className={cn(
-                'h-10 w-10 object-contain',
-                isActive ? 'opacity-100' : 'opacity-60',
-                label.className,
-              )}
-              draggable={false}
-            />
-          </div>
-        ))}
+      >
+        {tileId}
+      </span>
     </motion.button>
   );
 }
@@ -156,53 +207,36 @@ interface DecorativeTileProps {
   label?: TileLabel;
 }
 
-/**
- * Decorative tile.
- *
- * @param {DecorativeTileProps} props - Component props.
- * @param {number} props.tileId - The tile id.
- * @param {number} props.index - The index.
- * @param {TileLabel | undefined} [props.label] - The label.
- *
- * @returns {JSX.Element} The rendered element.
- */
-function DecorativeTile({ tileId, index, label }: DecorativeTileProps) {
-  const leafAsset = LEAF_ASSET_MAP[tileId] ?? LEAF_ASSET_MAP[((tileId - 1) % 4) + 1];
+function DecorativeTile({ tileId, index }: DecorativeTileProps) {
+  const theme = getTileTheme(tileId);
+  const tileLabel = DEFAULT_TILE_LABELS[tileId] ?? {
+    number: String(tileId),
+    symbol: '●',
+    label: String(tileId),
+  };
 
   return (
     <motion.div
-      className="relative aspect-square min-h-[108px]"
+      className={cn(
+        'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 backdrop-blur-md select-none',
+        `bg-gradient-to-br ${theme.idleBg} ${theme.borderColor} ${theme.textColor}`,
+      )}
       animate={{
-        // opacity: [0.7, 1, 0.7],
-        filter: [
-          'drop-shadow(0 0 0px rgba(247,223,110,0))',
-          'drop-shadow(0 0 14px rgba(247,223,110,0.4))',
-          'drop-shadow(0 0 0px rgba(247,223,110,0))',
+        boxShadow: [
+          '0 4px 15px rgba(0, 0, 0, 0.4)',
+          `0 0 25px ${theme.activeGlow}`,
+          '0 4px 15px rgba(0, 0, 0, 0.4)',
         ],
       }}
-      transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut', delay: index * 0.38 }}
+      transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut', delay: index * 0.35 }}
     >
-      <img
-        src={leafAsset.idle}
-        alt=""
-        draggable={false}
-        className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
-      />
-      {label &&
-        (typeof label === 'string' ? (
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[42px] font-bold text-amber-300 drop-shadow-[0_2px_6px_rgba(0,0,0,0.7)]">
-            {label}
-          </span>
-        ) : (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <img
-              src={label.src}
-              alt={label.alt}
-              className={`h-10 w-10 opacity-60 ${label.className ?? ''}`}
-              draggable={false}
-            />
-          </div>
-        ))}
+      <div className="pointer-events-none absolute inset-0 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/10 via-transparent to-black/20" />
+      <span className="pointer-events-none absolute top-2.5 left-3 text-[11px] sm:text-xs font-bold opacity-40">
+        {tileLabel.symbol}
+      </span>
+      <span className="pointer-events-none text-5xl sm:text-6xl font-black leading-none tracking-tight select-none">
+        {tileId}
+      </span>
     </motion.div>
   );
 }
@@ -228,62 +262,52 @@ interface GameBoardFrameDecorativeProps {
   showCompletedTick?: boolean;
 }
 
-type GameBoardFrameProps = GameBoardFrameInteractiveProps | GameBoardFrameDecorativeProps;
+export type GameBoardFrameProps =
+  | GameBoardFrameInteractiveProps
+  | GameBoardFrameDecorativeProps;
 
-/**
- * Game board frame.
- *
- * @param {GameBoardFrameInteractiveProps | GameBoardFrameDecorativeProps} props - Component props.
- *
- * @returns {JSX.Element} The rendered element.
- */
 export function GameBoardFrame(props: GameBoardFrameProps) {
   const boxCount = props.boxCount ?? 4;
   const tiles = Array.from({ length: boxCount }, (_, i) => i + 1);
   const wrongTileId = props.variant === 'interactive' ? (props.wrongTileId ?? null) : null;
 
   return (
-    <div className="relative mx-auto w-[320px] h-[320px] flex md:h-[400px] md:w-[400px] items-center justify-center main-image-container">
-      <img
-        src={IMAGES.outerFrame}
-        alt=""
-        className="pointer-events-none absolute left-1/2 top-1/2 z-0 w-[360px] -translate-x-1/2 -translate-y-1/2 select-none"
-        draggable={false}
-      />
-      <div
-        className={cn(
-          'relative z-10 grid w-[280px] md:w-[300px] leaf-parent gap-y-[5px] gap-x-[12px]',
-          getGridCols(boxCount),
-        )}
-        role={props.variant === 'interactive' ? 'group' : undefined}
-        aria-label={props.variant === 'interactive' ? 'Sequence tiles' : undefined}
-        data-testid={props.variant === 'interactive' ? 'sequence-board-grid' : undefined}
-      >
-        {tiles.map((tileId, index) => {
-          const label = props.tileLabels?.[tileId];
-          if (props.variant === 'interactive') {
-            return (
-              <InteractiveTile
-                key={tileId}
-                tileId={tileId}
-                isPlaybackActive={props.isPlaybackActive(tileId)}
-                isInputActive={props.isInputActive(tileId)}
-                isWrong={wrongTileId === tileId}
-                disabled={props.disabled}
-                label={label}
-                onClick={props.onTileClick}
-              />
-            );
-          }
-          return <DecorativeTile key={tileId} tileId={tileId} index={index} label={label} />;
-        })}
+    <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[380px] md:max-w-[420px] aspect-square flex items-center justify-center p-2 sm:p-4">
+      {/* Outer ambient glow */}
+      <div className="pointer-events-none absolute inset-0 rounded-[40px] bg-indigo-500/10 blur-2xl" />
+
+      {/* Modern Console Chassis */}
+      <div className="relative w-full h-full rounded-[28px] sm:rounded-[36px] bg-slate-900/85 backdrop-blur-xl border border-slate-700/50 p-3 sm:p-4 shadow-[0_20px_50px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.08)] flex items-center justify-center">
+        {/* Grid of tiles with clean spacing and no overlapping elements */}
+        <div
+          className={cn(
+            'relative z-10 grid w-full h-full gap-3 sm:gap-4',
+            getGridCols(boxCount),
+          )}
+          role={props.variant === 'interactive' ? 'group' : undefined}
+          aria-label={props.variant === 'interactive' ? 'Sequence tiles' : undefined}
+          data-testid={props.variant === 'interactive' ? 'sequence-board-grid' : undefined}
+        >
+          {tiles.map((tileId, index) => {
+            const label = props.tileLabels?.[tileId];
+            if (props.variant === 'interactive') {
+              return (
+                <InteractiveTile
+                  key={tileId}
+                  tileId={tileId}
+                  isPlaybackActive={props.isPlaybackActive(tileId)}
+                  isInputActive={props.isInputActive(tileId)}
+                  isWrong={wrongTileId === tileId}
+                  disabled={props.disabled}
+                  label={label}
+                  onClick={props.onTileClick}
+                />
+              );
+            }
+            return <DecorativeTile key={tileId} tileId={tileId} index={index} label={label} />;
+          })}
+        </div>
       </div>
-      <img
-        src={IMAGES.innerFrame}
-        alt=""
-        className="absolute left-1/2 top-1/2 z-20 w-[110px] -translate-x-1/2 -translate-y-1/2 select-none rounded-[90px]"
-        draggable={false}
-      />
     </div>
   );
 }
