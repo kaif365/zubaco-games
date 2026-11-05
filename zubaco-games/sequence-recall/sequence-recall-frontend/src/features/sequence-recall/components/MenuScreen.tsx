@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion';
 import {
   Zap,
+  Layers,
+  Lock,
   Calendar,
   Trophy,
   BarChart3,
@@ -18,9 +20,11 @@ interface MenuScreenProps {
 interface MenuButtonConfig {
   label: string;
   subtitle: string;
-  phase: AppPhase;
+  phase?: AppPhase;
   color: string;
   icon: ElementType;
+  badge?: string;
+  disabled?: boolean;
 }
 
 const MENU_BUTTONS: MenuButtonConfig[] = [
@@ -30,6 +34,14 @@ const MENU_BUTTONS: MenuButtonConfig[] = [
     phase: 'game',
     color: 'from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600',
     icon: Zap,
+  },
+  {
+    label: 'Play Campaign Mode',
+    subtitle: '10 Levels • Progression & Stars',
+    badge: 'Coming Soon',
+    disabled: true,
+    color: 'from-indigo-950/80 to-slate-900/80 border-indigo-500/20',
+    icon: Layers,
   },
   {
     label: 'Daily Challenge',
@@ -84,28 +96,42 @@ export function MenuScreen({ onNavigate }: MenuScreenProps) {
           const IconComponent = btn.icon;
           return (
             <motion.button
-              key={btn.phase}
-              onClick={() => onNavigate(btn.phase)}
-              className={`w-full flex items-center justify-between px-5 py-3.5 rounded-xl bg-gradient-to-r ${btn.color} text-white shadow-lg transition-all border border-white/10`}
+              key={btn.label}
+              onClick={() => btn.phase && !btn.disabled && onNavigate(btn.phase)}
+              disabled={btn.disabled}
+              className={`w-full flex items-center justify-between px-5 py-3.5 rounded-xl bg-gradient-to-r ${btn.color} text-white shadow-lg transition-all border border-white/10 ${
+                btn.disabled ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
               initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
+              animate={{ opacity: btn.disabled ? 0.7 : 1, x: 0 }}
               transition={{ delay: i * 0.05, duration: 0.3 }}
-              whileTap={{ scale: 0.98 }}
+              whileTap={btn.disabled ? {} : { scale: 0.98 }}
             >
               <div className="flex items-center gap-3.5 text-left">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-black/20 text-white">
                   <IconComponent size={20} />
                 </div>
                 <div className="flex flex-col">
-                  <span className="font-semibold text-sm tracking-wide text-white">
-                    {btn.label}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm tracking-wide text-white">
+                      {btn.label}
+                    </span>
+                    {btn.badge && (
+                      <span className="rounded-full bg-indigo-500/30 border border-indigo-400/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                        {btn.badge}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[11px] text-white/70 font-normal">
                     {btn.subtitle}
                   </span>
                 </div>
               </div>
-              <span className="text-white/40 text-sm font-semibold">›</span>
+              {btn.disabled ? (
+                <Lock size={15} className="text-white/40" />
+              ) : (
+                <span className="text-white/40 text-sm font-semibold">›</span>
+              )}
             </motion.button>
           );
         })}
