@@ -11,36 +11,17 @@ interface AuthGateScreenProps {
   loaderOnly?: boolean;
 }
 
-const PHASE_COPY_KEYS: Record<
-  AuthGateLoadingPhase,
-  { title: 'auth.fetchingDevUserTitle' | 'auth.fetchingConfigTitle' | 'auth.fetchingSoundsTitle'; copy: 'auth.fetchingDevUserCopy' | 'auth.fetchingConfigCopy' | 'auth.fetchingSoundsCopy' }
-> = {
-  'dev-session': {
-    title: 'auth.fetchingDevUserTitle',
-    copy: 'auth.fetchingDevUserCopy',
-  },
-  config: {
-    title: 'auth.fetchingConfigTitle',
-    copy: 'auth.fetchingConfigCopy',
-  },
-  audio: {
-    title: 'auth.fetchingSoundsTitle',
-    copy: 'auth.fetchingSoundsCopy',
-  },
-};
-
 export function AuthGateScreen({
   gameThemeStyle,
   error,
-  phase = 'dev-session',
-  loaderOnly = false,
+  phase: _phase = 'dev-session',
+  loaderOnly = true,
 }: AuthGateScreenProps) {
   const { t } = useTranslation();
-  const copyKeys = PHASE_COPY_KEYS[phase];
 
   return (
     <main
-      className={`sequence-recall-shell auth-gate-screen select-none${loaderOnly ? ' auth-gate-screen--loader-only' : ''}`}
+      className={`sequence-recall-shell auth-gate-screen select-none${!error || loaderOnly ? ' auth-gate-screen--loader-only' : ''}`}
       style={gameThemeStyle}
     >
       {error ? (
@@ -48,14 +29,8 @@ export function AuthGateScreen({
           <p className="auth-gate-title">{t('auth.failedTitle')}</p>
           <p className="auth-gate-copy">{error}</p>
         </div>
-      ) : loaderOnly ? (
-        <div className="auth-gate-spinner" aria-hidden />
       ) : (
-        <div className="auth-gate-card">
-          <div className="auth-gate-spinner" aria-hidden />
-          <p className="auth-gate-title">{t(copyKeys.title)}</p>
-          <p className="auth-gate-copy">{t(copyKeys.copy)}</p>
-        </div>
+        <div className="auth-gate-spinner" aria-hidden />
       )}
     </main>
   );

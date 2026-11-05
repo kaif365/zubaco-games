@@ -21,7 +21,14 @@ export function AppBootstrapGate({ children }: AppBootstrapGateProps) {
   );
 
   if (!isReady || error) {
-    return <AuthGateScreen gameThemeStyle={gameThemeStyle} error={error} phase={phase} />;
+    return (
+      <AuthGateScreen
+        gameThemeStyle={gameThemeStyle}
+        error={error}
+        phase={phase}
+        loaderOnly={!error}
+      />
+    );
   }
 
   return (
