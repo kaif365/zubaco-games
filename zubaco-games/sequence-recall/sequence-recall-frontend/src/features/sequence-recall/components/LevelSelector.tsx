@@ -68,7 +68,7 @@ export function LevelSelector({ onBack, onSelectLevel }: LevelSelectorProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <h2 className="text-2xl font-bold text-white">Select Level</h2>
+      <h2 className="text-2xl font-bold text-white">Campaign Mode</h2>
       <p className="text-sm text-gray-400 text-center">Memorize and repeat the sequence — they get longer!</p>
 
       <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
