@@ -16,7 +16,7 @@ interface LevelSelectorProps {
   onSelectLevel: (level: number) => void;
 }
 
-const LEVEL_CONFIGS = [
+export const LEVEL_CONFIGS = [
   { level: 1, sequenceLength: 3, timerSeconds: 90, scoreMultiplier: 1.0 },
   { level: 2, sequenceLength: 4, timerSeconds: 85, scoreMultiplier: 1.2 },
   { level: 3, sequenceLength: 5, timerSeconds: 80, scoreMultiplier: 1.4 },

@@ -20,10 +20,10 @@ export class GameRepository {
   private config: GameConfig;
   private gameState: GameState;
 
-  constructor(config: GameConfig) {
+  constructor(config: GameConfig, startLen?: number, initialLevel = 1) {
     this.config = config;
     // Pass initialSequenceLength so the engine can set the correct starting length
-    this.gameState = createInitialGameState(config, config.initialSequenceLength);
+    this.gameState = createInitialGameState(config, startLen ?? config.initialSequenceLength, initialLevel);
   }
 
   /**

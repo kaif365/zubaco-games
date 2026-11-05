@@ -19,12 +19,14 @@ function getDifficulty(config: GameConfig, level: number): DifficultyConfig {
   return config.difficultyByLevel[level] ?? config.difficultyByLevel[1];
 }
 
-export function createInitialGameState(config: GameConfig, startLen = 1): GameState {
-  const difficulty = getDifficulty(config, 1);
+export function createInitialGameState(config: GameConfig, startLen = 1, initialLevel = 1): GameState {
+  const difficulty = getDifficulty(config, initialLevel);
   const sequence = generateSequence(difficulty.maxSequenceLength, config.boxCount);
   const clamped = startLen < 1 ? 1 : startLen > sequence.length ? sequence.length : startLen;
   return {
     ...BASE_STATE,
+    level: initialLevel,
+    round: initialLevel,
     lives: config.initialLives,
     sequence,
     revealedSequence: sequence.slice(0, clamped),
@@ -86,12 +88,15 @@ export function applyMove(state: GameState, config: GameConfig, tileId: TileId):
   const turnLimitReached =
     config.turnLimit > 0 && state.revealedSequence.length >= config.turnLimit;
 
+  const nextLevel = Math.min(10, (state.level || 1) + 1);
+
   if (turnLimitReached || atSequenceCap) {
     return {
       ...state,
       score: nextScore,
       highScore: Math.max(state.highScore, nextScore),
       round: nextRound,
+      level: nextLevel,
       streak: state.streak + 1,
       phase: turnLimitReached ? GAME_PHASE.SESSION_COMPLETE : GAME_PHASE.ROUND_SUCCESS,
       playerInput: [],
@@ -106,7 +111,7 @@ export function applyMove(state: GameState, config: GameConfig, tileId: TileId):
     score: nextScore,
     highScore: Math.max(state.highScore, nextScore),
     round: nextRound,
-    level: 1,
+    level: nextLevel,
     streak: state.streak + 1,
     phase: GAME_PHASE.ROUND_SUCCESS,
     playerInput: [],

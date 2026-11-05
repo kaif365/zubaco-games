@@ -15,6 +15,7 @@ import '@styles/sequence-recall.css';
 export default function HomePage() {
   const [appPhase, setAppPhase] = useState<AppPhase>('menu');
   const [isDaily, setIsDaily] = useState(false);
+  const [campaignLevel, setCampaignLevel] = useState<number | null>(null);
   const [showConfetti] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isCompactLandscape, setIsCompactLandscape] = useState(false);
@@ -32,6 +33,10 @@ export default function HomePage() {
   }, []);
 
   const handleNavigate = useCallback((phase: AppPhase) => {
+    if (phase === 'game') {
+      setCampaignLevel(null);
+      setIsDaily(false);
+    }
     setAppPhase(phase);
   }, []);
 
@@ -39,7 +44,9 @@ export default function HomePage() {
     setAppPhase('menu');
   }, []);
 
-  const handleSelectLevel = useCallback((_level: number) => {
+  const handleSelectLevel = useCallback((level: number) => {
+    setCampaignLevel(level);
+    setIsDaily(false);
     setAppPhase('game');
   }, []);
 
@@ -77,7 +84,14 @@ export default function HomePage() {
       case 'daily':
         return <DailyChallenge onBack={handleBackToMenu} onStartDaily={handleStartDaily} />;
       case 'game':
-        return <SequenceRecallGameShell isDaily={isDaily} />;
+        return (
+          <SequenceRecallGameShell
+            isDaily={isDaily}
+            initialLevel={campaignLevel ?? 1}
+            mode={campaignLevel !== null ? 'campaign' : 'survival'}
+            onBackToMenu={handleBackToMenu}
+          />
+        );
       default:
         return <MenuScreen onNavigate={handleNavigate} />;
     }
@@ -89,8 +103,7 @@ export default function HomePage() {
       {isCompactLandscape ? (
         <div className="w-full  flex flex-col items-center justify-center px-4 text-center backdrop-blur">
           <div
-            className="pointer-events-none absolute inset-0 scale-150 bg-contain bg-center bg-no-repeat opacity-20 h-full md:h-[80vh] top-1/2 -translate-y-1/2"
-            style={{ backgroundImage: `url('${IMAGES.brownBg}')` }}
+            className="pointer-events-none absolute inset-0 scale-150 bg-gradient-to-b from-indigo-950/20 via-slate-900/40 to-slate-950/80 opacity-40 h-full md:h-[80vh] top-1/2 -translate-y-1/2"
           />
           <div className="phone" />
           <div className="message">

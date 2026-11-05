@@ -22,7 +22,7 @@ export function getGameRepository(config: GameConfig) {
  *
  * @returns {GameRepository} The result of resetGameRepository.
  */
-export function resetGameRepository(config: GameConfig) {
-  repository = new GameRepository(config);
+export function resetGameRepository(config: GameConfig, startLen?: number, initialLevel = 1) {
+  repository = new GameRepository(config, startLen, initialLevel);
   return repository;
 }

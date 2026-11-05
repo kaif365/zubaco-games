@@ -11,6 +11,8 @@ import { AuthGateScreen } from '@/components/shared/AuthGateScreen';
 import { ConfirmationDialog } from '@/components/shared/ConfirmationDialog';
 import { GameClearModal } from '@/components/shared/GameClearModal';
 import { Card, CardContent } from '@/components/ui/card';
+import { updateLevelProgress } from './LevelSelector';
+import { updateStats } from './StatsScreen';
 import { getStageTheme } from '@/constants/stageTheme';
 import { STORAGE_KEYS } from '@/constants/storageKeys';
 import { gameApi } from '@/features/sequence-recall/api/game.api';
@@ -170,7 +172,19 @@ function isPendingGameFinalization(value: unknown): value is PendingGameFinaliza
  *
  * @returns {JSX.Element} The rendered element.
  */
-export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {}) {
+export interface SequenceRecallGameShellProps {
+  isDaily?: boolean;
+  initialLevel?: number;
+  mode?: 'survival' | 'campaign';
+  onBackToMenu?: () => void;
+}
+
+export function SequenceRecallGameShell({
+  isDaily,
+  initialLevel,
+  mode,
+  onBackToMenu,
+}: SequenceRecallGameShellProps = {}) {
   const audio = useAudio();
   const { t } = useTranslation();
   const { showApiError, clearApiError } = useApiError();
@@ -205,7 +219,7 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
 
   // API round tracking — updated from start and next-sequence responses
   const [currentDemoRound, setCurrentDemoRound] = useState(0);
-  const [currentActualRound, setCurrentActualRound] = useState(0);
+  const [currentActualRound, setCurrentActualRound] = useState(initialLevel ?? 1);
   const [isApiDemo, setIsApiDemo] = useState(false);
 
   // Incremented every time we enter showing-sequence so useSequencePlayback
@@ -973,6 +987,25 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
         }
       } else {
         // Practice mode: advance locally.
+        const nextRound = currentActualRoundRef.current + 1;
+        setCurrentActualRound(nextRound);
+        currentActualRoundRef.current = nextRound;
+
+        if (mode === 'campaign' && initialLevel) {
+          updateLevelProgress(initialLevel, state?.score ?? 0, nextRound, 10);
+        } else {
+          updateLevelProgress(nextRound - 1, state?.score ?? 0, nextRound - 1, 10);
+        }
+        updateStats(
+          nextRound,
+          state?.streak ?? 0,
+          state?.score ?? 0,
+          0,
+          nextRound,
+          state?.revealedSequence.length ?? 0,
+          true,
+        );
+
         void replayRoundRef.current();
       }
     }, ROUND_TRANSITION_DELAY_MS);
@@ -1661,8 +1694,7 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
       >
         <Card className="relative overflow-hidden rounded-[8px] bg-transparent !border-0">
           <div
-            className="background-layer"
-            style={{ backgroundImage: `url('${IMAGES.brownBg}')` }}
+            className="background-layer bg-gradient-to-b from-[#0b0f19] via-[#0d1322] to-[#070a12]"
           />
           <div className="pointer-events-none absolute inset-0" />
           <CardContent className="relative z-10 flex min-h-[100dvh] flex-col items-center justify-between md:justify-center gap-6 px-3 py-3">
@@ -1693,6 +1725,7 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
   const instructionText =
     getRoundTransitionInstruction() ??
     (isDemoRound || isFrontendDemo ? (BOARD_INSTRUCTION[boardMode] ?? null) : null);
+  const currentDisplayRound = Math.max(1, currentActualRound || state?.level || 1);
   const headerLevelLabel =
     state.phase === GAME_PHASE.ROUND_SUCCESS
       ? t('game.levelComplete')
@@ -1700,7 +1733,7 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
         ? t('game.demo')
         : isDemoRound
           ? `${t('game.level')} ${String(Math.max(1, currentDemoRound)).padStart(2, '0')}`
-          : `${t('game.level')} ${String(Math.max(1, currentActualRound)).padStart(2, '0')}`;
+          : `${t('game.level')} ${String(currentDisplayRound).padStart(2, '0')}`;
 
   return (
     <motion.div
@@ -1712,12 +1745,23 @@ export function SequenceRecallGameShell({ isDaily }: { isDaily?: boolean } = {})
         className={`game-shell relative !border-0 overflow-hidden rounded-[8px] bg-transparent ${wrongCueActive ? 'game-shell-wrong-glow' : ''} ${levelCompleteBurst ? 'game-shell--level-complete' : ''}`}
         // style={{ cursor: `url('${IMAGES.handCursor}') 8 4, auto` }}
       >
-        <div className="background-layer" style={{ backgroundImage: `url('${IMAGES.brownBg}')` }} />
+        <div className="background-layer bg-gradient-to-b from-[#0b0f19] via-[#0d1322] to-[#070a12]" />
         {levelCompleteBurst && <div className="level-complete-burst" aria-hidden="true" />}
         <div className="pointer-events-none absolute inset-0" />
         <div className="sequence-gameplay-screen relative z-10 flex min-h-[100dvh] flex-col items-center">
-          <div className="gameplay-header">
-            <span className="gameplay-header__level">{headerLevelLabel}</span>
+          <div className="gameplay-header flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {onBackToMenu && (
+                <button
+                  type="button"
+                  onClick={onBackToMenu}
+                  className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  Menu
+                </button>
+              )}
+              <span className="gameplay-header__level">{headerLevelLabel}</span>
+            </div>
             {shouldShowTimerBar && (
               <SessionTimerBar
                 sessionTimerDisplay={timerDisplayValue}
