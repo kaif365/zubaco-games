@@ -57,8 +57,10 @@ const MENU_BUTTONS: MenuButtonConfig[] = [
   {
     label: 'Achievements',
     subtitle: 'Badges & Milestones',
-    phase: 'achievements',
-    color: 'from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600',
+    badge: 'Coming Soon',
+    badgeClass: 'bg-emerald-500/25 border-emerald-400/40 text-emerald-300',
+    disabled: true,
+    color: 'from-emerald-950/80 to-slate-900/80 border-emerald-500/20',
     icon: Trophy,
   },
   {
