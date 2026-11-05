@@ -227,6 +227,8 @@ export function SequenceRecallGameShell({
 
   const previousPhaseRef = useRef<string | null>(null);
   const boardCenterRef = useRef<HTMLDivElement | null>(null);
+  const gameStartTimeRef = useRef(Date.now());
+  const hasRecordedStatsRef = useRef(false);
   const wrongCueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const levelCompleteBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -991,16 +993,6 @@ export function SequenceRecallGameShell({
         currentActualRoundRef.current = nextRound;
 
 
-        updateStats(
-          nextRound,
-          state?.streak ?? 0,
-          state?.score ?? 0,
-          0,
-          nextRound,
-          state?.revealedSequence.length ?? 0,
-          true,
-        );
-
         void replayRoundRef.current();
       }
     }, ROUND_TRANSITION_DELAY_MS);
@@ -1058,6 +1050,13 @@ export function SequenceRecallGameShell({
       });
   }, [socketSession, state?.phase, gameOverMutation, clearPendingFinalization, showApiError]);
 
+  useEffect(() => {
+    if (state?.phase === GAME_PHASE.READY || state?.phase === GAME_PHASE.LOADING) {
+      gameStartTimeRef.current = Date.now();
+      hasRecordedStatsRef.current = false;
+    }
+  }, [state?.phase]);
+
   // Standalone/practice mode terminal handler: populate gameOverData locally so GameResultOverlay displays results immediately
   useEffect(() => {
     if (socketSession) return;
@@ -1065,13 +1064,28 @@ export function SequenceRecallGameShell({
       return;
     }
 
+    const successfulRounds = Math.max(0, (state.round ?? 1) - (state.phase === GAME_PHASE.GAME_OVER ? 1 : 0));
     setGameOverData({
       finalScore: state.score,
-      successfulRounds: Math.max(1, state.round - (state.phase === GAME_PHASE.GAME_OVER ? 1 : 0)),
+      successfulRounds: Math.max(1, successfulRounds),
       bonus: 0,
       reason: state.phase === GAME_PHASE.SESSION_COMPLETE ? 'COMPLETED' : 'TIME_UP',
     });
-  }, [socketSession, state?.phase, state?.score, state?.round]);
+
+    if (!hasRecordedStatsRef.current) {
+      hasRecordedStatsRef.current = true;
+      const durationMs = Math.max(1000, Date.now() - gameStartTimeRef.current);
+      updateStats(
+        successfulRounds,
+        state.streak ?? 0,
+        state.score ?? 0,
+        durationMs,
+        state.level ?? 1,
+        state.revealedSequence?.length ?? 0,
+        state.phase === GAME_PHASE.SESSION_COMPLETE,
+      );
+    }
+  }, [socketSession, state?.phase, state?.score, state?.round, state?.streak, state?.level, state?.revealedSequence]);
 
   useEffect(() => {
     if (!socketSession) return;
