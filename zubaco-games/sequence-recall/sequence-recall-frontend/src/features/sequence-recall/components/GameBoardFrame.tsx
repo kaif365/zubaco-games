@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import type { ElementType, ReactNode } from 'react';
 
 import { IMAGES } from '@/assets/images';
 import { cn } from '@/lib/utils';
@@ -36,7 +35,6 @@ interface TileTheme {
   activeTextColor: string;
   borderColor: string;
   activeBorderColor: string;
-  badgeBg: string;
 }
 
 const TILE_THEMES: Record<number, TileTheme> = {
@@ -50,7 +48,6 @@ const TILE_THEMES: Record<number, TileTheme> = {
     activeTextColor: 'text-slate-950',
     borderColor: 'border-cyan-500/40 hover:border-cyan-400/80',
     activeBorderColor: 'border-white',
-    badgeBg: 'bg-cyan-500/15 border-cyan-400/30 text-cyan-300',
   },
   2: {
     name: 'Amber / Neon Gold',
@@ -62,7 +59,6 @@ const TILE_THEMES: Record<number, TileTheme> = {
     activeTextColor: 'text-slate-950',
     borderColor: 'border-amber-500/40 hover:border-amber-400/80',
     activeBorderColor: 'border-white',
-    badgeBg: 'bg-amber-500/15 border-amber-400/30 text-amber-300',
   },
   3: {
     name: 'Magenta / Neon Purple',
@@ -74,7 +70,6 @@ const TILE_THEMES: Record<number, TileTheme> = {
     activeTextColor: 'text-white',
     borderColor: 'border-purple-500/40 hover:border-purple-400/80',
     activeBorderColor: 'border-white',
-    badgeBg: 'bg-purple-500/15 border-purple-400/30 text-purple-300',
   },
   4: {
     name: 'Emerald / Neon Mint',
@@ -86,7 +81,6 @@ const TILE_THEMES: Record<number, TileTheme> = {
     activeTextColor: 'text-slate-950',
     borderColor: 'border-emerald-500/40 hover:border-emerald-400/80',
     activeBorderColor: 'border-white',
-    badgeBg: 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300',
   },
   5: {
     name: 'Sunset Orange',
@@ -98,7 +92,6 @@ const TILE_THEMES: Record<number, TileTheme> = {
     activeTextColor: 'text-slate-950',
     borderColor: 'border-orange-500/40 hover:border-orange-400/80',
     activeBorderColor: 'border-white',
-    badgeBg: 'bg-orange-500/15 border-orange-400/30 text-orange-300',
   },
   6: {
     name: 'Electric Indigo',
@@ -110,7 +103,6 @@ const TILE_THEMES: Record<number, TileTheme> = {
     activeTextColor: 'text-white',
     borderColor: 'border-indigo-500/40 hover:border-indigo-400/80',
     activeBorderColor: 'border-white',
-    badgeBg: 'bg-indigo-500/15 border-indigo-400/30 text-indigo-300',
   },
 };
 
@@ -171,7 +163,7 @@ function InteractiveTile({
       }}
       transition={{ duration: 0.12 }}
       className={cn(
-        'relative aspect-square w-full rounded-2xl md:rounded-3xl p-3 md:p-4 flex flex-col justify-between items-center overflow-hidden border-2 transition-all select-none',
+        'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 transition-all select-none',
         isWrong
           ? `bg-gradient-to-br ${theme.wrongBg} border-rose-300 text-white animate-pulse`
           : isActive
@@ -182,52 +174,27 @@ function InteractiveTile({
       aria-label={`Tile ${String(tileId)}`}
     >
       {/* Ambient glass reflection */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/15 via-transparent to-black/25" />
+      <div className="pointer-events-none absolute inset-0 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/15 via-transparent to-black/20" />
 
-      {/* Top row: Symbol & Keyboard shortcut hint */}
-      <div className="relative z-10 w-full flex items-center justify-between px-0.5">
-        <span
-          className={cn(
-            'text-xs md:text-sm font-bold tracking-wider transition-colors',
-            isActive ? theme.activeTextColor : theme.textColor,
-          )}
-        >
-          {tileLabel.symbol}
-        </span>
-        <span
-          className={cn(
-            'text-[10px] md:text-xs font-mono font-bold px-1.5 py-0.5 rounded-md border transition-colors',
-            isActive
-              ? 'bg-black/25 border-black/20 text-current'
-              : 'bg-white/5 border-white/10 text-white/50',
-          )}
-          title={`Press ${tileId} on keyboard`}
-        >
-          {tileId}
-        </span>
-      </div>
+      {/* Subtle geometric symbol in top corner */}
+      <span
+        className={cn(
+          'pointer-events-none absolute top-2.5 left-3 text-[11px] sm:text-xs font-bold transition-opacity',
+          isActive ? 'opacity-80' : 'opacity-40',
+        )}
+      >
+        {tileLabel.symbol}
+      </span>
 
-      {/* Center: Large bold modern digit (No Hindi!) */}
-      <div className="relative z-10 flex-1 flex items-center justify-center">
-        <span
-          className={cn(
-            'text-4xl md:text-5xl font-black tracking-tight drop-shadow-sm transition-colors',
-            isActive ? theme.activeTextColor : theme.textColor,
-          )}
-        >
-          {tileId}
-        </span>
-      </div>
-
-      {/* Bottom row: active glow pill indicator */}
-      <div className="relative z-10 w-full flex justify-center pb-0.5">
-        <div
-          className={cn(
-            'h-1 rounded-full transition-all duration-200',
-            isActive ? 'bg-current w-12 opacity-90' : 'bg-white/10 w-6 opacity-40',
-          )}
-        />
-      </div>
+      {/* Large, bold, dead-center number (fully visible, no clipping) */}
+      <span
+        className={cn(
+          'pointer-events-none text-5xl sm:text-6xl font-black leading-none tracking-tight drop-shadow-sm select-none transition-colors',
+          isActive ? theme.activeTextColor : theme.textColor,
+        )}
+      >
+        {tileId}
+      </span>
     </motion.button>
   );
 }
@@ -251,7 +218,7 @@ function DecorativeTile({ tileId, index }: DecorativeTileProps) {
   return (
     <motion.div
       className={cn(
-        'relative aspect-square w-full rounded-2xl md:rounded-3xl p-3 md:p-4 flex flex-col justify-between items-center overflow-hidden border-2 backdrop-blur-md',
+        'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 backdrop-blur-md select-none',
         `bg-gradient-to-br ${theme.idleBg} ${theme.borderColor} ${theme.textColor}`,
       )}
       animate={{
@@ -263,15 +230,13 @@ function DecorativeTile({ tileId, index }: DecorativeTileProps) {
       }}
       transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut', delay: index * 0.35 }}
     >
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/25" />
-      <div className="w-full flex justify-between text-xs opacity-70">
-        <span>{tileLabel.symbol}</span>
-        <span className="font-mono">{tileId}</span>
-      </div>
-      <div className="flex-1 flex items-center justify-center">
-        <span className="text-4xl font-black">{tileId}</span>
-      </div>
-      <div className="h-1 w-6 rounded-full bg-white/10" />
+      <div className="pointer-events-none absolute inset-0 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/10 via-transparent to-black/20" />
+      <span className="pointer-events-none absolute top-2.5 left-3 text-[11px] sm:text-xs font-bold opacity-40">
+        {tileLabel.symbol}
+      </span>
+      <span className="pointer-events-none text-5xl sm:text-6xl font-black leading-none tracking-tight select-none">
+        {tileId}
+      </span>
     </motion.div>
   );
 }
@@ -312,11 +277,11 @@ export function GameBoardFrame(props: GameBoardFrameProps) {
       <div className="pointer-events-none absolute inset-0 rounded-[40px] bg-indigo-500/10 blur-2xl" />
 
       {/* Modern Console Chassis */}
-      <div className="relative w-full h-full rounded-[28px] sm:rounded-[36px] bg-slate-900/85 backdrop-blur-xl border border-slate-700/50 p-3 sm:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.08)] flex items-center justify-center">
-        {/* Grid of tiles */}
+      <div className="relative w-full h-full rounded-[28px] sm:rounded-[36px] bg-slate-900/85 backdrop-blur-xl border border-slate-700/50 p-3 sm:p-4 shadow-[0_20px_50px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.08)] flex items-center justify-center">
+        {/* Grid of tiles with clean spacing and no overlapping elements */}
         <div
           className={cn(
-            'relative z-10 grid w-full h-full gap-2.5 sm:gap-3.5',
+            'relative z-10 grid w-full h-full gap-3 sm:gap-4',
             getGridCols(boxCount),
           )}
           role={props.variant === 'interactive' ? 'group' : undefined}
@@ -341,11 +306,6 @@ export function GameBoardFrame(props: GameBoardFrameProps) {
             }
             return <DecorativeTile key={tileId} tileId={tileId} index={index} label={label} />;
           })}
-        </div>
-
-        {/* Central glowing core hub */}
-        <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-11 w-11 sm:h-13 sm:w-13 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-950 border border-slate-700/80 shadow-[0_0_20px_rgba(0,0,0,0.9)] flex items-center justify-center">
-          <div className="h-3.5 w-3.5 sm:h-4 sm:w-4 rounded-full bg-gradient-to-tr from-indigo-500 via-cyan-400 to-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.8)] animate-pulse" />
         </div>
       </div>
     </div>
