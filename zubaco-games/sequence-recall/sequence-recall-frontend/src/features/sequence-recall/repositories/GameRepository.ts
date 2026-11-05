@@ -67,7 +67,7 @@ export class GameRepository {
    * @returns {Promise<SubmitMoveResponse>} A promise that resolves with the result.
    */
   async submitMove({ tileId }: SubmitMoveRequest): Promise<SubmitMoveResponse> {
-    await simulateLatency(140);
+    await simulateLatency(0);
     this.gameState = applyMove(this.gameState, this.config, tileId);
     const terminalPhases: GamePhase[] = [
       GAME_PHASE.ROUND_FAILURE,
@@ -106,7 +106,7 @@ export class GameRepository {
    * @returns {Promise<GameState>} A promise that resolves with the result.
    */
   async replayCurrentRound() {
-    await simulateLatency(140);
+    await simulateLatency(0);
     this.gameState = startRound(this.gameState);
     return this.gameState;
   }

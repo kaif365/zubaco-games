@@ -73,7 +73,7 @@ export function SequenceBoard({
   sequenceLength: _sequenceLength,
   clickedSequence: _clickedSequence,
   onInput,
-  inputGlowMs = 300,
+  inputGlowMs = 120,
   showCompletedTick,
   wrongTileId,
 }: SequenceBoardProps) {

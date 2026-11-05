@@ -1357,7 +1357,7 @@ export function SequenceRecallGameShell({
 
   const canInput = state?.phase === GAME_PHASE.AWAITING_INPUT;
   const disableBoard = !canInput || submitMove.isPending;
-  const inputGlowMs = 300;
+  const inputGlowMs = 120;
   const boardMode: BoardMode = !state
     ? BOARD_MODE.IDLE
     : state.phase === GAME_PHASE.SHOWING_SEQUENCE

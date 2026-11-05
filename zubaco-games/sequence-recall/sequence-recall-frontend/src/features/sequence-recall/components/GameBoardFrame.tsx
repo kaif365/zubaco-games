@@ -161,9 +161,9 @@ function InteractiveTile({
             ? `0 0 35px ${theme.activeGlow}, inset 0 0 15px rgba(255, 255, 255, 0.4)`
             : '0 4px 15px rgba(0, 0, 0, 0.35)',
       }}
-      transition={{ duration: 0.12 }}
+      transition={{ duration: 0.08 }}
       className={cn(
-        'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 transition-colors duration-150 select-none',
+        'relative aspect-square w-full rounded-2xl sm:rounded-3xl flex items-center justify-center border-2 transition-colors duration-75 select-none',
         isWrong
           ? `bg-gradient-to-br ${theme.wrongBg} border-rose-300 text-white `
           : isActive
